@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Modo claro */
+    --background: 220 20% 97%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 221 83% 53%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 221 83% 53%;
+    --radius: 0.5rem;
+    --card-radius: calc(var(--radius) - 2px);
+
+    /* Semáforo KPI */
+    --semaforo-verde: 142 71% 45%;
+    --semaforo-amarillo: 38 92% 50%;
+    --semaforo-rojo: 0 84% 60%;
+
+    /* Estados de acciones */
+    --status-pendiente: 220 9% 46%;
+    --status-hoy: 217 91% 60%;
+    --status-ejecucion: 262 83% 58%;
+    --status-bloqueado: 0 84% 60%;
+    --status-hecho: 142 71% 45%;
+    --status-verificado: 158 64% 52%;
+
+    /* Gradientes (stops para usar con linear-gradient) */
+    --gradient-primary: linear-gradient(
+      135deg,
+      hsl(221 83% 53%),
+      hsl(262 83% 58%)
+    );
+    --gradient-success: linear-gradient(
+      135deg,
+      hsl(142 71% 45%),
+      hsl(158 64% 52%)
+    );
+    --gradient-warning: linear-gradient(
+      135deg,
+      hsl(38 92% 50%),
+      hsl(48 96% 53%)
+    );
+    --gradient-danger: linear-gradient(
+      135deg,
+      hsl(0 84% 60%),
+      hsl(350 84% 65%)
+    );
+    --gradient-dark: linear-gradient(
+      180deg,
+      hsl(222 47% 8%),
+      hsl(222 47% 4%)
+    );
+
+    /* Sidebar (Dark Premium) */
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 220 14% 96%;
+    --sidebar-primary: 221 83% 53%;
+    --sidebar-accent: 220 26% 18%;
+  }
+
+  .dark {
+    --background: 222 47% 8%;
+    --foreground: 220 14% 96%;
+    --card: 222 47% 11%;
+    --card-foreground: 220 14% 96%;
+    --popover: 222 47% 11%;
+    --popover-foreground: 220 14% 96%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 220 26% 14%;
+    --secondary-foreground: 220 14% 96%;
+    --muted: 220 26% 14%;
+    --muted-foreground: 220 9% 60%;
+    --accent: 220 26% 18%;
+    --accent-foreground: 220 14% 96%;
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 220 14% 96%;
+    --border: 220 26% 18%;
+    --input: 220 26% 18%;
+    --ring: 217 91% 60%;
+
+    /* Sidebar en dark mantiene el mismo estilo premium */
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 220 14% 96%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-accent: 220 26% 18%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}

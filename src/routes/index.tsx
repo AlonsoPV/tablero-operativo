@@ -1,0 +1,67 @@
+import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
+import { AppLayout } from '@/components/layout/AppLayout'
+import { SettingsLayout } from '@/components/layout/SettingsLayout'
+import { DashboardPage } from '@/pages/dashboard/DashboardPage'
+import { KanbanPage } from '@/pages/kanban/KanbanPage'
+import { DisciplinaPage } from '@/pages/disciplina/DisciplinaPage'
+import { AreasPage as PanelAreasPage } from '@/pages/areas/AreasPage'
+import { CalendarPage } from '@/pages/calendar/CalendarPage'
+import { ReportesPage } from '@/pages/reportes/ReportesPage'
+import { NotificacionesPage } from '@/pages/notificaciones/NotificacionesPage'
+import { ManualPage } from '@/pages/manual/ManualPage'
+import { LoginPage } from '@/pages/auth/LoginPage'
+import { UsersPage } from '@/features/users/pages/UsersPage'
+import { UserDetailPage } from '@/features/users/pages/UserDetailPage'
+import { CatalogsHomePage } from '@/features/catalogs/pages/CatalogsHomePage'
+import { RolesPage } from '@/features/catalogs/pages/RolesPage'
+import { CatalogAreasPage } from '@/features/catalogs/pages/AreasPage'
+import { StatusesPage } from '@/features/catalogs/pages/StatusesPage'
+import { PrioritiesPage } from '@/features/catalogs/pages/PrioritiesPage'
+import { DropdownCatalogsPage } from '@/features/catalogs/pages/DropdownCatalogsPage'
+import { DropdownCatalogOptionsPage } from '@/features/catalogs/pages/DropdownCatalogOptionsPage'
+import { KpisPage } from '@/features/catalogs/pages/KpisPage'
+import { ROUTES } from '@/constants'
+
+const router = createBrowserRouter([
+  {
+    path: ROUTES.LOGIN,
+    element: <LoginPage />,
+  },
+  {
+    path: '/',
+    element: <AppLayout />,
+    children: [
+      { index: true, element: <Navigate to={ROUTES.DASHBOARD} replace /> },
+      { path: ROUTES.DASHBOARD, element: <DashboardPage /> },
+      { path: ROUTES.KANBAN, element: <KanbanPage /> },
+      { path: ROUTES.DISCIPLINA, element: <DisciplinaPage /> },
+      { path: ROUTES.AREAS, element: <PanelAreasPage /> },
+      { path: ROUTES.CALENDARIO, element: <CalendarPage /> },
+      { path: ROUTES.REPORTES, element: <ReportesPage /> },
+      { path: ROUTES.NOTIFICACIONES, element: <NotificacionesPage /> },
+      { path: ROUTES.MANUAL, element: <ManualPage /> },
+      {
+        path: ROUTES.SETTINGS,
+        element: <SettingsLayout />,
+        children: [
+          { index: true, element: <Navigate to={ROUTES.SETTINGS_USERS} replace /> },
+          { path: 'users', element: <UsersPage /> },
+          { path: 'users/:id', element: <UserDetailPage /> },
+          { path: 'catalogs', element: <CatalogsHomePage /> },
+          { path: 'catalogs/roles', element: <RolesPage /> },
+          { path: 'catalogs/areas', element: <CatalogAreasPage /> },
+          { path: 'catalogs/statuses', element: <StatusesPage /> },
+          { path: 'catalogs/priorities', element: <PrioritiesPage /> },
+          { path: 'catalogs/dropdowns', element: <DropdownCatalogsPage /> },
+          { path: 'catalogs/dropdowns/:catalogId', element: <DropdownCatalogOptionsPage /> },
+          { path: 'catalogs/kpis', element: <KpisPage /> },
+        ],
+      },
+    ],
+  },
+  { path: '*', element: <Navigate to={ROUTES.DASHBOARD} replace /> },
+])
+
+export function Routes() {
+  return <RouterProvider router={router} />
+}

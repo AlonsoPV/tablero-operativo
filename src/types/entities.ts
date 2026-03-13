@@ -1,0 +1,85 @@
+/**
+ * Tipos de entidades según lovable-spec §8.
+ * Campos opcionales donde la spec permite NULL o no los exige en todas las rutas.
+ */
+
+import type { UserRole } from './enums'
+import type { ActionStatus, PrioridadNc } from './enums'
+import type { NombreKpi, KpiUnidad } from './enums'
+
+export interface Usuario {
+  id: string
+  user_id: string
+  nombre: string
+  /** Nombre del rol; conectado con catalog_roles.nombre */
+  rol: string
+  area: string | null
+  activo: boolean
+  onboarding_completed: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface AccionDiaria {
+  id: string
+  fecha: string // date YYYY-MM-DD
+  descripcion_accion: string
+  responsable: string // FK usuarios.id
+  hora_limite: string // time HH:MM
+  evidencia_esperada: string
+  evidencia_cargada: boolean
+  evidencia_adjunta: string | null
+  estado: ActionStatus
+  kpi_afectado: string | null
+  okr_impactado: string | null
+  proceso: string | null
+  area: string | null
+  cliente_id: string | null
+  prioridad: PrioridadNc
+  causa_raiz: string | null
+  responsable_bloqueo: string | null
+  escalado: boolean
+  fecha_escalamiento: string | null
+  notas_escalamiento: string | null
+  repeticion: boolean
+  verificador_dato: string | null
+  verificador_gobierno: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface Kpi {
+  id: string
+  nombre_kpi: NombreKpi
+  definicion_operable: string | null
+  unidad: KpiUnidad
+  owner_rol: UserRole
+  formula: string | null
+}
+
+export interface Okr {
+  id: string
+  nombre_okr: string
+  descripcion: string | null
+  proceso: string | null
+  owner_usuario: string | null
+  periodo: string
+  activo: boolean
+}
+
+export interface Proceso {
+  id: string
+  nombre_proceso: string
+  owner_usuario: string | null
+}
+
+export interface Cliente {
+  id: string
+  nombre: string
+  // TODO: más campos según catálogo real
+}
+
+/** Vista/join: acción con nombre del responsable (si RLS lo permite) */
+export interface AccionDiariaConResponsable extends AccionDiaria {
+  responsable_nombre?: string
+}

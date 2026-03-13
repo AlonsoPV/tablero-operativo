@@ -1,0 +1,63 @@
+import { Link, useLocation } from 'react-router-dom'
+import {
+  LayoutDashboard,
+  Settings,
+  Columns3,
+  Target,
+  Layers,
+  Calendar,
+  FileBarChart,
+  Bell,
+  BookOpen,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { ROUTES } from '@/constants'
+import { useAppStore } from '@/store'
+
+/** Navegación por módulos (spec §5). */
+const navItems = [
+  { to: ROUTES.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard },
+  { to: ROUTES.KANBAN, label: 'Kanban', icon: Columns3 },
+  { to: ROUTES.DISCIPLINA, label: 'Disciplina', icon: Target },
+  { to: ROUTES.AREAS, label: 'Panel de área', icon: Layers },
+  { to: ROUTES.CALENDARIO, label: 'Calendario', icon: Calendar },
+  { to: ROUTES.REPORTES, label: 'Reportes', icon: FileBarChart },
+  { to: ROUTES.NOTIFICACIONES, label: 'Notificaciones', icon: Bell },
+  { to: ROUTES.MANUAL, label: 'Manual', icon: BookOpen },
+  { to: ROUTES.SETTINGS, label: 'Configuración', icon: Settings },
+] as const
+
+export function Sidebar() {
+  const location = useLocation()
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen)
+
+  return (
+    <aside
+      className={cn(
+        'flex flex-col border-r border-sidebar-accent/50 bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-in-out',
+        sidebarOpen ? 'w-56' : 'w-16'
+      )}
+    >
+      <nav className="flex flex-1 flex-col gap-1 p-2">
+        {navItems.map(({ to, label, icon: Icon }) => {
+          const isActive = location.pathname === to
+          return (
+            <Link
+              key={to}
+              to={to}
+              className={cn(
+                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                isActive
+                  ? 'bg-sidebar-primary text-primary-foreground'
+                  : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+              )}
+            >
+              <Icon className="h-5 w-5 shrink-0" />
+              {sidebarOpen && <span>{label}</span>}
+            </Link>
+          )
+        })}
+      </nav>
+    </aside>
+  )
+}

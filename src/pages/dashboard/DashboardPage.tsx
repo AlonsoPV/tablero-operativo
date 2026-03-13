@@ -1,0 +1,126 @@
+/**
+ * Dashboard Ejecutivo — rediseño tipo SaaS. Header, KPIs, filtros, control de acciones, semáforo.
+ */
+
+import { useMemo, useState, useCallback } from 'react'
+import {
+  useAcciones,
+  AccionFormDialog,
+  KanbanToolbar,
+  metricasFromAcciones,
+} from '@/features/operations'
+import { KPISemaforoGrid } from '@/features/metrics'
+import { useUsers } from '@/features/users/hooks/useUsers'
+import type { AccionDiaria } from '@/types'
+import type { AccionesFilter } from '@/services/acciones.service'
+import { DashboardHeader } from './components/DashboardHeader'
+import { DashboardKpiCards } from './components/DashboardKpiCards'
+import { DashboardActionsSection } from './components/DashboardActionsSection'
+import { Activity } from 'lucide-react'
+
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+const DEFAULT_FILTER: AccionesFilter = {}
+
+export function DashboardPage() {
+  const today = todayISO()
+  const [filter, setFilter] = useState<AccionesFilter>(() => ({
+    ...DEFAULT_FILTER,
+    fecha: today,
+  }))
+  const [filtersExpanded, setFiltersExpanded] = useState(true)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingAccion, setEditingAccion] = useState<AccionDiaria | null>(null)
+
+  const { data: acciones = [], isLoading } = useAcciones(filter)
+  const { data: users = [] } = useUsers({ activo: true })
+
+  const metricas = useMemo(() => metricasFromAcciones(acciones), [acciones])
+
+  const responsableNames = useMemo(() => {
+    const map: Record<string, string> = {}
+    users.forEach((u) => {
+      map[u.id] = u.nombre
+    })
+    return map
+  }, [users])
+
+  const handleClearFilters = useCallback(() => {
+    setFilter({ ...DEFAULT_FILTER, fecha: today })
+  }, [today])
+
+  const handleCreate = useCallback(() => {
+    setEditingAccion(null)
+    setDialogOpen(true)
+  }, [])
+
+  const handleSelectAccion = useCallback((accion: AccionDiaria) => {
+    setEditingAccion(accion)
+    setDialogOpen(true)
+  }, [])
+
+  const handleDialogSuccess = useCallback(() => {
+    setEditingAccion(null)
+  }, [])
+
+  return (
+    <div className="flex flex-col gap-6">
+      <DashboardHeader
+        filtersExpanded={filtersExpanded}
+        onToggleFilters={() => setFiltersExpanded((v) => !v)}
+        onNewAction={handleCreate}
+      />
+
+      <KanbanToolbar
+        filter={filter}
+        onFilterChange={setFilter}
+        onClear={handleClearFilters}
+        visible={filtersExpanded}
+      />
+
+      <section>
+        <h2 className="sr-only">Métricas del día</h2>
+        <DashboardKpiCards metricas={metricas} isLoading={isLoading} />
+      </section>
+
+      <DashboardActionsSection
+        acciones={acciones}
+        isLoading={isLoading}
+        responsableNames={responsableNames}
+        onSelectAccion={handleSelectAccion}
+        onNewAction={handleCreate}
+      />
+
+      <section className="rounded-xl border border-border/50 bg-card shadow-sm overflow-hidden">
+        <div className="border-b border-border/50 bg-muted/20 px-4 py-3 sm:px-5">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+              <Activity className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">
+                Semáforo KPI
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Estado por KPI según umbrales (verde / amarillo / rojo)
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="p-4">
+          <KPISemaforoGrid fecha={filter.fecha ?? today} />
+        </div>
+      </section>
+
+      <AccionFormDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        accion={editingAccion}
+        defaultFecha={today}
+        onSuccess={handleDialogSuccess}
+      />
+    </div>
+  )
+}
