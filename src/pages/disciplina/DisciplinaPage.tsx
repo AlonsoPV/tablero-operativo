@@ -10,6 +10,11 @@ import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { todayCDMX } from '@/lib/dateUtils'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Info } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+const DISCIPLINA_INFO =
+  'Métricas de tu desempeño operativo: porcentaje de acciones cerradas con evidencia, acciones en estado Hecho/Verificado sin evidencia cargada, racha de días con cumplimiento ≥90% y reincidencias. Se calculan a partir de las acciones asignadas a tu usuario en la fecha seleccionada.'
 
 export function DisciplinaPage() {
   const today = todayCDMX()
@@ -23,8 +28,34 @@ export function DisciplinaPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">Métricas de disciplina</h2>
-        <p className="text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <h2 className="text-2xl font-bold tracking-tight">Métricas de disciplina</h2>
+          <div className="group relative shrink-0">
+            <button
+              type="button"
+              className={cn(
+                'flex h-7 w-7 items-center justify-center rounded-full transition-colors',
+                'text-muted-foreground hover:text-foreground hover:bg-muted/80',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1'
+              )}
+              title="Ver descripción"
+              aria-label={DISCIPLINA_INFO}
+            >
+              <Info className="h-4 w-4" />
+            </button>
+            <div
+              role="tooltip"
+              className={cn(
+                'pointer-events-none absolute left-0 top-full z-50 mt-1.5 max-w-[320px] rounded-lg border border-border/80 bg-popover px-3 py-2.5 text-sm text-popover-foreground shadow-lg',
+                'opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100',
+                'border-l-4 border-l-primary'
+              )}
+            >
+              <p className="leading-snug text-muted-foreground">{DISCIPLINA_INFO}</p>
+            </div>
+          </div>
+        </div>
+        <p className="text-muted-foreground mt-0.5">
           Cumplimiento, sin evidencia, racha en verde, reincidencias (spec §5.4)
         </p>
       </div>

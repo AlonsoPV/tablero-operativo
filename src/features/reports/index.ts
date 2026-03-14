@@ -1,7 +1,8 @@
 /**
  * Feature: Reportes (spec §5.8)
- * Reportes históricos: filtro por líder/responsable, tendencias de cumplimiento,
- * exportación PDF/Excel.
+ * Reportes históricos: filtro por responsable, tendencias de cumplimiento,
+ * exportación CSV e impresión (PDF con Imprimir).
  */
 
-export {} // Placeholder: HistoricalReports, filtros, export
+export { HistoricalReports } from './components/HistoricalReports'
+export { useReportesHistorico } from './hooks/useReportesHistorico'

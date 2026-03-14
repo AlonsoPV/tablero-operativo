@@ -63,6 +63,10 @@ export const authService = {
     if (error) throw new Error(mapAuthError(error))
   },
 
+  /**
+   * Obtiene la sesión actual (usa caché de Supabase; el refresh de token es automático).
+   * La app debe depender de este estado y de onAuthStateChange; no hay timeouts manuales.
+   */
   getSession() {
     return supabase.auth.getSession()
   },

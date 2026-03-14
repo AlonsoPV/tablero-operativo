@@ -9,4 +9,5 @@ if (!supabaseUrl || !supabaseAnonKey) {
   )
 }
 
+/** Cliente Supabase. Persiste sesión en localStorage por defecto; el refresh de token es automático. */
 export const supabase = createClient(supabaseUrl ?? '', supabaseAnonKey ?? '')

@@ -39,7 +39,19 @@ export function KanbanPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const accionIdFromUrl = searchParams.get('accion')
+  const fechaFromUrl = searchParams.get('fecha')
   const { data: accionFromUrl } = useAccion(accionIdFromUrl)
+
+  useEffect(() => {
+    if (fechaFromUrl && /^\d{4}-\d{2}-\d{2}$/.test(fechaFromUrl)) {
+      setFilter((f) => ({ ...f, fecha_creacion: fechaFromUrl }))
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('fecha')
+        return next
+      }, { replace: true })
+    }
+  }, [fechaFromUrl, setSearchParams])
 
   useEffect(() => {
     if (accionFromUrl && accionIdFromUrl) {

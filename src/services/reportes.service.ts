@@ -1,26 +1,28 @@
 /**
  * Servicio de reportes históricos (spec §5.8).
- * Filtrado por líder/responsable, tendencias de cumplimiento, exportación PDF/Excel.
- * Por ahora solo prepara datos para consultas; exportación se implementará en feature reports.
+ * Filtrado por responsable, rango de fechas; datos para tendencias y exportación.
  */
 
 import { supabase } from '@/lib/supabase/client'
-
-// TODO: definir vistas o funciones en Supabase para reportes agregados
-// (por responsable, por fecha, tendencia cumplimiento). Spec no detalla esquema exacto.
+import type { AccionDiaria } from '@/types'
 
 export const reportesService = {
-  /** Placeholder: obtener datos base para reportes (acciones en rango). */
-  async getAccionesRango(desde: string, hasta: string, responsableId?: string) {
+  /** Acciones en rango de fechas (campo fecha), opcionalmente por responsable. */
+  async getAccionesRango(
+    desde: string,
+    hasta: string,
+    responsableId?: string | null
+  ): Promise<AccionDiaria[]> {
     let q = supabase
       .from('acciones_diarias')
       .select('*')
       .gte('fecha', desde)
       .lte('fecha', hasta)
       .order('fecha', { ascending: false })
+      .order('hora_limite', { ascending: true })
     if (responsableId) q = q.eq('responsable', responsableId)
-    const { data, error } = await q.limit(1000)
+    const { data, error } = await q.limit(2000)
     if (error) throw error
-    return data ?? []
+    return (data ?? []) as AccionDiaria[]
   },
 }

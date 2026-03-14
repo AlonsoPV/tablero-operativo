@@ -34,6 +34,7 @@ import {
   Pencil,
   MoreVertical,
   MessageSquare,
+  Info,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -72,6 +73,16 @@ const COLUMN_ICONS: Record<ActionStatus, React.ComponentType<{ className?: strin
   Retraso: AlertTriangle,
   Hecho: CheckCircle,
   Verificado: BadgeCheck,
+}
+
+const COLUMN_DESCRIPTIONS: Record<ActionStatus, string> = {
+  Pendiente: 'Acción creada, aún no programada para hoy ni en ejecución.',
+  Hoy: 'Acción programada para hoy; pendiente de iniciar.',
+  En_Ejecucion: 'Acción en curso.',
+  Bloqueado: 'Acción detenida por un impedimento; requiere desbloqueo.',
+  Retraso: 'Acción que superó su fecha o hora límite sin completarse.',
+  Hecho: 'Acción completada con evidencia cargada.',
+  Verificado: 'Acción cerrada y verificada.',
 }
 
 /** Acento por columna: borde izquierdo + fondo muy sutil */
@@ -354,6 +365,33 @@ function KanbanColumn({
           <h3 className="truncate text-sm font-semibold text-foreground">
             {label}
           </h3>
+          <div className="group relative shrink-0">
+            <button
+              type="button"
+              className={cn(
+                'flex h-6 w-6 items-center justify-center rounded-full transition-colors',
+                'text-muted-foreground hover:text-foreground hover:bg-background/80',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background'
+              )}
+              title="Ver descripción del estado"
+              aria-label={`Descripción: ${COLUMN_DESCRIPTIONS[status]}`}
+            >
+              <Info className="h-3.5 w-3.5" />
+            </button>
+            <div
+              role="tooltip"
+              className={cn(
+                'pointer-events-none absolute left-0 top-full z-50 mt-1.5 max-w-[260px] rounded-lg border border-border/80 bg-popover px-3 py-2.5 text-sm text-popover-foreground shadow-lg',
+                'opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100',
+                'border-l-4',
+                style.border
+              )}
+            >
+              <p className="leading-snug text-muted-foreground">
+                {COLUMN_DESCRIPTIONS[status]}
+              </p>
+            </div>
+          </div>
         </div>
         <span className="shrink-0 rounded-full bg-background/80 px-2.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
           {actions.length}

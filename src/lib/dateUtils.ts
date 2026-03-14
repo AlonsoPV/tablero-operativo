@@ -16,3 +16,19 @@ export function formatDateTimeCDMX(iso: string): string {
     timeStyle: 'short',
   })
 }
+
+/** Primer día del mes (YYYY-MM-DD). */
+export function firstDayOfMonth(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, '0')}-01`
+}
+
+/** Último día del mes (YYYY-MM-DD). */
+export function lastDayOfMonth(year: number, month: number): string {
+  const d = new Date(year, month, 0)
+  return `${year}-${String(month).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** Nombre del mes en español. */
+export function monthName(year: number, month: number): string {
+  return new Date(year, month - 1, 1).toLocaleString('es-MX', { month: 'long' })
+}

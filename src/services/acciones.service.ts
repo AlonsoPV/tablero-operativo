@@ -11,8 +11,12 @@ const TABLE = 'acciones_diarias'
 export interface AccionesFilter {
   /** Fecha "hasta": se muestran acciones creadas en o antes de este día (visible desde el día de creación y todos los días siguientes). */
   fecha_creacion?: string // YYYY-MM-DD
-  /** Fecha límite (campo fecha de la acción). Opcional para filtros secundarios. */
+  /** Fecha límite (campo fecha de la acción). Un solo día. */
   fecha?: string
+  /** Rango: fecha de la acción >= fecha_min (YYYY-MM-DD). Útil para calendario. */
+  fecha_min?: string
+  /** Rango: fecha de la acción <= fecha_max (YYYY-MM-DD). Útil para calendario. */
+  fecha_max?: string
   estado?: ActionStatus | ActionStatus[]
   prioridad?: PrioridadNc | PrioridadNc[]
   area?: string
@@ -40,7 +44,9 @@ export const accionesService = {
       const nextStr = next.toISOString().slice(0, 10)
       q = q.lt('created_at', `${nextStr}T00:00:00`)
     }
-    if (filter.fecha) q = q.eq('fecha', filter.fecha)
+    if (filter.fecha_min) q = q.gte('fecha', filter.fecha_min)
+    if (filter.fecha_max) q = q.lte('fecha', filter.fecha_max)
+    if (filter.fecha && !filter.fecha_min && !filter.fecha_max) q = q.eq('fecha', filter.fecha)
     if (filter.estado) {
       const statuses = Array.isArray(filter.estado)
         ? filter.estado

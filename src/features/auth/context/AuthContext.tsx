@@ -1,6 +1,7 @@
 /**
  * Proveedor de autenticación.
- * Centraliza sesión, perfil y validación (usuario activo).
+ * Única fuente de verdad: sesión (Supabase), perfil (usuarios), usuario activo.
+ * No hay timeouts ni cierre de sesión por lógica manual; solo por signOut explícito o SIGNED_OUT de Supabase.
  */
 
 import {
@@ -8,14 +9,16 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useState,
   useRef,
+  useState,
   type ReactNode,
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { authService } from '@/services/auth.service'
 import { usuariosService } from '@/services/usuarios.service'
 import type { AuthState } from '../types/auth.types'
+
+const __DEV__ = import.meta.env.DEV
 
 interface AuthContextValue extends AuthState {
   logout: () => Promise<void>
@@ -24,7 +27,9 @@ interface AuthContextValue extends AuthState {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-const INITIAL_STATE: AuthState = {
+/** Estado mientras se valida la sesión al montar (bootstrap). */
+const LOADING_STATE: AuthState = {
+  session: null,
   user: null,
   profile: null,
   isLoading: true,
@@ -33,36 +38,52 @@ const INITIAL_STATE: AuthState = {
   error: null,
 }
 
+/** Estado tras cierre de sesión (explícito o SIGNED_OUT). Persistencia: Supabase limpia; no mostrar loader. */
+const SIGNED_OUT_STATE: AuthState = {
+  session: null,
+  user: null,
+  profile: null,
+  isLoading: false,
+  isAuthenticated: false,
+  isReady: true,
+  error: null,
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
-  const [state, setState] = useState<AuthState>(INITIAL_STATE)
-  const loadingRef = useRef(true)
+  const [state, setState] = useState<AuthState>(LOADING_STATE)
+  const initialCheckDoneRef = useRef(false)
 
   const loadAuth = useCallback(async () => {
-    loadingRef.current = true
-    setState((s) => ({ ...s, isLoading: true, error: null }))
+    const isInitial = !initialCheckDoneRef.current
+    if (isInitial) {
+      if (__DEV__) console.log('[Auth] Bootstrap: validando sesión…')
+      setState((s) => ({ ...s, isLoading: true, error: null }))
+    } else if (__DEV__) {
+      console.log('[Auth] Refrescando estado (listener)…')
+    }
 
     try {
       const { data } = await authService.getSession()
-      const user = data?.session?.user ?? null
+      const session = data?.session ?? null
+      const user = session?.user ?? null
 
-      if (!user) {
-        setState({
-          user: null,
-          profile: null,
-          isLoading: false,
-          isAuthenticated: false,
-          isReady: true,
-          error: null,
-        })
+      if (!session || !user) {
+        if (__DEV__) console.log('[Auth] Sesión inválida o inexistente')
+        initialCheckDoneRef.current = true
+        setState(SIGNED_OUT_STATE)
         return
       }
 
+      if (__DEV__) console.log('[Auth] Sesión válida, cargando perfil…')
       let profile
       try {
         profile = await usuariosService.getByAuthId(user.id)
-      } catch (err) {
+      } catch {
+        if (__DEV__) console.warn('[Auth] Error de perfil (no_profile), sesión se mantiene')
+        initialCheckDoneRef.current = true
         setState({
+          session,
           user,
           profile: null,
           isLoading: false,
@@ -78,7 +99,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (!profile.activo) {
+        if (__DEV__) console.warn('[Auth] Usuario inactivo, sesión se mantiene')
+        initialCheckDoneRef.current = true
         setState({
+          session,
           user,
           profile,
           isLoading: false,
@@ -92,7 +116,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
 
+      if (__DEV__) console.log('[Auth] Sesión y perfil OK')
+      initialCheckDoneRef.current = true
       setState({
+        session,
         user,
         profile,
         isLoading: false,
@@ -100,8 +127,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isReady: true,
         error: null,
       })
-    } catch {
+    } catch (err) {
+      if (__DEV__) console.warn('[Auth] Error al verificar (red/otro); no se invalida sesión:', err)
+      initialCheckDoneRef.current = true
       setState({
+        session: null,
         user: null,
         profile: null,
         isLoading: false,
@@ -109,16 +139,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isReady: true,
         error: {
           type: 'network',
-          message: 'Error al verificar la sesión. Intenta de nuevo.',
+          message: 'Error al verificar la sesión. Revisa la conexión y reintenta.',
         },
       })
-    } finally {
-      loadingRef.current = false
     }
   }, [])
 
   const logout = useCallback(async () => {
-    setState(INITIAL_STATE)
+    if (__DEV__) console.log('[Auth] Logout manual')
+    setState(SIGNED_OUT_STATE)
     try {
       await authService.signOut()
     } catch {
@@ -134,13 +163,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     loadAuth()
     const { data: { subscription } } = authService.onAuthStateChange((event) => {
+      if (__DEV__) console.log('[Auth] onAuthStateChange:', event)
       if (event === 'SIGNED_OUT') {
-        setState(INITIAL_STATE)
+        setState(SIGNED_OUT_STATE)
         return
       }
       loadAuth()
     })
-    return () => subscription.unsubscribe()
+    return () => {
+      subscription.unsubscribe()
+    }
   }, [loadAuth])
 
   const value: AuthContextValue = {
