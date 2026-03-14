@@ -3,7 +3,7 @@
  * Acciones diarias: tabla de control, Kanban, crear/editar, evidencia, estados.
  */
 
-export { useAcciones, useAccionesByDate, useAccion } from './hooks'
+export { useAcciones, useAccionesByDate, useAccion, useCommentCounts } from './hooks'
 export {
   useCreateAccion,
   useUpdateAccion,

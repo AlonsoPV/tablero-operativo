@@ -8,7 +8,29 @@ import type { Notificacion } from '@/types'
 
 const TABLE = 'notificaciones'
 
+export interface CreateNotificacionInput {
+  usuario_id: string
+  tipo: string
+  prioridad?: 'Normal' | 'Alta' | 'Urgente'
+  payload?: Record<string, unknown>
+}
+
 export const notificacionesService = {
+  async create(input: CreateNotificacionInput) {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .insert({
+        usuario_id: input.usuario_id,
+        tipo: input.tipo,
+        prioridad: input.prioridad ?? 'Normal',
+        payload: input.payload ?? null,
+      })
+      .select()
+      .single()
+    if (error) throw error
+    return data as Notificacion
+  },
+
   async listByUsuario(usuarioId: string, options?: { leido?: boolean }) {
     let q = supabase
       .from(TABLE)

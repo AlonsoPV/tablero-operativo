@@ -15,13 +15,15 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { AccionDiaria } from '@/types'
 import { cn } from '@/lib/utils'
-import { AlertCircle, Clock, FileCheck, ClipboardList, Plus } from 'lucide-react'
+import { isEnRetraso } from '../utils/accionUtils'
+import { AlertCircle, AlertTriangle, Clock, FileCheck, ClipboardList, Plus, MessageSquare } from 'lucide-react'
 
 const ESTADO_LABELS: Record<string, string> = {
   Pendiente: 'Pendiente',
   Hoy: 'Hoy',
   En_Ejecucion: 'En ejecución',
   Bloqueado: 'Bloqueado',
+  Retraso: 'Retraso',
   Hecho: 'Hecho',
   Verificado: 'Verificado',
 }
@@ -35,6 +37,8 @@ const PRIORIDAD_LABELS: Record<string, string> = {
 export interface AccionesControlTableProps {
   acciones: AccionDiaria[]
   isLoading?: boolean
+  /** Conteo de comentarios por accion_id (opcional) */
+  commentCounts?: Record<string, number>
   /** Si se proporciona, al hacer clic en una fila se llama con la acción (para abrir detalle) */
   onSelectAccion?: (accion: AccionDiaria) => void
   /** Nombres de responsables por id (opcional; si no hay, se muestra el uuid o "—") */
@@ -50,6 +54,7 @@ export interface AccionesControlTableProps {
 export function AccionesControlTable({
   acciones,
   isLoading,
+  commentCounts = {},
   onSelectAccion,
   responsableNames = {},
   emptyMessage = 'No hay acciones para mostrar. Ajusta los filtros o crea una nueva.',
@@ -144,14 +149,16 @@ export function AccionesControlTable({
               <TableCell>
                 <Badge
                   variant={
-                    accion.estado === 'Bloqueado'
+                    isEnRetraso(accion)
                       ? 'destructive'
-                      : accion.estado === 'Hecho' || accion.estado === 'Verificado'
-                        ? 'default'
-                        : 'secondary'
+                      : accion.estado === 'Bloqueado'
+                        ? 'destructive'
+                        : accion.estado === 'Hecho' || accion.estado === 'Verificado'
+                          ? 'default'
+                          : 'secondary'
                   }
                 >
-                  {ESTADO_LABELS[accion.estado] ?? accion.estado}
+                  {ESTADO_LABELS[isEnRetraso(accion) ? 'Retraso' : accion.estado] ?? accion.estado}
                 </Badge>
               </TableCell>
               <TableCell className="text-muted-foreground">
@@ -166,7 +173,21 @@ export function AccionesControlTable({
                 </span>
               </TableCell>
               <TableCell>
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(commentCounts[accion.id] ?? 0) > 0 && (
+                    <span
+                      title={`${commentCounts[accion.id]} comentario${commentCounts[accion.id] !== 1 ? 's' : ''}`}
+                      className="inline-flex items-center gap-0.5 rounded bg-muted/80 px-1.5 py-0.5 text-xs text-muted-foreground"
+                    >
+                      <MessageSquare className="h-3 w-3" />
+                      {commentCounts[accion.id]}
+                    </span>
+                  )}
+                  {isEnRetraso(accion) && (
+                    <span title="Retraso: fecha límite vencida" className="text-orange-600">
+                      <AlertTriangle className="h-4 w-4" />
+                    </span>
+                  )}
                   {accion.estado === 'Bloqueado' && (
                     <span title="Bloqueado" className="text-destructive">
                       <AlertCircle className="h-4 w-4" />
@@ -178,7 +199,8 @@ export function AccionesControlTable({
                       <FileCheck className="h-4 w-4" />
                     </span>
                   )}
-                  {accion.estado !== 'Hecho' &&
+                  {!isEnRetraso(accion) &&
+                    accion.estado !== 'Hecho' &&
                     accion.estado !== 'Verificado' &&
                     accion.estado !== 'Bloqueado' && (
                       <span title="Pendiente de cierre" className="text-muted-foreground">

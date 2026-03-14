@@ -1,4 +1,5 @@
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
+import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { SettingsLayout } from '@/components/layout/SettingsLayout'
 import { DashboardPage } from '@/pages/dashboard/DashboardPage'
@@ -9,7 +10,10 @@ import { CalendarPage } from '@/pages/calendar/CalendarPage'
 import { ReportesPage } from '@/pages/reportes/ReportesPage'
 import { NotificacionesPage } from '@/pages/notificaciones/NotificacionesPage'
 import { ManualPage } from '@/pages/manual/ManualPage'
-import { LoginPage } from '@/pages/auth/LoginPage'
+import { LoginPage } from '@/features/auth/pages/LoginPage'
+import { ForgotPasswordPage } from '@/features/auth/pages/ForgotPasswordPage'
+import { ResetPasswordPage } from '@/features/auth/pages/ResetPasswordPage'
+import { ProfilePage } from '@/features/users/pages/ProfilePage'
 import { UsersPage } from '@/features/users/pages/UsersPage'
 import { UserDetailPage } from '@/features/users/pages/UserDetailPage'
 import { CatalogsHomePage } from '@/features/catalogs/pages/CatalogsHomePage'
@@ -28,10 +32,22 @@ const router = createBrowserRouter([
     element: <LoginPage />,
   },
   {
+    path: ROUTES.FORGOT_PASSWORD,
+    element: <ForgotPasswordPage />,
+  },
+  {
+    path: ROUTES.RESET_PASSWORD,
+    element: <ResetPasswordPage />,
+  },
+  {
     path: '/',
-    element: <AppLayout />,
+    element: <ProtectedRoute />,
     children: [
-      { index: true, element: <Navigate to={ROUTES.DASHBOARD} replace /> },
+      {
+        path: '/',
+        element: <AppLayout />,
+        children: [
+          { index: true, element: <Navigate to={ROUTES.DASHBOARD} replace /> },
       { path: ROUTES.DASHBOARD, element: <DashboardPage /> },
       { path: ROUTES.KANBAN, element: <KanbanPage /> },
       { path: ROUTES.DISCIPLINA, element: <DisciplinaPage /> },
@@ -44,7 +60,8 @@ const router = createBrowserRouter([
         path: ROUTES.SETTINGS,
         element: <SettingsLayout />,
         children: [
-          { index: true, element: <Navigate to={ROUTES.SETTINGS_USERS} replace /> },
+          { index: true, element: <Navigate to={ROUTES.SETTINGS_PROFILE} replace /> },
+          { path: 'profile', element: <ProfilePage /> },
           { path: 'users', element: <UsersPage /> },
           { path: 'users/:id', element: <UserDetailPage /> },
           { path: 'catalogs', element: <CatalogsHomePage /> },
@@ -56,6 +73,8 @@ const router = createBrowserRouter([
           { path: 'catalogs/dropdowns/:catalogId', element: <DropdownCatalogOptionsPage /> },
           { path: 'catalogs/kpis', element: <KpisPage /> },
         ],
+      },
+    ],
       },
     ],
   },

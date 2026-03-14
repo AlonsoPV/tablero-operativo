@@ -20,7 +20,7 @@ import {
 import { UserDetailCard } from '../components/UserDetailCard'
 import { PasswordManagementCard } from '../components/PasswordManagementCard'
 import { UserForm } from '../components/UserForm'
-import { useUser, useUpdateUser, useToggleUserStatus } from '../hooks'
+import { useUser, useUserAuthEmail, useUpdateUser, useToggleUserStatus } from '../hooks'
 import type { UserFormValues } from '../schemas/user.schema'
 import type { UpdateUserInput } from '../types/user.types'
 import { toast } from 'sonner'
@@ -33,6 +33,7 @@ export function UserDetailPage() {
   const [confirmToggle, setConfirmToggle] = useState(false)
 
   const { data: user, isLoading, isError, error } = useUser(id)
+  const { data: email } = useUserAuthEmail(user?.user_id)
   const updateUser = useUpdateUser()
   const toggleStatus = useToggleUserStatus()
 
@@ -101,6 +102,7 @@ export function UserDetailPage() {
 
       <UserDetailCard
         user={user}
+        email={email ?? null}
         onEdit={() => setFormOpen(true)}
         onToggleStatus={() => setConfirmToggle(true)}
         isToggling={toggleStatus.isPending}
@@ -109,7 +111,7 @@ export function UserDetailPage() {
       <PasswordManagementCard />
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent>
+        <DialogContent aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>Editar usuario</DialogTitle>
           </DialogHeader>

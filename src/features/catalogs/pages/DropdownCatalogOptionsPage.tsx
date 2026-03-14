@@ -97,7 +97,7 @@ export function DropdownCatalogOptionsPage() {
           </Table>
         </div>
       )}
-      <Dialog open={formOpen} onOpenChange={setFormOpen}><DialogContent><DialogHeader><DialogTitle>{editing ? 'Editar opción' : 'Nueva opción'}</DialogTitle></DialogHeader>
+      <Dialog open={formOpen} onOpenChange={setFormOpen}><DialogContent aria-describedby={undefined}><DialogHeader><DialogTitle>{editing ? 'Editar opción' : 'Nueva opción'}</DialogTitle></DialogHeader>
         <DropdownOptionForm defaultValues={editing ? { label: editing.label, value: editing.value, orden: editing.orden, activo: editing.activo } : undefined} onSubmit={handleFormSubmit} onCancel={() => setFormOpen(false)} isSubmitting={createM.isPending || updateM.isPending} />
       </DialogContent></Dialog>
       <ConfirmActivateDialog open={!!confirmToggle} onOpenChange={(o) => !o && setConfirmToggle(null)} title={confirmToggle?.activo ? 'Desactivar opción' : 'Activar opción'} description={confirmToggle ? `¿${confirmToggle.activo ? 'Desactivar' : 'Activar'} "${confirmToggle.label}"?` : ''} onConfirm={confirmToggleStatus} isActivo={confirmToggle?.activo ?? false} itemName={confirmToggle?.label ?? ''} isLoading={toggleM.isPending} />

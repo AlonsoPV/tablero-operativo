@@ -59,6 +59,15 @@ export const usersAdminService = {
     return data as UserProfile | null
   },
 
+  /** Obtiene el email de auth.users para un user_id. Requiere ser el propio usuario o admin. */
+  async getAuthEmail(userId: string): Promise<string | null> {
+    const { data, error } = await supabase.rpc('get_auth_user_email', {
+      p_user_id: userId,
+    })
+    if (error) return null
+    return (data as string) ?? null
+  },
+
   async update(id: string, input: UpdateUserInput): Promise<UserProfile> {
     const { data, error } = await supabase
       .from(TABLE)

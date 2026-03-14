@@ -20,6 +20,7 @@ function formatDate(iso: string) {
 
 interface UserDetailCardProps {
   user: UserProfile
+  email?: string | null
   onEdit: () => void
   onToggleStatus: () => void
   isToggling?: boolean
@@ -27,6 +28,7 @@ interface UserDetailCardProps {
 
 export function UserDetailCard({
   user,
+  email,
   onEdit,
   onToggleStatus,
   isToggling = false,
@@ -68,6 +70,10 @@ export function UserDetailCard({
       <CardContent className="space-y-4">
         <dl className="grid gap-3 sm:grid-cols-2">
           <div>
+            <dt className="text-sm font-medium text-muted-foreground">Correo</dt>
+            <dd className="mt-0.5 text-sm">{email ?? '—'}</dd>
+          </div>
+          <div>
             <dt className="text-sm font-medium text-muted-foreground">user_id (Auth)</dt>
             <dd className="mt-0.5 text-sm font-mono break-all">{user.user_id}</dd>
           </div>
@@ -106,8 +112,6 @@ export function UserDetailCard({
             <dd className="mt-0.5 text-sm">{formatDate(user.updated_at)}</dd>
           </div>
         </dl>
-        {/* TODO: indicador de último acceso cuando exista el campo en BD */}
-        {/* TODO: campo email cuando exista en tabla o join con auth.users */}
       </CardContent>
     </Card>
   )

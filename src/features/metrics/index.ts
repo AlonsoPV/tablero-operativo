@@ -4,6 +4,8 @@
  */
 
 export { useKpiSemaforo, type KpiSemaforoItem } from './hooks/useKpiSemaforo'
+export { useDisciplinaMetrics, type DisciplinaMetrics } from './hooks/useDisciplinaMetrics'
 export { KPISemaforoCard } from './components/KPISemaforoCard'
 export { KPISemaforoGrid } from './components/KPISemaforoGrid'
+export { DisciplinaCard } from './components/DisciplinaCard'
 export { getKpiLabel } from './constants/kpi-labels'

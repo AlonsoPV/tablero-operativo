@@ -36,6 +36,7 @@ export function UserForm({
   const form = useForm<UserFormValues>({
     resolver: zodResolver(userFormSchema),
     defaultValues: defaultValues ?? {
+      user_id: '',
       nombre: '',
       rol: '',
       area: undefined,
@@ -46,6 +47,23 @@ export function UserForm({
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      {isCreate && (
+        <div className="space-y-2">
+          <Label htmlFor="user_id">ID de usuario (Auth) *</Label>
+          <Input
+            id="user_id"
+            {...form.register('user_id')}
+            placeholder="UUID del usuario en Supabase Auth (ej. desde Authentication)"
+            className="font-mono text-sm"
+          />
+          <p className="text-xs text-muted-foreground">
+            Crea el usuario en Supabase → Authentication y pega aquí su UUID para vincular el perfil.
+          </p>
+          {form.formState.errors.user_id && (
+            <p className="text-sm text-destructive">{form.formState.errors.user_id.message}</p>
+          )}
+        </div>
+      )}
       <div className="space-y-2">
         <Label htmlFor="nombre">Nombre *</Label>
         <Input

@@ -11,7 +11,7 @@ export function useUpdateUser() {
       usersAdminService.update(id, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: usersQueryKey })
-      queryClient.invalidateQueries({ queryKey: [...usersQueryKey, 'detail'] })
+      queryClient.invalidateQueries({ queryKey: ['users', 'current'] })
     },
   })
 }

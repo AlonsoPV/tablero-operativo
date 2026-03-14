@@ -9,12 +9,14 @@ import type { AccionDiaria, ActionStatus, PrioridadNc } from '@/types'
 const TABLE = 'acciones_diarias'
 
 export interface AccionesFilter {
-  fecha?: string // YYYY-MM-DD
+  /** Fecha "hasta": se muestran acciones creadas en o antes de este día (visible desde el día de creación y todos los días siguientes). */
+  fecha_creacion?: string // YYYY-MM-DD
+  /** Fecha límite (campo fecha de la acción). Opcional para filtros secundarios. */
+  fecha?: string
   estado?: ActionStatus | ActionStatus[]
   prioridad?: PrioridadNc | PrioridadNc[]
   area?: string
   responsable?: string
-  /** Búsqueda en descripcion_accion y evidencia_esperada */
   search?: string
 }
 
@@ -31,6 +33,13 @@ export const accionesService = {
 
   async list(filter: AccionesFilter = {}) {
     let q = supabase.from(TABLE).select('*')
+    // Acciones creadas en o antes de esta fecha (visibles desde el día de creación y todos los días siguientes)
+    if (filter.fecha_creacion) {
+      const next = new Date(filter.fecha_creacion + 'T00:00:00Z')
+      next.setUTCDate(next.getUTCDate() + 1)
+      const nextStr = next.toISOString().slice(0, 10)
+      q = q.lt('created_at', `${nextStr}T00:00:00`)
+    }
     if (filter.fecha) q = q.eq('fecha', filter.fecha)
     if (filter.estado) {
       const statuses = Array.isArray(filter.estado)
@@ -71,6 +80,11 @@ export const accionesService = {
     return data as AccionDiaria
   },
 
+  /**
+   * Inserta una acción. No usa .select() para evitar fallos por RLS
+   * (si asignas responsable a otro usuario, no podrías leer la fila devuelta).
+   * Tras insertar, invalidar la caché de acciones para que el listado se actualice.
+   */
   async create(payload: Partial<AccionDiaria>) {
     const { data, error } = await supabase
       .from(TABLE)

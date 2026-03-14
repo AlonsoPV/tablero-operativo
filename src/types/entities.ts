@@ -24,7 +24,9 @@ export interface AccionDiaria {
   id: string
   fecha: string // date YYYY-MM-DD
   descripcion_accion: string
-  responsable: string // FK usuarios.id
+  responsable: string // FK usuarios.id (assigned_to)
+  created_by?: string | null // FK usuarios.id (quién creó)
+  updated_by?: string | null // FK usuarios.id (quién modificó)
   hora_limite: string // time HH:MM
   evidencia_esperada: string
   evidencia_cargada: boolean

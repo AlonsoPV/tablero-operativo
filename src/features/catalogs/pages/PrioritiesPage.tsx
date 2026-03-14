@@ -153,7 +153,7 @@ export function PrioritiesPage() {
       </CatalogTableLayout>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent>
+        <DialogContent aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar prioridad' : 'Nueva prioridad'}</DialogTitle>
           </DialogHeader>

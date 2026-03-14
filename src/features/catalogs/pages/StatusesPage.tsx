@@ -164,7 +164,7 @@ export function StatusesPage() {
       </CatalogTableLayout>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent>
+        <DialogContent aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar estatus' : 'Nuevo estatus'}</DialogTitle>
           </DialogHeader>

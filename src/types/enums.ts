@@ -26,6 +26,7 @@ export const ACTION_STATUS = [
   'Hoy',
   'En_Ejecucion',
   'Bloqueado',
+  'Retraso',
   'Hecho',
   'Verificado',
 ] as const

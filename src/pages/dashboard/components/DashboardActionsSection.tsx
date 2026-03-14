@@ -9,6 +9,7 @@ import type { AccionDiaria } from '@/types'
 export interface DashboardActionsSectionProps {
   acciones: AccionDiaria[]
   isLoading?: boolean
+  commentCounts?: Record<string, number>
   responsableNames?: Record<string, string>
   onSelectAccion?: (accion: AccionDiaria) => void
   onNewAction?: () => void
@@ -17,6 +18,7 @@ export interface DashboardActionsSectionProps {
 export function DashboardActionsSection({
   acciones,
   isLoading,
+  commentCounts = {},
   responsableNames = {},
   onSelectAccion,
   onNewAction,
@@ -42,6 +44,7 @@ export function DashboardActionsSection({
         <AccionesControlTable
           acciones={acciones}
           isLoading={isLoading}
+          commentCounts={commentCounts}
           onSelectAccion={onSelectAccion}
           responsableNames={responsableNames}
           emptyMessage="No hay acciones registradas para esta fecha."

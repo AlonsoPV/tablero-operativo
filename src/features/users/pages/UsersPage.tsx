@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -19,7 +20,7 @@ import {
 import { UserFilters } from '../components/UserFilters'
 import { UsersTable } from '../components/UsersTable'
 import { UserForm } from '../components/UserForm'
-import { useUsers, useUpdateUser, useToggleUserStatus } from '../hooks'
+import { useUsers, useCreateUser, useUpdateUser, useToggleUserStatus } from '../hooks'
 import type { UserProfile, UsersFilter } from '../types/user.types'
 import type { UserFormValues } from '../schemas/user.schema'
 import type { UpdateUserInput } from '../types/user.types'
@@ -35,6 +36,7 @@ export function UsersPage() {
   const [confirmToggle, setConfirmToggle] = useState<UserProfile | null>(null)
 
   const { data: users = [], isLoading, isError, error } = useUsers(filter)
+  const createUser = useCreateUser()
   const updateUser = useUpdateUser()
   const toggleStatus = useToggleUserStatus()
 
@@ -66,12 +68,31 @@ export function UsersPage() {
         }
       )
     } else {
-      // Alta: por ahora no tenemos user_id desde el cliente (Auth no expone crear usuario).
-      // Dejamos el flujo listo para cuando exista invitación por email o Edge Function.
-      toast.info(
-        'Crear usuario estará disponible cuando se integre el flujo de invitación por email con Supabase Auth.'
+      const userId = typeof values.user_id === 'string' ? values.user_id.trim() : ''
+      if (!userId) {
+        toast.error('Indica el ID de usuario (Auth). Créalo en Supabase → Authentication y pega aquí el UUID.')
+        return
+      }
+      createUser.mutate(
+        {
+          user_id: userId,
+          nombre: values.nombre,
+          rol: values.rol,
+          area: values.area ?? null,
+          activo: values.activo ?? true,
+          onboarding_completed: values.onboarding_completed ?? false,
+        },
+        {
+          onSuccess: () => {
+            toast.success('Usuario creado correctamente')
+            setFormOpen(false)
+            setEditingUser(null)
+          },
+          onError: (err) => {
+            toast.error(err instanceof Error ? err.message : 'Error al crear usuario')
+          },
+        }
       )
-      setFormOpen(false)
     }
   }
 
@@ -134,6 +155,9 @@ export function UsersPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{editingUser ? 'Editar usuario' : 'Nuevo usuario'}</DialogTitle>
+            <DialogDescription className="sr-only">
+              {editingUser ? 'Formulario para editar el perfil del usuario.' : 'Formulario para dar de alta un nuevo usuario en la tabla de perfiles.'}
+            </DialogDescription>
           </DialogHeader>
           <UserForm
             defaultValues={
@@ -149,7 +173,7 @@ export function UsersPage() {
             }
             onSubmit={handleFormSubmit}
             onCancel={() => setFormOpen(false)}
-            isSubmitting={updateUser.isPending}
+            isSubmitting={createUser.isPending || updateUser.isPending}
             isCreate={!editingUser}
           />
         </DialogContent>

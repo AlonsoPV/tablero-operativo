@@ -48,6 +48,7 @@ export function AccionesFilterBar({
 
   const hasFilters =
     (filter.search != null && filter.search !== '') ||
+    filter.fecha_creacion != null ||
     filter.estado != null ||
     filter.prioridad != null ||
     (filter.area != null && filter.area !== '') ||
@@ -56,13 +57,13 @@ export function AccionesFilterBar({
   return (
     <div className="flex flex-wrap items-end gap-4 rounded-lg border bg-card p-4">
       <div className="w-[160px] space-y-2">
-        <Label htmlFor="acciones-fecha">Fecha</Label>
+        <Label htmlFor="acciones-fecha">Visible hasta (fecha)</Label>
         <Input
           id="acciones-fecha"
           type="date"
-          value={filter.fecha ?? ''}
+          value={filter.fecha_creacion ?? ''}
           onChange={(e) =>
-            onFilterChange({ ...filter, fecha: e.target.value || undefined })
+            onFilterChange({ ...filter, fecha_creacion: e.target.value || undefined })
           }
         />
       </div>

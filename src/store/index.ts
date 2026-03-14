@@ -4,10 +4,15 @@ interface AppState {
   sidebarOpen: boolean
   setSidebarOpen: (open: boolean) => void
   toggleSidebar: () => void
+  /** Llamar en logout para limpiar estado UI (p. ej. filtros futuros). */
+  resetOnLogout: () => void
 }
 
+const initialState = { sidebarOpen: true }
+
 export const useAppStore = create<AppState>((set) => ({
-  sidebarOpen: true,
+  ...initialState,
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
-  toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  resetOnLogout: () => set(initialState),
 }))

@@ -3,9 +3,12 @@
  * Header premium, toolbar de filtros, tablero con columnas y cards refinadas.
  */
 
-import { useMemo, useState, useCallback } from 'react'
+import { useMemo, useState, useCallback, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   useAcciones,
+  useAccion,
+  useCommentCounts,
   KanbanBoard,
   KanbanHeader,
   KanbanToolbar,
@@ -17,28 +20,43 @@ import type { KanbanViewMode } from '@/features/operations'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import type { AccionDiaria } from '@/types'
 import type { AccionesFilter } from '@/services/acciones.service'
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10)
-}
+import { todayCDMX } from '@/lib/dateUtils'
 
 const DEFAULT_FILTER: AccionesFilter = {}
 
 export function KanbanPage() {
-  const today = todayISO()
+  const today = todayCDMX()
   const [filter, setFilter] = useState<AccionesFilter>(() => ({
     ...DEFAULT_FILTER,
-    fecha: today,
+    fecha_creacion: today,
   }))
   const [filtersExpanded, setFiltersExpanded] = useState(true)
   const [viewMode, setViewMode] = useState<KanbanViewMode>('kanban')
   const { data: acciones = [], isLoading } = useAcciones(filter)
+  const { data: commentCounts = {} } = useCommentCounts(acciones.map((a) => a.id))
   const { data: users = [] } = useUsers({ activo: true })
   const [editingAccion, setEditingAccion] = useState<AccionDiaria | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const accionIdFromUrl = searchParams.get('accion')
+  const { data: accionFromUrl } = useAccion(accionIdFromUrl)
+
+  useEffect(() => {
+    if (accionFromUrl && accionIdFromUrl) {
+      setEditingAccion(accionFromUrl)
+      setDialogOpen(true)
+      const fechaAccion = accionFromUrl.created_at?.slice(0, 10) ?? accionFromUrl.fecha
+      if (fechaAccion) setFilter((f) => ({ ...f, fecha_creacion: fechaAccion }))
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('accion')
+        return next
+      }, { replace: true })
+    }
+  }, [accionFromUrl, accionIdFromUrl, setSearchParams])
 
   const handleClearFilters = useCallback(() => {
-    setFilter({ ...DEFAULT_FILTER, fecha: today })
+    setFilter({ ...DEFAULT_FILTER, fecha_creacion: today })
   }, [today])
 
   const responsableNames = useMemo(() => {
@@ -121,6 +139,7 @@ export function KanbanPage() {
             <AccionesControlTable
               acciones={acciones}
               isLoading={isLoading}
+              commentCounts={commentCounts}
               onSelectAccion={handleSelectAccion}
               responsableNames={responsableNames}
             />
@@ -134,7 +153,9 @@ export function KanbanPage() {
           if (!open) handleDialogClose()
         }}
         accion={editingAccion}
+        defaultFecha={filter.fecha_creacion ?? today}
         onSuccess={handleDialogClose}
+        responsableNames={responsableNames}
       />
     </div>
   )

@@ -171,7 +171,7 @@ export function DropdownCatalogsPage() {
       </CatalogTableLayout>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent>
+        <DialogContent aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>
               {editing ? 'Editar catálogo' : 'Nuevo catálogo'}

@@ -53,6 +53,7 @@ export function KanbanToolbar({
 
   const hasFilters =
     (filter.search != null && filter.search !== '') ||
+    filter.fecha_creacion != null ||
     filter.estado != null ||
     filter.prioridad != null ||
     (filter.area != null && filter.area !== '') ||
@@ -89,10 +90,11 @@ export function KanbanToolbar({
       </div>
       <Input
         type="date"
-        value={filter.fecha ?? ''}
+        value={filter.fecha_creacion ?? ''}
         onChange={(e) =>
-          onFilterChange({ ...filter, fecha: e.target.value || undefined })
+          onFilterChange({ ...filter, fecha_creacion: e.target.value || undefined })
         }
+        title="Ver acciones creadas hasta este día"
         className="h-8 w-[130px] rounded-lg border-border/60 bg-background/80 text-sm"
       />
       <Select

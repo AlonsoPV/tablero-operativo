@@ -18,18 +18,30 @@ import {
 import { cn } from '@/lib/utils'
 import type { AccionDiaria, ActionStatus, PrioridadNc } from '@/types'
 import { useUpdateAccionEstado } from '../hooks/useAccionMutations'
+import { useCommentCounts } from '../hooks/useCommentCounts'
+import { isEnRetraso } from '../utils/accionUtils'
 import { CountdownTimer } from './CountdownTimer'
 import {
   AlertCircle,
   FileCheck,
-  GripVertical,
   Clock,
   Sun,
   PlayCircle,
   CheckCircle,
   BadgeCheck,
   Plus,
+  AlertTriangle,
+  Pencil,
+  MoreVertical,
+  MessageSquare,
 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 
 const COLUMN_ORDER: ActionStatus[] = [
@@ -37,6 +49,7 @@ const COLUMN_ORDER: ActionStatus[] = [
   'Hoy',
   'En_Ejecucion',
   'Bloqueado',
+  'Retraso',
   'Hecho',
   'Verificado',
 ]
@@ -46,6 +59,7 @@ const COLUMN_LABELS: Record<ActionStatus, string> = {
   Hoy: 'Hoy',
   En_Ejecucion: 'En ejecución',
   Bloqueado: 'Bloqueado',
+  Retraso: 'Retraso',
   Hecho: 'Hecho',
   Verificado: 'Verificado',
 }
@@ -55,6 +69,7 @@ const COLUMN_ICONS: Record<ActionStatus, React.ComponentType<{ className?: strin
   Hoy: Sun,
   En_Ejecucion: PlayCircle,
   Bloqueado: AlertCircle,
+  Retraso: AlertTriangle,
   Hecho: CheckCircle,
   Verificado: BadgeCheck,
 }
@@ -81,6 +96,11 @@ const COLUMN_STYLES: Record<ActionStatus, { border: string; bg: string; icon: st
     bg: 'bg-red-500/5',
     icon: 'text-red-600',
   },
+  Retraso: {
+    border: 'border-l-orange-500',
+    bg: 'bg-orange-500/5',
+    icon: 'text-orange-600',
+  },
   Hecho: {
     border: 'border-l-emerald-400',
     bg: 'bg-emerald-500/5',
@@ -92,6 +112,7 @@ const COLUMN_STYLES: Record<ActionStatus, { border: string; bg: string; icon: st
     icon: 'text-violet-600',
   },
 }
+
 
 const PRIORITY_STYLES: Record<PrioridadNc, { dot: string; label: string }> = {
   P1_Critica: { dot: 'bg-red-500', label: 'Crítica' },
@@ -110,22 +131,31 @@ export interface KanbanBoardProps {
 function KanbanCardInner({
   accion,
   responsableName,
+  commentCount = 0,
   isDragging,
   isOverlay,
   dragHandleProps,
   onClick,
+  onMoveEstado,
 }: {
   accion: AccionDiaria
   responsableName: string
+  commentCount?: number
   isDragging?: boolean
   isOverlay?: boolean
   dragHandleProps?: { attributes: object; listeners?: object }
   onClick?: () => void
+  onMoveEstado?: (estado: ActionStatus) => void
 }) {
   const priorityStyle = PRIORITY_STYLES[accion.prioridad] ?? PRIORITY_STYLES.P2_Media
+  const displayStatus = isEnRetraso(accion) ? 'Retraso' : accion.estado
+
+  const stopDrag = (e: React.PointerEvent) => e.stopPropagation()
 
   return (
     <div
+      {...(dragHandleProps?.attributes ?? {})}
+      {...(dragHandleProps?.listeners ?? {})}
       role={onClick ? 'button' : undefined}
       onClick={onClick}
       className={cn(
@@ -136,17 +166,46 @@ function KanbanCardInner({
         isOverlay && 'cursor-grabbing shadow-xl ring-2 ring-primary/10 scale-[1.02]'
       )}
     >
-      {dragHandleProps && !isOverlay && (
-        <div
-          {...dragHandleProps.attributes}
-          {...dragHandleProps.listeners}
-          className="absolute right-2 top-2 rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 hover:bg-muted/80"
-          aria-label="Arrastrar"
-        >
-          <GripVertical className="h-4 w-4 text-muted-foreground" />
+      {!isOverlay && (
+        <div className="absolute right-2 top-2 flex items-center gap-0.5" onPointerDown={stopDrag}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
+            onClick={(e) => { e.stopPropagation(); onClick?.() }}
+            aria-label="Editar"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+          {onMoveEstado && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
+                  aria-label="Mover estado"
+                >
+                  <MoreVertical className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[160px]">
+                {COLUMN_ORDER.filter((s) => s !== displayStatus).map((status) => (
+                  <DropdownMenuItem
+                    key={status}
+                    onClick={() => onMoveEstado(status)}
+                  >
+                    {COLUMN_LABELS[status]}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       )}
-      <div className="flex items-start gap-2 pr-6">
+      <div className="flex items-start gap-2 pr-14">
         <span
           className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', priorityStyle.dot)}
           title={priorityStyle.label}
@@ -173,7 +232,16 @@ function KanbanCardInner({
           variant="compact"
         />
       </div>
-      <div className="mt-2 flex gap-1.5">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {commentCount > 0 && (
+          <span
+            className="inline-flex items-center gap-1 rounded bg-muted/80 px-1.5 py-0.5 text-xs text-muted-foreground"
+            title={`${commentCount} comentario${commentCount !== 1 ? 's' : ''}`}
+          >
+            <MessageSquare className="h-3 w-3" />
+            {commentCount}
+          </span>
+        )}
         {accion.estado === 'Bloqueado' && (
           <span className="inline-flex items-center gap-0.5 rounded bg-red-500/10 px-1.5 py-0.5 text-xs text-red-600" title="Bloqueado">
             <AlertCircle className="h-3 w-3" />
@@ -192,11 +260,15 @@ function KanbanCardInner({
 function KanbanCard({
   accion,
   responsableName,
+  commentCount = 0,
   onSelectAccion,
+  onMoveEstado,
 }: {
   accion: AccionDiaria
   responsableName: string
+  commentCount?: number
   onSelectAccion?: (accion: AccionDiaria) => void
+  onMoveEstado?: (accion: AccionDiaria, estado: ActionStatus) => void
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: accion.id,
@@ -207,9 +279,13 @@ function KanbanCard({
       <KanbanCardInner
         accion={accion}
         responsableName={responsableName}
+        commentCount={commentCount}
         isDragging={isDragging}
         dragHandleProps={{ attributes, listeners }}
         onClick={() => onSelectAccion?.(accion)}
+        onMoveEstado={
+          onMoveEstado ? (estado) => onMoveEstado(accion, estado) : undefined
+        }
       />
     </div>
   )
@@ -244,14 +320,18 @@ function KanbanColumn({
   status,
   actions,
   responsableNames,
+  commentCounts = {},
   onSelectAccion,
   onNewAction,
+  onMoveEstado,
 }: {
   status: ActionStatus
   actions: AccionDiaria[]
   responsableNames: Record<string, string>
+  commentCounts?: Record<string, number>
   onSelectAccion?: (accion: AccionDiaria) => void
   onNewAction?: () => void
+  onMoveEstado?: (accion: AccionDiaria, estado: ActionStatus) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status })
   const style = COLUMN_STYLES[status]
@@ -288,7 +368,9 @@ function KanbanColumn({
               key={accion.id}
               accion={accion}
               responsableName={responsableNames[accion.responsable] ?? accion.responsable ?? '—'}
+              commentCount={commentCounts[accion.id] ?? 0}
               onSelectAccion={onSelectAccion}
+              onMoveEstado={onMoveEstado}
             />
           ))
         )}
@@ -333,6 +415,7 @@ export function KanbanBoard({
 }: KanbanBoardProps) {
   const updateEstado = useUpdateAccionEstado()
   const [activeId, setActiveId] = useState<string | null>(null)
+  const { data: commentCounts = {} } = useCommentCounts(acciones.map((a) => a.id))
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -346,11 +429,13 @@ export function KanbanBoard({
       Hoy: [],
       En_Ejecucion: [],
       Bloqueado: [],
+      Retraso: [],
       Hecho: [],
       Verificado: [],
     }
     for (const a of acciones) {
-      if (map[a.estado]) map[a.estado].push(a)
+      const status = isEnRetraso(a) ? 'Retraso' : a.estado
+      if (map[status]) map[status].push(a)
     }
     return map
   }, [acciones])
@@ -373,7 +458,8 @@ export function KanbanBoard({
       if (!newStatus) return
       const accion = acciones.find((a) => a.id === active.id)
       if (!accion) return
-      if (accion.estado === newStatus) return
+      const currentDisplay = isEnRetraso(accion) ? 'Retraso' : accion.estado
+      if (currentDisplay === newStatus) return
       if (newStatus === 'Hecho' && !accion.evidencia_cargada) {
         toast.error('No se puede marcar como Hecho sin evidencia cargada')
         return
@@ -381,6 +467,17 @@ export function KanbanBoard({
       updateEstado.mutate({ id: accion.id, estado: newStatus })
     },
     [acciones, updateEstado]
+  )
+
+  const handleMoveEstado = useCallback(
+    (accion: AccionDiaria, estado: ActionStatus) => {
+      if (estado === 'Hecho' && !accion.evidencia_cargada) {
+        toast.error('No se puede marcar como Hecho sin evidencia cargada')
+        return
+      }
+      updateEstado.mutate({ id: accion.id, estado })
+    },
+    [updateEstado]
   )
 
   if (isLoading) {
@@ -405,8 +502,10 @@ export function KanbanBoard({
             status={status}
             actions={byStatus[status] ?? []}
             responsableNames={responsableNames}
+            commentCounts={commentCounts}
             onSelectAccion={onSelectAccion}
             onNewAction={onNewAction}
+            onMoveEstado={handleMoveEstado}
           />
         ))}
       </div>
@@ -416,6 +515,7 @@ export function KanbanBoard({
             <KanbanCardInner
               accion={activeAccion}
               responsableName={responsableNames[activeAccion.responsable] ?? activeAccion.responsable ?? '—'}
+              commentCount={commentCounts[activeAccion.id] ?? 0}
               isOverlay
             />
           </div>

@@ -166,7 +166,7 @@ export function KpisPage() {
       </CatalogTableLayout>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent>
+        <DialogContent aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar KPI' : 'Nuevo KPI'}</DialogTitle>
           </DialogHeader>

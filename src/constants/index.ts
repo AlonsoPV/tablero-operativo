@@ -3,6 +3,8 @@ export const APP_NAME = 'Tablero Operativo'
 /** Rutas según módulos de lovable-spec §5 */
 export const ROUTES = {
   LOGIN: '/login',
+  FORGOT_PASSWORD: '/forgot-password',
+  RESET_PASSWORD: '/reset-password',
   DASHBOARD: '/dashboard',
   KANBAN: '/kanban',
   DISCIPLINA: '/disciplina',
@@ -12,6 +14,7 @@ export const ROUTES = {
   NOTIFICACIONES: '/notificaciones',
   MANUAL: '/manual',
   SETTINGS: '/settings',
+  SETTINGS_PROFILE: '/settings/profile',
   SETTINGS_USERS: '/settings/users',
   SETTINGS_USERS_DETAIL: '/settings/users/:id',
   SETTINGS_CATALOGS: '/settings/catalogs',

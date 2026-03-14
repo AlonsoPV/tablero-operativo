@@ -13,6 +13,8 @@ import {
 import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants'
 import { useAppStore } from '@/store'
+import { useNotifications } from '@/features/notifications'
+import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 
 /** Navegación por módulos (spec §5). */
 const navItems = [
@@ -30,6 +32,9 @@ const navItems = [
 export function Sidebar() {
   const location = useLocation()
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
+  const { data: currentUser } = useCurrentUser()
+  const { data: notifications = [] } = useNotifications(currentUser?.id, { leido: false })
+  const unreadCount = notifications.length
 
   return (
     <aside
@@ -41,6 +46,7 @@ export function Sidebar() {
       <nav className="flex flex-1 flex-col gap-1 p-2">
         {navItems.map(({ to, label, icon: Icon }) => {
           const isActive = location.pathname === to
+          const showNotifBadge = to === ROUTES.NOTIFICACIONES && unreadCount > 0
           return (
             <Link
               key={to}
@@ -52,8 +58,15 @@ export function Sidebar() {
                   : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground'
               )}
             >
-              <Icon className="h-5 w-5 shrink-0" />
-              {sidebarOpen && <span>{label}</span>}
+              <span className="relative shrink-0">
+                <Icon className="h-5 w-5" />
+                {showNotifBadge && (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </span>
+              {sidebarOpen && <span className="flex-1 truncate">{label}</span>}
             </Link>
           )
         })}

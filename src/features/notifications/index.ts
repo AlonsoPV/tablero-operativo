@@ -4,4 +4,5 @@
  * leído/no leído.
  */
 
-export {} // Placeholder: NotificationCenter
+export { NotificationCenter } from './components/NotificationCenter'
+export { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead } from './hooks/useNotifications'

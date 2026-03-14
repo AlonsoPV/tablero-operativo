@@ -151,7 +151,7 @@ export function CatalogAreasPage() {
       </CatalogTableLayout>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent>
+        <DialogContent aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar área' : 'Nueva área'}</DialogTitle>
           </DialogHeader>

@@ -1,6 +1,10 @@
-/**
- * Feature: Auth (spec §5.1)
- * Login, registro con nombre/rol/email, validación de email, onboarding primera vez.
- */
-
-export {} // Placeholder: componentes y hooks de auth se añadirán aquí
+export { LoginPage } from './pages/LoginPage'
+export { LoginForm } from './components/LoginForm'
+export { AuthLoader } from './components/AuthLoader'
+export { AuthProvider, useAuth } from './context/AuthContext'
+export {
+  isAdminByRole,
+  canEditAsCreator,
+  canEditAsAssignee,
+} from './lib/permissions'
+export type { AuthState, AuthProfile, AuthError } from './types/auth.types'

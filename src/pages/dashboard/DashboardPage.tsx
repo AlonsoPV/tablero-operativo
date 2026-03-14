@@ -5,6 +5,7 @@
 import { useMemo, useState, useCallback } from 'react'
 import {
   useAcciones,
+  useCommentCounts,
   AccionFormDialog,
   KanbanToolbar,
   metricasFromAcciones,
@@ -17,24 +18,22 @@ import { DashboardHeader } from './components/DashboardHeader'
 import { DashboardKpiCards } from './components/DashboardKpiCards'
 import { DashboardActionsSection } from './components/DashboardActionsSection'
 import { Activity } from 'lucide-react'
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10)
-}
+import { todayCDMX } from '@/lib/dateUtils'
 
 const DEFAULT_FILTER: AccionesFilter = {}
 
 export function DashboardPage() {
-  const today = todayISO()
+  const today = todayCDMX()
   const [filter, setFilter] = useState<AccionesFilter>(() => ({
     ...DEFAULT_FILTER,
-    fecha: today,
+    fecha_creacion: today,
   }))
   const [filtersExpanded, setFiltersExpanded] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingAccion, setEditingAccion] = useState<AccionDiaria | null>(null)
 
   const { data: acciones = [], isLoading } = useAcciones(filter)
+  const { data: commentCounts = {} } = useCommentCounts(acciones.map((a) => a.id))
   const { data: users = [] } = useUsers({ activo: true })
 
   const metricas = useMemo(() => metricasFromAcciones(acciones), [acciones])
@@ -88,6 +87,7 @@ export function DashboardPage() {
       <DashboardActionsSection
         acciones={acciones}
         isLoading={isLoading}
+        commentCounts={commentCounts}
         responsableNames={responsableNames}
         onSelectAccion={handleSelectAccion}
         onNewAction={handleCreate}
@@ -110,7 +110,7 @@ export function DashboardPage() {
           </div>
         </div>
         <div className="p-4">
-          <KPISemaforoGrid fecha={filter.fecha ?? today} />
+          <KPISemaforoGrid fecha={filter.fecha_creacion ?? today} />
         </div>
       </section>
 
@@ -118,8 +118,9 @@ export function DashboardPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         accion={editingAccion}
-        defaultFecha={today}
+        defaultFecha={filter.fecha_creacion ?? today}
         onSuccess={handleDialogSuccess}
+        responsableNames={responsableNames}
       />
     </div>
   )

@@ -2,6 +2,12 @@ import { z } from 'zod'
 
 /** Rol y área vienen de catálogos (catalog_roles, areas); se validan como texto no vacío. */
 export const userFormSchema = z.object({
+  /** UUID del usuario en auth.users; obligatorio al crear perfil desde administración */
+  user_id: z
+    .string()
+    .optional()
+    .transform((s) => (s?.trim() === '' ? undefined : s?.trim()))
+    .pipe(z.string().uuid('ID de usuario (Auth) no válido').optional()),
   nombre: z
     .string()
     .min(1, 'El nombre es obligatorio')
