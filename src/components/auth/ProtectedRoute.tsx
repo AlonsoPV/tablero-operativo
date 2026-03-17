@@ -21,7 +21,6 @@ export function ProtectedRoute() {
   const {
     isLoading: authLoading,
     isAuthenticated,
-    isReady,
     error,
     logout,
     refetch,

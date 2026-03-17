@@ -10,7 +10,6 @@ import { useReportesHistorico } from '../hooks/useReportesHistorico'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import { metricasFromAcciones, type MetricasAcciones } from '@/features/operations/utils/metricas'
 import { ACTION_STATUS } from '@/types'
-import type { AccionDiaria } from '@/types'
 import { cn } from '@/lib/utils'
 import {
   Download,

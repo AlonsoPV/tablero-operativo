@@ -54,7 +54,7 @@ export function AccionEvidenciasSection({
   })
   const deleteMutation = useMutation({
     mutationFn: (id: string) => accionEvidenciasService.delete(id),
-    onSuccess: async (_, deletedId) => {
+    onSuccess: async () => {
       const wasLast = list.length === 1
       qc.invalidateQueries({ queryKey: [...EVIDENCIAS_KEY, accionId] })
       qc.invalidateQueries({ queryKey: ['acciones'] })
