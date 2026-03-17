@@ -17,8 +17,9 @@ export interface UserProfile {
   updated_at: string
 }
 
-/** Payload para crear usuario (solo perfil; auth.users se gestiona aparte). */
+/** Payload para invitar usuario por correo y crear el perfil automáticamente. */
 export interface CreateUserInput {
+  email: string
   nombre: string
   rol: string
   area?: string | null

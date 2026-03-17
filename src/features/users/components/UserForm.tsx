@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Button } from '@/components/ui/button'
@@ -10,7 +11,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { userFormSchema, type UserFormValues } from '../schemas/user.schema'
+import {
+  createUserFormSchema,
+  updateUserFormSchema,
+  type UserFormValues,
+} from '../schemas/user.schema'
 import { useRoles } from '@/features/catalogs/hooks/useRoles'
 import { useAreas } from '@/features/catalogs/hooks/useAreas'
 
@@ -19,7 +24,7 @@ interface UserFormProps {
   onSubmit: (values: UserFormValues) => void
   onCancel: () => void
   isSubmitting?: boolean
-  /** true = crear (puede estar deshabilitado si no hay integración Auth) */
+  /** true = invitar usuario por correo */
   isCreate?: boolean
 }
 
@@ -32,11 +37,15 @@ export function UserForm({
 }: UserFormProps) {
   const { data: roles = [], isLoading: loadingRoles } = useRoles({ activo: true })
   const { data: areas = [], isLoading: loadingAreas } = useAreas({ activo: true })
+  const formSchema = useMemo(
+    () => (isCreate ? createUserFormSchema : updateUserFormSchema),
+    [isCreate]
+  )
 
   const form = useForm<UserFormValues>({
-    resolver: zodResolver(userFormSchema),
+    resolver: zodResolver(formSchema),
     defaultValues: defaultValues ?? {
-      user_id: '',
+      email: '',
       nombre: '',
       rol: '',
       area: undefined,
@@ -45,22 +54,36 @@ export function UserForm({
     },
   })
 
+  useEffect(() => {
+    form.reset(
+      defaultValues ?? {
+        email: '',
+        nombre: '',
+        rol: '',
+        area: undefined,
+        activo: true,
+        onboarding_completed: false,
+      }
+    )
+  }, [defaultValues, form, isCreate])
+
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
       {isCreate && (
         <div className="space-y-2">
-          <Label htmlFor="user_id">ID de usuario (Auth) *</Label>
+          <Label htmlFor="email">Correo electrónico *</Label>
           <Input
-            id="user_id"
-            {...form.register('user_id')}
-            placeholder="UUID del usuario en Supabase Auth (ej. desde Authentication)"
-            className="font-mono text-sm"
+            id="email"
+            type="email"
+            {...form.register('email')}
+            placeholder="correo@empresa.com"
+            autoComplete="email"
           />
           <p className="text-xs text-muted-foreground">
-            Crea el usuario en Supabase → Authentication y pega aquí su UUID para vincular el perfil.
+            Se enviará una invitación por correo y el perfil se vinculará automáticamente.
           </p>
-          {form.formState.errors.user_id && (
-            <p className="text-sm text-destructive">{form.formState.errors.user_id.message}</p>
+          {form.formState.errors.email && (
+            <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>
           )}
         </div>
       )}
@@ -151,7 +174,7 @@ export function UserForm({
           Cancelar
         </Button>
         <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? 'Guardando...' : isCreate ? 'Crear usuario' : 'Guardar cambios'}
+          {isSubmitting ? 'Guardando...' : isCreate ? 'Invitar usuario' : 'Guardar cambios'}
         </Button>
       </div>
     </form>

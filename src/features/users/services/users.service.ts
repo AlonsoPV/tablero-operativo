@@ -69,12 +69,29 @@ export const usersAdminService = {
   },
 
   async update(id: string, input: UpdateUserInput): Promise<UserProfile> {
+    const payload: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    }
+
+    if (input.nombre !== undefined) {
+      payload.nombre = input.nombre.trim()
+    }
+    if (input.rol !== undefined) {
+      payload.rol = input.rol
+    }
+    if (input.area !== undefined) {
+      payload.area = input.area?.trim() ?? null
+    }
+    if (input.activo !== undefined) {
+      payload.activo = input.activo
+    }
+    if (input.onboarding_completed !== undefined) {
+      payload.onboarding_completed = input.onboarding_completed
+    }
+
     const { data, error } = await supabase
       .from(TABLE)
-      .update({
-        ...input,
-        updated_at: new Date().toISOString(),
-      })
+      .update(payload)
       .eq('id', id)
       .select()
       .single()
@@ -90,26 +107,23 @@ export const usersAdminService = {
   },
 
   /**
-   * Crear perfil en tabla usuarios.
-   * TODO: Si el sistema no permite crear auth.users desde el cliente, este flujo
-   * es parcial: solo tendría sentido cuando exista invitación por email o creación
-   * desde backend/Edge Function que cree auth.users y luego inserte aquí.
-   * Por ahora dejamos la firma lista; puede fallar por FK user_id si no existe en auth.users.
+   * Envía una invitación por correo. La Edge Function crea el usuario en Auth
+   * y el trigger de Supabase sincroniza el perfil en public.usuarios.
    */
-  async create(input: CreateUserInput & { user_id: string }): Promise<UserProfile> {
-    const { data, error } = await supabase
-      .from(TABLE)
-      .insert({
-        user_id: input.user_id,
-        nombre: input.nombre.trim(),
-        rol: input.rol,
-        area: input.area ?? null,
-        activo: input.activo ?? true,
-        onboarding_completed: input.onboarding_completed ?? false,
-      })
-      .select()
-      .single()
+  async create(input: CreateUserInput): Promise<void> {
+    const payload = {
+      email: input.email.trim().toLowerCase(),
+      nombre: input.nombre.trim(),
+      rol: input.rol,
+      area: input.area?.trim() ?? null,
+      activo: input.activo ?? true,
+      onboarding_completed: input.onboarding_completed ?? false,
+    }
+
+    const { error } = await supabase.functions.invoke('invite-user', {
+      body: payload,
+    })
+
     if (error) throw error
-    return data as UserProfile
   },
 }

@@ -1,13 +1,13 @@
 import { z } from 'zod'
 
-/** Rol y área vienen de catálogos (catalog_roles, areas); se validan como texto no vacío. */
-export const userFormSchema = z.object({
-  /** UUID del usuario en auth.users; obligatorio al crear perfil desde administración */
-  user_id: z
+const commonUserFormSchema = z.object({
+  email: z
     .string()
     .optional()
-    .transform((s) => (s?.trim() === '' ? undefined : s?.trim()))
-    .pipe(z.string().uuid('ID de usuario (Auth) no válido').optional()),
+    .transform((s) => {
+      const trimmed = s?.trim().toLowerCase()
+      return trimmed ? trimmed : undefined
+    }),
   nombre: z
     .string()
     .min(1, 'El nombre es obligatorio')
@@ -28,4 +28,15 @@ export const userFormSchema = z.object({
   onboarding_completed: z.boolean().default(false),
 })
 
-export type UserFormValues = z.infer<typeof userFormSchema>
+/** Rol y área vienen de catálogos (catalog_roles, areas); se validan como texto no vacío. */
+export const createUserFormSchema = commonUserFormSchema.extend({
+  email: z
+    .string()
+    .min(1, 'El correo electrónico es obligatorio')
+    .email('El correo electrónico no es válido')
+    .transform((s) => s.trim().toLowerCase()),
+})
+
+export const updateUserFormSchema = commonUserFormSchema
+
+export type UserFormValues = z.infer<typeof commonUserFormSchema>

@@ -68,14 +68,14 @@ export function UsersPage() {
         }
       )
     } else {
-      const userId = typeof values.user_id === 'string' ? values.user_id.trim() : ''
-      if (!userId) {
-        toast.error('Indica el ID de usuario (Auth). Créalo en Supabase → Authentication y pega aquí el UUID.')
+      const email = typeof values.email === 'string' ? values.email.trim() : ''
+      if (!email) {
+        toast.error('Indica un correo electrónico válido para enviar la invitación.')
         return
       }
       createUser.mutate(
         {
-          user_id: userId,
+          email,
           nombre: values.nombre,
           rol: values.rol,
           area: values.area ?? null,
@@ -84,12 +84,12 @@ export function UsersPage() {
         },
         {
           onSuccess: () => {
-            toast.success('Usuario creado correctamente')
+            toast.success(`Invitación enviada a ${email}`)
             setFormOpen(false)
             setEditingUser(null)
           },
           onError: (err) => {
-            toast.error(err instanceof Error ? err.message : 'Error al crear usuario')
+            toast.error(err instanceof Error ? err.message : 'Error al enviar la invitación')
           },
         }
       )
@@ -123,12 +123,12 @@ export function UsersPage() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Administración de usuarios</h2>
           <p className="text-muted-foreground">
-            Gestiona perfiles de usuario (rol, área, activo, onboarding).
+            Gestiona perfiles de usuario y envía invitaciones por correo.
           </p>
         </div>
         <Button onClick={handleCreate}>
           <Plus className="mr-2 h-4 w-4" />
-          Crear usuario
+          Invitar usuario
         </Button>
       </div>
 
@@ -154,12 +154,13 @@ export function UsersPage() {
       <Dialog open={formOpen} onOpenChange={(open) => !open && setFormOpen(false)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingUser ? 'Editar usuario' : 'Nuevo usuario'}</DialogTitle>
+            <DialogTitle>{editingUser ? 'Editar usuario' : 'Invitar usuario'}</DialogTitle>
             <DialogDescription className="sr-only">
-              {editingUser ? 'Formulario para editar el perfil del usuario.' : 'Formulario para dar de alta un nuevo usuario en la tabla de perfiles.'}
+              {editingUser ? 'Formulario para editar el perfil del usuario.' : 'Formulario para enviar una invitación por correo y crear el perfil del usuario.'}
             </DialogDescription>
           </DialogHeader>
           <UserForm
+            key={editingUser ? editingUser.id : 'create-user'}
             defaultValues={
               editingUser
                 ? {

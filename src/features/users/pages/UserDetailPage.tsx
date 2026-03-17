@@ -116,6 +116,7 @@ export function UserDetailPage() {
             <DialogTitle>Editar usuario</DialogTitle>
           </DialogHeader>
           <UserForm
+            key={`edit-user-${user.id}`}
             defaultValues={{
               nombre: user.nombre,
               rol: user.rol,
