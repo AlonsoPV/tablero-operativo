@@ -19,8 +19,10 @@ export interface DashboardKpiCardsProps {
 
 export function DashboardKpiCards({ metricas, isLoading }: DashboardKpiCardsProps) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+    <div id="dashboard-kpi-cards" className="dashboard-kpi-cards grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
       <DashboardKpiCard
+        id="dashboard-kpi-card-total"
+        className="dashboard-kpi-card dashboard-kpi-card-total"
         title="Acciones del día"
         value={metricas.total}
         description="Total con fecha seleccionada"
@@ -29,6 +31,8 @@ export function DashboardKpiCards({ metricas, isLoading }: DashboardKpiCardsProp
         isLoading={isLoading}
       />
       <DashboardKpiCard
+        id="dashboard-kpi-card-completadas"
+        className="dashboard-kpi-card dashboard-kpi-card-completadas"
         title="Completadas"
         value={metricas.completadas}
         description="Hecho + Verificado"
@@ -37,6 +41,8 @@ export function DashboardKpiCards({ metricas, isLoading }: DashboardKpiCardsProp
         isLoading={isLoading}
       />
       <DashboardKpiCard
+        id="dashboard-kpi-card-bloqueadas"
+        className="dashboard-kpi-card dashboard-kpi-card-bloqueadas"
         title="Bloqueadas"
         value={metricas.bloqueadas}
         description="Estado Bloqueado"
@@ -45,6 +51,8 @@ export function DashboardKpiCards({ metricas, isLoading }: DashboardKpiCardsProp
         isLoading={isLoading}
       />
       <DashboardKpiCard
+        id="dashboard-kpi-card-sin-evidencia"
+        className="dashboard-kpi-card dashboard-kpi-card-sin-evidencia"
         title="Sin evidencia"
         value={metricas.sinEvidencia}
         description="Hecho/Verificado sin evidencia"
@@ -53,6 +61,8 @@ export function DashboardKpiCards({ metricas, isLoading }: DashboardKpiCardsProp
         isLoading={isLoading}
       />
       <DashboardKpiCard
+        id="dashboard-kpi-card-eficiencia"
+        className="dashboard-kpi-card dashboard-kpi-card-eficiencia"
         title="Eficiencia operativa"
         value={`${metricas.eficienciaPorcentaje}%`}
         description="Completadas / total"

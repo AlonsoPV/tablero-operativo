@@ -1,2 +1,7 @@
 [functions.invite-user]
 verify_jwt = false
+
+# Validamos el JWT dentro de la función con auth.getUser(); el gateway con verify_jwt=true
+# a veces devuelve 401 con tokens de sesión refrescados. Con false la petición llega y validamos nosotros.
+[functions.calculate-distance]
+verify_jwt = false

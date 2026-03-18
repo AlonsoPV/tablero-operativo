@@ -228,7 +228,7 @@ export function CalendarView({ responsableNames = {}, onSelectAccion }: Calendar
                   className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-sm"
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium text-foreground">{accion.descripcion_accion}</p>
+                    <p className="truncate font-medium text-foreground" title={accion.descripcion_accion}>{accion.titulo_accion?.trim() || accion.descripcion_accion}</p>
                     <p className="text-xs text-muted-foreground">
                       {accion.hora_limite?.slice(0, 5) ?? '—'} · {responsableNames[accion.responsable] ?? accion.responsable ?? '—'} · {accion.estado}
                     </p>

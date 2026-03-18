@@ -32,12 +32,17 @@ const inputBase =
 const textareaBase =
   'flex min-h-[88px] w-full resize-none rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm transition-colors placeholder:text-muted-foreground focus:bg-background focus:outline-none focus:ring-2 focus:ring-ring/50 focus:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50'
 
+/** Valor en el catálogo evidencia_esperada para "Otro especificar" (texto libre). */
+const EVIDENCIA_OTRO_VALUE = 'otro'
+
 export interface AccionFormProps {
   defaultValues?: Partial<AccionCreateInput> | null
   onSubmit: (values: AccionCreateInput) => void
   onCancel: () => void
   isSubmitting?: boolean
   isEdit?: boolean
+  /** Id del form para botón de envío externo (barra fija del diálogo). */
+  formId?: string
 }
 
 export function AccionForm({
@@ -46,15 +51,18 @@ export function AccionForm({
   onCancel,
   isSubmitting = false,
   isEdit = false,
+  formId,
 }: AccionFormProps) {
   const { data: users = [] } = useUsers({ activo: true })
   const { data: areas = [] } = useAreas({ activo: true })
+  /** Catálogo dropdown con key 'evidencia_esperada': opciones para el select de evidencia esperada. */
   const { data: evidenciaOpciones = [] } = useDropdownOptionsByKey('evidencia_esperada')
   const [evidenciaSelect, setEvidenciaSelect] = useState<string>('__none__')
 
   const form = useForm<AccionCreateInput>({
     resolver: zodResolver(accionCreateSchema),
     defaultValues: defaultValues ?? {
+      titulo_accion: '',
       descripcion_accion: '',
       responsable: '',
       fecha: new Date().toISOString().slice(0, 10),
@@ -66,14 +74,50 @@ export function AccionForm({
   })
 
   useEffect(() => {
-    if (evidenciaOpciones.length === 0) return
     const val = (defaultValues?.evidencia_esperada ?? form.getValues('evidencia_esperada'))?.trim() ?? ''
+    if (evidenciaOpciones.length === 0) {
+      setEvidenciaSelect(val ? EVIDENCIA_OTRO_VALUE : '__none__')
+      return
+    }
     const match = evidenciaOpciones.find((o) => o.label === val)
-    setEvidenciaSelect(match ? match.value : val ? 'otro' : '__none__')
+    setEvidenciaSelect(match ? match.value : val ? EVIDENCIA_OTRO_VALUE : '__none__')
   }, [evidenciaOpciones.length, defaultValues?.evidencia_esperada])
 
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+    <form id={formId} onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+      {/* Título (vista colapsada) */}
+      <Card className="border-border/60 bg-muted/5">
+        <CardHeader className="flex flex-row items-center gap-2 pb-2 pt-4">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <FileText className="h-4 w-4" />
+          </div>
+          <div>
+            <h4 className="text-sm font-semibold">Título de la acción</h4>
+            <p className="text-xs text-muted-foreground">Se muestra cuando la acción está colapsada (máx. 70 caracteres)</p>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-2 pt-0">
+          <Input
+            id="titulo_accion"
+            {...form.register('titulo_accion', {
+              maxLength: { value: 70, message: 'Máximo 70 caracteres' },
+              onChange: () => form.trigger('titulo_accion'),
+            })}
+            placeholder="Ej: Revisar informe mensual"
+            maxLength={70}
+            className={inputBase + ' h-10'}
+          />
+          <p className="text-xs text-muted-foreground">
+            {(form.watch('titulo_accion') ?? '').length}/70
+          </p>
+          {((form.watch('titulo_accion') ?? '').length > 70 || form.formState.errors.titulo_accion) && (
+            <p className="text-xs text-destructive">
+              {form.formState.errors.titulo_accion?.message ?? 'Máximo 70 caracteres'}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Descripción */}
       <Card className="border-border/60 bg-muted/5">
         <CardHeader className="flex flex-row items-center gap-2 pb-2 pt-4">
@@ -116,13 +160,14 @@ export function AccionForm({
               Responsable *
             </Label>
             <Select
-              value={form.watch('responsable')}
-              onValueChange={(v) => form.setValue('responsable', v)}
+              value={form.watch('responsable') ?? '__none__'}
+              onValueChange={(v) => form.setValue('responsable', v === '__none__' ? '' : v)}
             >
               <SelectTrigger id="responsable" className={inputBase + ' h-10 border-input bg-muted/30'}>
                 <SelectValue placeholder="Seleccionar responsable" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="__none__">Seleccionar responsable</SelectItem>
                 {users.map((u) => (
                   <SelectItem key={u.id} value={u.id}>
                     {u.nombre}
@@ -180,46 +225,35 @@ export function AccionForm({
           </div>
         </CardHeader>
         <CardContent className="space-y-2 pt-0">
-          {evidenciaOpciones.length > 0 ? (
-            <>
-              <Select
-                value={evidenciaSelect}
-                onValueChange={(v) => {
-                  setEvidenciaSelect(v)
-                  if (v === '__none__') form.setValue('evidencia_esperada', '')
-                  else if (v === 'otro') form.setValue('evidencia_esperada', '')
-                  else {
-                    const opt = evidenciaOpciones.find((o) => o.value === v)
-                    if (opt) form.setValue('evidencia_esperada', opt.label)
-                  }
-                }}
-              >
-                <SelectTrigger className={inputBase + ' h-10 border-input bg-muted/30'}>
-                  <SelectValue placeholder="Tipo de evidencia" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Seleccionar...</SelectItem>
-                  {evidenciaOpciones.map((o) => (
-                    <SelectItem key={o.id} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {evidenciaSelect === 'otro' && (
-                <Input
-                  placeholder="Especificar (mín. 5 caracteres)"
-                  className={inputBase + ' h-10'}
-                  {...form.register('evidencia_esperada')}
-                />
-              )}
-            </>
-          ) : (
+          <Select
+            value={evidenciaSelect}
+            onValueChange={(v) => {
+              setEvidenciaSelect(v)
+              if (v === '__none__') form.setValue('evidencia_esperada', '')
+              else if (v === EVIDENCIA_OTRO_VALUE) form.setValue('evidencia_esperada', '')
+              else {
+                const opt = evidenciaOpciones.find((o) => o.value === v)
+                if (opt) form.setValue('evidencia_esperada', opt.label)
+              }
+            }}
+          >
+            <SelectTrigger className={inputBase + ' h-10 border-input bg-muted/30'}>
+              <SelectValue placeholder="Tipo de evidencia" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">Seleccionar...</SelectItem>
+              {evidenciaOpciones.map((o) => (
+                <SelectItem key={o.id} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {evidenciaSelect === EVIDENCIA_OTRO_VALUE && (
             <Input
-              id="evidencia_esperada"
-              {...form.register('evidencia_esperada')}
-              placeholder="Qué se debe entregar (mín. 5 caracteres)"
+              placeholder="Especificar (mín. 5 caracteres)"
               className={inputBase + ' h-10'}
+              {...form.register('evidencia_esperada')}
             />
           )}
           {form.formState.errors.evidencia_esperada && (
@@ -281,15 +315,6 @@ export function AccionForm({
           </div>
         </CardContent>
       </Card>
-
-      <div className="flex justify-end gap-3 border-t border-border/60 pt-4">
-        <Button type="button" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
-          Cancelar
-        </Button>
-        <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Crear acción'}
-        </Button>
-      </div>
     </form>
   )
 }

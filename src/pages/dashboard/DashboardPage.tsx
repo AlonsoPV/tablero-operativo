@@ -46,8 +46,12 @@ export function DashboardPage() {
     return map
   }, [users])
 
+  const handleFilterChange = useCallback((next: AccionesFilter | Partial<AccionesFilter>) => {
+    setFilter((prev) => ({ ...prev, ...next }))
+  }, [])
+
   const handleClearFilters = useCallback(() => {
-    setFilter({ ...DEFAULT_FILTER, fecha: today })
+    setFilter({ ...DEFAULT_FILTER, fecha_creacion: today })
   }, [today])
 
   const handleCreate = useCallback(() => {
@@ -65,26 +69,29 @@ export function DashboardPage() {
   }, [])
 
   return (
-    <div className="flex flex-col gap-6">
+    <div id="dashboard-page" className="dashboard-page flex flex-col gap-6">
       <DashboardHeader
         filtersExpanded={filtersExpanded}
         onToggleFilters={() => setFiltersExpanded((v) => !v)}
         onNewAction={handleCreate}
       />
 
-      <KanbanToolbar
-        filter={filter}
-        onFilterChange={setFilter}
-        onClear={handleClearFilters}
-        visible={filtersExpanded}
-      />
+      <div id="dashboard-toolbar" className="dashboard-toolbar-wrapper">
+        <KanbanToolbar
+          filter={filter}
+          onFilterChange={handleFilterChange}
+          onClear={handleClearFilters}
+          visible={filtersExpanded}
+        />
+      </div>
 
-      <section>
+      <section id="dashboard-section-metrics" className="dashboard-section-metrics">
         <h2 className="sr-only">Métricas del día</h2>
         <DashboardKpiCards metricas={metricas} isLoading={isLoading} />
       </section>
 
-      <DashboardActionsSection
+      <div id="dashboard-section-actions" className="dashboard-section-actions">
+        <DashboardActionsSection
         acciones={acciones}
         isLoading={isLoading}
         commentCounts={commentCounts}
@@ -92,15 +99,16 @@ export function DashboardPage() {
         onSelectAccion={handleSelectAccion}
         onNewAction={handleCreate}
       />
+      </div>
 
-      <section className="rounded-xl border border-border/50 bg-card shadow-sm overflow-hidden">
-        <div className="border-b border-border/50 bg-muted/20 px-4 py-3 sm:px-5">
+      <section id="dashboard-section-semaforo" className="dashboard-section-semaforo rounded-xl border border-border/50 bg-card shadow-sm overflow-hidden">
+        <div className="dashboard-semaforo-header border-b border-border/50 bg-muted/20 px-4 py-3 sm:px-5">
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
               <Activity className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-foreground">
+              <h2 id="dashboard-semaforo-title" className="text-sm font-semibold text-foreground">
                 Semáforo KPI
               </h2>
               <p className="text-xs text-muted-foreground">
@@ -109,12 +117,13 @@ export function DashboardPage() {
             </div>
           </div>
         </div>
-        <div className="p-4">
+        <div className="dashboard-semaforo-content p-4">
           <KPISemaforoGrid fecha={filter.fecha_creacion ?? today} />
         </div>
       </section>
 
       <AccionFormDialog
+        dialogId="dashboard-accion-dialog"
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         accion={editingAccion}

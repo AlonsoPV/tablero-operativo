@@ -12,6 +12,7 @@ export const ROUTES = {
   CALENDARIO: '/calendario',
   REPORTES: '/reportes',
   NOTIFICACIONES: '/notificaciones',
+  DISTANCIAS: '/distancias',
   MANUAL: '/manual',
   SETTINGS: '/settings',
   SETTINGS_PROFILE: '/settings/profile',
@@ -25,4 +26,7 @@ export const ROUTES = {
   SETTINGS_CATALOGS_DROPDOWNS: '/settings/catalogs/dropdowns',
   SETTINGS_CATALOGS_DROPDOWNS_OPTIONS: '/settings/catalogs/dropdowns/:catalogId',
   SETTINGS_CATALOGS_KPIS: '/settings/catalogs/kpis',
+  SETTINGS_CATALOGS_ORIGINS: '/settings/catalogs/origins',
+  SETTINGS_CATALOGS_DESTINATIONS: '/settings/catalogs/destinations',
+  SETTINGS_CATALOGS_SOLICITUDES_GUARDADAS: '/settings/catalogs/solicitudes-guardadas',
 } as const

@@ -12,7 +12,7 @@ CROSS JOIN (VALUES
   ('Documento', 'documento', 3),
   ('Reunión', 'reunion', 4),
   ('Screenshot / captura', 'screenshot', 5),
-  ('Otro', 'otro', 6)
+  ('Otro especificar', 'otro', 6)
 ) AS v(label, value, orden)
 WHERE c.key = 'evidencia_esperada'
   AND NOT EXISTS (

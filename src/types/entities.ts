@@ -23,6 +23,8 @@ export interface Usuario {
 export interface AccionDiaria {
   id: string
   fecha: string // date YYYY-MM-DD
+  /** Título breve (máx. 70 caracteres); se muestra en vista colapsada. */
+  titulo_accion: string
   descripcion_accion: string
   responsable: string // FK usuarios.id (assigned_to)
   created_by?: string | null // FK usuarios.id (quién creó)

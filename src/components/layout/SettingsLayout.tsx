@@ -1,7 +1,7 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants'
-import { Users, FolderOpen, Shield, MapPin, Flag, ArrowUpCircle, List, Target, UserCircle } from 'lucide-react'
+import { Users, FolderOpen, Shield, MapPin, Flag, ArrowUpCircle, List, Target, UserCircle, MapPinned, Navigation, ClipboardList } from 'lucide-react'
 
 const SETTINGS_LINKS = [
   { to: ROUTES.SETTINGS_PROFILE, label: 'Mi perfil', icon: UserCircle },
@@ -17,6 +17,9 @@ const CATALOG_LINKS = [
   { to: ROUTES.SETTINGS_CATALOGS_PRIORITIES, label: 'Prioridades', icon: ArrowUpCircle },
   { to: ROUTES.SETTINGS_CATALOGS_DROPDOWNS, label: 'Listas desplegables', icon: List },
   { to: ROUTES.SETTINGS_CATALOGS_KPIS, label: 'KPIs', icon: Target },
+  { to: ROUTES.SETTINGS_CATALOGS_ORIGINS, label: 'Orígenes', icon: MapPinned },
+  { to: ROUTES.SETTINGS_CATALOGS_DESTINATIONS, label: 'Destinos', icon: Navigation },
+  { to: ROUTES.SETTINGS_CATALOGS_SOLICITUDES_GUARDADAS, label: 'Solicitudes guardadas', icon: ClipboardList },
 ] as const
 
 export function SettingsLayout() {

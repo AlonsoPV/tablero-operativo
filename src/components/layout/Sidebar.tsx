@@ -9,6 +9,7 @@ import {
   FileBarChart,
   Bell,
   BookOpen,
+  MapPin,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants'
@@ -25,6 +26,7 @@ const navItems = [
   { to: ROUTES.CALENDARIO, label: 'Calendario', icon: Calendar },
   { to: ROUTES.REPORTES, label: 'Reportes', icon: FileBarChart },
   { to: ROUTES.NOTIFICACIONES, label: 'Notificaciones', icon: Bell },
+  { to: ROUTES.DISTANCIAS, label: 'Distancias', icon: MapPin },
   { to: ROUTES.MANUAL, label: 'Manual', icon: BookOpen },
   { to: ROUTES.SETTINGS, label: 'Configuración', icon: Settings },
 ] as const

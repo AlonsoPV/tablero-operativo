@@ -24,6 +24,7 @@ import { PrioritiesPage } from '@/features/catalogs/pages/PrioritiesPage'
 import { DropdownCatalogsPage } from '@/features/catalogs/pages/DropdownCatalogsPage'
 import { DropdownCatalogOptionsPage } from '@/features/catalogs/pages/DropdownCatalogOptionsPage'
 import { KpisPage } from '@/features/catalogs/pages/KpisPage'
+import { DistanceDashboardPage, DistanceOriginsCatalogPage, DistanceDestinationsCatalogPage, DistanceRequestsSavedPage } from '@/features/distance'
 import { ROUTES } from '@/constants'
 
 const router = createBrowserRouter([
@@ -55,6 +56,7 @@ const router = createBrowserRouter([
       { path: ROUTES.CALENDARIO, element: <CalendarPage /> },
       { path: ROUTES.REPORTES, element: <ReportesPage /> },
       { path: ROUTES.NOTIFICACIONES, element: <NotificacionesPage /> },
+      { path: ROUTES.DISTANCIAS, element: <DistanceDashboardPage /> },
       { path: ROUTES.MANUAL, element: <ManualPage /> },
       {
         path: ROUTES.SETTINGS,
@@ -72,6 +74,9 @@ const router = createBrowserRouter([
           { path: 'catalogs/dropdowns', element: <DropdownCatalogsPage /> },
           { path: 'catalogs/dropdowns/:catalogId', element: <DropdownCatalogOptionsPage /> },
           { path: 'catalogs/kpis', element: <KpisPage /> },
+          { path: 'catalogs/origins', element: <DistanceOriginsCatalogPage /> },
+          { path: 'catalogs/destinations', element: <DistanceDestinationsCatalogPage /> },
+          { path: 'catalogs/solicitudes-guardadas', element: <DistanceRequestsSavedPage /> },
         ],
       },
     ],

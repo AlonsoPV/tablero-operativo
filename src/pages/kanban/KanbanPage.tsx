@@ -67,6 +67,10 @@ export function KanbanPage() {
     }
   }, [accionFromUrl, accionIdFromUrl, setSearchParams])
 
+  const handleFilterChange = useCallback((next: AccionesFilter | Partial<AccionesFilter>) => {
+    setFilter((prev) => ({ ...prev, ...next }))
+  }, [])
+
   const handleClearFilters = useCallback(() => {
     setFilter({ ...DEFAULT_FILTER, fecha_creacion: today })
   }, [today])
@@ -108,7 +112,7 @@ export function KanbanPage() {
   }, [])
 
   return (
-    <div className="flex flex-col gap-6">
+    <div id="kanban-page" className="kanban-page flex flex-col gap-6">
       <KanbanHeader
         filtersExpanded={filtersExpanded}
         onToggleFilters={() => setFiltersExpanded((v) => !v)}
@@ -117,7 +121,7 @@ export function KanbanPage() {
         onViewModeChange={setViewMode}
         rightOfTitle={
           nextDeadline ? (
-            <span className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground">
+            <span id="kanban-next-deadline" className="kanban-next-deadline inline-flex items-center gap-2 rounded-full border border-border/50 bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground">
               Próximo límite
               <CountdownTimer
                 fecha={nextDeadline.fecha}
@@ -130,14 +134,16 @@ export function KanbanPage() {
         }
       />
 
-      <KanbanToolbar
-        filter={filter}
-        onFilterChange={setFilter}
-        onClear={handleClearFilters}
-        visible={filtersExpanded}
-      />
+      <div id="kanban-toolbar" className="kanban-toolbar-wrapper">
+        <KanbanToolbar
+          filter={filter}
+          onFilterChange={handleFilterChange}
+          onClear={handleClearFilters}
+          visible={filtersExpanded}
+        />
+      </div>
 
-      <section className="min-h-[420px]">
+      <section id="kanban-content" className="kanban-content min-h-[420px]">
         {viewMode === 'kanban' ? (
           <KanbanBoard
             acciones={acciones}
@@ -145,9 +151,23 @@ export function KanbanPage() {
             responsableNames={responsableNames}
             onSelectAccion={handleSelectAccion}
             onNewAction={handleNewAction}
+            filterEstado={
+              filter.estado != null && !Array.isArray(filter.estado)
+                ? filter.estado
+                : Array.isArray(filter.estado) && filter.estado.length === 1
+                  ? filter.estado[0]
+                  : undefined
+            }
           />
         ) : (
-          <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+          <div id="kanban-grid-view" className="kanban-grid-view rounded-xl border border-border/50 bg-card shadow-sm overflow-hidden">
+            <div className="kanban-grid-view-header border-b border-border/50 bg-muted/20 px-4 py-2.5 flex items-center justify-between">
+              <p className="text-sm font-medium text-muted-foreground">
+                <span className="font-semibold tabular-nums text-foreground">{acciones.length}</span>
+                {' '}acciones
+              </p>
+              <p className="text-xs text-muted-foreground">Clic en una fila para editar</p>
+            </div>
             <AccionesControlTable
               acciones={acciones}
               isLoading={isLoading}
@@ -160,6 +180,7 @@ export function KanbanPage() {
       </section>
 
       <AccionFormDialog
+        dialogId="kanban-accion-dialog"
         open={dialogOpen}
         onOpenChange={(open) => {
           if (!open) handleDialogClose()

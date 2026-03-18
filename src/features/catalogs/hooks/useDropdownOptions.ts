@@ -11,6 +11,7 @@ export function useDropdownOptions(catalogId: string | undefined | null) {
     queryKey: [...KEY, catalogId],
     queryFn: () => dropdownOptionsService.listByCatalogId(catalogId!),
     enabled: !!catalogId,
+    refetchOnMount: 'always',
   })
 }
 

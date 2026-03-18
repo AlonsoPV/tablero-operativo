@@ -1,0 +1,163 @@
+/**
+ * Servicio de distancias: Edge Function (cálculo por origin_id/destination_id)
+ * y CRUD de solicitudes en distance_requests.
+ */
+
+import { supabase } from '@/lib/supabase/client'
+import type {
+  CalculateRoutePayload,
+  CalculateRouteResult,
+  DistanceRequestRow,
+  DistanceRequestWithDetails,
+  DistanceQueryRow,
+} from '../types/distance.types'
+
+const FUNCTION_NAME = 'calculate-distance'
+const REQUEST_TIMEOUT_MS = 20_000
+
+function getErrorMessage(
+  res: Response,
+  result: CalculateRouteResult & { message?: string }
+): string {
+  if (result?.message && typeof result.message === 'string') return result.message
+  if (res.status === 401) return 'No autorizado. Cierra sesión y vuelve a entrar.'
+  if (res.status === 500) return 'Error del servidor. Comprueba la configuración de la Edge Function.'
+  return `Error ${res.status}. ${res.statusText || 'Sin detalles'}`
+}
+
+export const distanceService = {
+  /**
+   * Calcula distancia ida + vuelta vía Edge Function (catálogo primero, luego Google).
+   * Recibe origin_id y destination_id; la función lee direcciones desde BD.
+   * Lanza Error en caso de fallo para que la mutación rechace y la UI salga de "Calculando...".
+   */
+  async calculateRoute(payload: CalculateRoutePayload): Promise<CalculateRouteResult> {
+    const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+    const session = refreshData?.session ?? (await supabase.auth.getSession()).data?.session
+    const token = session?.access_token
+    if (refreshError || !token) {
+      throw new Error(
+        'Debes iniciar sesión para calcular distancias. Si ya has iniciado sesión, cierra sesión y vuelve a entrar.'
+      )
+    }
+
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${FUNCTION_NAME}`
+    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          ...(anonKey && { apikey: anonKey }),
+        },
+        body: JSON.stringify({
+          origin_id: payload.origin_id,
+          destination_id: payload.destination_id,
+          route_mode: payload.route_mode ?? 'DRIVE',
+        }),
+      })
+    } catch (err) {
+      clearTimeout(timeoutId)
+      const isAbort = err instanceof Error && err.name === 'AbortError'
+      throw new Error(
+        isAbort
+          ? 'La consulta tardó demasiado. Comprueba tu conexión o intenta de nuevo.'
+          : (err instanceof Error ? err.message : 'Error de red al conectar con el servicio.')
+      )
+    }
+    clearTimeout(timeoutId)
+
+    let result: (CalculateRouteResult & { message?: string }) | null = null
+    try {
+      result = (await res.json()) as CalculateRouteResult & { message?: string }
+    } catch {
+      if (!res.ok) {
+        throw new Error(getErrorMessage(res, { message: res.statusText }))
+      }
+      throw new Error('La respuesta del servidor no es válida.')
+    }
+
+    if (!res.ok) {
+      throw new Error(getErrorMessage(res, result ?? {}))
+    }
+
+    if (!result?.ok && result?.message) {
+      throw new Error(result.message)
+    }
+
+    return result
+  },
+
+  /**
+   * Lista solicitudes del tablero (distance_requests). RLS filtra por created_by.
+   * Incluye origen y destino para mostrar nombres en la tabla.
+   */
+  async listRequests(): Promise<DistanceRequestWithDetails[]> {
+    const { data, error } = await supabase
+      .from('distance_requests')
+      .select(
+        '*, origin:distance_origins!origin_id(id,nombre,ubicacion), destination:distance_destinations!destination_id(id,nombre,ubicacion)'
+      )
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+    const rows = (data ?? []) as DistanceRequestWithDetails[]
+    return rows.map((r) => ({
+      ...r,
+      origin: Array.isArray((r as { origin?: unknown }).origin) ? (r as { origin: unknown[] }).origin[0] : (r as { origin?: unknown }).origin,
+      destination: Array.isArray((r as { destination?: unknown }).destination) ? (r as { destination: unknown[] }).destination[0] : (r as { destination?: unknown }).destination,
+    }))
+  },
+
+  /**
+   * Crea una solicitud en distance_requests. RLS exige created_by = usuario actual.
+   */
+  async createRequest(row: {
+    ruta?: string | null
+    fecha: string
+    hora_alta: string
+    origin_id: string
+    destination_id: string
+    distance_catalog_id?: string | null
+    km_ida?: number | null
+    km_vuelta?: number | null
+    km_total?: number | null
+    created_by: string | null
+  }): Promise<DistanceRequestRow> {
+    const { data, error } = await supabase
+      .from('distance_requests')
+      .insert({
+        ruta: row.ruta?.trim() ?? null,
+        fecha: row.fecha,
+        hora_alta: row.hora_alta,
+        origin_id: row.origin_id,
+        destination_id: row.destination_id,
+        distance_catalog_id: row.distance_catalog_id ?? null,
+        km_ida: row.km_ida ?? null,
+        km_vuelta: row.km_vuelta ?? null,
+        km_total: row.km_total ?? null,
+        created_by: row.created_by,
+      })
+      .select()
+      .single()
+
+    if (error) throw error
+    return data as DistanceRequestRow
+  },
+
+  /** Legacy: lista historial en distance_queries (mantener por compatibilidad). */
+  async list(): Promise<DistanceQueryRow[]> {
+    const { data, error } = await supabase
+      .from('distance_queries')
+      .select('*')
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    return (data ?? []) as DistanceQueryRow[]
+  },
+}

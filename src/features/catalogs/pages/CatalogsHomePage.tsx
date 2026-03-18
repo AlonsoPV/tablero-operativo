@@ -10,6 +10,9 @@ import {
   ArrowUpCircle,
   List,
   Target,
+  MapPinned,
+  Navigation,
+  ClipboardList,
 } from 'lucide-react'
 
 const CATALOGS = [
@@ -48,6 +51,24 @@ const CATALOGS = [
     description: 'KPIs configurables: unidad, tipo, meta, periodicidad.',
     href: ROUTES.SETTINGS_CATALOGS_KPIS,
     icon: Target,
+  },
+  {
+    title: 'Orígenes',
+    description: 'Catálogo de orígenes para el tablero de distancias.',
+    href: ROUTES.SETTINGS_CATALOGS_ORIGINS,
+    icon: MapPinned,
+  },
+  {
+    title: 'Destinos',
+    description: 'Catálogo de destinos para el tablero de distancias.',
+    href: ROUTES.SETTINGS_CATALOGS_DESTINATIONS,
+    icon: Navigation,
+  },
+  {
+    title: 'Solicitudes guardadas',
+    description: 'Historial de solicitudes de rutas guardadas.',
+    href: ROUTES.SETTINGS_CATALOGS_SOLICITUDES_GUARDADAS,
+    icon: ClipboardList,
   },
 ] as const
 

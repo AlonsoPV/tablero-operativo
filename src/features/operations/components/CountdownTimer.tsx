@@ -17,12 +17,13 @@ function getDeadlineMs(fecha: string, horaLimite: string): number | null {
 
 function formatRemaining(ms: number): string {
   if (ms <= 0) return 'Vencido'
-  const totalM = Math.floor(ms / 60_000)
-  const h = Math.floor(totalM / 60)
-  const m = totalM % 60
-  if (h > 0) return `${h}h ${m}m`
-  if (m > 0) return `${m} min`
-  return '< 1 min'
+  const totalH = Math.floor(ms / 3_600_000)
+  const d = Math.floor(totalH / 24)
+  const h = totalH % 24
+  const parts: string[] = []
+  if (d > 0) parts.push(`${d}d`)
+  if (h > 0 || parts.length === 0) parts.push(`${h}h`)
+  return parts.join(' ')
 }
 
 export interface CountdownTimerProps {
@@ -90,9 +91,9 @@ export function CountdownTimer({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 font-medium tabular-nums',
+        'inline-flex items-center gap-1.5 font-medium tabular-nums text-foreground',
         variant === 'compact' && 'text-xs',
-        isOverdue ? 'text-destructive' : 'text-foreground',
+        isOverdue && 'text-destructive',
         className
       )}
     >

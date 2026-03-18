@@ -44,41 +44,43 @@ export function KanbanHeader({
 }: KanbanHeaderProps) {
   return (
     <header
+      id="kanban-header"
       className={cn(
-        'flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between',
+        'kanban-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between',
         className
       )}
     >
-      <div className="space-y-1">
+      <div className="kanban-header-title-area space-y-1">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+          <h1 id="kanban-title" className="kanban-title text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
             Kanban
           </h1>
           {rightOfTitle}
         </div>
-        <p className="text-sm text-muted-foreground max-w-xl">
+        <p className="kanban-subtitle text-sm text-muted-foreground max-w-xl">
           {viewMode === 'kanban'
             ? 'Gestiona tus acciones por estado. Arrastra las tarjetas entre columnas para actualizar el progreso.'
             : 'Vista en lista. Haz clic en una fila para editar la acción.'}
         </p>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="kanban-header-actions flex flex-wrap items-center gap-2">
         {onNewAction && (
-          <Button onClick={onNewAction} size="sm" className="shadow-sm">
+          <Button id="kanban-btn-new-action" className="kanban-btn-new-action shadow-sm" onClick={onNewAction} size="sm">
             <Plus className="h-4 w-4" />
             Nueva acción
           </Button>
         )}
-        <Button variant="outline" size="sm" className="h-8 border-border/60 bg-background/80">
+        <Button id="kanban-btn-export" className="kanban-btn-export h-8 border-border/60 bg-background/80" variant="outline" size="sm">
           <Download className="h-3.5 w-3.5" />
           Exportar
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
+              id="kanban-btn-view"
+              className="kanban-btn-view h-8 min-w-[90px] justify-between gap-1.5 border-border/60 bg-background/80"
               variant="outline"
               size="sm"
-              className="h-8 min-w-[90px] justify-between gap-1.5 border-border/60 bg-background/80"
             >
               {viewMode === 'kanban' ? (
                 <LayoutGrid className="h-3.5 w-3.5" />
@@ -113,10 +115,11 @@ export function KanbanHeader({
         </DropdownMenu>
         {onToggleFilters && (
           <Button
+            id="kanban-btn-filters"
+            className="kanban-btn-filters h-8 border-border/60 bg-background/80"
             variant={filtersExpanded ? 'secondary' : 'outline'}
             size="sm"
             onClick={onToggleFilters}
-            className="h-8 border-border/60 bg-background/80"
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
             Filtros

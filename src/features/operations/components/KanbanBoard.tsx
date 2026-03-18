@@ -137,6 +137,8 @@ export interface KanbanBoardProps {
   responsableNames?: Record<string, string>
   onSelectAccion?: (accion: AccionDiaria) => void
   onNewAction?: () => void
+  /** Cuando está definido, se muestra solo la columna de este estado (sincronizado con el filtro de la toolbar). */
+  filterEstado?: ActionStatus
 }
 
 function KanbanCardInner({
@@ -222,8 +224,8 @@ function KanbanCardInner({
           title={priorityStyle.label}
         />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium leading-snug text-foreground line-clamp-2">
-            {accion.descripcion_accion}
+          <p className="text-sm font-medium leading-snug text-foreground line-clamp-2" title={accion.descripcion_accion}>
+            {accion.titulo_accion?.trim() || accion.descripcion_accion}
           </p>
           {accion.evidencia_esperada && (
             <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -286,7 +288,7 @@ function KanbanCard({
     data: { accion },
   })
   return (
-    <div ref={setNodeRef} className="transition-transform duration-200">
+    <div ref={setNodeRef} className="kanban-card transition-transform duration-200" data-accion-id={accion.id}>
       <KanbanCardInner
         accion={accion}
         responsableName={responsableName}
@@ -352,14 +354,15 @@ function KanbanColumn({
   return (
     <div
       ref={setNodeRef}
+      data-status={status}
       className={cn(
-        'flex min-w-[280px] max-w-[300px] shrink-0 flex-col rounded-2xl border border-border/50 border-l-4 transition-all duration-200',
+        'kanban-column flex min-w-[280px] max-w-[300px] shrink-0 flex-col rounded-2xl border border-border/50 border-l-4 transition-all duration-200',
         style.border,
         style.bg,
         isOver && 'ring-2 ring-primary/20 ring-offset-2 ring-offset-background'
       )}
     >
-      <div className="flex items-center justify-between gap-2 px-4 py-3">
+      <div className="kanban-column-header flex items-center justify-between gap-2 px-4 py-3">
         <div className="flex items-center gap-2 min-w-0">
           <Icon className={cn('h-4 w-4 shrink-0', style.icon)} />
           <h3 className="truncate text-sm font-semibold text-foreground">
@@ -397,7 +400,7 @@ function KanbanColumn({
           {actions.length}
         </span>
       </div>
-      <div className="flex min-h-[200px] flex-1 flex-col gap-3 overflow-y-auto px-3 pb-4 pt-0 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:rounded [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-border">
+      <div className="kanban-column-cards flex min-h-[200px] flex-1 flex-col gap-3 overflow-y-auto px-3 pb-4 pt-0 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:rounded [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-border">
         {actions.length === 0 ? (
           <KanbanColumnEmpty status={status} onNewAction={onNewAction} />
         ) : (
@@ -417,13 +420,13 @@ function KanbanColumn({
   )
 }
 
-function KanbanBoardSkeleton() {
+function KanbanBoardSkeleton({ columns = COLUMN_ORDER }: { columns?: ActionStatus[] }) {
   return (
-    <div className="flex gap-4 overflow-hidden pb-4">
-      {COLUMN_ORDER.map((status) => (
+    <div id="kanban-board" className="kanban-board kanban-board-skeleton flex gap-4 overflow-hidden pb-4">
+      {columns.map((status) => (
         <div
           key={status}
-          className="flex min-w-[280px] max-w-[300px] shrink-0 flex-col rounded-2xl border border-border/50 bg-muted/10 p-4"
+          className="kanban-column flex min-w-[280px] max-w-[300px] shrink-0 flex-col rounded-2xl border border-border/50 bg-muted/10 p-4"
         >
           <div className="mb-3 flex items-center justify-between">
             <div className="h-4 w-24 animate-pulse rounded bg-muted" />
@@ -450,10 +453,16 @@ export function KanbanBoard({
   responsableNames = {},
   onSelectAccion,
   onNewAction,
+  filterEstado,
 }: KanbanBoardProps) {
   const updateEstado = useUpdateAccionEstado()
   const [activeId, setActiveId] = useState<string | null>(null)
   const { data: commentCounts = {} } = useCommentCounts(acciones.map((a) => a.id))
+
+  const columnsToShow = useMemo(() => {
+    if (filterEstado && COLUMN_ORDER.includes(filterEstado)) return [filterEstado]
+    return COLUMN_ORDER
+  }, [filterEstado])
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -491,7 +500,8 @@ export function KanbanBoard({
     (event: DragEndEvent) => {
       setActiveId(null)
       const { active, over } = event
-      if (!over || String(over.id) === String(active.id)) return
+      if (!over) return
+      // over.id es el id del droppable (columna) = status; active.id es el id de la acción
       const newStatus = COLUMN_ORDER.find((s) => s === over.id) as ActionStatus | undefined
       if (!newStatus) return
       const accion = acciones.find((a) => a.id === active.id)
@@ -502,7 +512,13 @@ export function KanbanBoard({
         toast.error('No se puede marcar como Hecho sin evidencia cargada')
         return
       }
-      updateEstado.mutate({ id: accion.id, estado: newStatus })
+      updateEstado.mutate(
+        { id: accion.id, estado: newStatus },
+        {
+          onSuccess: () => toast.success('Estado actualizado'),
+          onError: (e) => toast.error(e instanceof Error ? e.message : 'Error al actualizar estado'),
+        }
+      )
     },
     [acciones, updateEstado]
   )
@@ -513,13 +529,19 @@ export function KanbanBoard({
         toast.error('No se puede marcar como Hecho sin evidencia cargada')
         return
       }
-      updateEstado.mutate({ id: accion.id, estado })
+      updateEstado.mutate(
+        { id: accion.id, estado },
+        {
+          onSuccess: () => toast.success('Estado actualizado'),
+          onError: (e) => toast.error(e instanceof Error ? e.message : 'Error al actualizar estado'),
+        }
+      )
     },
     [updateEstado]
   )
 
   if (isLoading) {
-    return <KanbanBoardSkeleton />
+    return <KanbanBoardSkeleton columns={columnsToShow} />
   }
 
   return (
@@ -529,12 +551,13 @@ export function KanbanBoard({
       onDragEnd={handleDragEnd}
     >
       <div
+        id="kanban-board"
         className={cn(
-          'flex gap-5 overflow-x-auto pb-4 pt-1',
+          'kanban-board flex gap-5 overflow-x-auto pb-4 pt-1',
           '[&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:rounded [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/80 hover:[&::-webkit-scrollbar-thumb]:bg-border'
         )}
       >
-        {COLUMN_ORDER.map((status) => (
+        {columnsToShow.map((status) => (
           <KanbanColumn
             key={status}
             status={status}

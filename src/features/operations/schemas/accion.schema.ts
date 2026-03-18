@@ -17,6 +17,11 @@ const descripcionAccionSchema = z
       .max(500, 'Máximo 500 caracteres')
   )
 
+const tituloAccionSchema = z
+  .string()
+  .transform((s) => (s ?? '').trim())
+  .pipe(z.string().max(70, 'Máximo 70 caracteres'))
+
 const evidenciaEsperadaSchema = z
   .string()
   .min(1, 'La evidencia esperada es obligatoria')
@@ -37,6 +42,7 @@ const horaSchema = z
 
 export const accionCreateSchema = z.object({
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha YYYY-MM-DD').optional(),
+  titulo_accion: tituloAccionSchema,
   descripcion_accion: descripcionAccionSchema,
   responsable: z.string().uuid('Responsable obligatorio'),
   hora_limite: horaSchema,

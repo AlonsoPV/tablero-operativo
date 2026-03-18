@@ -5,7 +5,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { AccionForm } from './AccionForm'
@@ -38,6 +38,8 @@ export interface AccionFormDialogProps {
   onSuccess?: () => void
   /** Nombres de responsables para comentarios */
   responsableNames?: Record<string, string>
+  /** Id opcional del contenedor del diálogo (ej. kanban-accion-dialog, dashboard-accion-dialog) */
+  dialogId?: string
 }
 
 export function AccionFormDialog({
@@ -47,6 +49,7 @@ export function AccionFormDialog({
   defaultFecha,
   onSuccess,
   responsableNames = {},
+  dialogId,
 }: AccionFormDialogProps) {
   const { data: currentUser } = useCurrentUser()
   const createAccion = useCreateAccion()
@@ -83,6 +86,7 @@ export function AccionFormDialog({
   const defaultValues: Partial<AccionCreateInput> | null = accion
     ? {
         fecha: accion.fecha,
+        titulo_accion: accion.titulo_accion ?? '',
         descripcion_accion: accion.descripcion_accion,
         responsable: accion.responsable,
         hora_limite: accion.hora_limite?.slice(0, 5) ?? '17:00',
@@ -93,6 +97,7 @@ export function AccionFormDialog({
       }
     : {
         fecha: defaultFecha ?? todayISO(),
+        titulo_accion: '',
         hora_limite: '17:00',
         prioridad: 'P2_Media',
       }
@@ -103,6 +108,7 @@ export function AccionFormDialog({
     const estado = (values.estado ?? 'Pendiente') as ActionStatus
     const payload: Partial<AccionDiaria> = {
       fecha,
+      titulo_accion: (values.titulo_accion ?? '').trim().slice(0, 70),
       descripcion_accion: values.descripcion_accion,
       responsable: values.responsable,
       hora_limite: values.hora_limite,
@@ -177,19 +183,25 @@ export function AccionFormDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-xl overflow-hidden flex flex-col p-0 gap-0"
+        id={dialogId}
+        className="accion-form-dialog max-h-[90vh] w-[calc(100vw-2rem)] max-w-xl overflow-hidden flex flex-col p-0 gap-0"
         aria-describedby={undefined}
       >
+        <DialogTitle className="sr-only">
+          {isEdit ? 'Editar acción' : 'Nueva acción'}
+        </DialogTitle>
         <div className="shrink-0 border-b border-border/60 px-6 pr-12 py-4">
-          <h2 className="text-lg font-semibold tracking-tight">
+          <h2 className="text-lg font-semibold tracking-tight" aria-hidden>
             {isEdit ? 'Editar acción' : 'Nueva acción'}
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
             {isEdit ? 'Actualiza los campos y guarda los cambios' : 'Completa los datos para crear la acción'}
           </p>
         </div>
-        <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5">
           <AccionForm
+            key={accion?.id ?? 'new'}
+            formId={`${dialogId ?? 'accion-form-dialog'}-form`}
             defaultValues={defaultValues}
             onSubmit={handleSubmit}
             onCancel={() => onOpenChange(false)}
@@ -287,6 +299,27 @@ export function AccionFormDialog({
             </div>
           </>
         )}
+        </div>
+        <div className="shrink-0 border-t border-border/60 bg-background px-6 py-4 flex justify-end gap-3">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+            disabled={createAccion.isPending || updateAccion.isPending}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="submit"
+            form={`${dialogId ?? 'accion-form-dialog'}-form`}
+            disabled={createAccion.isPending || updateAccion.isPending}
+          >
+            {createAccion.isPending || updateAccion.isPending
+              ? 'Guardando…'
+              : isEdit
+                ? 'Guardar cambios'
+                : 'Crear acción'}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

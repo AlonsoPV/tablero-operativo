@@ -24,14 +24,14 @@ export function DashboardActionsSection({
   onNewAction,
 }: DashboardActionsSectionProps) {
   return (
-    <div className="rounded-xl border border-border/50 bg-card shadow-sm overflow-hidden">
-      <div className="border-b border-border/50 bg-muted/20 px-4 py-3 sm:px-5">
+    <div id="dashboard-actions-section" className="dashboard-actions-section rounded-xl border border-border/50 bg-card shadow-sm overflow-hidden">
+      <div className="dashboard-actions-section-header border-b border-border/50 bg-muted/20 px-4 py-3 sm:px-5">
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
             <ClipboardList className="h-4 w-4 text-primary" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">
+            <h2 id="dashboard-actions-title" className="text-sm font-semibold text-foreground">
               Control de acciones
             </h2>
             <p className="text-xs text-muted-foreground">
@@ -40,7 +40,7 @@ export function DashboardActionsSection({
           </div>
         </div>
       </div>
-      <div className="p-0">
+      <div className="dashboard-actions-section-body p-0">
         <AccionesControlTable
           acciones={acciones}
           isLoading={isLoading}

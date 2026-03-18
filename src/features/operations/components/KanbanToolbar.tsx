@@ -20,9 +20,19 @@ import { useAreas } from '@/features/catalogs/hooks/useAreas'
 import { Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+const ESTADO_LABELS: Record<string, string> = {
+  Pendiente: 'Pendiente',
+  Hoy: 'Hoy',
+  En_Ejecucion: 'En ejecución',
+  Bloqueado: 'Bloqueado',
+  Retraso: 'Retraso',
+  Hecho: 'Hecho',
+  Verificado: 'Verificado',
+}
+
 const ESTADO_OPTIONS: { value: string; label: string }[] = [
   { value: 'all', label: 'Estado' },
-  ...ACTION_STATUS.map((s) => ({ value: s, label: s })),
+  ...ACTION_STATUS.map((s) => ({ value: s, label: ESTADO_LABELS[s] ?? s })),
 ]
 
 const PRIORIDAD_OPTIONS = [
@@ -34,7 +44,8 @@ const PRIORIDAD_OPTIONS = [
 
 export interface KanbanToolbarProps {
   filter: AccionesFilter
-  onFilterChange: (f: AccionesFilter) => void
+  /** Puede recibir el filtro completo o solo los campos que cambian (merge con estado actual). */
+  onFilterChange: (f: AccionesFilter | Partial<AccionesFilter>) => void
   onClear: () => void
   /** Ocultar completamente (ej. cuando filtros colapsados) */
   visible?: boolean
@@ -71,42 +82,41 @@ export function KanbanToolbar({
   return (
     <div
       className={cn(
-        'flex flex-wrap items-center gap-2 rounded-xl border border-border/50 bg-muted/20 px-3 py-2 backdrop-blur-sm',
+        'kanban-toolbar flex flex-wrap items-center gap-2 rounded-xl border border-border/50 bg-muted/20 px-3 py-2 backdrop-blur-sm',
         'transition-opacity duration-200',
         className
       )}
     >
-      <div className="relative flex-1 min-w-[140px] max-w-[240px]">
+      <div className="kanban-toolbar-search-wrap relative flex-1 min-w-[140px] max-w-[240px]">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
         <Input
+          id="kanban-filter-search"
+          className="kanban-toolbar-search h-8 rounded-lg border-border/60 bg-background/80 pl-9 text-sm focus-visible:ring-2"
           type="search"
           placeholder="Buscar acciones..."
           value={filter.search ?? ''}
           onChange={(e) =>
-            onFilterChange({ ...filter, search: e.target.value || undefined })
+            onFilterChange({ search: e.target.value || undefined })
           }
-          className="h-8 rounded-lg border-border/60 bg-background/80 pl-9 text-sm focus-visible:ring-2"
         />
       </div>
       <Input
+        id="kanban-filter-fecha"
+        className="kanban-toolbar-fecha h-8 w-[130px] rounded-lg border-border/60 bg-background/80 text-sm"
         type="date"
         value={filter.fecha_creacion ?? ''}
         onChange={(e) =>
-          onFilterChange({ ...filter, fecha_creacion: e.target.value || undefined })
+          onFilterChange({ fecha_creacion: e.target.value || undefined })
         }
         title="Ver acciones creadas hasta este día"
-        className="h-8 w-[130px] rounded-lg border-border/60 bg-background/80 text-sm"
       />
       <Select
         value={estadoValue}
         onValueChange={(v) =>
-          onFilterChange({
-            ...filter,
-            estado: v === 'all' ? undefined : (v as ActionStatus),
-          })
+          onFilterChange({ estado: v === 'all' ? undefined : (v as ActionStatus) })
         }
       >
-        <SelectTrigger className="h-8 w-[130px] rounded-lg border-border/60 bg-background/80 text-sm">
+        <SelectTrigger id="kanban-filter-estado" className="kanban-toolbar-estado h-8 w-[130px] rounded-lg border-border/60 bg-background/80 text-sm">
           <SelectValue placeholder="Estado" />
         </SelectTrigger>
         <SelectContent>
@@ -120,13 +130,10 @@ export function KanbanToolbar({
       <Select
         value={prioridadValue}
         onValueChange={(v) =>
-          onFilterChange({
-            ...filter,
-            prioridad: v === 'all' ? undefined : (v as PrioridadNc),
-          })
+          onFilterChange({ prioridad: v === 'all' ? undefined : (v as PrioridadNc) })
         }
       >
-        <SelectTrigger className="h-8 w-[110px] rounded-lg border-border/60 bg-background/80 text-sm">
+        <SelectTrigger id="kanban-filter-prioridad" className="kanban-toolbar-prioridad h-8 w-[110px] rounded-lg border-border/60 bg-background/80 text-sm">
           <SelectValue placeholder="Prioridad" />
         </SelectTrigger>
         <SelectContent>
@@ -140,9 +147,9 @@ export function KanbanToolbar({
       <Select
         value={filter.area ?? 'all'}
         onValueChange={(v) =>
-          onFilterChange({ ...filter, area: v === 'all' ? undefined : v })}
+          onFilterChange({ area: v === 'all' ? undefined : v })}
       >
-        <SelectTrigger className="h-8 w-[120px] rounded-lg border-border/60 bg-background/80 text-sm">
+        <SelectTrigger id="kanban-filter-area" className="kanban-toolbar-area h-8 w-[120px] rounded-lg border-border/60 bg-background/80 text-sm">
           <SelectValue placeholder="Área" />
         </SelectTrigger>
         <SelectContent>
@@ -157,13 +164,10 @@ export function KanbanToolbar({
       <Select
         value={filter.responsable ?? 'all'}
         onValueChange={(v) =>
-          onFilterChange({
-            ...filter,
-            responsable: v === 'all' ? undefined : v,
-          })
+          onFilterChange({ responsable: v === 'all' ? undefined : v })
         }
       >
-        <SelectTrigger className="h-8 w-[140px] rounded-lg border-border/60 bg-background/80 text-sm">
+        <SelectTrigger id="kanban-filter-responsable" className="kanban-toolbar-responsable h-8 w-[140px] rounded-lg border-border/60 bg-background/80 text-sm">
           <SelectValue placeholder="Responsable" />
         </SelectTrigger>
         <SelectContent>
@@ -177,11 +181,12 @@ export function KanbanToolbar({
       </Select>
       {hasFilters && (
         <Button
+          id="kanban-toolbar-clear"
+          className="kanban-toolbar-clear h-8 gap-1.5 text-muted-foreground hover:text-foreground"
           type="button"
           variant="ghost"
           size="sm"
           onClick={onClear}
-          className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
         >
           <X className="h-3.5 w-3.5" />
           Limpiar

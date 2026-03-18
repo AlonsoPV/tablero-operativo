@@ -14,6 +14,7 @@ export interface DashboardKpiCardProps {
   accent?: 'slate' | 'emerald' | 'red' | 'amber' | 'blue'
   isLoading?: boolean
   className?: string
+  id?: string
 }
 
 const ACCENT_STYLES: Record<NonNullable<DashboardKpiCardProps['accent']>, string> = {
@@ -32,9 +33,11 @@ export function DashboardKpiCard({
   accent = 'slate',
   isLoading,
   className,
+  id,
 }: DashboardKpiCardProps) {
   return (
     <div
+      id={id}
       className={cn(
         'relative overflow-hidden rounded-xl border border-border/50 bg-card px-4 py-4 shadow-sm transition-shadow hover:shadow-md',
         'border-l-4',
