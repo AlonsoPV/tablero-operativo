@@ -9,16 +9,37 @@ import { supabase } from '@/lib/supabase/client'
 import type { Usuario } from '@/types'
 
 const TABLE = 'usuarios'
+const __DEV__ = import.meta.env.DEV
+
+function devLog(message: string, payload?: unknown) {
+  if (!__DEV__) return
+  if (payload === undefined) {
+    console.log(`[usuarios] ${message}`)
+    return
+  }
+  console.log(`[usuarios] ${message}`, payload)
+}
 
 export const usuariosService = {
   /** Perfil por auth user id; null si no hay fila (evita error HTTP de .single() con 0 filas). */
   async getByAuthId(authUserId: string): Promise<Usuario | null> {
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
     const { data, error } = await supabase
       .from(TABLE)
       .select('*')
       .eq('user_id', authUserId)
       .maybeSingle()
+
+    const elapsedMs = Math.round(
+      (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
+    )
+
     if (error) throw error
+    devLog('getByAuthId resolved', {
+      authUserId,
+      found: !!data,
+      elapsedMs,
+    })
     return (data as Usuario) ?? null
   },
 

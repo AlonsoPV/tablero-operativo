@@ -27,6 +27,7 @@ import {
 import type { AccionDiaria } from '@/types'
 import type { AccionesFilter } from '@/services/acciones.service'
 import { todayCDMX } from '@/lib/dateUtils'
+import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
 
 const DEFAULT_FILTER: AccionesFilter = {}
 
@@ -134,7 +135,10 @@ export function KanbanPage() {
   }, [])
 
   return (
-    <div id="kanban-page" className="kanban-page flex flex-col gap-6">
+    <div
+      id="kanban-page"
+      className="kanban-page mx-auto flex w-full max-w-7xl flex-col space-y-8 px-4 py-6 sm:px-6"
+    >
       <KanbanHeader
         filtersExpanded={filtersExpanded}
         onToggleFilters={() => setFiltersExpanded((v) => !v)}
@@ -183,23 +187,27 @@ export function KanbanPage() {
             }
           />
         ) : (
-          <div id="kanban-grid-view" className="kanban-grid-view rounded-xl border border-border/50 bg-card shadow-sm overflow-hidden">
-            <div className="kanban-grid-view-header border-b border-border/50 bg-muted/20 px-4 py-2.5 flex items-center justify-between">
-              <p className="text-sm font-medium text-muted-foreground">
-                <span className="font-semibold tabular-nums text-foreground">{acciones.length}</span>
-                {' '}acciones
-              </p>
-              <p className="text-xs text-muted-foreground">Clic en una fila para editar</p>
-            </div>
-            <AccionesControlTable
-              acciones={acciones}
-              isLoading={isLoading}
-              commentCounts={commentCounts}
-              onSelectAccion={handleSelectAccion}
-              responsableNames={responsableNames}
-              checklistProgressByAccionId={checklistProgressByAccionId}
+          <SectionCard className="kanban-grid-view overflow-hidden">
+            <SectionCardHeader
+              title="Vista en lista"
+              subtitle="Clic en una fila para editar la acción."
+              action={
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  <span className="font-semibold text-foreground">{acciones.length}</span> acciones
+                </span>
+              }
             />
-          </div>
+            <SectionCardBody className="p-0">
+              <AccionesControlTable
+                acciones={acciones}
+                isLoading={isLoading}
+                commentCounts={commentCounts}
+                onSelectAccion={handleSelectAccion}
+                responsableNames={responsableNames}
+                checklistProgressByAccionId={checklistProgressByAccionId}
+              />
+            </SectionCardBody>
+          </SectionCard>
         )}
       </section>
 

@@ -3,7 +3,7 @@
  * Si el usuario ya está autenticado y tiene perfil válido, redirige al dashboard.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { AlertCircle } from 'lucide-react'
@@ -18,13 +18,18 @@ import type { LoginFormValues } from '../schemas/login.schema'
 export function LoginPage() {
   const navigate = useNavigate()
   const {
+    status,
+    authLoading,
+    sessionStatus,
+    profileStatus,
     isAuthenticated,
     isReady,
-    isLoading: authLoading,
     profile,
-    refetch,
+    error,
     logout,
   } = useAuth()
+
+  const pendingLoginResolutionRef = useRef(false)
 
   useEffect(() => {
     if (!authLoading && isAuthenticated && isReady && profile?.activo) {
@@ -32,51 +37,62 @@ export function LoginPage() {
     }
   }, [authLoading, isAuthenticated, isReady, profile?.activo, navigate])
 
+  useEffect(() => {
+    if (!pendingLoginResolutionRef.current || authLoading) return
+
+    if (sessionStatus !== 'authenticated') return
+
+    if (profileStatus === 'loaded' && profile?.activo) {
+      pendingLoginResolutionRef.current = false
+      setLoginLoading(false)
+      toast.success('Sesión iniciada')
+      navigate(ROUTES.DASHBOARD, { replace: true })
+      return
+    }
+
+    if (profileStatus === 'no_profile' || profileStatus === 'inactive') {
+      pendingLoginResolutionRef.current = false
+      setLoginLoading(false)
+      setLoginError(error?.message ?? 'No pudimos completar tu acceso.')
+      void logout()
+      return
+    }
+
+    if (profileStatus === 'timeout' || profileStatus === 'network_error') {
+      pendingLoginResolutionRef.current = false
+      setLoginLoading(false)
+      setLoginError(error?.message ?? 'No pudimos cargar tu perfil.')
+    }
+  }, [authLoading, sessionStatus, profileStatus, profile?.activo, error?.message, logout, navigate])
+
   const [loginLoading, setLoginLoading] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!authLoading && status === 'signed_out' && error?.type === 'session_expired') {
+      setLoginError(error.message)
+    }
+  }, [authLoading, status, error])
 
   const handleSubmit = async (values: LoginFormValues) => {
     setLoginError(null)
     setLoginLoading(true)
     try {
       await authService.signIn(values.email, values.password)
-      const result = await refetch('SIGNED_IN')
-
-      if (result.canEnterApp) {
-        toast.success('Sesión iniciada')
-        navigate(ROUTES.DASHBOARD, { replace: true })
-        return
-      }
-
-      if (result.error?.type === 'no_profile' || result.error?.type === 'user_inactive') {
-        setLoginError(result.error.message)
-        await logout()
-        return
-      }
-
-      if (result.error?.type === 'network') {
-        setLoginError(result.error.message)
-        return
-      }
-
-      // Estado raro tras signIn (p. ej. sesión aún no visible): no forzar signOut; el usuario puede reintentar.
-      setLoginError(
-        'No pudimos completar el acceso. Prueba de nuevo; si sigue igual, entra desde otro navegador o dispositivo.'
-      )
+      pendingLoginResolutionRef.current = true
     } catch (err) {
       const message = err instanceof Error ? err.message : 'No pudimos iniciar sesión. Inténtalo de nuevo en un momento.'
       setLoginError(message)
-    } finally {
       setLoginLoading(false)
     }
   }
 
   if (authLoading) {
-    return <AuthLoader />
+    return <AuthLoader message="Comprobando tu sesión…" />
   }
 
-  if (isAuthenticated && isReady && profile?.activo) {
-    return <AuthLoader />
+  if (sessionStatus === 'authenticated' && (profileStatus === 'loading' || (isReady && profile?.activo))) {
+    return <AuthLoader message={profileStatus === 'loading' ? 'Cargando tu perfil…' : 'Redirigiendo…'} />
   }
 
   return (

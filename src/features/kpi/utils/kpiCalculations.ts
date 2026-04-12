@@ -14,6 +14,11 @@
  */
 
 import type { CatalogKpiMeasurement, CatalogKpiO2cRow } from '../types/kpi.types'
+import {
+  KPI_COMPLIANCE_AT_RISK_MIN,
+  KPI_COMPLIANCE_ON_TRACK_MIN,
+  normalizeKpiComplianceBandThresholds,
+} from './kpiThresholds'
 
 export type CatalogKpiDirection = 'maximize' | 'minimize'
 
@@ -31,6 +36,8 @@ export type TargetHorizon = 'm6' | 'm12' | 'm18'
  * Usar el mismo valor en `useO2cGlobalScore`, `KpisDashboardPage` y cualquier score global.
  */
 export const DEFAULT_O2C_TARGET_HORIZON: TargetHorizon = 'm18'
+/** Umbral de alerta crítica: cumplimiento por debajo → requiere atención inmediata. */
+export const KPI_COMPLIANCE_CRITICAL_MAX = 0.3
 
 /**
  * Vista de métrica alineada a columnas O2C + valor actual resuelto
@@ -39,6 +46,8 @@ export const DEFAULT_O2C_TARGET_HORIZON: TargetHorizon = 'm18'
 export type KpiMetric = {
   id: string
   baseline: number | null
+  /** Meta M3 (mes 1–3 del programa); opcional. */
+  target_m3: number | null
   target_m6: number | null
   target_m12: number | null
   target_m18: number | null
@@ -57,10 +66,11 @@ export type KpiMetric = {
   threshold_yellow: number | null
 }
 
-/** Umbral superior por defecto: cumplimiento ≥ este valor → on_track */
-export const KPI_COMPLIANCE_ON_TRACK_MIN = 0.85
-/** Umbral medio por defecto: cumplimiento ≥ este valor (y < on_track) → at_risk */
-export const KPI_COMPLIANCE_AT_RISK_MIN = 0.65
+export {
+  KPI_COMPLIANCE_AT_RISK_MIN,
+  KPI_COMPLIANCE_ON_TRACK_MIN,
+  normalizeKpiComplianceBandThresholds,
+}
 
 const EPS = 1e-9
 
@@ -88,22 +98,6 @@ function clamp01(n: number): number {
   if (n < 0) return 0
   if (n > 1) return 1
   return n
-}
-
-/**
- * Asegura banda verde ≥ banda amarilla (0–1). Si los valores vienen invertidos, se intercambian.
- * Usado por `resolveEffectiveStatusThresholds` y `getKpiStatus`.
- */
-export function normalizeKpiComplianceBandThresholds(
-  greenMin: number,
-  yellowMin: number
-): { greenMin: number; yellowMin: number } {
-  const g = clamp01(greenMin)
-  const y = clamp01(yellowMin)
-  if (g < y) {
-    return { greenMin: y, yellowMin: g }
-  }
-  return { greenMin: g, yellowMin: y }
 }
 
 /**
@@ -222,6 +216,29 @@ export function calculateCompliance(
   if (!isFiniteNumber(baseline)) return null
 
   return complianceMaximizeMinimize(baseline, target, current, mode)
+}
+
+/**
+ * ¿El valor actual cumple la meta numérica en sentido literal (sin umbrales de semáforo)?
+ * - **maximize:** actual ≥ meta
+ * - **minimize:** actual ≤ meta
+ * - **binary:** actual ≈ meta
+ *
+ * Distinto del % de avance (`calculateCompliance`), que mide progreso desde la línea base hacia la meta.
+ */
+export function isLiteralMetaCumplida(
+  kpi: KpiMetric,
+  opts?: { targetHorizon?: TargetHorizon }
+): boolean | null {
+  const horizon = opts?.targetHorizon ?? DEFAULT_O2C_TARGET_HORIZON
+  const target = resolveTarget(kpi, horizon)
+  const current = kpi.current
+  if (!isFiniteNumber(current) || !isFiniteNumber(target)) return null
+  const mode = resolveEffectiveCalcType(kpi)
+  if (mode === null) return null
+  if (mode === 'binary') return nearlyEqual(current, target)
+  if (mode === 'maximize') return current >= target || nearlyEqual(current, target)
+  return current <= target || nearlyEqual(current, target)
 }
 
 /**
@@ -395,10 +412,11 @@ export function globalPortfolioWeightWarning(weightSum: number, itemCount: numbe
 }
 
 /**
- * Entrada mínima para derivar score global, desglose y diagnóstico de pesos desde `useCatalogKpiMetricsList`.
+ * Métricas de catálogo para el portafolio global (misma forma que `CatalogKpiMetricComputed`).
+ * El filtrado solo usa campos de `PortfolioFilterableKpiRow` sobre `row`.
  */
 export type CatalogKpiMetricItemForPortfolio = {
-  row: PortfolioFilterableKpiRow & { weight: number | null }
+  row: CatalogKpiO2cRow
   metric: KpiMetric
   compliance: number | null
   status: KpiComplianceStatus | null
@@ -536,6 +554,7 @@ export function buildKpiMetricFromCatalogRow(row: CatalogKpiO2cRow, current: num
   return {
     id: row.id,
     baseline: row.baseline ?? null,
+    target_m3: row.target_m3 ?? null,
     target_m6: row.target_m6 ?? null,
     target_m12: row.target_m12 ?? null,
     target_m18: row.target_m18 ?? null,

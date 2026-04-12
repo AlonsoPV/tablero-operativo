@@ -41,6 +41,21 @@ BEGIN
       SET app_role = 'super_admin',
           updated_at = now();
 
+    -- Catálogo de roles (usuarios.rol ↔ catalog_roles.nombre)
+    INSERT INTO public.catalog_roles (nombre, descripcion, activo)
+    SELECT
+      'super_admin',
+      'Super administrador: gestión de roles de aplicación y catálogos.',
+      true
+    WHERE NOT EXISTS (
+      SELECT 1 FROM public.catalog_roles cr
+      WHERE lower(trim(cr.nombre)) = 'super_admin'
+    );
+
+    UPDATE public.usuarios u
+    SET rol = 'super_admin'
+    WHERE u.user_id = v_auth_user_id;
+
     RAISE NOTICE 'OK super_admin asignado. input=% -> auth_user_id=%', v_input_id, v_auth_user_id;
   END LOOP;
 END $$;

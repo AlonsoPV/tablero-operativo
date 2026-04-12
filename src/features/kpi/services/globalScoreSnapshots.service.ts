@@ -28,7 +28,8 @@ export async function listGlobalScoreSnapshots(opts: GlobalScoreSnapshotsOpts = 
 }
 
 /**
- * Inserta un snapshot del score global (0-1). Requiere permisos según RLS.
+ * Inserta un snapshot del score global (0–1) vía tabla. Requiere `is_app_admin()` en RLS.
+ * Preferir `recordGlobalScoreSnapshot` desde la app tras mediciones.
  */
 export async function insertGlobalScoreSnapshot(
   input: InsertGlobalScoreSnapshotInput
@@ -43,4 +44,20 @@ export async function insertGlobalScoreSnapshot(
     .single()
   if (error) throw error
   return data as GlobalScoreSnapshot
+}
+
+/**
+ * Persiste un snapshot usando `record_global_score_snapshot` (SECURITY DEFINER).
+ * Dedupe: mismo día UTC y mismo score no inserta fila duplicada.
+ */
+export async function recordGlobalScoreSnapshot(
+  input: InsertGlobalScoreSnapshotInput
+): Promise<string> {
+  const { data, error } = await supabase.rpc('record_global_score_snapshot', {
+    p_score: input.score,
+    p_metadata: input.metadata ?? null,
+  })
+  if (error) throw error
+  if (data == null) throw new Error('record_global_score_snapshot: sin id')
+  return data as string
 }

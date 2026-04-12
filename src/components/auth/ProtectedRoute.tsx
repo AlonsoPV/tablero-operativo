@@ -1,11 +1,11 @@
 /**
  * Protege rutas que requieren autenticación.
- * - Bootstrap (authLoading): solo loader; nunca redirige.
- * - Sin sesión: redirige a login cuando el bootstrap ya terminó.
- * - Error de perfil (no_profile / user_inactive): pantalla específica; no redirige por sesión.
- * - Error de red: pantalla Reintentar; no se asume sesión inválida.
+ * - `authLoading`: solo loader mientras se resuelve la sesión.
+ * - `sessionStatus`: decide si hay redirección a login.
+ * - `profileStatus`: decide loader, error visible o acceso final.
  */
 
+import { useEffect } from 'react'
 import { Navigate, Outlet, useNavigate } from 'react-router-dom'
 import { ROUTES } from '@/constants'
 import { useAuth } from '@/features/auth/hooks/useAuth'
@@ -17,27 +17,77 @@ export function ProtectedRoute() {
   const navigate = useNavigate()
   const resetOnLogout = useAppStore((s) => s.resetOnLogout)
   const {
-    status,
-    isLoading: authLoading,
+    authLoading,
+    sessionStatus,
+    profileStatus,
     isAuthenticated,
     error,
     logout,
     refetch,
   } = useAuth()
 
-  if (authLoading || status === 'loading') {
-    return <AuthLoader />
+  useEffect(() => {
+    if (authLoading || sessionStatus !== 'signed_out' || error?.type === 'network') return
+    if (import.meta.env.DEV) {
+      console.log('[auth] redirecting to login')
+    }
+  }, [authLoading, sessionStatus, error?.type])
+
+  if (authLoading || sessionStatus === 'loading') {
+    return <AuthLoader message="Comprobando tu sesión…" />
   }
 
-  const isProfileError = isAuthenticated && error && (error.type === 'no_profile' || error.type === 'user_inactive')
-  if (isProfileError) {
+  if (error?.type === 'network' && sessionStatus === 'signed_out') {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-4">
+        <div className="max-w-md rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center">
+          <h2 className="mb-2 font-semibold text-amber-700 dark:text-amber-400">
+            No pudimos validar tu sesión
+          </h2>
+          <p className="mb-4 text-sm text-muted-foreground">{error.message}</p>
+          <Button onClick={() => refetch()}>Reintentar</Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (sessionStatus === 'signed_out') {
+    return <Navigate to={ROUTES.LOGIN} replace />
+  }
+
+  if (profileStatus === 'loading') {
+    return <AuthLoader message="Cargando tu perfil…" />
+  }
+
+  if (profileStatus === 'timeout' || profileStatus === 'network_error') {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-4">
+        <div className="max-w-md rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center">
+          <h2 className="mb-2 font-semibold text-amber-700 dark:text-amber-400">
+            No pudimos cargar tu perfil
+          </h2>
+          <p className="mb-4 text-sm text-muted-foreground">
+            {error?.message ?? 'Pudimos validar tu sesión, pero no fue posible cargar tu perfil. Intenta nuevamente.'}
+          </p>
+          <Button onClick={() => refetch()}>Reintentar</Button>
+        </div>
+      </div>
+    )
+  }
+
+  const isProfileAccessError =
+    isAuthenticated &&
+    error &&
+    (profileStatus === 'no_profile' || profileStatus === 'inactive')
+
+  if (isProfileAccessError) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-muted/30 p-4">
         <div className="max-w-md rounded-xl border border-border bg-card p-6 text-center shadow-sm">
           <h2 className="mb-2 text-lg font-semibold text-foreground">
-            {error!.type === 'user_inactive' ? 'Cuenta desactivada' : 'Ficha pendiente en el tablero'}
+            {profileStatus === 'inactive' ? 'Cuenta desactivada' : 'Ficha pendiente en el tablero'}
           </h2>
-          <p className="mb-6 text-sm leading-relaxed text-muted-foreground">{error!.message}</p>
+          <p className="mb-6 text-sm leading-relaxed text-muted-foreground">{error.message}</p>
           <Button
             type="button"
             variant="outline"
@@ -52,24 +102,6 @@ export function ProtectedRoute() {
         </div>
       </div>
     )
-  }
-
-  if (error?.type === 'network') {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-4">
-        <div className="max-w-md rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center">
-          <h2 className="mb-2 font-semibold text-amber-700 dark:text-amber-400">
-            Sin conexión o el servicio no respondió
-          </h2>
-          <p className="mb-4 text-sm text-muted-foreground">{error.message}</p>
-          <Button onClick={() => refetch()}>Reintentar</Button>
-        </div>
-      </div>
-    )
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to={ROUTES.LOGIN} replace />
   }
 
   return <Outlet />

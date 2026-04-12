@@ -15,16 +15,19 @@ export function AcademyTrackingCard() {
   const percent = academyGlobalProgressPercent(completedCount, ACADEMY_TOTAL_MODULES)
 
   return (
-    <Card className="border-primary/20 bg-primary/[0.03]">
-      <CardHeader className="pb-3">
+    <Card className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm">
+      <CardHeader className="border-b border-border/50 px-5 py-4 sm:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
-              <GraduationCap className="h-5 w-5 text-primary" />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted">
+              <GraduationCap className="h-5 w-5 text-muted-foreground" />
             </div>
             <div className="space-y-1">
-              <CardTitle className="text-lg">Seguimiento Academia O2C</CardTitle>
-              <CardDescription>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Formación O2C
+              </p>
+              <CardTitle className="text-base font-semibold text-foreground">Seguimiento Academia O2C</CardTitle>
+              <CardDescription className="text-sm text-muted-foreground">
                 Avance de la ruta formativa (módulos y quizzes). Refuerza disciplina operativa y lectura de reportes
                 en contexto O2C.
               </CardDescription>
@@ -35,7 +38,7 @@ export function AcademyTrackingCard() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="space-y-2 pt-0">
+      <CardContent className="space-y-2 px-5 pb-5 pt-4 sm:px-6">
         {error ? (
           <p className="text-sm text-destructive">No se pudo cargar el progreso: {error}</p>
         ) : isLoading ? (

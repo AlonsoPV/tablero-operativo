@@ -35,11 +35,14 @@ export function DashboardHeader({
       )}
     >
       <div className="dashboard-header-title-area space-y-1">
-        <h1 id="dashboard-title" className="dashboard-title text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-          Dashboard Ejecutivo
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Tablero ejecutivo
+        </p>
+        <h1 id="dashboard-title" className="dashboard-title text-2xl font-semibold tracking-tight text-foreground">
+          Vista general O2C
         </h1>
-        <p className="dashboard-subtitle text-sm text-muted-foreground max-w-xl">
-          Resumen del día, control de acciones y semáforo KPI. Toma decisiones con claridad.
+        <p className="dashboard-subtitle max-w-2xl text-sm text-muted-foreground">
+          Score O2C, KPIs, brechas, prioridad por impacto, pulso por filtros y acciones alineadas al programa.
         </p>
       </div>
       <div className="dashboard-header-actions flex flex-wrap items-center gap-2">

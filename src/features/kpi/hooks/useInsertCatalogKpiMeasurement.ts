@@ -7,7 +7,7 @@ import {
 } from '../services/catalogKpiMeasurements.service'
 import { invalidateAfterCatalogKpiMeasurement } from '../kpiQueryKeys'
 import { listCatalogKpisO2c } from '../services/catalogKpisO2c.service'
-import { insertGlobalScoreSnapshot } from '../services/globalScoreSnapshots.service'
+import { recordGlobalScoreSnapshot } from '../services/globalScoreSnapshots.service'
 import { computeCatalogKpiMetricItem, deriveGlobalPortfolioFromMetricItems } from '../utils/kpiCalculations'
 
 export type InsertCatalogKpiMeasurementVars = InsertCatalogKpiMeasurementInput & {
@@ -36,7 +36,7 @@ export function useInsertCatalogKpiMeasurement() {
         const metricItems = rows.map((row) => computeCatalogKpiMetricItem(row, latestById.get(row.id)))
         const derived = deriveGlobalPortfolioFromMetricItems(metricItems)
         if (derived.globalScore != null && Number.isFinite(derived.globalScore)) {
-          await insertGlobalScoreSnapshot({
+          await recordGlobalScoreSnapshot({
             score: derived.globalScore,
             metadata: {
               source: 'measurement_insert',

@@ -5,6 +5,8 @@ import { useWeightedKpis } from './useWeightedKpis'
 import type { CatalogKpiMeasurement, CatalogKpiO2cRow, CatalogKpisO2cListOpts } from '../types/kpi.types'
 import { DEFAULT_O2C_TARGET_HORIZON, type TargetHorizon } from '../utils/kpiCalculations'
 
+const EMPTY_RECENT_MEASUREMENTS_MAP = new Map<string, CatalogKpiMeasurement[]>()
+
 export type UseCatalogKpiO2cMetricItemsOptions = CatalogKpisO2cListOpts & {
   targetHorizon?: TargetHorizon
   enabled?: boolean
@@ -15,6 +17,7 @@ export type CatalogKpiO2cMetricItemsResult = {
   kpiRows: CatalogKpiO2cRow[]
   recentById: Map<string, CatalogKpiMeasurement[]>
   isLoading: boolean
+  isError: boolean
   targetHorizon: TargetHorizon
 }
 
@@ -28,20 +31,29 @@ export function useCatalogKpiO2cMetricItems(
 ): CatalogKpiO2cMetricItemsResult {
   const { targetHorizon = DEFAULT_O2C_TARGET_HORIZON, enabled = true, ...listOpts } = options
 
-  const { data: kpiRows = [], isLoading: kpisLoading } = useWeightedKpis({
+  const { data: kpiRows = [], isLoading: kpisLoading, isError: kpisError } = useWeightedKpis({
     ...listOpts,
     enabled,
   })
 
   const kpiIds = useMemo(() => kpiRows.map((r) => r.id), [kpiRows])
 
-  const { data: recentById, isLoading: measLoading } = useCatalogKpiRecentMeasurementsBatch(
+  const {
+    data: recentMeasurementsRaw,
+    isLoading: measLoading,
+    isError: measError,
+  } = useCatalogKpiRecentMeasurementsBatch(
     enabled ? kpiIds : undefined
   )
+
+  const recentById = useMemo(
+    () => recentMeasurementsRaw ?? EMPTY_RECENT_MEASUREMENTS_MAP,
+    [recentMeasurementsRaw]
+  )
+
   const latestById = useMemo(() => {
     const out = new Map<string, CatalogKpiMeasurement>()
-    const recent = recentById ?? new Map<string, CatalogKpiMeasurement[]>()
-    for (const [kpiId, rows] of recent.entries()) {
+    for (const [kpiId, rows] of recentById.entries()) {
       const latest = rows[0]
       if (latest) out.set(kpiId, latest)
     }
@@ -51,12 +63,14 @@ export function useCatalogKpiO2cMetricItems(
   const metricItems = useCatalogKpiMetricsList(kpiRows, latestById, { targetHorizon })
 
   const isLoading = kpisLoading || measLoading
+  const isError = kpisError || measError
 
   return {
     metricItems,
     kpiRows,
-    recentById: recentById ?? new Map<string, CatalogKpiMeasurement[]>(),
+    recentById,
     isLoading,
+    isError,
     targetHorizon,
   }
 }

@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Target,
 } from 'lucide-react'
+import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
 import { InfoHint } from '@/components/InfoHint'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -24,9 +25,15 @@ import {
 } from '@/components/ui/select'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import { GapCard, type GapCardViewModel, type KpiSemaforoCounts } from '../components/GapCard'
-import { useCatalogKpiO2cMetricItems, useGapAccionesForGapIds, useGaps } from '../hooks'
+import { useCatalogKpiO2cMetricItems, useGapAccionesForGapIds, useGapKpiLinks, useGaps } from '../hooks'
 import type { CatalogKpiO2cRow, GapStatus } from '../types/kpi.types'
-import { computeGapStoryProgress } from '../utils/gapProgress'
+import { accionStoryPoints, computeGapStoryProgress } from '../utils/gapProgress'
+import {
+  computeStoryGlobalImpactPercent,
+  FIBONACCI_STORY_POINTS,
+  moscowPointsBudget,
+  TARGET_SPRINT_VELOCITY_POINTS,
+} from '../utils/storyPointsMethodology'
 import { getGapWeight } from '../utils/kpiCalculations'
 
 type SortKey = 'nombre' | 'progress' | 'status' | 'prioridad'
@@ -41,6 +48,7 @@ export function GapsDashboardPage() {
   const { data: accionesData, isLoading: accionesLoading } = useGapAccionesForGapIds(gapIds)
   const acciones = accionesData?.acciones ?? []
   const junctionAccionIdsByGap = accionesData?.junctionAccionIdsByGap ?? new Map<string, Set<string>>()
+  const { links: gapKpiLinks, isLoading: gapKpiLinksLoading } = useGapKpiLinks()
   const { data: users = [] } = useUsers({ activo: true })
 
   const userById = useMemo(() => {
@@ -76,18 +84,25 @@ export function GapsDashboardPage() {
     return m
   }, [metricItems])
 
+  const gapKpiLinkById = useMemo(() => {
+    const map = new Map<string, (typeof gapKpiLinks)[number]>()
+    for (const link of gapKpiLinks) map.set(link.gapId, link)
+    return map
+  }, [gapKpiLinks])
+
   const baseCards = useMemo((): GapCardViewModel[] => {
     const out = gaps.map((gap) => {
       const junctionSet = junctionAccionIdsByGap.get(gap.id)
+      const forGap = acciones.filter(
+        (a) => a.gap_id === gap.id || junctionSet?.has(a.id)
+      )
+      const accionesCount = forGap.length
       const { donePoints, totalPoints } = computeGapStoryProgress(
         gap.id,
         acciones,
         gap.total_story_points ?? 0,
         junctionSet
       )
-      const accionesCount = acciones.filter(
-        (a) => a.gap_id === gap.id || junctionSet?.has(a.id)
-      ).length
       const progressPct = totalPoints > 0 ? (donePoints / totalPoints) * 100 : 0
       const kpis = kpisByGapId.get(gap.id) ?? []
       const kpiWeightSum = (() => {
@@ -106,17 +121,37 @@ export function GapsDashboardPage() {
       const ownerLabel = oid ? userById.get(oid) ?? oid : null
       const kpiSemaforoCounts = kpiSemaforoByGapId.get(gap.id) ?? null
 
+      const storyImpactRows =
+        kpiWeightSum != null &&
+        kpiWeightSum > 0 &&
+        totalPoints > 0 &&
+        forGap.length > 0
+          ? forGap.map((a) => ({
+              id: a.id,
+              titulo: a.titulo_accion,
+              storyPoints: accionStoryPoints(a),
+              impactGlobalPct: computeStoryGlobalImpactPercent({
+                kpiWeightSum,
+                storiesInGap: forGap.length,
+                storyPoints: accionStoryPoints(a),
+                totalStoryPointsInGap: totalPoints,
+              }),
+            }))
+          : undefined
+
       return {
         gap,
         donePoints,
         totalPoints,
         progressPct,
+        gapKpiLink: gapKpiLinkById.get(gap.id) ?? null,
         kpiNames,
         kpiWeightSum,
         kpiSemaforoCounts,
         accionesCount,
         ownerLabel,
         noAccionesWarning: accionesCount === 0,
+        storyImpactRows,
       }
     })
     if (import.meta.env.DEV && gaps.length > 0) {
@@ -124,7 +159,16 @@ export function GapsDashboardPage() {
       console.log('Gaps progreso recalculado', { gaps: gaps.length })
     }
     return out
-  }, [gaps, acciones, junctionAccionIdsByGap, kpisByGapId, userById, kpiRows, kpiSemaforoByGapId])
+  }, [
+    gaps,
+    acciones,
+    junctionAccionIdsByGap,
+    gapKpiLinkById,
+    kpisByGapId,
+    userById,
+    kpiRows,
+    kpiSemaforoByGapId,
+  ])
 
   const [areaFilter, setAreaFilter] = useState<string>('all')
   const [ownerFilter, setOwnerFilter] = useState<string>('all')
@@ -157,6 +201,13 @@ export function GapsDashboardPage() {
       return true
     })
   }, [baseCards, areaFilter, ownerFilter, statusFilter])
+
+  const chainHeader = useMemo(() => ({
+    cerrados: filtered.filter((vm) => vm.gapKpiLink?.estado === 'cerrado').length,
+    enProgreso: filtered.filter((vm) => vm.gapKpiLink?.estado === 'en_progreso').length,
+    ptsDone: filtered.reduce((sum, vm) => sum + (vm.donePoints ?? 0), 0),
+    ptsTotal: filtered.reduce((sum, vm) => sum + (vm.totalPoints ?? 0), 0),
+  }), [filtered])
 
   const sorted = useMemo(() => {
     const dir = sortDir === 'asc' ? 1 : -1
@@ -247,81 +298,158 @@ export function GapsDashboardPage() {
     </button>
   )
 
-  const loading = gapsLoading || kpisLoading || accionesLoading
+  const loading = gapsLoading || kpisLoading || accionesLoading || gapKpiLinksLoading
   const hasActiveFilters = areaFilter !== 'all' || ownerFilter !== 'all' || statusFilter !== 'all'
+  const avancePortafolio = chainHeader.ptsTotal > 0 ? chainHeader.ptsDone / chainHeader.ptsTotal : 0
+
+  const moscowBudget = useMemo(() => moscowPointsBudget(TARGET_SPRINT_VELOCITY_POINTS), [])
 
   return (
-    <div className="space-y-8 px-4 py-6 md:px-6">
-      <header className="rounded-xl border border-border/70 bg-gradient-to-b from-muted/40 to-background p-4 md:p-5">
+    <div className="mx-auto w-full max-w-7xl space-y-8 px-4 py-6 sm:px-6">
+      <header className="space-y-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Brechas O2C</p>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-semibold tracking-tight">Gaps O2C</h1>
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">Gaps operativos</h1>
               <InfoHint text="Vista de brechas operativas con avance por story points, estado del gap y semáforo agregado de KPIs vinculados." />
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Brechas operativas con avance por story points en acciones (Hecho / Verificado), estado de
-              la brecha y resumen de semáforo por KPIs de catálogo vinculados.
+            <p className="max-w-2xl text-sm text-muted-foreground">
+              Brechas operativas con avance por story points en acciones (Hecho / Verificado), estado de la brecha y
+              resumen de semáforo por KPIs de catálogo vinculados.
             </p>
+            <details className="mt-3 max-w-3xl rounded-lg border border-border/60 bg-muted/20 p-3 text-xs leading-relaxed text-muted-foreground">
+              <summary className="cursor-pointer list-none font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
+                Metodología: story points, MoSCoW e impacto en score global
+              </summary>
+              <div className="mt-2 space-y-2 border-t border-border/60 pt-2">
+                <p>
+                  <span className="font-medium text-foreground">Fibonacci ({FIBONACCI_STORY_POINTS.join(', ')}):</span>{' '}
+                  escala de estimación relativa (complejidad + incertidumbre) por acción.
+                </p>
+                <p>
+                  <span className="font-medium text-foreground">
+                    MoSCoW y velocidad objetivo (~{TARGET_SPRINT_VELOCITY_POINTS} pts/sprint):
+                  </span>{' '}
+                  capacidad orientativa Must ~{moscowBudget.must} pts, Should ~{moscowBudget.should} pts, Could ~
+                  {moscowBudget.could} pts (60% / 25% / 15%).
+                </p>
+                <p>
+                  <span className="font-medium text-foreground">Impacto en score global:</span> (Σ peso KPI del
+                  gap / nº acciones) × (pts de la acción / pts totales del gap). No sustituye al cumplimiento por
+                  medición del KPI; es reparto analítico del peso del gap entre historias.
+                </p>
+              </div>
+            </details>
           </div>
-          <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-background px-3 py-2 text-xs text-muted-foreground">
-            <Target className="h-4 w-4" />
-            Gaps visibles: <span className="font-medium text-foreground">{filteredSummary.total}</span>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <div className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-card px-3 py-2 shadow-sm">
+              <Target className="h-4 w-4 text-muted-foreground" />
+              <span className="text-muted-foreground">Visibles:</span>
+              <span className="font-medium tabular-nums text-foreground">{filteredSummary.total}</span>
+            </div>
+            <div className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-card px-3 py-2 shadow-sm">
+              <span className="text-muted-foreground">Cerrados:</span>
+              <span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                {chainHeader.cerrados}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-card px-3 py-2 shadow-sm">
+              <span className="text-muted-foreground">Story pts:</span>
+              <span className="font-medium tabular-nums text-foreground">
+                {chainHeader.ptsDone} / {chainHeader.ptsTotal}
+              </span>
+            </div>
           </div>
         </div>
       </header>
 
-      <section
-        className="space-y-4 rounded-xl border border-border/70 bg-card p-4 md:p-5"
-        aria-labelledby="gaps-filters-title"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <h2 id="gaps-filters-title" className="text-lg font-medium">
-              Filtros y orden
-            </h2>
-            <InfoHint text="Los filtros afectan la lista completa de brechas. El orden aplica por nombre, avance, estado o prioridad." />
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setAreaFilter('all')
-              setOwnerFilter('all')
-              setStatusFilter('all')
-            }}
-            disabled={!hasActiveFilters}
-          >
-            <RefreshCw className="mr-1 h-3.5 w-3.5" />
-            Limpiar filtros
-          </Button>
+      <section className="scroll-mt-4">
+        <SectionCard>
+          <SectionCardHeader
+            title="Avance del portafolio"
+            subtitle="Story points en estado Hecho / Verificado sobre el total del portafolio de gaps."
+          />
+          <SectionCardBody className="space-y-2">
+        <div className="flex justify-between text-xs text-muted-foreground">
+          <span>Progreso (Done)</span>
+          <span className="tabular-nums font-medium text-foreground">
+            {Math.round(avancePortafolio * 100)}%
+          </span>
         </div>
+        <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-primary transition-all duration-500"
+            style={{ width: `${Math.round(avancePortafolio * 100)}%` }}
+          />
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          {chainHeader.ptsDone} pts completados de {chainHeader.ptsTotal} totales
+          {' · '}
+          {chainHeader.cerrados} gap{chainHeader.cerrados !== 1 ? 's' : ''} cerrado{chainHeader.cerrados !== 1 ? 's' : ''}
+          {' · '}
+          {chainHeader.enProgreso} en progreso
+        </p>
+          </SectionCardBody>
+        </SectionCard>
+      </section>
+
+      <section className="scroll-mt-4" aria-labelledby="gaps-filters-title">
+        <SectionCard>
+          <SectionCardHeader
+            icon={Filter}
+            titleId="gaps-filters-title"
+            title="Filtros y orden"
+            subtitle="Lista completa de brechas; el orden aplica por nombre, avance, estado o prioridad."
+            action={
+              <div className="flex flex-wrap items-center gap-2">
+                <InfoHint text="Los filtros afectan la lista completa de brechas. El orden aplica por nombre, avance, estado o prioridad." />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setAreaFilter('all')
+                    setOwnerFilter('all')
+                    setStatusFilter('all')
+                  }}
+                  disabled={!hasActiveFilters}
+                >
+                  <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                  Limpiar filtros
+                </Button>
+              </div>
+            }
+          />
+          <SectionCardBody className="space-y-4">
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
-          <div className="rounded-lg border bg-muted/20 px-3 py-2 text-xs">
-            <p className="text-muted-foreground">Brechas</p>
-            <p className="text-lg font-semibold tabular-nums">{filteredSummary.total}</p>
+          <div className="rounded-xl border border-border/60 bg-card px-3 py-2.5 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Brechas</p>
+            <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">{filteredSummary.total}</p>
           </div>
-          <div className="rounded-lg border bg-slate-500/10 px-3 py-2 text-xs">
-            <p className="text-slate-700 dark:text-slate-300">Abiertas</p>
-            <p className="text-lg font-semibold tabular-nums">{filteredSummary.open}</p>
+          <div className="rounded-xl border border-border/60 bg-card px-3 py-2.5 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Abiertas</p>
+            <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">{filteredSummary.open}</p>
           </div>
-          <div className="rounded-lg border bg-blue-500/10 px-3 py-2 text-xs">
-            <p className="text-blue-700 dark:text-blue-300">En curso</p>
-            <p className="text-lg font-semibold tabular-nums">{filteredSummary.inProgress}</p>
+          <div className="rounded-xl border border-border/60 bg-card px-3 py-2.5 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">En curso</p>
+            <p className="mt-1 text-xl font-semibold tabular-nums text-amber-600 dark:text-amber-400">
+              {filteredSummary.inProgress}
+            </p>
           </div>
-          <div className="rounded-lg border bg-emerald-500/10 px-3 py-2 text-xs">
-            <p className="text-emerald-700 dark:text-emerald-300">Resueltas</p>
-            <p className="text-lg font-semibold tabular-nums">{filteredSummary.resolved}</p>
+          <div className="rounded-xl border border-border/60 bg-card px-3 py-2.5 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Resueltas</p>
+            <p className="mt-1 text-xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+              {filteredSummary.resolved}
+            </p>
           </div>
-          <div className="rounded-lg border bg-violet-500/10 px-3 py-2 text-xs">
-            <p className="text-violet-700 dark:text-violet-300">Cerradas</p>
-            <p className="text-lg font-semibold tabular-nums">{filteredSummary.closed}</p>
+          <div className="rounded-xl border border-border/60 bg-card px-3 py-2.5 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Cerradas</p>
+            <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">{filteredSummary.closed}</p>
           </div>
-          <div className="rounded-lg border bg-muted/50 px-3 py-2 text-xs">
-            <p className="text-muted-foreground">Avance promedio</p>
-            <p className="text-lg font-semibold tabular-nums">
+          <div className="rounded-xl border border-border/60 bg-card px-3 py-2.5 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Avance prom.</p>
+            <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">
               {Number.isFinite(filteredSummary.avgProgress)
                 ? `${Math.round(filteredSummary.avgProgress)}%`
                 : '0%'}
@@ -386,19 +514,22 @@ export function GapsDashboardPage() {
             </div>
           </div>
         </div>
+          </SectionCardBody>
+        </SectionCard>
       </section>
 
-      <section
-        className="rounded-xl border border-border/70 bg-card p-4 md:p-5"
-        aria-labelledby="gaps-list-title"
-      >
-        <div className="mb-4 flex items-center gap-2">
-          <ListChecks className="h-4 w-4 text-muted-foreground" />
-          <h2 id="gaps-list-title" className="text-lg font-medium">
-            Detalle de brechas ({sorted.length})
-          </h2>
-          <InfoHint text="Cada tarjeta muestra avance por story points, estado de la brecha, KPIs vinculados y resumen de semáforo." />
-        </div>
+      <section className="scroll-mt-4" aria-labelledby="gaps-list-title">
+        <SectionCard>
+          <SectionCardHeader
+            icon={ListChecks}
+            titleId="gaps-list-title"
+            title={`Detalle de brechas (${sorted.length})`}
+            subtitle="Avance por story points, KPIs vinculados y semáforo."
+            action={
+              <InfoHint text="Cada tarjeta muestra avance por story points, estado de la brecha, KPIs vinculados y resumen de semáforo." />
+            }
+          />
+          <SectionCardBody>
         {loading ? (
           <p className="text-sm text-muted-foreground">Cargando…</p>
         ) : sorted.length === 0 ? (
@@ -410,6 +541,8 @@ export function GapsDashboardPage() {
             ))}
           </div>
         )}
+          </SectionCardBody>
+        </SectionCard>
       </section>
     </div>
   )

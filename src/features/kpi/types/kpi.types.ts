@@ -40,6 +40,8 @@ export interface CatalogKpiO2cRow {
   gap_id: string | null
   weight: number | null
   baseline: number | null
+  /** Meta mes 3 (programa O2C); opcional. Ver docs/KPIs.md y `resolveMdActiveTarget`. */
+  target_m3: number | null
   target_m6: number | null
   target_m12: number | null
   target_m18: number | null

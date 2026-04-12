@@ -4,12 +4,11 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { useForm, type Resolver } from 'react-hook-form'
+import { Controller, useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -34,13 +33,23 @@ import { useAreas } from '@/features/catalogs/hooks/useAreas'
 import { useKpis } from '@/features/catalogs/hooks/useKpis'
 import { useDropdownOptionsByKey } from '@/features/catalogs/hooks/useDropdownOptions'
 import { useGaps } from '@/features/kpi/hooks/useGaps'
+import { InfoHint } from '@/components/InfoHint'
+import { cn } from '@/lib/utils'
 import { PRIORIDAD_NC } from '@/types'
-import { ChevronDown, FileText, User, FileCheck, Tags, Link2 } from 'lucide-react'
+import {
+  TIPO_ACCION_CONFIG,
+  TIPO_ACCION_OPTIONS,
+  STORY_POINTS_OPTIONS,
+  type TipoAccion,
+} from '../utils/tipoAccionConfig'
+import { AccionImpactPreview } from './AccionImpactPreview'
+import { SectionCardBody } from '@/components/SectionCard'
+import { ChevronDown, FileText, User, FileCheck, Tags, Link2, Gauge } from 'lucide-react'
 
 const inputBase =
   'flex h-9 w-full rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm transition-colors placeholder:text-muted-foreground focus:bg-background focus:outline-none focus:ring-2 focus:ring-ring/50 focus:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50'
 const textareaBase =
-  'flex min-h-[88px] w-full resize-none rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm transition-colors placeholder:text-muted-foreground focus:bg-background focus:outline-none focus:ring-2 focus:ring-ring/50 focus:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50'
+  'flex min-h-[64px] w-full resize-y rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm transition-colors placeholder:text-muted-foreground focus:bg-background focus:outline-none focus:ring-2 focus:ring-ring/50 focus:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50'
 
 /**
  * Valor interno del select cuando el catálogo no trae fila "otro" (evita colisión con `value` del catálogo).
@@ -129,6 +138,12 @@ export function AccionForm({
     refetch: retryEvidenciaCatalog,
   } = useDropdownOptionsByKey('evidencia_esperada')
   const [evidenciaSelect, setEvidenciaSelect] = useState<string>('__none__')
+  const [descExpanded, setDescExpanded] = useState<boolean>(() => {
+    const como = defaultValues?.descripcion_como ?? ''
+    const quiero = defaultValues?.descripcion_quiero ?? ''
+    const para = defaultValues?.descripcion_para_que ?? ''
+    return como.length > 0 || quiero.length > 0 || para.length > 0
+  })
 
   const form = useForm<AccionFormInput, unknown, AccionCreateInput>({
     resolver: zodResolver(accionCreateSchema) as Resolver<AccionFormInput, unknown, AccionCreateInput>,
@@ -145,6 +160,8 @@ export function AccionForm({
       area: undefined,
       gap_ids: [],
       catalog_kpi_ids: [],
+      tipo_accion: undefined,
+      story_points: 0,
     },
   })
 
@@ -156,6 +173,8 @@ export function AccionForm({
 
   const gapIds = form.watch('gap_ids') ?? []
   const catalogKpiIds = form.watch('catalog_kpi_ids') ?? []
+  const tipoSeleccionado = form.watch('tipo_accion')
+  const storyPoints = form.watch('story_points') ?? 0
   const gapIdSet = useMemo(() => new Set(gapIds), [gapIds])
 
   const selectedGaps = useMemo(
@@ -236,6 +255,12 @@ export function AccionForm({
   const fid = formId ?? 'accion-form'
   const fieldId = (name: string) => `${fid}-${name}`
 
+  const descPreviewLine =
+    (form.watch('descripcion_como') ?? '').trim() ||
+    (form.watch('descripcion_quiero') ?? '').trim() ||
+    (form.watch('descripcion_para_que') ?? '').trim() ||
+    ''
+
   return (
     <form
       id={fid}
@@ -280,72 +305,100 @@ export function AccionForm({
       </Card>
 
       {/* Descripción (formato Cómo / Quiero / Para qué) */}
-      <Card
+      <div
         id={`${fid}-section-descripcion`}
-        className="accion-form-section accion-form-section--descripcion border-border/60 bg-muted/5"
+        className="accion-form-section accion-form-section--descripcion overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm"
       >
-        <CardHeader className="flex flex-row items-center gap-2 pb-2 pt-4">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <FileText className="h-4 w-4" />
+        <button
+          type="button"
+          onClick={() => setDescExpanded((v) => !v)}
+          className="flex w-full items-start justify-between gap-4 border-b border-border/50 px-5 py-4 text-left transition-colors hover:bg-muted/20 sm:px-6"
+          aria-expanded={descExpanded}
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+              <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Descripción
+              </p>
+              <h3 className="text-base font-semibold text-foreground">Descripción de la acción</h3>
+              {!descExpanded && (
+                <p className="mt-0.5 truncate text-sm text-muted-foreground">
+                  {descPreviewLine ||
+                    'Cómo, qué quiero lograr y para qué (opcional pero recomendado)'}
+                </p>
+              )}
+              {descExpanded && (
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  Responde en tres partes (cada una 5–400 caracteres).
+                </p>
+              )}
+            </div>
           </div>
-          <div>
-            <h4 className="text-sm font-semibold">Descripción de la acción</h4>
-            <p className="text-xs text-muted-foreground">
-              Responde en tres partes (cada una 5–400 caracteres)
-            </p>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4 pt-0">
-          <div className="accion-form-field-group accion-form-field-group-descripcion_como space-y-2">
-            <Label htmlFor={fieldId('descripcion_como')} className="text-xs font-medium text-foreground">
-              ¿Cómo?
-            </Label>
-            <p className="text-xs text-muted-foreground">Cómo se llevará a cabo o qué proceso seguirás</p>
-            <textarea
-              id={fieldId('descripcion_como')}
-              {...form.register('descripcion_como')}
-              placeholder="Describe cómo…"
-              rows={3}
-              className={`accion-form-field accion-form-field-descripcion_como ${textareaBase}`}
-            />
-            {form.formState.errors.descripcion_como && (
-              <p className="text-xs text-destructive">{form.formState.errors.descripcion_como.message}</p>
+          <ChevronDown
+            className={cn(
+              'mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+              descExpanded && 'rotate-180'
             )}
-          </div>
-          <div className="accion-form-field-group accion-form-field-group-descripcion_quiero space-y-2">
-            <Label htmlFor={fieldId('descripcion_quiero')} className="text-xs font-medium text-foreground">
-              ¿Quiero?
-            </Label>
-            <p className="text-xs text-muted-foreground">Qué resultado o cambio concreto buscas</p>
-            <textarea
-              id={fieldId('descripcion_quiero')}
-              {...form.register('descripcion_quiero')}
-              placeholder="Quiero que…"
-              rows={3}
-              className={`accion-form-field accion-form-field-descripcion_quiero ${textareaBase}`}
-            />
-            {form.formState.errors.descripcion_quiero && (
-              <p className="text-xs text-destructive">{form.formState.errors.descripcion_quiero.message}</p>
-            )}
-          </div>
-          <div className="accion-form-field-group accion-form-field-group-descripcion_para_que space-y-2">
-            <Label htmlFor={fieldId('descripcion_para_que')} className="text-xs font-medium text-foreground">
-              ¿Para qué?
-            </Label>
-            <p className="text-xs text-muted-foreground">Para qué sirve o qué impacto tendrá</p>
-            <textarea
-              id={fieldId('descripcion_para_que')}
-              {...form.register('descripcion_para_que')}
-              placeholder="Para que…"
-              rows={3}
-              className={`accion-form-field accion-form-field-descripcion_para_que ${textareaBase}`}
-            />
-            {form.formState.errors.descripcion_para_que && (
-              <p className="text-xs text-destructive">{form.formState.errors.descripcion_para_que.message}</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+            aria-hidden
+          />
+        </button>
+
+        {descExpanded && (
+          <SectionCardBody className="space-y-4 pt-0">
+            <div className="accion-form-field-group accion-form-field-group-descripcion_como space-y-2">
+              <Label htmlFor={fieldId('descripcion_como')} className="text-xs font-medium text-foreground">
+                ¿Cómo?
+              </Label>
+              <p className="text-xs text-muted-foreground">Cómo se llevará a cabo o qué proceso seguirás</p>
+              <textarea
+                id={fieldId('descripcion_como')}
+                {...form.register('descripcion_como')}
+                placeholder="Describe cómo…"
+                rows={2}
+                className={`accion-form-field accion-form-field-descripcion_como ${textareaBase}`}
+              />
+              {form.formState.errors.descripcion_como && (
+                <p className="text-xs text-destructive">{form.formState.errors.descripcion_como.message}</p>
+              )}
+            </div>
+            <div className="accion-form-field-group accion-form-field-group-descripcion_quiero space-y-2">
+              <Label htmlFor={fieldId('descripcion_quiero')} className="text-xs font-medium text-foreground">
+                ¿Quiero?
+              </Label>
+              <p className="text-xs text-muted-foreground">Qué resultado o cambio concreto buscas</p>
+              <textarea
+                id={fieldId('descripcion_quiero')}
+                {...form.register('descripcion_quiero')}
+                placeholder="Quiero que…"
+                rows={2}
+                className={`accion-form-field accion-form-field-descripcion_quiero ${textareaBase}`}
+              />
+              {form.formState.errors.descripcion_quiero && (
+                <p className="text-xs text-destructive">{form.formState.errors.descripcion_quiero.message}</p>
+              )}
+            </div>
+            <div className="accion-form-field-group accion-form-field-group-descripcion_para_que space-y-2">
+              <Label htmlFor={fieldId('descripcion_para_que')} className="text-xs font-medium text-foreground">
+                ¿Para qué?
+              </Label>
+              <p className="text-xs text-muted-foreground">Para qué sirve o qué impacto tendrá</p>
+              <textarea
+                id={fieldId('descripcion_para_que')}
+                {...form.register('descripcion_para_que')}
+                placeholder="Para que…"
+                rows={2}
+                className={`accion-form-field accion-form-field-descripcion_para_que ${textareaBase}`}
+              />
+              {form.formState.errors.descripcion_para_que && (
+                <p className="text-xs text-destructive">{form.formState.errors.descripcion_para_que.message}</p>
+              )}
+            </div>
+          </SectionCardBody>
+        )}
+      </div>
 
       {/* Responsable y fechas */}
       <Card
@@ -362,8 +415,9 @@ export function AccionForm({
           </div>
         </CardHeader>
         <CardContent className="space-y-4 pt-0">
+          <div className="accion-form-grid-responsable-fechas grid gap-4 sm:grid-cols-3">
           <div className="accion-form-field-group accion-form-field-group-responsable space-y-2">
-            <Label htmlFor={fieldId('responsable')} className="text-xs font-medium text-muted-foreground">
+            <Label htmlFor={fieldId('responsable')} className="text-xs font-medium text-foreground">
               Responsable *
             </Label>
             {usersLoading && (
@@ -410,9 +464,8 @@ export function AccionForm({
               <p className="text-xs text-destructive">{form.formState.errors.responsable.message}</p>
             )}
           </div>
-          <div className="accion-form-grid-fechas grid gap-4 sm:grid-cols-2">
             <div className="accion-form-field-group accion-form-field-group-fecha space-y-2">
-              <Label htmlFor={fieldId('fecha')} className="text-xs font-medium text-muted-foreground">
+              <Label htmlFor={fieldId('fecha')} className="text-xs font-medium text-foreground">
                 Día límite *
               </Label>
               <Input
@@ -426,7 +479,7 @@ export function AccionForm({
               )}
             </div>
             <div className="accion-form-field-group accion-form-field-group-hora_limite space-y-2">
-              <Label htmlFor={fieldId('hora_limite')} className="text-xs font-medium text-muted-foreground">
+              <Label htmlFor={fieldId('hora_limite')} className="text-xs font-medium text-foreground">
                 Hora límite *
               </Label>
               <Input
@@ -455,13 +508,15 @@ export function AccionForm({
           </div>
           <div>
             <h4 className="text-sm font-semibold">Clasificación y vinculación O2C</h4>
-            <p className="text-xs text-muted-foreground">Prioridad, área, gap y KPI de catálogo</p>
+            <p className="text-xs text-muted-foreground">
+              Prioridad, área, complejidad (tipo y puntos) y vinculación gap/KPI
+            </p>
           </div>
         </CardHeader>
         <CardContent className="space-y-4 pt-0">
           <div className="accion-form-grid-clasificacion grid gap-4 sm:grid-cols-2">
             <div className="accion-form-field-group accion-form-field-group-prioridad space-y-2">
-              <Label htmlFor={fieldId('prioridad')} className="text-xs font-medium text-muted-foreground">
+              <Label htmlFor={fieldId('prioridad')} className="text-xs font-medium text-foreground">
                 Prioridad
               </Label>
               <Select
@@ -484,7 +539,7 @@ export function AccionForm({
               </Select>
             </div>
             <div className="accion-form-field-group accion-form-field-group-area space-y-2">
-              <Label htmlFor={fieldId('area')} className="text-xs font-medium text-muted-foreground">
+              <Label htmlFor={fieldId('area')} className="text-xs font-medium text-foreground">
                 Área
               </Label>
               {areasLoading && (
@@ -529,9 +584,134 @@ export function AccionForm({
               </Select>
             </div>
           </div>
+
+          <div
+            id={`${fid}-section-complejidad`}
+            className="accion-form-subsection-complejidad space-y-4 border-t border-border/60 pt-4"
+          >
+            <div className="flex items-start gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Gauge className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Complejidad
+                </p>
+                <h4 className="text-sm font-semibold text-foreground">Complejidad y esfuerzo</h4>
+                <p className="text-xs text-muted-foreground">Tipo de trabajo y story points (Fibonacci)</p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="accion-form-field-group accion-form-field-group-tipo_accion space-y-2">
+                <Label htmlFor={fieldId('tipo_accion')} className="text-xs font-medium text-foreground">
+                  Tipo de acción
+                </Label>
+                <Select
+                  value={tipoSeleccionado ?? '__none__'}
+                  onValueChange={(v) => {
+                    if (v === '__none__') {
+                      form.setValue('tipo_accion', null)
+                      return
+                    }
+                    const next = v as TipoAccion
+                    form.setValue('tipo_accion', next)
+                    const cfg = TIPO_ACCION_CONFIG[next]
+                    if (cfg.puntosSugerido > 0) {
+                      form.setValue('story_points', cfg.puntosSugerido)
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    id={fieldId('tipo_accion')}
+                    className={`accion-form-field accion-form-field-tipo_accion ${inputBase} h-10 border-input bg-muted/30`}
+                  >
+                    <SelectValue placeholder="Selecciona el tipo…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin tipo (definir puntos manualmente)</SelectItem>
+                    {TIPO_ACCION_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        <span className="font-medium">{opt.label}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {opt.puntosMin === opt.puntosMax
+                            ? `${opt.puntosMin} pts`
+                            : `${opt.puntosMin}–${opt.puntosMax} pts`}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {tipoSeleccionado && TIPO_ACCION_CONFIG[tipoSeleccionado] && (
+                  <p className="truncate text-xs text-muted-foreground">
+                    {TIPO_ACCION_CONFIG[tipoSeleccionado].description}
+                  </p>
+                )}
+              </div>
+
+              <div className="accion-form-field-group accion-form-field-group-story_points space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <Label className="text-xs font-medium text-foreground">Story Points</Label>
+                  <InfoHint text="Mide complejidad y esfuerzo relativo, no impacto directo en el KPI." />
+                </div>
+                <Controller
+                  name="story_points"
+                  control={form.control}
+                  render={({ field }) => (
+                    <>
+                      <div className="flex flex-wrap gap-1.5">
+                        {STORY_POINTS_OPTIONS.map((pts) => {
+                          const cfg = tipoSeleccionado ? TIPO_ACCION_CONFIG[tipoSeleccionado] : null
+                          const esSugerido =
+                            !!cfg && cfg.puntosSugerido > 0 && cfg.puntosSugerido === pts
+                          const current = field.value ?? 0
+                          return (
+                            <button
+                              key={pts}
+                              type="button"
+                              onClick={() => field.onChange(pts)}
+                              className={cn(
+                                'h-9 w-9 rounded-lg border text-sm font-semibold transition-colors',
+                                current === pts
+                                  ? 'border-primary bg-primary text-primary-foreground'
+                                  : 'border-border bg-background hover:border-primary/50',
+                                esSugerido &&
+                                  current !== pts &&
+                                  'border-primary/40 bg-primary/5 text-primary'
+                              )}
+                              title={esSugerido ? `Sugerido: ${pts} pts` : `${pts} pts`}
+                            >
+                              {pts}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {tipoSeleccionado &&
+                        tipoSeleccionado !== 'otro' &&
+                        TIPO_ACCION_CONFIG[tipoSeleccionado] && (
+                          <p className="text-[11px] text-muted-foreground">
+                            Sugerido:{' '}
+                            <span className="font-medium text-foreground">
+                              {TIPO_ACCION_CONFIG[tipoSeleccionado].puntosMin}–
+                              {TIPO_ACCION_CONFIG[tipoSeleccionado].puntosMax} pts
+                            </span>
+                          </p>
+                        )}
+                    </>
+                  )}
+                />
+                {form.formState.errors.story_points && (
+                  <p className="text-xs text-destructive">
+                    {form.formState.errors.story_points.message}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="accion-form-grid-o2c grid gap-4 sm:grid-cols-2">
             <div className="accion-form-field-group accion-form-field-group-gap_ids space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">
+              <Label className="text-xs font-medium text-foreground">
                 Brechas O2C (gaps) a impactar
               </Label>
               {gapsLoading && <p className="text-xs text-muted-foreground">Cargando brechas…</p>}
@@ -585,9 +765,22 @@ export function AccionForm({
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              {selectedGaps.length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {selectedGaps.map((g) => (
+                    <span
+                      key={g.id}
+                      className="inline-flex items-center rounded-md border border-border/60 bg-muted/30 px-2 py-0.5 text-[11px] text-foreground"
+                    >
+                      {g.nombre}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <AccionImpactPreview gapIds={gapIds} storyPoints={storyPoints} />
             </div>
             <div className="accion-form-field-group accion-form-field-group-catalog_kpi_ids space-y-2">
-              <Label className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+              <Label className="flex items-center gap-1 text-xs font-medium text-foreground">
                 KPIs de catálogo (O2C)
                 <Link2 className="h-3.5 w-3.5" />
               </Label>
@@ -653,29 +846,24 @@ export function AccionForm({
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              {selectedCatalogKpis.length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {selectedCatalogKpis.map((k) => (
+                    <span
+                      key={k.id}
+                      className="inline-flex items-center rounded-md border border-border/60 bg-muted/30 px-2 py-0.5 text-[11px] text-foreground"
+                    >
+                      {k.nombre}
+                    </span>
+                  ))}
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">
                 Si eliges brechas, solo se listan KPIs de esas brechas (o sin brecha). Al marcar un KPI se
                 añade su brecha si faltaba.
               </p>
             </div>
           </div>
-          {(selectedGaps.length > 0 || selectedCatalogKpis.length > 0) && (
-            <div className="rounded-md border border-border/60 bg-muted/25 px-3 py-2 text-xs">
-              <p className="mb-1 font-medium text-foreground">Resumen de vinculación</p>
-              <div className="flex flex-wrap gap-2">
-                {selectedGaps.map((g) => (
-                  <Badge key={g.id} variant="outline" className="text-foreground">
-                    Gap: {g.nombre}
-                  </Badge>
-                ))}
-                {selectedCatalogKpis.map((k) => (
-                  <Badge key={k.id} variant="outline" className="text-foreground">
-                    KPI: {k.nombre}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
 

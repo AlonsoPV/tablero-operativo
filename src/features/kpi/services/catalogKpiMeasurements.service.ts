@@ -1,3 +1,4 @@
+import { getAppNow } from '@/lib/clock'
 import { supabase } from '@/lib/supabase/client'
 import type { CatalogKpiMeasurement } from '../types/kpi.types'
 
@@ -22,7 +23,7 @@ export async function insertCatalogKpiMeasurement(
   const payload = {
     catalog_kpi_id: input.catalog_kpi_id,
     valor: input.valor,
-    medido_en: input.medido_en ?? new Date().toISOString(),
+    medido_en: input.medido_en ?? getAppNow().toISOString(),
     fuente: input.fuente ?? null,
     notes: input.notes ?? null,
     measured_by: input.measured_by ?? null,

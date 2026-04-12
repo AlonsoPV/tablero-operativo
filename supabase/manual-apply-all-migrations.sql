@@ -8,7 +8,7 @@
 -- - Tras correr esto, creá usuarios en Authentication; el INSERT de super_admin
 --   solo aplica si ese UUID existe en auth.users (ver bloque condicional).
 --
--- Orden: 20260313120000_initial_schema.sql, 20260313130000_add_super_admin_role.sql, 20260313140000_catalog_tables.sql, 20260313150000_usuarios_rol_from_catalog.sql, 20260313160000_seed_evidencia_esperada_catalog.sql, 20260313170000_sync_usuario_from_auth.sql, 20260313180000_usuarios_insert_update_admin.sql, 20260313190000_assign_super_admin_initial_user.sql, 20260313200000_acciones_visible_para_todos.sql, 20260313210000_action_status_retraso.sql, 20260313220000_accion_comentarios.sql, 20260313230000_notificaciones_insert.sql, 20260313235000_notificaciones_realtime.sql, 20260313240000_acciones_created_by_updated_by.sql, 20260313240500_evidencias_storage_comentarios_adjuntos.sql, 20260313250000_get_auth_user_email.sql, 20260313260000_handle_new_user_area.sql, 20260313270000_notificaciones_insert_policy.sql, 20260313280000_acciones_titulo_accion.sql, 20260313290000_catalog_evidencia_otro_especificar.sql, 20260313300000_distance_queries.sql, 20260313310000_distance_queries_duracion_cache.sql, 20260313320000_distance_catalogs_and_requests.sql, 20260313320001_seed_distance_origins_destinations.sql, 20260313320002_distance_requests_duracion.sql, 20260313320003_saved_route_requests.sql, 20260313320004_saved_route_requests_places_fk.sql, 20260313350000_handle_new_user_rol_text.sql, 20260313400000_accion_checkpoints.sql, 20260313500000_gaps_o2c_kpis.sql, 20260313600000_catalog_kpi_o2c_columns_and_weights.sql, 20260313610000_seed_o2c_demo_catalog.sql, 20260313620000_seed_o2c_portfolio_10_kpis.sql, 20260313630000_seed_areas_o2c_gaps.sql, 20260313640000_seed_statuses_acciones.sql, 20260313700000_accion_gaps_and_catalog_kpis_junction.sql, 20260313800000_seed_dummy_acciones_o2c_demo.sql, 20260313900000_catalog_kpis_current_value_default_baseline.sql, 20260314000000_seed_catalog_kpi_semaforo_demo_mix.sql, 20260406120000_academy_progress.sql
+-- Orden: 20260313120000_initial_schema.sql, 20260313130000_add_super_admin_role.sql, 20260313140000_catalog_tables.sql, 20260313150000_usuarios_rol_from_catalog.sql, 20260313160000_seed_evidencia_esperada_catalog.sql, 20260313170000_sync_usuario_from_auth.sql, 20260313180000_usuarios_insert_update_admin.sql, 20260313190000_assign_super_admin_initial_user.sql, 20260313200000_acciones_visible_para_todos.sql, 20260313210000_action_status_retraso.sql, 20260313220000_accion_comentarios.sql, 20260313230000_notificaciones_insert.sql, 20260313235000_notificaciones_realtime.sql, 20260313240000_acciones_created_by_updated_by.sql, 20260313240500_evidencias_storage_comentarios_adjuntos.sql, 20260313250000_get_auth_user_email.sql, 20260313260000_handle_new_user_area.sql, 20260313270000_notificaciones_insert_policy.sql, 20260313280000_acciones_titulo_accion.sql, 20260313290000_catalog_evidencia_otro_especificar.sql, 20260313300000_distance_queries.sql, 20260313310000_distance_queries_duracion_cache.sql, 20260313320000_distance_catalogs_and_requests.sql, 20260313320001_seed_distance_origins_destinations.sql, 20260313320002_distance_requests_duracion.sql, 20260313320003_saved_route_requests.sql, 20260313320004_saved_route_requests_places_fk.sql, 20260313350000_handle_new_user_rol_text.sql, 20260313400000_accion_checkpoints.sql, 20260313500000_gaps_o2c_kpis.sql, 20260313600000_catalog_kpi_o2c_columns_and_weights.sql, 20260313610000_seed_o2c_demo_catalog.sql, 20260313620000_seed_o2c_portfolio_10_kpis.sql, 20260313630000_seed_areas_o2c_gaps.sql, 20260313640000_seed_statuses_acciones.sql, 20260313700000_accion_gaps_and_catalog_kpis_junction.sql, 20260313800000_seed_dummy_acciones_o2c_demo.sql, 20260313900000_catalog_kpis_current_value_default_baseline.sql, 20260314000000_seed_catalog_kpi_semaforo_demo_mix.sql, 20260406120000_academy_progress.sql, 20260410120000_catalog_role_super_admin.sql
 -- =============================================================================
 -- >>> FILE: 20260313120000_initial_schema.sql
 -- =============================================================================
@@ -3106,5 +3106,26 @@ COMMENT ON TABLE academy_progress IS 'Progreso de la Academia O2C por usuario au
 COMMENT ON COLUMN academy_progress.completed_modules IS 'IDs de módulos completados.';
 COMMENT ON COLUMN academy_progress.completed_steps IS 'Pasos completados en formato moduleId-stepIndex o moduleId-exercise.';
 COMMENT ON COLUMN academy_progress.passed_quizzes IS 'IDs de módulos con quiz aprobado al 100%.';
+
+-- >>> FILE: 20260410120000_catalog_role_super_admin.sql
+-- =============================================================================
+-- Catálogo: rol super_admin + alinear usuarios.rol con user_roles (app)
+-- =============================================================================
+
+INSERT INTO public.catalog_roles (nombre, descripcion, activo)
+SELECT
+  'super_admin',
+  'Super administrador: gestión de roles de aplicación y catálogos.',
+  true
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.catalog_roles cr
+  WHERE lower(trim(cr.nombre)) = 'super_admin'
+);
+
+UPDATE public.usuarios u
+SET rol = 'super_admin'
+FROM public.user_roles ur
+WHERE ur.user_id = u.user_id
+  AND ur.app_role = 'super_admin';
 
 

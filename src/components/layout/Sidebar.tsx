@@ -11,6 +11,7 @@ import {
   GraduationCap,
   LineChart,
   FolderKanban,
+  BarChart3,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants'
@@ -24,6 +25,7 @@ const navItems = [
   { to: ROUTES.KANBAN, label: 'Kanban', icon: Columns3 },
   { to: ROUTES.DASHBOARD_KPIS, label: 'KPIs O2C', icon: LineChart },
   { to: ROUTES.DASHBOARD_GAPS, label: 'Gaps O2C', icon: FolderKanban },
+  { to: ROUTES.DASHBOARD_IMPACTO, label: 'Matriz de Impacto', icon: BarChart3 },
   { to: ROUTES.ACADEMIA, label: 'Academia O2C', icon: GraduationCap },
   { to: ROUTES.DISCIPLINA, label: 'Disciplina', icon: Target },
   { to: ROUTES.CALENDARIO, label: 'Calendario', icon: Calendar },

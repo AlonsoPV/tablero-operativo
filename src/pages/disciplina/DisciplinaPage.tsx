@@ -10,8 +10,8 @@ import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { todayCDMX } from '@/lib/dateUtils'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Info } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { InfoHint } from '@/components/InfoHint'
+import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
 import { DisciplinaAcademyRegistro } from './components/DisciplinaAcademyRegistro'
 import { DisciplinaAccionesCard } from './components/DisciplinaAccionesCard'
 
@@ -28,81 +28,74 @@ export function DisciplinaPage() {
     fecha === today ? 'Hoy' : new Date(fecha + 'T12:00:00').toLocaleDateString('es-MX', { dateStyle: 'medium' })
 
   return (
-    <div className="space-y-6">
-      <div>
-        <div className="flex items-center gap-2">
-          <h2 className="text-2xl font-bold tracking-tight">Métricas de disciplina</h2>
-          <div className="group relative shrink-0">
-            <button
-              type="button"
-              className={cn(
-                'flex h-7 w-7 items-center justify-center rounded-full transition-colors',
-                'text-muted-foreground hover:text-foreground hover:bg-muted/80',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1'
-              )}
-              title="Ver descripción"
-              aria-label={DISCIPLINA_INFO}
-            >
-              <Info className="h-4 w-4" />
-            </button>
-            <div
-              role="tooltip"
-              className={cn(
-                'pointer-events-none absolute left-0 top-full z-50 mt-1.5 max-w-[320px] rounded-lg border border-border/80 bg-popover px-3 py-2.5 text-sm text-popover-foreground shadow-lg',
-                'opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100',
-                'border-l-4 border-l-primary'
-              )}
-            >
-              <p className="leading-snug text-muted-foreground">{DISCIPLINA_INFO}</p>
-            </div>
-          </div>
+    <div className="mx-auto w-full max-w-7xl space-y-8 px-4 py-6 sm:px-6">
+      <header className="space-y-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Desempeño</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Métricas de disciplina</h1>
+          <InfoHint text={DISCIPLINA_INFO} />
         </div>
-        <p className="text-muted-foreground mt-0.5">
+        <p className="max-w-2xl text-sm text-muted-foreground">
           Seguimiento de formación (Academia), acciones del día y métricas de cumplimiento (spec §5.4).
         </p>
-      </div>
+      </header>
 
-      <div className="flex flex-wrap items-end gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="disciplina-fecha">Fecha de referencia</Label>
-          <Input
-            id="disciplina-fecha"
-            type="date"
-            value={fecha}
-            onChange={(e) => setFecha(e.target.value)}
+      <SectionCard>
+        <SectionCardHeader title="Fecha de referencia" subtitle="Las métricas inferiores usan acciones de esta fecha." />
+        <SectionCardBody>
+          <div className="max-w-xs space-y-2">
+            <Label htmlFor="disciplina-fecha">Fecha</Label>
+            <Input
+              id="disciplina-fecha"
+              type="date"
+              value={fecha}
+              onChange={(e) => setFecha(e.target.value)}
+            />
+          </div>
+        </SectionCardBody>
+      </SectionCard>
+
+      <section aria-labelledby="disciplina-seguimiento-heading">
+        <SectionCard>
+          <SectionCardHeader
+            titleId="disciplina-seguimiento-heading"
+            title="Seguimiento: registro de Academia y acciones"
+            subtitle="Vista compacta del avance formativo y del trabajo diario."
           />
-        </div>
-      </div>
-
-      <section className="space-y-3" aria-labelledby="disciplina-seguimiento-heading">
-        <h3 id="disciplina-seguimiento-heading" className="text-lg font-semibold tracking-tight">
-          Seguimiento: registro de Academia y acciones
-        </h3>
-        <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
-          <DisciplinaAcademyRegistro />
-          <DisciplinaAccionesCard fecha={fecha} usuarioId={currentUser?.id} />
-        </div>
+          <SectionCardBody>
+            <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
+              <DisciplinaAcademyRegistro />
+              <DisciplinaAccionesCard fecha={fecha} usuarioId={currentUser?.id} />
+            </div>
+          </SectionCardBody>
+        </SectionCard>
       </section>
 
-      <section className="space-y-3" aria-labelledby="disciplina-metricas-heading">
-        <h3 id="disciplina-metricas-heading" className="text-lg font-semibold tracking-tight">
-          Indicadores de disciplina
-        </h3>
-        {!currentUser ? (
-          <div className="flex h-64 items-center justify-center rounded-lg border border-dashed bg-muted/30 text-muted-foreground">
-            Inicia sesión para ver tus métricas de disciplina.
-          </div>
-        ) : isError ? (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            No se pudieron cargar las métricas.
-          </div>
-        ) : isLoading ? (
-          <div className="flex h-48 items-center justify-center rounded-lg border border-dashed bg-muted/30">
-            <p className="text-sm text-muted-foreground">Cargando…</p>
-          </div>
-        ) : metrics ? (
-          <DisciplinaCard metrics={metrics} fechaLabel={fechaLabel} />
-        ) : null}
+      <section aria-labelledby="disciplina-metricas-heading">
+        <SectionCard>
+          <SectionCardHeader
+            titleId="disciplina-metricas-heading"
+            title="Indicadores de disciplina"
+            subtitle={`Referencia: ${fechaLabel}.`}
+          />
+          <SectionCardBody>
+            {!currentUser ? (
+              <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-border/60 bg-muted/20 text-sm text-muted-foreground">
+                Inicia sesión para ver tus métricas de disciplina.
+              </div>
+            ) : isError ? (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                No se pudieron cargar las métricas.
+              </div>
+            ) : isLoading ? (
+              <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-border/60 bg-muted/20">
+                <p className="text-sm text-muted-foreground">Cargando…</p>
+              </div>
+            ) : metrics ? (
+              <DisciplinaCard metrics={metrics} fechaLabel={fechaLabel} />
+            ) : null}
+          </SectionCardBody>
+        </SectionCard>
       </section>
     </div>
   )

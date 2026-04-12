@@ -24,7 +24,9 @@ export type CatalogKpiO2cPortfolioPipelineResult = GlobalPortfolioDerived & {
 
 /**
  * Pipeline único: KPIs O2C → últimas mediciones → cumplimiento/status → score global del portafolio.
- * Usar en `useO2cGlobalScore`, `KpisDashboardPage` y cualquier vista que necesite la misma semántica.
+ * El agregado de portafolio (`deriveGlobalPortfolioFromMetricItems`) va memoizado en
+ * `useCatalogKpiGlobalPortfolioDerived` con `[metricItems, targetHorizon]`.
+ * Usar en `useO2cGlobalScore`, `useKpisDashboardData` y cualquier vista que necesite la misma semántica.
  */
 export function useCatalogKpiO2cPortfolioPipeline(
   options: UseCatalogKpiO2cPortfolioPipelineOptions = {}

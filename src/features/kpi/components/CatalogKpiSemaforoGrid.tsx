@@ -3,7 +3,7 @@
  * Sustituye el grid legacy (`kpis` / `kpi_mediciones`) en el dashboard ejecutivo.
  */
 
-import { Activity, ListTodo } from 'lucide-react'
+import { Activity } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { CatalogKpiMetricItem } from '../hooks/useCatalogKpiMetricsList'
 import { useCatalogKpiAccionImpactCounts } from '../hooks/useCatalogKpiAccionImpactCounts'
@@ -26,16 +26,6 @@ export type CatalogKpiSemaforoGridProps = {
   className?: string
   /** Muestra conteo de acciones vinculadas al KPI (catálogo + operaciones). */
   showAccionImpact?: boolean
-}
-
-const CARD: Record<
-  'verde' | 'amarillo' | 'rojo' | 'gris',
-  string
-> = {
-  verde: 'bg-emerald-500/10 border-emerald-500/30 [&_.dot]:bg-emerald-500',
-  amarillo: 'bg-amber-500/10 border-amber-500/30 [&_.dot]:bg-amber-500',
-  rojo: 'bg-red-500/10 border-red-500/30 [&_.dot]:bg-red-500',
-  gris: 'bg-muted/30 border-muted [&_.dot]:bg-muted-foreground',
 }
 
 const BAR: Record<'verde' | 'amarillo' | 'rojo' | 'gris', string> = {
@@ -72,6 +62,7 @@ export function CatalogKpiSemaforoGrid({
   })
   const metricItems = external ? metricItemsProp : internal.metricItems
   const isLoading = external ? Boolean(isLoadingProp) : internal.isLoading
+  const isError = external ? false : internal.isError
 
   const { data: impactByKpiId = {}, isLoading: impactLoading } = useCatalogKpiAccionImpactCounts({
     enabled: showAccionImpact,
@@ -86,6 +77,19 @@ export function CatalogKpiSemaforoGrid({
             className="min-h-[118px] animate-pulse rounded-xl border border-border/50 bg-muted/20"
           />
         ))}
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <div
+        className={cn(
+          'rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-6 text-center text-sm text-destructive',
+          className
+        )}
+      >
+        No fue posible cargar los KPIs. Intenta recargar la página.
       </div>
     )
   }
@@ -127,50 +131,49 @@ export function CatalogKpiSemaforoGrid({
         return (
           <div
             key={row.id}
-            className={cn(
-              'rounded-xl border px-4 py-3 shadow-sm transition-shadow hover:shadow-md',
-              CARD[color]
-            )}
+            className="rounded-xl border border-border/60 bg-card px-4 py-3.5 shadow-sm transition-shadow hover:shadow-md [&_.dot]:rounded-full"
             title={title}
           >
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="dot h-2.5 w-2.5 shrink-0 rounded-full" aria-hidden />
+                <span
+                  className={cn('dot h-2 w-2 shrink-0 rounded-full', {
+                    'bg-emerald-500': color === 'verde',
+                    'bg-amber-500': color === 'amarillo',
+                    'bg-red-500': color === 'rojo',
+                    'bg-muted-foreground/40': color === 'gris',
+                  })}
+                  aria-hidden
+                />
                 <span className="truncate text-sm font-medium text-foreground">{row.nombre}</span>
               </div>
               <div className="flex shrink-0 items-baseline gap-0.5">
                 <span className="text-xl font-semibold tabular-nums text-foreground">
                   {pct != null ? pct : '—'}
                 </span>
-                <span className="text-xs text-muted-foreground">%</span>
+                {pct != null ? <span className="text-xs text-muted-foreground">%</span> : null}
               </div>
             </div>
-            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted/50">
+            <div className="mt-2.5 h-1 w-full overflow-hidden rounded-full bg-muted">
               <div
                 className={cn('h-full rounded-full transition-all duration-500', BAR[color])}
                 style={{ width: `${pct != null ? Math.min(100, Math.max(0, pct)) : 0}%` }}
               />
             </div>
-            <p className="mt-1.5 text-[11px] text-muted-foreground">
-              Umbrales: verde ≥ {(greenMin * 100).toFixed(0)}% · amarillo ≥ {(yellowMin * 100).toFixed(0)}%
+            <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+              ≥{(greenMin * 100).toFixed(0)}% verde · ≥{(yellowMin * 100).toFixed(0)}% ámbar
             </p>
             {showAccionImpact && (
-              <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-border/40 pt-2">
-                <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                  <ListTodo className="h-3.5 w-3.5 shrink-0 text-primary/80" aria-hidden />
-                  <span className="truncate">Impacto operativo</span>
-                </span>
+              <div className="mt-2 flex items-center justify-between border-t border-border/40 pt-2">
+                <span className="text-[11px] text-muted-foreground">Impacto operativo</span>
                 {impactLoading ? (
-                  <span className="text-xs tabular-nums text-muted-foreground">…</span>
+                  <span className="text-[11px] text-muted-foreground">…</span>
                 ) : impact != null && impact > 0 ? (
-                  <span
-                    className="shrink-0 rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-primary"
-                    title={`${impact} acción${impact === 1 ? '' : 'es'} vinculadas a este KPI`}
-                  >
+                  <span className="text-[11px] font-semibold tabular-nums text-primary">
                     {impact} acción{impact === 1 ? '' : 'es'}
                   </span>
                 ) : (
-                  <span className="shrink-0 text-[11px] text-muted-foreground">Sin vínculos</span>
+                  <span className="text-[11px] text-muted-foreground">Sin vínculos</span>
                 )}
               </div>
             )}

@@ -29,6 +29,7 @@ import type { AccionDiaria, ActionStatus, PrioridadNc } from '@/types'
 import type { AccionCreateInput, AccionFormInput } from '../schemas/accion.schema'
 import { parseDescripcionTriada } from '../utils/descripcionAccionTriada'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 import { Paperclip, FileText, Image, Trash2 } from 'lucide-react'
 import {
   AccionChecklistEditor,
@@ -176,6 +177,8 @@ export function AccionFormDialog({
         prioridad: 'P2_Media',
         gap_ids: [],
         catalog_kpi_ids: [],
+        tipo_accion: null,
+        story_points: 0,
       }
     }
     const tri = parseDescripcionTriada(accion.descripcion_accion)
@@ -197,6 +200,11 @@ export function AccionFormDialog({
       area: accion.area ?? undefined,
       gap_ids,
       catalog_kpi_ids,
+      tipo_accion: accion.tipo_accion ?? null,
+      story_points:
+        typeof accion.story_points === 'number' && Number.isFinite(accion.story_points)
+          ? accion.story_points
+          : Number(accion.story_points) || 0,
     }
   }, [accion, defaultFecha, o2cLinksQuery.data])
 
@@ -216,6 +224,8 @@ export function AccionFormDialog({
       prioridad,
       estado,
       area: values.area ?? null,
+      tipo_accion: values.tipo_accion ?? null,
+      story_points: values.story_points ?? 0,
       gap_id: values.gap_id ?? null,
       catalog_kpi_id: values.catalog_kpi_id ?? null,
       ...(isEdit
@@ -395,10 +405,26 @@ export function AccionFormDialog({
             {isEdit ? 'Actualiza los campos y guarda los cambios' : 'Completa los datos para crear la acción'}
           </p>
           {isEdit && accion && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              <span className="font-medium text-foreground/80">ID </span>
-              <AccionIdDisplay id={accion.id} variant="full" />
-            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground/80">ID </span>
+                <AccionIdDisplay id={accion.id} variant="full" />
+              </p>
+              <span
+                className={cn(
+                  'inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium',
+                  accion.estado === 'Hecho' || accion.estado === 'Verificado'
+                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                    : accion.estado === 'Bloqueado' || accion.estado === 'Retraso'
+                      ? 'bg-destructive/10 text-destructive'
+                      : accion.estado === 'En_Ejecucion' || accion.estado === 'Hoy'
+                        ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                        : 'bg-muted text-muted-foreground'
+                )}
+              >
+                {accion.estado}
+              </span>
+            </div>
           )}
         </div>
         <div
@@ -543,7 +569,7 @@ export function AccionFormDialog({
         </div>
         <div
           id={`${formBaseId}-dialog-footer`}
-          className="accion-form-dialog-footer shrink-0 border-t border-border/60 bg-background px-6 py-4 flex justify-end gap-3"
+          className="accion-form-dialog-footer flex shrink-0 justify-end gap-3 border-t border-border/70 bg-muted/20 px-5 py-4 sm:px-6"
         >
           <Button
             type="button"

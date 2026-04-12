@@ -32,7 +32,7 @@ import {
   DistanceDestinationsCatalogPage,
   DistanceRequestsSavedPage,
 } from '@/features/distance'
-import { GapsDashboardPage, KpisDashboardPage } from '@/features/kpi'
+import { GapsDashboardPage, ImpactMatrixPage, KpisDashboardPage } from '@/features/kpi'
 import { AcademyPage } from '@/features/academy'
 import { ROUTES } from '@/constants'
 
@@ -61,6 +61,7 @@ const router = createBrowserRouter([
       { path: ROUTES.DASHBOARD, element: <DashboardPage /> },
       { path: ROUTES.DASHBOARD_KPIS, element: <KpisDashboardPage /> },
       { path: ROUTES.DASHBOARD_GAPS, element: <GapsDashboardPage /> },
+      { path: ROUTES.DASHBOARD_IMPACTO, element: <ImpactMatrixPage /> },
       { path: ROUTES.KANBAN, element: <KanbanPage /> },
       { path: ROUTES.DISCIPLINA, element: <DisciplinaPage /> },
       { path: ROUTES.AREAS, element: <PanelAreasPage /> },

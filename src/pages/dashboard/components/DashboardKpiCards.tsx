@@ -23,9 +23,9 @@ export function DashboardKpiCards({ metricas, isLoading }: DashboardKpiCardsProp
       <DashboardKpiCard
         id="dashboard-kpi-card-total"
         className="dashboard-kpi-card dashboard-kpi-card-total"
-        title="Acciones del día"
+        title="Total"
         value={metricas.total}
-        description="Total con fecha seleccionada"
+        description="Acciones con la fecha del filtro"
         icon={ListTodo}
         accent="slate"
         isLoading={isLoading}
@@ -35,7 +35,7 @@ export function DashboardKpiCards({ metricas, isLoading }: DashboardKpiCardsProp
         className="dashboard-kpi-card dashboard-kpi-card-completadas"
         title="Completadas"
         value={metricas.completadas}
-        description="Hecho + Verificado"
+        description="Hecho o verificado"
         icon={CheckCircle2}
         accent="emerald"
         isLoading={isLoading}
@@ -45,7 +45,7 @@ export function DashboardKpiCards({ metricas, isLoading }: DashboardKpiCardsProp
         className="dashboard-kpi-card dashboard-kpi-card-bloqueadas"
         title="Bloqueadas"
         value={metricas.bloqueadas}
-        description="Estado Bloqueado"
+        description="Estado bloqueado"
         icon={AlertCircle}
         accent="red"
         isLoading={isLoading}
@@ -55,7 +55,7 @@ export function DashboardKpiCards({ metricas, isLoading }: DashboardKpiCardsProp
         className="dashboard-kpi-card dashboard-kpi-card-sin-evidencia"
         title="Sin evidencia"
         value={metricas.sinEvidencia}
-        description="Hecho/Verificado sin evidencia"
+        description="Listas sin adjunto"
         icon={FileQuestion}
         accent="amber"
         isLoading={isLoading}
@@ -63,9 +63,9 @@ export function DashboardKpiCards({ metricas, isLoading }: DashboardKpiCardsProp
       <DashboardKpiCard
         id="dashboard-kpi-card-eficiencia"
         className="dashboard-kpi-card dashboard-kpi-card-eficiencia"
-        title="Eficiencia operativa"
+        title="Eficiencia"
         value={`${metricas.eficienciaPorcentaje}%`}
-        description="Completadas / total"
+        description="Completadas ÷ total"
         icon={TrendingUp}
         accent="blue"
         isLoading={isLoading}

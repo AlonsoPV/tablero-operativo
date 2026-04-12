@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
+import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
 import { ACADEMY_MODULES, ACADEMY_TOTAL_MODULES } from '../data/modules'
 import { useAcademyProgress } from '../hooks/useAcademyProgress'
 import { AcademyModuleCard } from '../components/AcademyModuleCard'
@@ -41,28 +41,39 @@ export function AcademyPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Academia O2C</h2>
-        <p className="text-muted-foreground">
-          Ruta formativa de 8 modulos con desbloqueo progresivo, quiz obligatorio y progreso persistente por usuario.
+    <div className="mx-auto w-full max-w-7xl space-y-8 px-4 py-6 sm:px-6">
+      <header className="space-y-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Formación O2C</p>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Academia O2C</h1>
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Ruta formativa de 8 módulos con desbloqueo progresivo, quiz obligatorio y progreso persistente por usuario.
         </p>
-      </div>
+      </header>
 
-      <AcademyProgressBar completed={completedCount} total={ACADEMY_TOTAL_MODULES} />
+      <SectionCard>
+        <SectionCardHeader
+          title="Progreso en la ruta"
+          subtitle={`${ACADEMY_TOTAL_MODULES} módulos · desbloqueo y quiz por etapa.`}
+        />
+        <SectionCardBody>
+          <AcademyProgressBar completed={completedCount} total={ACADEMY_TOTAL_MODULES} />
+        </SectionCardBody>
+      </SectionCard>
 
       {error && (
-        <Card>
-          <CardContent className="p-4 text-sm text-destructive">
+        <SectionCard className="border-destructive/35">
+          <SectionCardBody className="text-sm text-destructive">
             Error al cargar/guardar progreso de academia: {error}
-          </CardContent>
-        </Card>
+          </SectionCardBody>
+        </SectionCard>
       )}
 
       {isLoading ? (
-        <Card>
-          <CardContent className="p-6 text-sm text-muted-foreground">Cargando progreso de la academia...</CardContent>
-        </Card>
+        <SectionCard>
+          <SectionCardBody className="text-sm text-muted-foreground">
+            Cargando progreso de la academia…
+          </SectionCardBody>
+        </SectionCard>
       ) : (
         <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
           <aside className="space-y-3">

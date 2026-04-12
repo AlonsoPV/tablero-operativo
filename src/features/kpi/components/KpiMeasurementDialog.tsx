@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import type { CatalogKpiCalcType } from '@/features/catalogs/types/catalogs.types'
 import {
   Dialog,
   DialogContent,
@@ -23,7 +24,43 @@ import type { CatalogKpi } from '@/features/catalogs/types/catalogs.types'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
+import { getAppNow } from '@/lib/clock'
 import { formatDateTimeCDMX } from '@/lib/dateUtils'
+import {
+  buildKpiMetricFromCatalogRow,
+  DEFAULT_O2C_TARGET_HORIZON,
+  resolveEffectiveStatusThresholds,
+  resolveTarget,
+} from '../utils/kpiCalculations'
+import type { CatalogKpiO2cRow } from '../types/kpi.types'
+
+function horizonShortLabel(): string {
+  switch (DEFAULT_O2C_TARGET_HORIZON) {
+    case 'm6':
+      return 'M6'
+    case 'm12':
+      return 'M12'
+    case 'm18':
+    default:
+      return 'M18'
+  }
+}
+
+function formatRefNumber(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—'
+  if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n))
+  const abs = Math.abs(n)
+  const digits = abs >= 100 ? 1 : abs >= 1 ? 2 : 4
+  return n.toLocaleString('es-MX', { maximumFractionDigits: digits, minimumFractionDigits: 0 })
+}
+
+function directionHint(calc: CatalogKpiCalcType | null | undefined, dir: string | null | undefined): string {
+  const t = calc ?? (dir === 'maximize' ? 'maximize' : dir === 'minimize' ? 'minimize' : null)
+  if (t === 'maximize') return 'Mayor valor es mejor'
+  if (t === 'minimize') return 'Menor valor es mejor'
+  if (t === 'binary') return 'Igualar a la meta'
+  return '—'
+}
 
 type FormValues = {
   valor: string
@@ -40,7 +77,7 @@ function toLocalInputValue(iso: string): string {
 
 function fromLocalInputValue(local: string): string {
   const d = new Date(local)
-  return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
+  return Number.isNaN(d.getTime()) ? getAppNow().toISOString() : d.toISOString()
 }
 
 export function KpiMeasurementDialog({
@@ -76,11 +113,29 @@ export function KpiMeasurementDialog({
 
   const insertM = useInsertCatalogKpiMeasurement()
 
-  const defaultMedido = useMemo(() => toLocalInputValue(new Date().toISOString()), [open, kpiId])
+  const defaultMedido = useMemo(() => toLocalInputValue(getAppNow().toISOString()), [open, kpiId])
 
   const form = useForm<FormValues>({
     defaultValues: { valor: '', notes: '', medido_en: defaultMedido },
   })
+
+  const reference = useMemo(() => {
+    if (!kpi) return null
+    const row = kpi as CatalogKpiO2cRow
+    const metric = buildKpiMetricFromCatalogRow(row, null)
+    const eff = resolveTarget(metric, DEFAULT_O2C_TARGET_HORIZON)
+    const th = resolveEffectiveStatusThresholds(metric)
+    return {
+      baseline: row.baseline,
+      meta: eff,
+      unit: row.unidad ?? '—',
+      thGreen: th.greenMin,
+      thYellow: th.yellowMin,
+      directionText: directionHint(row.calc_type, row.direction),
+    }
+  }, [kpi])
+
+  const latestMeasurement = history[0]
 
   const onSubmit = form.handleSubmit((vals) => {
     if (!kpi) return
@@ -100,7 +155,7 @@ export function KpiMeasurementDialog({
       {
         onSuccess: () => {
           toast.success('Medición registrada')
-          form.reset({ valor: '', notes: '', medido_en: toLocalInputValue(new Date().toISOString()) })
+          form.reset({ valor: '', notes: '', medido_en: toLocalInputValue(getAppNow().toISOString()) })
         },
         onError: (e) => toast.error(e instanceof Error ? e.message : 'Error al guardar'),
       }
@@ -114,9 +169,48 @@ export function KpiMeasurementDialog({
           <DialogTitle>Medición — {kpi?.nombre ?? 'KPI'}</DialogTitle>
           <DialogDescription id="kpi-measurement-desc">
             El valor del KPI se toma de la última medición; también se actualiza el campo «valor actual» en
-            catálogo.
+            catálogo. Usa la misma escala que línea base y meta.
           </DialogDescription>
         </DialogHeader>
+
+        {kpi && reference && (
+          <div
+            className="rounded-lg border border-border/80 bg-muted/40 px-3 py-2.5 text-sm"
+            aria-label="Referencia del KPI"
+          >
+            <p className="mb-2 text-xs font-semibold text-foreground">Referencia (misma escala que el tablero)</p>
+            <dl className="grid grid-cols-[minmax(0,7.5rem)_1fr] gap-x-3 gap-y-1.5 text-xs">
+              <dt className="text-muted-foreground">Unidad</dt>
+              <dd className="font-medium text-foreground">{reference.unit}</dd>
+              <dt className="text-muted-foreground">Línea base</dt>
+              <dd className="tabular-nums font-medium text-foreground">
+                {formatRefNumber(reference.baseline)}
+              </dd>
+              <dt className="text-muted-foreground">Meta ({horizonShortLabel()})</dt>
+              <dd className="tabular-nums font-medium text-foreground">
+                {formatRefNumber(reference.meta)}
+              </dd>
+              <dt className="text-muted-foreground">Criterio</dt>
+              <dd className="text-foreground">{reference.directionText}</dd>
+              <dt className="text-muted-foreground">Semáforo (0–1)</dt>
+              <dd className="text-foreground">
+                Verde ≥{(reference.thGreen * 100).toFixed(0)}% · Amarillo ≥{(reference.thYellow * 100).toFixed(0)}%
+              </dd>
+            </dl>
+            {latestMeasurement ? (
+              <p className="mt-2 border-t border-border/60 pt-2 text-xs text-muted-foreground">
+                Última medición:{' '}
+                <span className="font-medium tabular-nums text-foreground">{latestMeasurement.valor}</span>
+                {' · '}
+                {formatDateTimeCDMX(latestMeasurement.medido_en)}
+              </p>
+            ) : (
+              <p className="mt-2 border-t border-border/60 pt-2 text-xs text-muted-foreground">
+                Sin mediciones previas; al guardar, este valor será el actual del KPI.
+              </p>
+            )}
+          </div>
+        )}
 
         <form key={`${kpiId ?? 'x'}-${open}`} onSubmit={onSubmit} className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">

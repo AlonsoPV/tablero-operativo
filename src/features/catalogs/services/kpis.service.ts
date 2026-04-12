@@ -53,6 +53,7 @@ export const catalogKpisService = {
       gap_id: input.gap_id ?? null,
       weight: input.weight ?? null,
       baseline: input.baseline ?? null,
+      target_m3: input.target_m3 ?? null,
       target_m6: input.target_m6 ?? null,
       target_m12: input.target_m12 ?? null,
       target_m18: input.target_m18 ?? null,

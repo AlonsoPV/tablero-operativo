@@ -27,17 +27,20 @@ export function DashboardActionsSection({
 }: DashboardActionsSectionProps) {
   return (
     <div id="dashboard-actions-section" className="dashboard-actions-section rounded-xl border border-border/50 bg-card shadow-sm overflow-hidden">
-      <div className="dashboard-actions-section-header border-b border-border/50 bg-muted/20 px-4 py-3 sm:px-5">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+      <div className="dashboard-actions-section-header border-b border-border/50 bg-muted/15 px-4 py-3.5 sm:px-6">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
             <ClipboardList className="h-4 w-4 text-primary" />
           </div>
           <div>
-            <h2 id="dashboard-actions-title" className="text-sm font-semibold text-foreground">
-              Control de acciones
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Ejecución
+            </p>
+            <h2 id="dashboard-actions-title" className="mt-1 text-base font-semibold text-foreground">
+              Acciones del día
             </h2>
-            <p className="text-xs text-muted-foreground">
-              Lista filtrable. Clic en una fila para editar.
+            <p className="text-sm text-muted-foreground">
+              Filtra arriba; abre una fila para editar o cerrar el ciclo.
             </p>
           </div>
         </div>

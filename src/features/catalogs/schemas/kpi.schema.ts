@@ -62,6 +62,7 @@ export const kpiFormSchema = z
     gap_id: gapIdField,
     weight: weightField,
     baseline: optionalNum,
+    target_m3: optionalNum,
     target_m6: optionalNum,
     target_m12: optionalNum,
     target_m18: optionalNum,

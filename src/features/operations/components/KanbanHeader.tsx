@@ -51,13 +51,16 @@ export function KanbanHeader({
       )}
     >
       <div className="kanban-header-title-area space-y-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Operaciones
+        </p>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 id="kanban-title" className="kanban-title text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+          <h1 id="kanban-title" className="kanban-title text-2xl font-semibold tracking-tight text-foreground">
             Kanban
           </h1>
           {rightOfTitle}
         </div>
-        <p className="kanban-subtitle text-sm text-muted-foreground max-w-xl">
+        <p className="kanban-subtitle max-w-2xl text-sm text-muted-foreground">
           {viewMode === 'kanban'
             ? 'Gestiona tus acciones por estado. Arrastra las tarjetas entre columnas para actualizar el progreso.'
             : 'Vista en lista. Haz clic en una fila para editar la acción.'}

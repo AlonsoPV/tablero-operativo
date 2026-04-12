@@ -5,7 +5,11 @@
 
 import { APP_NAME } from '@/constants'
 
-export function AuthLoader() {
+interface AuthLoaderProps {
+  message?: string
+}
+
+export function AuthLoader({ message = 'Comprobando tu sesión…' }: AuthLoaderProps) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background">
       <div className="flex flex-col items-center gap-4">
@@ -22,7 +26,7 @@ export function AuthLoader() {
           className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"
           aria-label="Cargando"
         />
-        <p className="text-sm text-muted-foreground">Comprobando tu sesión…</p>
+        <p className="text-sm text-muted-foreground">{message}</p>
       </div>
     </div>
   )

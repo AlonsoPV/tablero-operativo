@@ -55,6 +55,7 @@ export function KpiForm({
       gap_id: null,
       weight: null,
       baseline: null,
+      target_m3: null,
       target_m6: null,
       target_m12: null,
       target_m18: null,
@@ -270,14 +271,14 @@ export function KpiForm({
             />
           </div>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-2">
-            <Label htmlFor="target_m12">Meta M12</Label>
+            <Label htmlFor="target_m3">Meta M3</Label>
             <Input
-              id="target_m12"
+              id="target_m3"
               type="number"
               step="any"
-              {...form.register('target_m12', { setValueAs: (v) => (v === '' || v == null ? null : Number(v)) })}
+              {...form.register('target_m3', { setValueAs: (v) => (v === '' || v == null ? null : Number(v)) })}
             />
           </div>
           <div className="space-y-2">
@@ -289,7 +290,22 @@ export function KpiForm({
               {...form.register('target_m6', { setValueAs: (v) => (v === '' || v == null ? null : Number(v)) })}
             />
           </div>
+          <div className="space-y-2 sm:col-span-2 lg:col-span-1">
+            <Label htmlFor="target_m12">Meta M12</Label>
+            <Input
+              id="target_m12"
+              type="number"
+              step="any"
+              {...form.register('target_m12', { setValueAs: (v) => (v === '' || v == null ? null : Number(v)) })}
+            />
+          </div>
         </div>
+        <p className="text-xs text-muted-foreground">
+          Con <code className="rounded bg-muted px-1">VITE_O2C_PROGRAM_START</code> (fecha ISO{' '}
+          <code className="rounded bg-muted px-1">YYYY-MM-DD</code>, primer día del primer mes del programa O2C)
+          se calcula el mes 1–18 y la meta activa en documento (M3 en 1–3, M6 en 4–6, M12 en 7–12, M18 en 13–18).
+          Sin esa variable, la vista documento usa solo M18.
+        </p>
       </div>
 
       <div className={sectionClass}>

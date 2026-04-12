@@ -3,6 +3,7 @@
  * Campos opcionales donde la spec permite NULL o no los exige en todas las rutas.
  */
 
+import type { TipoAccion } from '@/features/operations/utils/tipoAccionConfig'
 import type { UserRole } from './enums'
 import type { ActionStatus, PrioridadNc } from './enums'
 import type { NombreKpi, KpiUnidad } from './enums'
@@ -37,7 +38,9 @@ export interface AccionDiaria {
   kpi_afectado: string | null
   /** Brecha O2C (catálogo); opcional; convive con kpi_afectado legacy */
   gap_id?: string | null
-  story_points?: number
+  /** Categoría de complejidad (requiere migración `tipo_accion_enum` en BD). */
+  tipo_accion: TipoAccion | null
+  story_points: number
   catalog_kpi_id?: string | null
   okr_impactado: string | null
   proceso: string | null

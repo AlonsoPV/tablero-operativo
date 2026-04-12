@@ -6,6 +6,16 @@
 import { z } from 'zod'
 import { ACTION_STATUS, PRIORIDAD_NC } from '@/types'
 import { formatDescripcionTriada } from '../utils/descripcionAccionTriada'
+import { STORY_POINTS_OPTIONS } from '../utils/tipoAccionConfig'
+
+const TIPO_ACCION_ENUM = z.enum([
+  'configuracion',
+  'reporte',
+  'integracion',
+  'dashboard',
+  'automatizacion',
+  'otro',
+])
 
 const tituloAccionSchema = z
   .string()
@@ -64,6 +74,16 @@ const accionInputShape = z.object({
   cliente_id: z.string().uuid().nullable().optional(),
   causa_raiz: z.string().trim().nullable().optional(),
   responsable_bloqueo: z.string().uuid().nullable().optional(),
+  tipo_accion: TIPO_ACCION_ENUM.nullable().optional(),
+  story_points: z
+    .number()
+    .refine(
+      (v) => v === 0 || (STORY_POINTS_OPTIONS as readonly number[]).includes(v),
+      {
+        message: 'Debe ser 0 o un valor Fibonacci: 1, 2, 3, 5, 8 o 13',
+      }
+    )
+    .default(0),
 })
 
 export const accionCreateSchema = accionInputShape.transform(
@@ -121,6 +141,16 @@ export const accionUpdateSchema = z
     responsable_bloqueo: z.string().uuid().nullable().optional(),
     evidencia_cargada: z.boolean().optional(),
     evidencia_adjunta: z.string().trim().nullable().optional(),
+    tipo_accion: TIPO_ACCION_ENUM.nullable().optional(),
+    story_points: z
+      .number()
+      .refine(
+        (v) => v === 0 || (STORY_POINTS_OPTIONS as readonly number[]).includes(v),
+        {
+          message: 'Debe ser 0 o un valor Fibonacci: 1, 2, 3, 5, 8 o 13',
+        }
+      )
+      .optional(),
   })
   .partial()
 

@@ -1,4 +1,6 @@
 export { useAcciones, useAccionesByDate } from './useAcciones'
+export { useAccionImpactPreview } from './useAccionImpactPreview'
+export type { AccionImpactPreviewRow } from './useAccionImpactPreview'
 export {
   useAccionComentarios,
   useCreateAccionComentario,
