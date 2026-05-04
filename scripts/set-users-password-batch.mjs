@@ -5,9 +5,9 @@
  * IDs a actualizar (Auth user id):
  */
 const USER_IDS = [
-  '5262608e-7b8e-4d1a-83aa-2ef819e8e50e',
-  'c00b1975-4f8f-4fc3-b228-005aa9e5374f',
-  'dd764c9f-8145-45d4-9111-0a8ec7f687e5',
+  '83a033bd-e273-4314-8c9a-6a6bd8f4400e',
+  '38e5276b-92f4-4c5f-b420-ba20e83e67c7',
+  '1b332244-6171-4941-9373-735bac497eec',
 ]
 
 /**
