@@ -12,19 +12,9 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
-import { readFileSync, existsSync } from 'fs'
-import { resolve, dirname } from 'path'
-import { fileURLToPath } from 'url'
+import { loadDotenv } from './_load-dotenv.mjs'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const envPath = resolve(__dirname, '..', '.env')
-if (existsSync(envPath)) {
-  const content = readFileSync(envPath, 'utf8')
-  for (const line of content.split('\n')) {
-    const m = line.match(/^\s*([^#=]+)=(.*)$/)
-    if (m) process.env[m[1].trim()] = m[2].trim().replace(/^["']|["']$/g, '')
-  }
-}
+loadDotenv(import.meta.url)
 
 const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY

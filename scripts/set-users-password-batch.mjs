@@ -2,7 +2,11 @@
  * Establece la misma contraseña en varios usuarios de Supabase Auth (admin).
  * Requiere SUPABASE_SERVICE_ROLE_KEY (no subir a git ni usar en frontend).
  *
- * IDs a actualizar (Auth user id):
+ * Edita USER_IDS abajo con los UUID de Auth (Dashboard → Authentication → Users).
+ *
+ * Variables en .env en la raíz del proyecto:
+ *   VITE_SUPABASE_URL=https://xxx.supabase.co
+ *   SUPABASE_SERVICE_ROLE_KEY=eyJ...   (service_role, no anon)
  */
 const USER_IDS = [
   '83a033bd-e273-4314-8c9a-6a6bd8f4400e',
@@ -11,36 +15,34 @@ const USER_IDS = [
 ]
 
 /**
- * Uso:
- *   node scripts/set-users-password-batch.mjs emx@2026
- *   NEW_PASSWORD=emx@2026 node scripts/set-users-password-batch.mjs
+ * Uso (desde la raíz del repo):
+ *   node scripts/set-users-password-batch.mjs "emx@2026"
+ *   npm run auth:password-batch -- "emx@2026"
  *
- * Variables (.env en la raíz): VITE_SUPABASE_URL o SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+ * PowerShell (contraseña por variable):
+ *   $env:NEW_PASSWORD="emx@2026"; node scripts/set-users-password-batch.mjs
+ *
+ * El .env debe tener VITE_SUPABASE_URL (o SUPABASE_URL) y SUPABASE_SERVICE_ROLE_KEY.
  */
 
 import { createClient } from '@supabase/supabase-js'
-import { readFileSync, existsSync } from 'fs'
-import { resolve, dirname } from 'path'
-import { fileURLToPath } from 'url'
+import { loadDotenv } from './_load-dotenv.mjs'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const envPath = resolve(__dirname, '..', '.env')
-if (existsSync(envPath)) {
-  const content = readFileSync(envPath, 'utf8')
-  for (const line of content.split('\n')) {
-    const m = line.match(/^\s*([^#=]+)=(.*)$/)
-    if (m) process.env[m[1].trim()] = m[2].trim().replace(/^["']|["']$/g, '')
-  }
-}
+const envLoadedFrom = loadDotenv(import.meta.url)
 
 const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 const password = process.argv[2] || process.env.NEW_PASSWORD
 
 if (!url || !serviceRoleKey) {
-  console.error('Faltan variables de entorno. En .env:')
+  if (!envLoadedFrom) {
+    console.error('No se encontró archivo .env en la carpeta del proyecto ni en el directorio actual.')
+  }
+  console.error('Faltan variables de entorno. En .env (sin comillas rotas, una variable por línea):')
   console.error('  VITE_SUPABASE_URL=https://xxx.supabase.co')
-  console.error('  SUPABASE_SERVICE_ROLE_KEY=eyJ... (Supabase → Settings → API → service_role)')
+  console.error('  SUPABASE_SERVICE_ROLE_KEY=... (Settings → API → service_role; no uses la anon key)')
+  console.error(`\nComprobación: URL=${Boolean(url)}  service_role=${Boolean(serviceRoleKey)}`)
+  console.error('Ejecuta el comando desde la raíz del repo: cd ...\\tablero-operativo')
   process.exit(1)
 }
 
