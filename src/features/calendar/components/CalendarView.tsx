@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  List,
   Plus,
   Send,
   StickyNote,
@@ -25,7 +24,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ROUTES } from '@/constants'
-import { AccionIdDisplay, EvidenciaCargadaIndicator } from '@/features/operations'
+import { EvidenciaCargadaIndicator } from '@/features/operations'
 import { useAcciones } from '@/features/operations/hooks/useAcciones'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { addCalendarDays, dateOnlyCDMX, monthName } from '@/lib/dateUtils'
@@ -37,7 +36,10 @@ import type { AccionComentario } from '@/types/accionComentario'
 import type { AccionDiaria, ActionStatus } from '@/types'
 import type { AccionesFilter } from '@/services/acciones.service'
 
-const WEEKDAYS = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom']
+const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+const WEEKDAYS_SHORT = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
+
+type CalendarDayTab = 'acciones' | 'recordatorios' | 'minutas'
 
 export interface CalendarFilters {
   area?: string
@@ -50,11 +52,18 @@ export interface CalendarViewProps {
   responsableNames?: Record<string, string>
   onSelectAccion?: (accion: AccionDiaria) => void
   filters?: CalendarFilters
+  initialSelectedDate?: string | null
 }
 
 function currentYearMonth(): { year: number; month: number } {
   const d = new Date()
   return { year: d.getFullYear(), month: d.getMonth() + 1 }
+}
+
+function yearMonthFromDate(date: string): { year: number; month: number } {
+  const [year, month] = date.split('-').map(Number)
+  if (!year || !month) return currentYearMonth()
+  return { year, month }
 }
 
 function weekdayMondayFirst(date: Date): number {
@@ -187,12 +196,19 @@ function formatReminderDateTime(value: string): string {
   })
 }
 
-export function CalendarView({ responsableNames = {}, onSelectAccion, filters = {} }: CalendarViewProps) {
+export function CalendarView({
+  responsableNames = {},
+  onSelectAccion,
+  filters = {},
+  initialSelectedDate = null,
+}: CalendarViewProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data: currentUser } = useCurrentUser()
-  const [view, setView] = useState(currentYearMonth)
-  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [view, setView] = useState(() =>
+    initialSelectedDate ? yearMonthFromDate(initialSelectedDate) : currentYearMonth()
+  )
+  const [selectedDate, setSelectedDate] = useState<string | null>(initialSelectedDate)
   const [noteDialogOpen, setNoteDialogOpen] = useState(false)
   const [reminderDialogOpen, setReminderDialogOpen] = useState(false)
   const [noteTitle, setNoteTitle] = useState('')
@@ -200,10 +216,17 @@ export function CalendarView({ responsableNames = {}, onSelectAccion, filters = 
   const [reminderTitle, setReminderTitle] = useState('')
   const [reminderDeadline, setReminderDeadline] = useState(datetimeLocalForDate(null))
   const [reminderDescription, setReminderDescription] = useState('')
+  const [mobileDayTab, setMobileDayTab] = useState<CalendarDayTab>('acciones')
 
   const calendarDays = useMemo(() => getCalendarDays(view.year, view.month), [view.year, view.month])
   const gridFirstDate = calendarDays[0]?.date ?? ''
   const gridLastDate = calendarDays[calendarDays.length - 1]?.date ?? ''
+
+  useEffect(() => {
+    if (!initialSelectedDate) return
+    setSelectedDate(initialSelectedDate)
+    setView(yearMonthFromDate(initialSelectedDate))
+  }, [initialSelectedDate])
 
   const accionesFilter = useMemo<AccionesFilter>(
     () => ({
@@ -344,6 +367,21 @@ export function CalendarView({ responsableNames = {}, onSelectAccion, filters = 
   const showReminders = shouldShowCalendarItem(filters.itemType, 'recordatorios')
   const showNotes = shouldShowCalendarItem(filters.itemType, 'minutas')
   const hasTypeFilter = Boolean(filters.itemType && filters.itemType !== 'todos')
+
+  const visibleDayTabs = useMemo(() => {
+    const tabs: CalendarDayTab[] = []
+    if (showNotes) tabs.push('minutas')
+    if (showReminders) tabs.push('recordatorios')
+    if (showActions) tabs.push('acciones')
+    return tabs
+  }, [showActions, showNotes, showReminders])
+
+  useEffect(() => {
+    if (visibleDayTabs.length === 0) return
+    if (!visibleDayTabs.includes(mobileDayTab)) {
+      setMobileDayTab(visibleDayTabs[0])
+    }
+  }, [selectedDate, visibleDayTabs, mobileDayTab])
   const filteredDays = useMemo(
     () =>
       calendarDays
@@ -374,80 +412,83 @@ export function CalendarView({ responsableNames = {}, onSelectAccion, filters = 
   }, [selectedDate])
 
   return (
-    <div className="relative space-y-4 p-4 sm:p-5">
-      <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/10 p-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center justify-between gap-2 sm:justify-start">
-          <Button variant="outline" size="icon" onClick={goPrev} aria-label="Mes anterior" className="h-8 w-8">
+    <div id="calendar-view" className="calendar-view relative space-y-3 p-3 sm:space-y-4 sm:p-4 md:p-5">
+      <div
+        id="calendar-toolbar"
+        className="calendar-toolbar flex flex-col gap-2.5 rounded-xl border border-border/60 bg-muted/10 p-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:p-3"
+      >
+        <div className="flex items-center justify-between gap-1 sm:justify-start sm:gap-2">
+          <Button variant="outline" size="icon" onClick={goPrev} aria-label="Mes anterior" className="h-9 w-9 shrink-0">
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <div className="min-w-[11rem] rounded-md border border-border bg-background px-4 py-1.5 text-center">
-            <h3 className="text-base font-semibold capitalize leading-tight text-foreground">
+          <div className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-center sm:min-w-[10rem] sm:flex-none">
+            <h3 className="text-sm font-semibold capitalize leading-tight text-foreground sm:text-base">
               {monthName(view.year, view.month)}
             </h3>
-            <p className="text-xs text-muted-foreground">{view.year}</p>
+            <p className="text-[11px] text-muted-foreground">{view.year}</p>
           </div>
-          <Button variant="outline" size="icon" onClick={goNext} aria-label="Mes siguiente" className="h-8 w-8">
+          <Button variant="outline" size="icon" onClick={goNext} aria-label="Mes siguiente" className="h-9 w-9 shrink-0">
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
-        <div className="grid grid-cols-3 gap-2 sm:flex sm:w-auto">
-          <Button variant="outline" size="sm" onClick={openNoteDialog} className="w-full sm:w-auto">
-            <StickyNote className="h-4 w-4" />
-            Minuta
+        <div className="grid grid-cols-3 gap-1.5 sm:flex sm:gap-2">
+          <Button variant="outline" size="sm" onClick={openNoteDialog} className="h-9 gap-1 px-2 text-xs sm:px-3 sm:text-sm">
+            <StickyNote className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+            <span className="truncate">Minuta</span>
           </Button>
-          <Button variant="outline" size="sm" onClick={openReminderDialog} className="w-full sm:w-auto">
-            <AlarmClock className="h-4 w-4" />
-            Recordatorio
+          <Button variant="outline" size="sm" onClick={openReminderDialog} className="h-9 gap-1 px-2 text-xs sm:px-3 sm:text-sm">
+            <AlarmClock className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+            <span className="truncate">Record.</span>
           </Button>
-          <Button variant="default" size="sm" onClick={goToday} className="w-full sm:w-auto">
-            <CalendarIcon className="h-4 w-4" />
+          <Button variant="default" size="sm" onClick={goToday} className="h-9 gap-1 px-2 text-xs sm:px-3 sm:text-sm">
+            <CalendarIcon className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
             Hoy
           </Button>
         </div>
       </div>
 
       {hasTypeFilter ? (
-        <div className="rounded-xl border border-border/60 bg-card p-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-foreground">
-                Dias con {calendarFilterLabel(filters.itemType)}
-              </p>
-              <p className="text-xs text-muted-foreground">Ordenados por dia dentro de la vista mensual.</p>
-            </div>
-            <span className="text-xs font-medium text-muted-foreground">{filteredDays.length} dia(s)</span>
+        <div id="calendar-filtered-days" className="rounded-lg border border-border/60 bg-card p-2.5 sm:rounded-xl sm:p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-foreground sm:text-sm">
+              Días con {calendarFilterLabel(filters.itemType)}
+            </p>
+            <span className="text-[10px] font-medium tabular-nums text-muted-foreground sm:text-xs">
+              {filteredDays.length}
+            </span>
           </div>
           {filteredDays.length > 0 ? (
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5 sm:flex-wrap sm:overflow-visible">
               {filteredDays.map((date) => (
                 <Button
                   key={date}
                   type="button"
                   variant={date === selectedDate ? 'default' : 'outline'}
                   size="sm"
-                  className="h-8"
+                  className="h-8 shrink-0 px-2.5 text-xs"
                   onClick={() => setSelectedDate(date)}
                 >
                   {new Date(`${date}T12:00:00`).toLocaleDateString('es-MX', {
-                    day: '2-digit',
+                    day: 'numeric',
                     month: 'short',
                   })}
                 </Button>
               ))}
             </div>
           ) : (
-            <p className="mt-3 text-sm text-muted-foreground">
-              No hay {calendarFilterLabel(filters.itemType)} en este mes.
+            <p className="mt-2 text-xs text-muted-foreground">
+              Sin {calendarFilterLabel(filters.itemType)} este mes.
             </p>
           )}
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-xl border border-border/60 bg-card">
-        <div className="grid grid-cols-7 border-b border-border/60 bg-muted/30 text-center text-xs font-medium text-muted-foreground">
-          {WEEKDAYS.map((day) => (
-            <div key={day} className="py-2">
-              {day}
+      <div id="calendar-grid" className="calendar-grid overflow-hidden rounded-lg border border-border/60 bg-card sm:rounded-xl">
+        <div className="grid grid-cols-7 border-b border-border/60 bg-muted/30 text-center text-[10px] font-medium text-muted-foreground sm:text-xs">
+          {WEEKDAYS.map((day, i) => (
+            <div key={day} className="py-1.5 sm:py-2">
+              <span className="sm:hidden">{WEEKDAYS_SHORT[i]}</span>
+              <span className="hidden sm:inline">{day}</span>
             </div>
           ))}
         </div>
@@ -468,17 +509,17 @@ export function CalendarView({ responsableNames = {}, onSelectAccion, filters = 
                 type="button"
                 onClick={() => setSelectedDate(date)}
                 className={cn(
-                  'min-h-[88px] border-b border-r border-border/50 p-2 text-left transition-colors',
+                  'min-h-[3.25rem] border-b border-r border-border/50 p-1 text-left transition-colors touch-manipulation sm:min-h-[5.5rem] sm:p-1.5 md:min-h-[88px] md:p-2',
                   'hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-inset',
                   !isCurrentMonth && 'bg-muted/20 text-muted-foreground',
-                  isToday && 'bg-primary/5 ring-2 ring-primary/40 ring-inset',
-                  isSelected && 'bg-primary/10 ring-2 ring-primary ring-inset',
+                  isToday && 'bg-primary/5 ring-1 ring-primary/40 ring-inset sm:ring-2',
+                  isSelected && 'bg-primary/10 ring-1 ring-primary ring-inset sm:ring-2',
                   hasTypeFilter && !hasVisibleItems && 'opacity-35'
                 )}
               >
                 <span
                   className={cn(
-                    'inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium',
+                    'inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium sm:h-7 sm:w-7 sm:text-sm',
                     isToday && 'bg-primary text-primary-foreground',
                     !isToday && isCurrentMonth && 'text-foreground',
                     !isCurrentMonth && 'text-muted-foreground'
@@ -486,30 +527,43 @@ export function CalendarView({ responsableNames = {}, onSelectAccion, filters = 
                 >
                   {day}
                 </span>
-                {showActions && count > 0 ? (
-                  <div className="mt-1 flex items-center gap-1">
-                    <span className="rounded-full bg-primary/20 px-1.5 py-0.5 text-xs font-medium text-primary">
-                      {count}
+                <div className="mt-0.5 flex flex-wrap items-center gap-0.5 sm:mt-1 sm:gap-1">
+                  {showActions && count > 0 ? (
+                    <span
+                      className="h-1.5 w-1.5 rounded-full bg-primary sm:hidden"
+                      title={`${count} acción(es)`}
+                    />
+                  ) : null}
+                  {showReminders && reminderCount > 0 ? (
+                    <span
+                      className="h-1.5 w-1.5 rounded-full bg-amber-500 sm:hidden"
+                      title={`${reminderCount} recordatorio(s)`}
+                    />
+                  ) : null}
+                  {showNotes && noteCount > 0 ? (
+                    <span
+                      className="h-1.5 w-1.5 rounded-full bg-emerald-500 sm:hidden"
+                      title={`${noteCount} minuta(s)`}
+                    />
+                  ) : null}
+                </div>
+                <div className="mt-0.5 hidden flex-col gap-0.5 sm:flex">
+                  {showActions && count > 0 ? (
+                    <span className="w-fit rounded bg-primary/15 px-1 py-px text-[10px] font-medium text-primary">
+                      {count} acc.
                     </span>
-                    <span className="text-xs text-muted-foreground">acciones</span>
-                  </div>
-                ) : null}
-                {showReminders && reminderCount > 0 ? (
-                  <div className="mt-1 flex items-center gap-1">
-                    <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-xs font-medium text-amber-700">
-                      {reminderCount}
+                  ) : null}
+                  {showReminders && reminderCount > 0 ? (
+                    <span className="w-fit rounded bg-amber-500/15 px-1 py-px text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                      {reminderCount} rec.
                     </span>
-                    <span className="text-xs text-muted-foreground">record.</span>
-                  </div>
-                ) : null}
-                {showNotes && noteCount > 0 ? (
-                  <div className="mt-1 flex items-center gap-1">
-                    <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-xs font-medium text-emerald-700">
-                      {noteCount}
+                  ) : null}
+                  {showNotes && noteCount > 0 ? (
+                    <span className="w-fit rounded bg-emerald-500/15 px-1 py-px text-[10px] font-medium text-emerald-800 dark:text-emerald-200">
+                      {noteCount} min.
                     </span>
-                    <span className="text-xs text-muted-foreground">minutas</span>
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
               </button>
             )
           })}
@@ -517,87 +571,129 @@ export function CalendarView({ responsableNames = {}, onSelectAccion, filters = 
       </div>
 
       {selectedDate ? (
-        <div className="rounded-xl border border-border/60 bg-card p-4">
-          <div className="mb-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dia seleccionado</p>
-            <h4 className="mt-1 text-base font-semibold capitalize text-foreground">
-              {new Date(`${selectedDate}T12:00:00`).toLocaleDateString('es-MX', {
-                weekday: 'long',
-                day: 'numeric',
-                month: 'long',
-              })}
-            </h4>
+        <div id="calendar-day-detail" className="calendar-day-detail rounded-lg border border-border/60 bg-card p-3 sm:rounded-xl sm:p-4">
+          <div className="mb-3 flex flex-col gap-2 sm:mb-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Día seleccionado
+              </p>
+              <h4 className="mt-0.5 truncate text-sm font-semibold capitalize text-foreground sm:text-base">
+                {new Date(`${selectedDate}T12:00:00`).toLocaleDateString('es-MX', {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                })}
+              </h4>
+            </div>
+            {showActions ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 w-full shrink-0 text-xs sm:w-auto sm:text-sm"
+                onClick={() => navigate(`${ROUTES.KANBAN}?fecha=${selectedDate}`)}
+              >
+                Kanban
+              </Button>
+            ) : null}
           </div>
 
-          {showNotes ? (
-            <CalendarNotesPanel
-              date={selectedDate}
-              notes={selectedNotes}
-              isLoading={notesLoading}
-              isError={notesError}
-            />
-          ) : null}
-
-          {showReminders ? (
-            <CalendarRemindersPanel
-              reminders={selectedReminders}
-              isLoading={remindersLoading}
-              isError={remindersError}
-              closingId={completeReminder.isPending ? completeReminder.variables ?? null : null}
-              onComplete={(id) => completeReminder.mutate(id)}
-              onCreate={openReminderDialog}
-            />
-          ) : null}
-
-          {showActions ? <div className="mt-4 rounded-lg border border-border/60 bg-muted/10 p-4">
-            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <h4 className="flex items-center gap-2 text-sm font-semibold">
-                <List className="h-4 w-4" />
-                Detalle de acciones
-              </h4>
-              <Button variant="outline" size="sm" onClick={() => navigate(`${ROUTES.KANBAN}?fecha=${selectedDate}`)}>
-                Ver en Kanban
-              </Button>
+          {visibleDayTabs.length > 1 ? (
+            <div
+              className="mb-3 grid gap-1 rounded-lg border border-border/60 bg-muted/25 p-1 md:hidden"
+              style={{ gridTemplateColumns: `repeat(${visibleDayTabs.length}, minmax(0, 1fr))` }}
+              role="tablist"
+              aria-label="Contenido del día"
+            >
+              {visibleDayTabs.map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={mobileDayTab === tab}
+                  className={cn(
+                    'min-h-9 rounded-md px-1 text-[11px] font-medium capitalize transition-colors',
+                    mobileDayTab === tab
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground'
+                  )}
+                  onClick={() => setMobileDayTab(tab)}
+                >
+                  {tab === 'recordatorios' ? 'Record.' : tab === 'minutas' ? 'Minutas' : 'Acciones'}
+                </button>
+              ))}
             </div>
-            {selectedActions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Sin acciones este dia.</p>
-            ) : (
-              <ul className="space-y-2">
-                {selectedActions.map((accion) => (
-                  <li
-                    key={accion.id}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-background px-3 py-2 text-sm"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <p className="min-w-0 flex-1 truncate font-medium text-foreground" title={accion.descripcion_accion}>
-                          {accion.titulo_accion?.trim() || accion.descripcion_accion}
-                        </p>
-                        <EvidenciaCargadaIndicator cargada={accion.evidencia_cargada} className="shrink-0" />
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        ID <AccionIdDisplay id={accion.id} className="inline align-baseline" /> ·{' '}
-                        {accion.hora_limite?.slice(0, 5) ?? '--'} ·{' '}
-                        {responsableNames[accion.responsable] ?? accion.responsable ?? '--'} · {accion.estado}
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        if (onSelectAccion) onSelectAccion(accion)
-                        else navigate(`${ROUTES.KANBAN}?accion=${accion.id}`)
-                      }}
-                    >
-                      Abrir
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div> : null}
+          ) : null}
+
+          <div className="md:hidden">
+            {mobileDayTab === 'minutas' && showNotes ? (
+              <CalendarNotesPanel
+                date={selectedDate}
+                notes={selectedNotes}
+                isLoading={notesLoading}
+                isError={notesError}
+                compact
+              />
+            ) : null}
+            {mobileDayTab === 'recordatorios' && showReminders ? (
+              <CalendarRemindersPanel
+                reminders={selectedReminders}
+                isLoading={remindersLoading}
+                isError={remindersError}
+                closingId={completeReminder.isPending ? completeReminder.variables ?? null : null}
+                onComplete={(id) => completeReminder.mutate(id)}
+                onCreate={openReminderDialog}
+                compact
+              />
+            ) : null}
+            {mobileDayTab === 'acciones' && showActions ? (
+              <CalendarActionsPanel
+                acciones={selectedActions}
+                responsableNames={responsableNames}
+                onOpenAccion={(accion) => {
+                  if (onSelectAccion) onSelectAccion(accion)
+                  else navigate(`${ROUTES.KANBAN}?accion=${accion.id}`)
+                }}
+                compact
+              />
+            ) : null}
+          </div>
+
+          <div className="hidden space-y-4 md:block">
+            {showNotes ? (
+              <CalendarNotesPanel
+                date={selectedDate}
+                notes={selectedNotes}
+                isLoading={notesLoading}
+                isError={notesError}
+              />
+            ) : null}
+            {showReminders ? (
+              <CalendarRemindersPanel
+                reminders={selectedReminders}
+                isLoading={remindersLoading}
+                isError={remindersError}
+                closingId={completeReminder.isPending ? completeReminder.variables ?? null : null}
+                onComplete={(id) => completeReminder.mutate(id)}
+                onCreate={openReminderDialog}
+              />
+            ) : null}
+            {showActions ? (
+              <CalendarActionsPanel
+                acciones={selectedActions}
+                responsableNames={responsableNames}
+                onOpenAccion={(accion) => {
+                  if (onSelectAccion) onSelectAccion(accion)
+                  else navigate(`${ROUTES.KANBAN}?accion=${accion.id}`)
+                }}
+              />
+            ) : null}
+          </div>
         </div>
-      ) : null}
+      ) : (
+        <p className="rounded-lg border border-dashed border-border/50 bg-muted/10 px-3 py-6 text-center text-xs text-muted-foreground sm:text-sm">
+          Selecciona un día en el calendario para ver acciones, recordatorios o minutas.
+        </p>
+      )}
 
       {isLoading || commentsLoading ? (
         <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-background/60">
@@ -654,39 +750,93 @@ export function CalendarView({ responsableNames = {}, onSelectAccion, filters = 
   )
 }
 
+function CalendarPanelShell({
+  title,
+  icon,
+  count,
+  children,
+  compact,
+  action,
+}: {
+  title: string
+  icon: ReactNode
+  count?: number
+  children: ReactNode
+  compact?: boolean
+  action?: ReactNode
+}) {
+  return (
+    <div
+      className={cn(
+        'rounded-lg border border-border/60 bg-muted/10',
+        compact ? 'p-2.5' : 'p-3 sm:p-4'
+      )}
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          {icon ?? null}
+          <p className="truncate text-sm font-semibold text-foreground">{title}</p>
+          {count != null ? (
+            <span className="rounded-full bg-muted px-1.5 py-px text-[10px] font-semibold tabular-nums text-muted-foreground">
+              {count}
+            </span>
+          ) : null}
+        </div>
+        {action}
+      </div>
+      {children}
+    </div>
+  )
+}
+
 function CalendarNotesPanel({
-  date,
   notes,
   isLoading,
   isError,
+  compact,
 }: {
   date: string
   notes: CalendarNote[]
   isLoading: boolean
   isError: boolean
+  compact?: boolean
 }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-muted/10 p-4">
-        <p className="text-sm font-semibold text-foreground">
-          Notas del {new Date(`${date}T12:00:00`).toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })}
-        </p>
-        {isError ? (
-          <p className="mt-3 text-sm text-destructive">No se pudieron cargar tus notas.</p>
-        ) : isLoading ? (
-          <p className="mt-3 text-sm text-muted-foreground">Cargando notas...</p>
-        ) : notes.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">Aun no tienes notas para este dia.</p>
-        ) : (
-          <ul className="mt-3 space-y-2">
-            {notes.map((note) => (
-              <li key={note.id} className="rounded-md border border-border/60 bg-background px-3 py-2">
-                <p className="text-sm font-semibold text-foreground">{note.titulo}</p>
-                <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{note.texto}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-    </div>
+    <CalendarPanelShell
+      title="Minutas"
+      icon={<StickyNote className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />}
+      count={notes.length}
+      compact={compact}
+    >
+      {isError ? (
+        <p className="text-xs text-destructive">No se pudieron cargar.</p>
+      ) : isLoading ? (
+        <CalendarListSkeleton />
+      ) : notes.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Sin minutas este día.</p>
+      ) : (
+        <ul className="max-h-[min(16rem,45vh)] space-y-1.5 overflow-y-auto overscroll-y-contain">
+          {notes.map((note) => (
+            <li key={note.id} className="rounded-md border border-border/60 bg-background px-2.5 py-2">
+              <p className="line-clamp-1 text-sm font-medium text-foreground">{note.titulo}</p>
+              <p className="mt-0.5 line-clamp-2 whitespace-pre-wrap text-xs text-muted-foreground">
+                {note.texto}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </CalendarPanelShell>
+  )
+}
+
+function CalendarListSkeleton() {
+  return (
+    <ul className="space-y-1.5" aria-busy="true">
+      {[1, 2, 3].map((i) => (
+        <li key={i} className="h-11 animate-pulse rounded-md border border-border/40 bg-muted/30" />
+      ))}
+    </ul>
   )
 }
 
@@ -697,6 +847,7 @@ function CalendarRemindersPanel({
   closingId,
   onComplete,
   onCreate,
+  compact,
 }: {
   reminders: CalendarReminder[]
   isLoading: boolean
@@ -704,69 +855,111 @@ function CalendarRemindersPanel({
   closingId: string | null
   onComplete: (id: string) => void
   onCreate: () => void
+  compact?: boolean
 }) {
   return (
-    <div className="mt-4 rounded-lg border border-border/60 bg-muted/10 p-4">
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <AlarmClock className="h-4 w-4" aria-hidden />
-          Recordatorios del dia
-        </p>
-        <Button type="button" variant="outline" size="sm" onClick={onCreate}>
-          <Plus className="h-4 w-4" aria-hidden />
-          Crear
+    <CalendarPanelShell
+      title="Recordatorios"
+      icon={<AlarmClock className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />}
+      count={reminders.length}
+      compact={compact}
+      action={
+        <Button type="button" variant="outline" size="sm" className="h-8 shrink-0 px-2 text-xs" onClick={onCreate}>
+          <Plus className="h-3.5 w-3.5" aria-hidden />
+          <span className="hidden sm:inline">Crear</span>
         </Button>
-      </div>
+      }
+    >
       {isError ? (
-        <p className="text-sm text-destructive">No se pudieron cargar tus recordatorios.</p>
+        <p className="text-xs text-destructive">No se pudieron cargar.</p>
       ) : isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando recordatorios...</p>
+        <CalendarListSkeleton />
       ) : reminders.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Sin recordatorios para este dia.</p>
+        <p className="text-xs text-muted-foreground">Sin recordatorios este día.</p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="max-h-[min(16rem,45vh)] space-y-1.5 overflow-y-auto overscroll-y-contain">
           {reminders.map((reminder) => (
             <li
               key={reminder.id}
               className={cn(
-                'rounded-md border px-3 py-2',
+                'rounded-md border px-2.5 py-2',
                 reminder.completed_at
                   ? 'border-emerald-500/25 bg-emerald-500/5'
                   : 'border-border/60 bg-background'
               )}
             >
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex flex-col gap-2">
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-foreground">{reminder.titulo}</p>
-                  <span
-                    className={cn(
-                      'text-xs font-medium',
-                      reminder.completed_at ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700'
-                    )}
-                  >
+                  <p className="line-clamp-1 text-sm font-medium text-foreground">{reminder.titulo}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {reminder.completed_at
-                      ? `Cerrado ${formatReminderDateTime(reminder.completed_at)}`
+                      ? `Cerrado · ${formatReminderDateTime(reminder.completed_at)}`
                       : formatReminderDateTime(reminder.fecha_limite)}
-                  </span>
+                  </p>
                 </div>
                 <Button
                   type="button"
                   variant={reminder.completed_at ? 'ghost' : 'outline'}
                   size="sm"
-                  className="h-8 shrink-0"
+                  className="h-8 w-full text-xs sm:w-auto"
                   disabled={Boolean(reminder.completed_at) || closingId === reminder.id}
                   onClick={() => onComplete(reminder.id)}
                 >
-                  <CheckCircle2 className="h-4 w-4" aria-hidden />
-                  {reminder.completed_at ? 'Cerrado' : closingId === reminder.id ? 'Cerrando...' : 'Cerrar'}
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  {reminder.completed_at ? 'Cerrado' : closingId === reminder.id ? 'Cerrando…' : 'Cerrar'}
                 </Button>
               </div>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{reminder.descripcion}</p>
             </li>
           ))}
         </ul>
       )}
-    </div>
+    </CalendarPanelShell>
+  )
+}
+
+function CalendarActionsPanel({
+  acciones,
+  responsableNames,
+  onOpenAccion,
+  compact,
+}: {
+  acciones: AccionDiaria[]
+  responsableNames: Record<string, string>
+  onOpenAccion: (accion: AccionDiaria) => void
+  compact?: boolean
+}) {
+  return (
+    <CalendarPanelShell title="Acciones" count={acciones.length} compact={compact} icon={null}>
+      {acciones.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Sin acciones visibles este día.</p>
+      ) : (
+        <ul className="max-h-[min(18rem,50vh)] space-y-1.5 overflow-y-auto overscroll-y-contain">
+          {acciones.map((accion) => (
+            <li key={accion.id}>
+              <button
+                type="button"
+                className="flex w-full min-h-11 items-center gap-2 rounded-lg border border-border/50 bg-background px-2.5 py-2 text-left transition-colors hover:bg-muted/30 active:bg-muted/40"
+                onClick={() => onOpenAccion(accion)}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <p className="line-clamp-1 flex-1 text-sm font-medium text-foreground">
+                      {accion.titulo_accion?.trim() || accion.descripcion_accion}
+                    </p>
+                    <EvidenciaCargadaIndicator cargada={accion.evidencia_cargada} className="shrink-0" />
+                  </div>
+                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                    {accion.hora_limite?.slice(0, 5) ?? '—'} ·{' '}
+                    {responsableNames[accion.responsable] ?? '—'} · {accion.estado}
+                  </p>
+                </div>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </CalendarPanelShell>
   )
 }
 
@@ -795,7 +988,7 @@ function QuickNoteDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[100dvh] w-[calc(100vw-1rem)] max-w-lg sm:max-h-[90vh]">
         <DialogHeader>
           <DialogTitle>Crear minuta</DialogTitle>
           <DialogDescription>
@@ -825,13 +1018,13 @@ function QuickNoteDialog({
             />
           </div>
         </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={disabled}>
+        <DialogFooter className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
+          <Button type="button" variant="outline" className="h-10 w-full sm:h-9 sm:w-auto" onClick={() => onOpenChange(false)} disabled={disabled}>
             Cancelar
           </Button>
-          <Button type="button" onClick={onSubmit} disabled={disabled || !title.trim() || !text.trim()}>
+          <Button type="button" className="h-10 w-full sm:h-9 sm:w-auto" onClick={onSubmit} disabled={disabled || !title.trim() || !text.trim()}>
             <Send className="h-4 w-4" aria-hidden />
-            {isSaving ? 'Guardando...' : 'Crear minuta'}
+            {isSaving ? 'Guardando…' : 'Crear minuta'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -866,10 +1059,10 @@ function QuickReminderDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[100dvh] w-[calc(100vw-1rem)] max-w-lg sm:max-h-[90vh]">
         <DialogHeader>
           <DialogTitle>Crear recordatorio</DialogTitle>
-          <DialogDescription>Al llegar la fecha limite se generara una notificacion para tu usuario.</DialogDescription>
+          <DialogDescription>Al llegar la fecha límite se generará una notificación.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-2">
@@ -904,13 +1097,13 @@ function QuickReminderDialog({
             />
           </div>
         </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={disabled}>
+        <DialogFooter className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
+          <Button type="button" variant="outline" className="h-10 w-full sm:h-9 sm:w-auto" onClick={() => onOpenChange(false)} disabled={disabled}>
             Cancelar
           </Button>
-          <Button type="button" onClick={onSubmit} disabled={disabled || !title.trim() || !deadline || !description.trim()}>
+          <Button type="button" className="h-10 w-full sm:h-9 sm:w-auto" onClick={onSubmit} disabled={disabled || !title.trim() || !deadline || !description.trim()}>
             <AlarmClock className="h-4 w-4" aria-hidden />
-            {isSaving ? 'Guardando...' : 'Crear recordatorio'}
+            {isSaving ? 'Guardando…' : 'Crear recordatorio'}
           </Button>
         </DialogFooter>
       </DialogContent>

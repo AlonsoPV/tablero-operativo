@@ -16,7 +16,8 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import { cn } from '@/lib/utils'
-import type { AccionDiaria, ActionStatus, PrioridadNc } from '@/types'
+import type { AccionDiaria, ActionStatus } from '@/types'
+import { priorityDisplayLabel } from '../utils/priorityLabels'
 import { useUpdateAccionEstado } from '../hooks/useAccionMutations'
 import { useCommentCounts } from '../hooks/useCommentCounts'
 import { useActionEstadoPermissions } from '../hooks/useActionEstadoPermissions'
@@ -56,6 +57,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { AccionChecklistProgressBadge } from './AccionChecklistProgress'
+import { TIPO_ACCION_CONFIG, type TipoAccion } from '../utils/tipoAccionConfig'
 
 const COLUMN_ORDER: ActionStatus[] = [
   'Pendiente',
@@ -137,10 +139,26 @@ const COLUMN_STYLES: Record<ActionStatus, { border: string; bg: string; icon: st
 }
 
 
-const PRIORITY_STYLES: Record<PrioridadNc, { dot: string; label: string }> = {
+const PRIORITY_STYLES: Record<string, { dot: string; label: string }> = {
   P1_Critica: { dot: 'bg-red-500', label: 'Crítica' },
   P2_Media: { dot: 'bg-amber-500', label: 'Media' },
   P3_Baja: { dot: 'bg-slate-400', label: 'Baja' },
+}
+
+function priorityStyleFor(nombre: string) {
+  return (
+    PRIORITY_STYLES[nombre] ?? {
+      dot: 'bg-slate-400',
+      label: priorityDisplayLabel(nombre),
+    }
+  )
+}
+
+const TIPO_ACCION_BADGE: Record<TipoAccion, string> = {
+  operativa: 'border-slate-500/25 bg-slate-500/10 text-slate-700 dark:text-slate-300',
+  sprint: 'border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300',
+  estrategica: 'border-violet-500/25 bg-violet-500/10 text-violet-700 dark:text-violet-300',
+  desbloqueo: 'border-cyan-500/30 bg-cyan-500/15 text-cyan-800 dark:text-cyan-200',
 }
 
 /** Acciones visibles por columna antes de expandir (el resto queda colapsado). */
@@ -148,7 +166,7 @@ const COLUMN_PREVIEW_LIMIT = 3
 
 type ColumnSortBy = 'fecha_entrega' | 'prioridad'
 
-const PRIORITY_SORT_RANK: Record<PrioridadNc, number> = {
+const PRIORITY_SORT_RANK: Record<string, number> = {
   P1_Critica: 0,
   P2_Media: 1,
   P3_Baja: 2,
@@ -314,7 +332,7 @@ function KanbanCardInner({
   checklistProgress?: { total: number; completed: number }
   estadoPermission?: ReturnType<typeof useActionEstadoPermissions>
 }) {
-  const priorityStyle = PRIORITY_STYLES[accion.prioridad] ?? PRIORITY_STYLES.P2_Media
+  const priorityStyle = priorityStyleFor(accion.prioridad)
   const displayStatus = isEnRetraso(accion) ? 'Retraso' : accion.estado
 
   const stopDrag = (e: React.PointerEvent) => e.stopPropagation()
@@ -426,6 +444,25 @@ function KanbanCardInner({
             <AlertCircle className="h-3 w-3" />
           </span>
         )}
+        {accion.tipo_accion === 'desbloqueo' ? (
+          <span
+            className={cn(
+              'inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-semibold',
+              TIPO_ACCION_BADGE[accion.tipo_accion]
+            )}
+            title={TIPO_ACCION_CONFIG[accion.tipo_accion].description}
+          >
+            {TIPO_ACCION_CONFIG[accion.tipo_accion].shortLabel}
+          </span>
+        ) : null}
+        {accion.tipo_accion === 'desbloqueo' && accion.responsable_bloqueo ? (
+          <span
+            className="inline-flex max-w-[150px] items-center rounded bg-muted/80 px-1.5 py-0.5 text-xs text-muted-foreground"
+            title="La dependencia tiene responsable de desbloqueo asignado"
+          >
+            Desbloqueo asignado
+          </span>
+        ) : null}
         <EvidenciaCargadaIndicator cargada={accion.evidencia_cargada} />
         {checklistProgress && checklistProgress.total > 0 && (
           <AccionChecklistProgressBadge

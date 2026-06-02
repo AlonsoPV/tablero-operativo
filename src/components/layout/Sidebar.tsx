@@ -38,7 +38,7 @@ type NavGroup = {
 /** Navegación por módulos (spec §5). */
 const navGroups: NavGroup[] = [
   {
-    label: 'Libres',
+    label: 'Secciones',
     items: [
       { to: ROUTES.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard },
       { to: ROUTES.KANBAN, label: 'Kanban', icon: Columns3 },

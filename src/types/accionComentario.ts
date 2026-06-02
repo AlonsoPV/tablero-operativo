@@ -8,7 +8,9 @@ export interface AccionComentario {
   accion_id: string
   contenido: string
   created_by: string | null
+  /** Primer usuario etiquetado (compatibilidad); preferir `etiquetas`. */
   asignado: string | null
+  /** IDs de usuarios etiquetados en el comentario. */
   etiquetas: string[]
   adjuntos: ComentarioAdjunto[]
   created_at: string

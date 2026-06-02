@@ -13,6 +13,17 @@ export interface CalendarNote {
 }
 
 export const calendarNotesService = {
+  async listRecentByUser(userId: string, limit = 8): Promise<CalendarNote[]> {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+    if (error) throw error
+    return (data ?? []) as CalendarNote[]
+  },
+
   async listByRange(userId: string, from: string, to: string): Promise<CalendarNote[]> {
     const { data, error } = await supabase
       .from(TABLE)

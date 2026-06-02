@@ -39,6 +39,7 @@ function filterQueryKey(filter: AccionesFilter): unknown[] {
     prioridad,
     filter.area ?? '',
     filter.responsable ?? '',
+    filter.created_by ?? '',
     tipoAccion,
     filter.sprint_id ?? '',
     filter.search ?? '',

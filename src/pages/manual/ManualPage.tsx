@@ -23,6 +23,8 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ROUTES } from '@/constants'
+import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
+import { canAccessRouteByRole } from '@/features/auth/lib/permissions'
 
 type ManualSection = {
   title: string
@@ -330,6 +332,20 @@ const glossary = [
 ]
 
 export function ManualPage() {
+  const { data: currentUser } = useCurrentUser()
+  const visibleSections = manualSections.filter((section) =>
+    canAccessRouteByRole(currentUser?.rol, section.route)
+  )
+  const flowSteps = operatingFlow.map((step, index) => {
+    if (index !== 3 || canAccessRouteByRole(currentUser?.rol, ROUTES.DASHBOARD_IMPACTO)) {
+      return step
+    }
+    return {
+      ...step,
+      text: 'Usa Alineacion estrategica y Reportes para enfocar decisiones y explicar avances.',
+    }
+  })
+
   return (
     <div id="manual-page" className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-3 py-5 sm:px-6 sm:py-6">
       <header className="space-y-4">
@@ -353,7 +369,7 @@ export function ManualPage() {
       </header>
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Flujo recomendado">
-        {operatingFlow.map((step) => (
+        {flowSteps.map((step) => (
           <Card key={step.title} className="rounded-lg shadow-sm">
             <CardHeader className="p-4">
               <CardTitle className="text-base">{step.title}</CardTitle>
@@ -377,7 +393,7 @@ export function ManualPage() {
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          {manualSections.map((section) => {
+          {visibleSections.map((section) => {
             const Icon = section.icon
             return (
               <Card key={section.title} className="rounded-lg shadow-sm">

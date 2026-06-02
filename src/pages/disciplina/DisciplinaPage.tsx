@@ -1,12 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  AlertTriangle,
   CalendarCheck,
   CheckCircle2,
   Clock3,
-  FileWarning,
-  Flame,
   MessageSquare,
   PenLine,
   RefreshCw,
@@ -15,18 +12,21 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
-import { useDisciplinaMetrics, type DisciplinaMetrics } from '@/features/metrics'
 import { useAcciones } from '@/features/operations/hooks'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { accionComentariosService } from '@/services/accionComentarios.service'
+import { calendarNotesService } from '@/services/calendarNotes.service'
+import { calendarRemindersService } from '@/services/calendarReminders.service'
 import { addCalendarDays, todayWallClockCDMX } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import type { AccionDiaria } from '@/types'
 import type { AccionComentario } from '@/types/accionComentario'
 import { DisciplinaAcademyRegistro } from './components/DisciplinaAcademyRegistro'
 import { DisciplinaAccionesCard } from './components/DisciplinaAccionesCard'
+import { DisciplinaCalendarioSection } from './components/DisciplinaCalendarioSection'
 
 const DONE_STATES = new Set(['Hecho', 'Verificado'])
+const RECENT_CALENDAR_ITEMS_LIMIT = 6
 type MetricTone = 'neutral' | 'good' | 'warn' | 'risk'
 
 export function DisciplinaPage() {
@@ -53,7 +53,6 @@ export function DisciplinaPage() {
     staleTime: 30_000,
     retry: 1,
   })
-  const { data: dailyMetrics } = useDisciplinaMetrics(currentUser?.id, fecha)
   const personalActions = useMemo(
     () => getUserOwnedActions(currentUser?.id, acciones, comentarios),
     [acciones, comentarios, currentUser?.id]
@@ -62,6 +61,26 @@ export function DisciplinaPage() {
     () => getUserRelevantComments(currentUser?.id, comentarios, personalActions),
     [comentarios, currentUser?.id, personalActions]
   )
+  const {
+    data: recentReminders = [],
+    isLoading: remindersLoading,
+    isError: remindersError,
+  } = useQuery({
+    queryKey: ['disciplina', 'calendar-reminders', currentUser?.id ?? ''],
+    queryFn: () => calendarRemindersService.listRecentByUser(currentUser!.id, RECENT_CALENDAR_ITEMS_LIMIT),
+    enabled: Boolean(currentUser?.id),
+    staleTime: 30_000,
+  })
+  const {
+    data: recentNotes = [],
+    isLoading: notesLoading,
+    isError: notesError,
+  } = useQuery({
+    queryKey: ['disciplina', 'calendar-notes', currentUser?.id ?? ''],
+    queryFn: () => calendarNotesService.listRecentByUser(currentUser!.id, RECENT_CALENDAR_ITEMS_LIMIT),
+    enabled: Boolean(currentUser?.id),
+    staleTime: 30_000,
+  })
 
   const personalMetrics = useMemo(
     () => buildPersonalMetrics(currentUser?.id, personalActions, personalComments, today),
@@ -71,21 +90,26 @@ export function DisciplinaPage() {
   const hasError = actionsError
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6">
-      <header className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <div className="grid gap-5 p-5 lg:grid-cols-[1fr_auto] lg:items-center">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Disciplina</p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">Tu día operativo</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Revisa acciones, formación y métricas en un solo lugar. Empieza por{' '}
-              <span className="font-medium text-foreground">Acciones del día</span> y cierra pendientes con evidencia.
-            </p>
-          </div>
-          <div className="grid min-w-[17rem] grid-cols-3 divide-x divide-border rounded-lg border border-border bg-muted/20 text-center">
+    <div
+      id="disciplina-page"
+      className="disciplina-page mx-auto w-full max-w-7xl space-y-4 overflow-x-hidden px-3 py-4 sm:space-y-6 sm:px-6 sm:py-6"
+    >
+      <header
+        id="disciplina-header"
+        className="disciplina-header overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+      >
+        <div className="p-4 sm:p-5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Disciplina</p>
+          <h1 className="mt-0.5 text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+            Tu día operativo
+          </h1>
+          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground sm:mt-2 sm:max-w-2xl sm:text-sm">
+            Acciones de hoy y formación. Cierra pendientes con evidencia.
+          </p>
+          <div className="mt-3 grid grid-cols-3 divide-x divide-border rounded-lg border border-border bg-muted/20 text-center sm:mt-4">
             <HeaderStat label="Mis acciones" value={String(personalActions.length)} />
             <HeaderStat label="Asignadas" value={String(personalMetrics.assigned)} />
-            <HeaderStat label="Comentarios" value={loadingComments ? '...' : String(personalComments.length)} />
+            <HeaderStat label="Comentarios" value={loadingComments ? '…' : String(personalComments.length)} />
           </div>
         </div>
       </header>
@@ -94,7 +118,7 @@ export function DisciplinaPage() {
         <SectionCard>
           <SectionCardBody className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-semibold text-foreground">No se pudo cargar tu informacion operativa.</p>
+              <p className="text-sm font-semibold text-foreground">No se pudo cargar tu información operativa.</p>
               <p className="text-sm text-muted-foreground">Puedes reintentar sin salir de Disciplina.</p>
             </div>
             <Button
@@ -112,23 +136,24 @@ export function DisciplinaPage() {
       ) : null}
 
       {loading ? (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <SkeletonBlock className="lg:col-span-2" />
-          <SkeletonBlock />
+        <div className="grid gap-3 sm:gap-4 lg:grid-cols-3">
+          <SkeletonBlock className="h-52 lg:col-span-2 sm:h-64" />
+          <SkeletonBlock className="h-40 sm:h-64" />
         </div>
       ) : currentUser ? (
         <>
-          <section aria-labelledby="disciplina-seguimiento-heading">
+          <section id="disciplina-seguimiento" aria-labelledby="disciplina-seguimiento-heading">
             <SectionCard>
               <SectionCardHeader
+                className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
                 titleId="disciplina-seguimiento-heading"
-                eyebrow="Paso 1"
+                eyebrow="Hoy"
                 title="Seguimiento operativo"
-                subtitle="Acciones de hoy y progreso en Academia."
+                subtitle="Acciones del día y Academia."
                 icon={CalendarCheck}
               />
-              <SectionCardBody className="space-y-6">
-                <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.35fr_0.65fr]">
+              <SectionCardBody className="space-y-4 p-3 sm:space-y-5 sm:p-4 md:p-6">
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.2fr_0.8fr] lg:gap-5">
                   <DisciplinaAccionesCard fecha={fecha} usuarioId={currentUser.id} />
                   <DisciplinaAcademyRegistro />
                 </div>
@@ -136,21 +161,29 @@ export function DisciplinaPage() {
             </SectionCard>
           </section>
 
-          {dailyMetrics ? <DisciplineMetricsSection metrics={dailyMetrics} /> : null}
+          <DisciplinaCalendarioSection
+            reminders={recentReminders}
+            notes={recentNotes}
+            remindersLoading={remindersLoading}
+            notesLoading={notesLoading}
+            remindersError={remindersError}
+            notesError={notesError}
+          />
 
-          <section aria-labelledby="disciplina-acciones-heading">
+          <section id="disciplina-indicadores" aria-labelledby="disciplina-acciones-heading">
             <SectionCard>
               <SectionCardHeader
+                className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
                 titleId="disciplina-acciones-heading"
-                eyebrow="Paso 2"
-                title="Tus indicadores de acciones"
-                subtitle="Creadas, asignadas o donde fuiste etiquetado en los ultimos 90 dias."
+                eyebrow="90 días"
+                title="Indicadores de acciones"
+                subtitle="Creadas, asignadas o donde te etiquetaron."
                 icon={Target}
               />
-              <SectionCardBody className="space-y-5">
-                <div className="grid gap-4 xl:grid-cols-[1.05fr_1fr]">
+              <SectionCardBody className="space-y-4 p-3 sm:space-y-5 sm:p-4 md:p-6">
+                <div className="grid gap-3 lg:grid-cols-[1fr_1fr] lg:gap-4">
                   <ActionSummaryPanel metrics={personalMetrics} />
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid grid-cols-2 gap-2 sm:gap-3">
                     <ActionMetricCard
                       icon={Clock3}
                       label="Cerradas en tiempo"
@@ -215,87 +248,6 @@ interface PersonalMetrics {
   participationDays: string[]
 }
 
-function DisciplineMetricsSection({ metrics }: { metrics: DisciplinaMetrics }) {
-  const completionTone = getTone(metrics.porcentaje_cumplimiento)
-  const evidenceTone = metrics.acciones_sin_evidencia > 0 ? 'warn' : 'good'
-  const relapseTone = metrics.reincidencias > 0 ? 'risk' : 'good'
-
-  return (
-    <section aria-labelledby="disciplina-metricas-heading">
-      <SectionCard>
-        <SectionCardHeader
-          titleId="disciplina-metricas-heading"
-          eyebrow="Salud del día"
-          title="Métricas de disciplina"
-          subtitle="Cumplimiento, evidencia, racha y reincidencias."
-          icon={Target}
-          className="py-3 sm:px-5"
-        />
-        <SectionCardBody className="space-y-3 p-4 sm:p-5">
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_repeat(3,minmax(0,1fr))]">
-            <div
-              className={cn(
-                'rounded-lg border px-3 py-3 sm:col-span-2 xl:col-span-1',
-                toneSurface(completionTone)
-              )}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Cumplimiento de hoy
-                  </p>
-                  <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                    <span className="text-3xl font-semibold tabular-nums leading-none tracking-tight text-foreground">
-                      {metrics.porcentaje_cumplimiento}%
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {metrics.acciones_cerradas_en_tiempo}/{metrics.acciones_asignadas} cerradas a tiempo
-                    </span>
-                  </div>
-                </div>
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-              </div>
-              <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-background/80">
-                <div
-                  className={cn('h-full rounded-full transition-[width]', toneBar(completionTone))}
-                  style={{ width: `${metrics.porcentaje_cumplimiento}%` }}
-                />
-              </div>
-              <p className="mt-2 text-xs leading-snug text-muted-foreground">
-                {completionCopy(metrics.porcentaje_cumplimiento)}
-              </p>
-            </div>
-
-            <CompactDisciplineStat
-              icon={FileWarning}
-              label="Sin evidencia"
-              value={String(metrics.acciones_sin_evidencia)}
-              tone={evidenceTone}
-            />
-            <CompactDisciplineStat
-              icon={Flame}
-              label="Racha en verde"
-              value={String(metrics.dias_consecutivos_en_verde)}
-              tone={metrics.dias_consecutivos_en_verde > 0 ? 'good' : 'neutral'}
-            />
-            <CompactDisciplineStat
-              icon={AlertTriangle}
-              label="Reincidencias"
-              value={String(metrics.reincidencias)}
-              tone={relapseTone}
-            />
-          </div>
-          {metrics.fromFallback ? (
-            <p className="rounded-md border border-border/50 bg-muted/10 px-3 py-1.5 text-[11px] leading-snug text-muted-foreground">
-              Calculado desde acciones; la medición diaria aún no se persiste automáticamente.
-            </p>
-          ) : null}
-        </SectionCardBody>
-      </SectionCard>
-    </section>
-  )
-}
-
 function buildPersonalMetrics(
   userId: string | undefined,
   actions: AccionDiaria[],
@@ -355,20 +307,22 @@ function buildPersonalMetrics(
 
 function ParticipationCard({ metrics }: { metrics: PersonalMetrics }) {
   return (
-    <div className="rounded-lg border border-border/70 bg-muted/10 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-foreground">Racha de participacion</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Cuenta dias seguidos donde cerraste acciones, generaste acciones o comentaste.
+    <div className="rounded-lg border border-border/70 bg-muted/10 p-3 sm:p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">Racha de participación</p>
+          <p className="mt-0.5 hidden text-xs text-muted-foreground sm:block">
+            Días seguidos con cierre, creación o comentario.
           </p>
         </div>
-        <div className="text-right">
-          <p className="text-3xl font-semibold tabular-nums text-foreground">{metrics.participationStreak}</p>
-          <p className="text-xs text-muted-foreground">dias</p>
+        <div className="shrink-0 text-right">
+          <p className="text-2xl font-semibold tabular-nums text-foreground sm:text-3xl">
+            {metrics.participationStreak}
+          </p>
+          <p className="text-[10px] text-muted-foreground sm:text-xs">días</p>
         </div>
       </div>
-      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+      <div className="mt-3 grid grid-cols-3 gap-1.5 sm:mt-4 sm:gap-2">
         <MiniStat label="Involucradas" value={String(metrics.userActions)} />
         <MiniStat label="Creadas" value={String(metrics.created)} />
         <MiniStat label="Dias con actividad" value={String(metrics.participationDays.length)} />
@@ -380,30 +334,34 @@ function ParticipationCard({ metrics }: { metrics: PersonalMetrics }) {
 function ActionSummaryPanel({ metrics }: { metrics: PersonalMetrics }) {
   const tone = getTone(metrics.closeRate)
   return (
-    <div className={cn('rounded-xl border p-5', toneSurface(tone))}>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cumplimiento de acciones</p>
-          <div className="mt-3 flex items-end gap-2">
-            <span className="text-5xl font-semibold tracking-tight text-foreground">{metrics.closeRate}%</span>
-            <span className="pb-2 text-sm text-muted-foreground">
+    <div className={cn('rounded-xl border p-3 sm:p-4 lg:p-5', toneSurface(tone))}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">
+            Cumplimiento
+          </p>
+          <div className="mt-2 flex items-end gap-2 sm:mt-3">
+            <span className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl lg:text-5xl">
+              {metrics.closeRate}%
+            </span>
+            <span className="pb-0.5 text-xs text-muted-foreground sm:pb-2 sm:text-sm">
               {metrics.closedUserActions}/{metrics.userActions}
             </span>
           </div>
         </div>
-        <div className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background">
-          <CheckCircle2 className="h-5 w-5 text-muted-foreground" aria-hidden />
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-background sm:h-10 sm:w-10">
+          <CheckCircle2 className="h-4 w-4 text-muted-foreground sm:h-5 sm:w-5" aria-hidden />
         </div>
       </div>
-      <div className="mt-5 h-2 overflow-hidden rounded-full bg-background">
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-background sm:mt-4 sm:h-2">
         <div className={cn('h-full rounded-full', toneBar(tone))} style={{ width: `${metrics.closeRate}%` }} />
       </div>
-      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+      <div className="mt-3 grid grid-cols-3 gap-1.5 sm:mt-4 sm:gap-2">
         <MiniStat label="Asignadas" value={String(metrics.assigned)} />
         <MiniStat label="Creadas" value={String(metrics.created)} />
         <MiniStat label="Pendientes" value={String(Math.max(metrics.userActions - metrics.closedUserActions, 0))} />
       </div>
-      <p className="mt-4 text-sm text-muted-foreground">{actionCopy(metrics)}</p>
+      <p className="mt-3 text-xs text-muted-foreground sm:mt-4 sm:text-sm">{actionCopy(metrics)}</p>
     </div>
   )
 }
@@ -422,62 +380,37 @@ function ActionMetricCard({
   tone?: MetricTone
 }) {
   return (
-    <div
-      className={cn(
-        'rounded-lg border p-4',
-        toneSurface(tone)
-      )}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background">
-          <Icon className="h-4 w-4 text-muted-foreground" aria-hidden />
+    <div className={cn('rounded-lg border p-2.5 sm:p-3 md:p-4', toneSurface(tone))}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background sm:h-8 sm:w-8">
+          <Icon className="h-3.5 w-3.5 text-muted-foreground sm:h-4 sm:w-4" aria-hidden />
         </div>
-        <span className="text-2xl font-semibold tabular-nums text-foreground">{value}</span>
+        <span className="text-lg font-semibold tabular-nums text-foreground sm:text-xl md:text-2xl">{value}</span>
       </div>
-      <p className="mt-3 text-sm font-semibold text-foreground">{label}</p>
-      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{helper}</p>
-    </div>
-  )
-}
-
-function CompactDisciplineStat({
-  icon: Icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: typeof CheckCircle2
-  label: string
-  value: string
-  tone: MetricTone
-}) {
-  return (
-    <div className={cn('flex items-center gap-3 rounded-lg border px-3 py-3', toneSurface(tone))}>
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background/70">
-        <Icon className="h-4 w-4 text-muted-foreground" aria-hidden />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-        <p className="text-xl font-semibold tabular-nums leading-tight text-foreground">{value}</p>
-      </div>
+      <p className="mt-2 text-xs font-semibold text-foreground sm:mt-2.5 sm:text-sm">{label}</p>
+      <p className="mt-0.5 hidden text-[10px] leading-snug text-muted-foreground sm:block sm:text-xs">{helper}</p>
     </div>
   )
 }
 
 function HeaderStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="px-4 py-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">{value}</p>
+    <div className="px-2 py-2.5 sm:px-4 sm:py-3">
+      <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-[10px]">
+        {label}
+      </p>
+      <p className="mt-0.5 text-lg font-semibold tabular-nums text-foreground sm:mt-1 sm:text-xl">{value}</p>
     </div>
   )
 }
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-border/60 bg-background px-3 py-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{value}</p>
+    <div className="rounded-md border border-border/60 bg-background px-2 py-1.5 sm:px-3 sm:py-2">
+      <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-[10px]">
+        {label}
+      </p>
+      <p className="mt-0.5 text-base font-semibold tabular-nums text-foreground sm:mt-1 sm:text-lg">{value}</p>
     </div>
   )
 }
@@ -555,12 +488,6 @@ function toneBar(tone: MetricTone) {
   if (tone === 'warn') return 'bg-amber-500'
   if (tone === 'risk') return 'bg-destructive'
   return 'bg-primary'
-}
-
-function completionCopy(value: number) {
-  if (value >= 90) return 'Buen ritmo: el dia esta controlado y con cierre consistente.'
-  if (value >= 60) return 'Hay avance, pero todavia conviene cerrar pendientes antes del corte.'
-  return 'Prioridad: enfocar el dia en cerrar acciones y documentar evidencia.'
 }
 
 function actionCopy(metrics: PersonalMetrics) {

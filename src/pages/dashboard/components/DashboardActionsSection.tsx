@@ -56,31 +56,30 @@ export function DashboardActionsSection({
     <div id="dashboard-actions-section" className="dashboard-actions-section">
       <SectionCard className="overflow-hidden">
         <SectionCardHeader
+          className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
           icon={ClipboardList}
           eyebrow="Operación"
           title="Acciones del día"
           subtitle={subtitle}
           action={
             hasMore ? (
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    'font-medium tabular-nums',
-                    showAll
-                      ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100'
-                      : 'border-primary/20 bg-primary/10 text-primary'
-                  )}
-                >
-                  {showAll ? (
-                    <>Lista completa · {total}</>
-                  ) : (
-                    <>
-                      Resumen · {ACCIONES_VISTA_INICIAL}/{total}
-                    </>
-                  )}
-                </Badge>
-              </div>
+              <Badge
+                variant="secondary"
+                className={cn(
+                  'w-full justify-center font-medium tabular-nums sm:w-auto',
+                  showAll
+                    ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100'
+                    : 'border-primary/20 bg-primary/10 text-primary'
+                )}
+              >
+                {showAll ? (
+                  <>Lista completa · {total}</>
+                ) : (
+                  <>
+                    Resumen · {ACCIONES_VISTA_INICIAL}/{total}
+                  </>
+                )}
+              </Badge>
             ) : null
           }
         />
@@ -99,26 +98,23 @@ export function DashboardActionsSection({
             />
             {hasMore && !showAll && !isLoading ? (
               <div
-                className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-card from-30% via-card/70 to-transparent"
+                className="pointer-events-none absolute inset-x-0 bottom-0 hidden h-24 bg-gradient-to-t from-card from-30% via-card/70 to-transparent md:block"
                 aria-hidden
               />
             ) : null}
           </div>
 
           {hasMore && !isLoading ? (
-            <div className="border-t border-border/50 bg-muted/25 px-4 py-3.5 sm:px-6">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                <p className="text-center text-sm text-muted-foreground sm:text-left">
+            <div className="border-t border-border/50 bg-muted/25 px-3 py-3 sm:px-4 sm:py-3.5 md:px-6">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <p className="text-center text-xs text-muted-foreground sm:text-left sm:text-sm">
                   {showAll ? (
                     <span>
-                      Estás viendo las <span className="font-semibold text-foreground">{total}</span> acciones del
-                      filtro actual.
+                      Viendo las <span className="font-semibold text-foreground">{total}</span> acciones del filtro.
                     </span>
                   ) : (
                     <span>
-                      <span className="font-semibold text-foreground">{ocultas}</span> acción
-                      {ocultas !== 1 ? 'es' : ''} más abajo en la lista.{' '}
-                      <span className="hidden sm:inline">Despliega para revisarlas sin salir del tablero.</span>
+                      <span className="font-semibold text-foreground">{ocultas}</span> más en la lista.
                     </span>
                   )}
                 </p>
@@ -127,7 +123,7 @@ export function DashboardActionsSection({
                   variant={showAll ? 'outline' : 'default'}
                   size="sm"
                   className={cn(
-                    'h-10 shrink-0 gap-2 sm:self-center',
+                    'h-10 w-full shrink-0 gap-2 sm:w-auto sm:self-center',
                     !showAll && 'shadow-md shadow-primary/15'
                   )}
                   aria-expanded={showAll}

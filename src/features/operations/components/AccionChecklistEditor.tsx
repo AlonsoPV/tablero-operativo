@@ -7,7 +7,7 @@ import { useCallback, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { AccionFormSection } from './AccionFormSection'
 import { ListChecks, Plus, Trash2, ChevronUp, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -57,20 +57,14 @@ export function AccionChecklistEditor({ items, onChange, disabled }: AccionCheck
   const draftTooShort = draftTrim.length > 0 && draftTrim.length < MIN_LEN
 
   return (
-    <Card className="border-border/60 bg-muted/5 shadow-none">
-      <CardHeader className="flex flex-row items-start gap-3 space-y-0 pb-3 pt-5">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          <ListChecks className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 space-y-1">
-          <h4 className="text-sm font-semibold leading-tight">Puntos a validar</h4>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            Opcional. Si agregas ítems, deberán completarse todos (en el seguimiento) antes de marcar la acción como
-            Hecha. Lista vacía = no hay checklist que bloquee el cierre.
-          </p>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4 pt-0 pb-5">
+    <AccionFormSection
+      sectionId="accion-checklist-draft"
+      icon={ListChecks}
+      eyebrow="Seguimiento"
+      title="Puntos a validar"
+      subtitle="Opcional. Si agregas ítems, deben completarse antes de marcar la acción como Hecha. Lista vacía = sin bloqueo por checklist."
+      bodyClassName="pb-1"
+    >
         <div className="rounded-lg border border-dashed border-border/70 bg-background/50 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="min-w-0 flex-1 space-y-1.5">
@@ -185,7 +179,6 @@ export function AccionChecklistEditor({ items, onChange, disabled }: AccionCheck
             </p>
           </div>
         )}
-      </CardContent>
-    </Card>
+    </AccionFormSection>
   )
 }

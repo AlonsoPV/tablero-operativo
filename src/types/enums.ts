@@ -15,6 +15,7 @@ export const USER_ROLE = [
   'RH',
   'Comercial',
   'Analista',
+  'Dirección',
 ] as const
 
 export type UserRole = (typeof USER_ROLE)[number]

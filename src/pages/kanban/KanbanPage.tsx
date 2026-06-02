@@ -15,8 +15,8 @@ import {
   KanbanHeader,
   KanbanToolbar,
   AccionesControlTable,
-  CountdownTimer,
   AccionFormDialog,
+  KanbanNextDeadline,
 } from '@/features/operations'
 import type { KanbanViewMode } from '@/features/operations'
 import { useUsers } from '@/features/users/hooks/useUsers'
@@ -49,14 +49,10 @@ export function KanbanPage() {
 
   const [filter, setFilter] = useState<AccionesFilter>(() => ({
     ...DEFAULT_FILTER,
-    fecha_creacion: today,
   }))
-  const [filtersExpanded, setFiltersExpanded] = useState(true)
+  const [filtersExpanded, setFiltersExpanded] = useState(false)
   const [viewMode, setViewMode] = useState<KanbanViewMode>('kanban')
-  const filterForQuery = useMemo(
-    () => ({ ...filter, fecha_creacion: filter.fecha_creacion ?? today }),
-    [filter, today]
-  )
+  const filterForQuery = useMemo(() => ({ ...filter }), [filter])
   const {
     data: acciones = [],
     isLoading,
@@ -92,7 +88,7 @@ export function KanbanPage() {
 
   useEffect(() => {
     if (fechaFromUrl && /^\d{4}-\d{2}-\d{2}$/.test(fechaFromUrl)) {
-      setFilter((f) => ({ ...f, fecha_creacion: fechaFromUrl }))
+      setFilter((f) => ({ ...f, fecha_min: fechaFromUrl, fecha_max: fechaFromUrl }))
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev)
         next.delete('fecha')
@@ -105,8 +101,8 @@ export function KanbanPage() {
     if (accionFromUrl && accionIdFromUrl) {
       setEditingAccion(accionFromUrl)
       setDialogOpen(true)
-      const fechaAccion = accionFromUrl.created_at?.slice(0, 10) ?? accionFromUrl.fecha
-      if (fechaAccion) setFilter((f) => ({ ...f, fecha_creacion: fechaAccion }))
+      const fechaAccion = accionFromUrl.fecha
+      if (fechaAccion) setFilter((f) => ({ ...f, fecha_min: fechaAccion, fecha_max: fechaAccion }))
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev)
         next.delete('accion')
@@ -118,22 +114,18 @@ export function KanbanPage() {
   const handleFilterChange = useCallback((next: AccionesFilter | Partial<AccionesFilter>) => {
     setFilter((prev) => {
       const merged = { ...prev, ...next }
-      const f = merged.fecha_creacion
-      if (f == null || f === '' || !/^\d{4}-\d{2}-\d{2}$/.test(f)) {
-        merged.fecha_creacion = today
-      }
       return merged
     })
-  }, [today])
+  }, [])
 
   const handleClearFilters = useCallback(() => {
-    setFilter({ ...DEFAULT_FILTER, fecha_creacion: today })
+    setFilter({ ...DEFAULT_FILTER })
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       next.delete('gap')
       return next
     }, { replace: true })
-  }, [today, setSearchParams])
+  }, [setSearchParams])
 
   const clearGapFilter = useCallback(() => {
     setSearchParams((prev) => {
@@ -211,18 +203,11 @@ export function KanbanPage() {
         onViewModeChange={setViewMode}
         rightOfTitle={
           nextDeadline ? (
-            <span
-              id="kanban-next-deadline"
-              className="kanban-next-deadline inline-flex max-w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-full border border-border/50 bg-muted/30 px-2.5 py-1 text-[11px] font-medium text-muted-foreground sm:text-xs"
-            >
-              <span className="shrink-0">Próximo límite</span>
-              <CountdownTimer
-                fecha={nextDeadline.fecha}
-                hora_limite={nextDeadline.hora_limite}
-                estado={nextDeadline.estado}
-                variant="default"
-              />
-            </span>
+            <KanbanNextDeadline
+              accion={nextDeadline}
+              responsableName={responsableNames[nextDeadline.responsable]}
+              onOpenAccion={() => handleSelectAccion(nextDeadline)}
+            />
           ) : null
         }
       />
@@ -252,14 +237,12 @@ export function KanbanPage() {
       ) : null}
 
       {filtersExpanded ? (
-        <div id="kanban-toolbar" className="kanban-toolbar-wrapper">
-          <KanbanToolbar
-            filter={filter}
-            onFilterChange={handleFilterChange}
-            onClear={handleClearFilters}
-            visible
-          />
-        </div>
+        <KanbanToolbar
+          filter={filter}
+          onFilterChange={handleFilterChange}
+          onClear={handleClearFilters}
+          visible
+        />
       ) : null}
 
       <section
@@ -327,7 +310,7 @@ export function KanbanPage() {
           if (!open) handleDialogClose()
         }}
         accion={editingAccion}
-        defaultFecha={filter.fecha_creacion ?? today}
+        defaultFecha={filter.fecha_max ?? filter.fecha_min ?? today}
         onSuccess={handleDialogClose}
         responsableNames={responsableNames}
       />

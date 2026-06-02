@@ -164,9 +164,9 @@ export function HistoricalReports({ responsableNames = {} }: HistoricalReportsPr
             />
             <MetricCard
               icon={FileWarning}
-              label="Sin evidencia"
-              value={metricas.sinEvidencia}
-              valueClassName={metricas.sinEvidencia > 0 ? 'text-amber-600' : undefined}
+              label="Retraso"
+              value={metricas.retraso}
+              valueClassName={metricas.retraso > 0 ? 'text-orange-600' : undefined}
             />
             <MetricCard
               icon={AlertCircle}

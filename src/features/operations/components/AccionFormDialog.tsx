@@ -19,9 +19,9 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { AccionForm } from './AccionForm'
-import { AccionIdDisplay } from './AccionIdDisplay'
+import { AccionFormSection } from './AccionFormSection'
+import { AccionDialogHeaderMeta } from './AccionDialogHeaderMeta'
 import { AccionEvidenciasSection } from './AccionEvidenciasSection'
 import { AccionComentarios } from './AccionComentarios'
 import { useCreateAccion, useDeleteAccion, useUpdateAccion } from '../hooks'
@@ -37,9 +37,10 @@ import {
 } from '@/services/accionEvidencias.service'
 import { accionesService } from '@/services/acciones.service'
 import { accionCheckpointsService } from '@/services/accionCheckpoints.service'
-import type { AccionDiaria, ActionStatus, PrioridadNc } from '@/types'
+import type { AccionDiaria, ActionStatus } from '@/types'
+import { DEFAULT_PRIORITY_NOMBRE } from '../utils/priorityLabels'
 import type { AccionCreateInput, AccionFormInput } from '../schemas/accion.schema'
-import { parseDescripcionTriada } from '../utils/descripcionAccionTriada'
+import { inferDescripcionModo, parseDescripcionTriada } from '../utils/descripcionAccionTriada'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Paperclip, FileText, Image, Trash2 } from 'lucide-react'
@@ -159,7 +160,27 @@ export function AccionFormDialog({
     ])
   }, [open, qc])
 
-  async function notifyResponsable(usuarioId: string, accionId: string, descripcion: string) {
+  function userNameById(userId: string | null | undefined): string | null {
+    if (!userId) return null
+    if (userId === currentUser?.id) return currentUser.nombre ?? null
+    if (responsableNames[userId]) return responsableNames[userId]
+    const cached = qc.getQueryData<{ id: string; nombre: string }[]>([
+      ...usersQueryKey,
+      { activo: true },
+    ])
+    return cached?.find((u) => u.id === userId)?.nombre ?? null
+  }
+
+  async function notifyResponsable(
+    usuarioId: string,
+    accionId: string,
+    meta: {
+      titulo_accion: string
+      descripcion_accion: string
+      creador_id?: string | null
+      creador_nombre?: string | null
+    }
+  ) {
     if (!usuarioId || !accionId) return
     try {
       await notificacionesService.create({
@@ -167,7 +188,10 @@ export function AccionFormDialog({
         tipo: 'responsable',
         payload: {
           titulo: 'Te asignaron como responsable',
-          mensaje: descripcion?.slice(0, 200) ?? '',
+          titulo_accion: meta.titulo_accion?.trim() || undefined,
+          descripcion_accion: meta.descripcion_accion?.trim().slice(0, 500) || undefined,
+          creador_id: meta.creador_id ?? null,
+          creador_nombre: meta.creador_nombre ?? null,
           accion_id: accionId,
           asignador_id: currentUser?.id ?? null,
           asignador_nombre: currentUser?.nombre ?? null,
@@ -210,19 +234,23 @@ export function AccionFormDialog({
       return {
         fecha: defaultFecha ?? todayISO(),
         titulo_accion: '',
+        descripcion_modo: 'simple',
+        descripcion_simple: '',
         descripcion_como: '',
         descripcion_quiero: '',
         descripcion_para_que: '',
         hora_limite: '17:00',
-        prioridad: 'P2_Media',
+        prioridad: undefined,
         gap_ids: [],
         catalog_kpi_ids: [],
         tipo_accion: 'operativa',
         story_points: 0,
         sprint_id: null,
+        responsable_bloqueo: null,
       }
     }
     const tri = parseDescripcionTriada(accion.descripcion_accion)
+    const descripcionModo = inferDescripcionModo(tri)
     const merged = o2cLinksQuery.data
     const gap_ids = merged?.gap_ids ?? (accion.gap_id ? [accion.gap_id] : [])
     const catalog_kpi_ids =
@@ -230,6 +258,8 @@ export function AccionFormDialog({
     return {
       fecha: accion.fecha,
       titulo_accion: accion.titulo_accion ?? '',
+      descripcion_modo: descripcionModo,
+      descripcion_simple: descripcionModo === 'simple' ? tri.descripcion_como : '',
       descripcion_como: tri.descripcion_como,
       descripcion_quiero: tri.descripcion_quiero,
       descripcion_para_que: tri.descripcion_para_que,
@@ -241,12 +271,13 @@ export function AccionFormDialog({
       area: accion.area ?? undefined,
       gap_ids,
       catalog_kpi_ids,
-      tipo_accion: accion.tipo_accion === 'sprint' ? 'sprint' : 'operativa',
+      tipo_accion: accion.tipo_accion ?? 'operativa',
       story_points:
         typeof accion.story_points === 'number' && Number.isFinite(accion.story_points)
           ? accion.story_points
           : Number(accion.story_points) || 0,
       sprint_id: accion.sprint_id ?? null,
+      responsable_bloqueo: accion.responsable_bloqueo ?? null,
     }
   }, [accion, defaultFecha, o2cLinksQuery.data])
 
@@ -255,7 +286,7 @@ export function AccionFormDialog({
     const gapIds = values.gap_ids ?? []
     const catalogKpiIds = values.catalog_kpi_ids ?? []
     const fecha = values.fecha ?? todayISO()
-    const prioridad = (values.prioridad ?? 'P2_Media') as PrioridadNc
+    const prioridad = values.prioridad ?? DEFAULT_PRIORITY_NOMBRE
     const estado = (values.estado ?? 'Pendiente') as ActionStatus
     const payload: Partial<AccionDiaria> = {
       fecha,
@@ -272,6 +303,7 @@ export function AccionFormDialog({
       gap_id: values.gap_id ?? null,
       catalog_kpi_id: values.catalog_kpi_id ?? null,
       sprint_id: values.sprint_id ?? null,
+      responsable_bloqueo: values.responsable_bloqueo ?? null,
       ...(isEdit
         ? { updated_by: currentUser?.id ?? null }
         : { created_by: currentUser?.id ?? null }),
@@ -285,7 +317,12 @@ export function AccionFormDialog({
         {
           onSuccess: () => {
             if (cambiaResponsable && nuevoResponsable) {
-              void notifyResponsable(nuevoResponsable, accion.id, payload.descripcion_accion ?? '')
+              void notifyResponsable(nuevoResponsable, accion.id, {
+                titulo_accion: payload.titulo_accion ?? accion.titulo_accion ?? '',
+                descripcion_accion: payload.descripcion_accion ?? accion.descripcion_accion ?? '',
+                creador_id: accion.created_by ?? null,
+                creador_nombre: userNameById(accion.created_by),
+              })
             }
             toast.success('Accion actualizada correctamente')
             onOpenChange(false)
@@ -374,7 +411,12 @@ export function AccionFormDialog({
 
           if (responsable) {
             deferredOps.push(
-              notifyResponsable(responsable, createdId, payload.descripcion_accion ?? '')
+              notifyResponsable(responsable, createdId, {
+                titulo_accion: payload.titulo_accion ?? '',
+                descripcion_accion: payload.descripcion_accion ?? '',
+                creador_id: currentUser?.id ?? null,
+                creador_nombre: currentUser?.nombre ?? null,
+              })
             )
           }
 
@@ -441,7 +483,18 @@ export function AccionFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         id={dialogId}
-        className="accion-form-dialog max-h-[90vh] w-[calc(100vw-2rem)] max-w-2xl overflow-hidden flex flex-col p-0 gap-0"
+        className={cn(
+          'accion-form-dialog !flex flex-col gap-0 overflow-hidden p-0',
+          'fixed left-0 right-0 top-0 z-50 h-[100dvh] max-h-[100dvh] w-full max-w-none',
+          'translate-x-0 translate-y-0 rounded-none border-x-0 border-t-0',
+          'data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom',
+          'sm:left-[50%] sm:right-auto sm:top-[50%] sm:h-auto sm:max-h-[min(90dvh,900px)]',
+          'sm:w-[calc(100vw-2rem)] sm:max-w-2xl sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:border',
+          'sm:data-[state=open]:slide-in-from-left-1/2 sm:data-[state=open]:slide-in-from-top-[48%]',
+          'sm:data-[state=closed]:slide-out-to-left-1/2 sm:data-[state=closed]:slide-out-to-top-[48%]',
+          '[&>button]:right-3 [&>button]:top-3 [&>button]:flex [&>button]:h-10 [&>button]:w-10 [&>button]:items-center [&>button]:justify-center',
+          'sm:[&>button]:right-4 sm:[&>button]:top-4 sm:[&>button]:h-auto sm:[&>button]:w-auto'
+        )}
         data-accion-dialog-mode={isEdit ? 'edit' : 'create'}
         aria-describedby={undefined}
       >
@@ -450,40 +503,27 @@ export function AccionFormDialog({
         </DialogTitle>
         <div
           id={`${formBaseId}-dialog-header`}
-          className="accion-form-dialog-header shrink-0 border-b border-border/60 px-6 pr-12 py-4"
+          className="accion-form-dialog-header shrink-0 border-b border-border/60 bg-card px-3 py-2.5 pr-11 sm:px-4 sm:py-3 sm:pr-12"
         >
-          <h2 className="text-lg font-semibold tracking-tight" aria-hidden>
-            {isEdit ? 'Editar acción' : 'Nueva acción'}
-          </h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {isEdit ? 'Actualiza los campos y guarda los cambios' : 'Completa los datos para crear la acción'}
-          </p>
-          {isEdit && accion && (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <p className="text-xs text-muted-foreground">
-                <span className="font-medium text-foreground/80">ID </span>
-                <AccionIdDisplay id={accion.id} variant="full" />
-              </p>
-              <span
-                className={cn(
-                  'inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium',
-                  accion.estado === 'Hecho' || accion.estado === 'Verificado'
-                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                    : accion.estado === 'Bloqueado' || accion.estado === 'Retraso'
-                      ? 'bg-destructive/10 text-destructive'
-                      : accion.estado === 'En_Ejecucion' || accion.estado === 'Hoy'
-                        ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                        : 'bg-muted text-muted-foreground'
-                )}
-              >
-                {accion.estado}
-              </span>
+          <div className="flex min-w-0 items-start justify-between gap-2">
+            <div className="min-w-0 flex-1 pr-1">
+              <h2 className="text-sm font-semibold leading-tight tracking-tight sm:text-base" aria-hidden>
+                {isEdit ? 'Editar acción' : 'Nueva acción'}
+              </h2>
+              {!isEdit ? (
+                <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground sm:text-xs">
+                  Completa los datos para crear la acción
+                </p>
+              ) : null}
             </div>
-          )}
+            {isEdit && accion ? (
+              <AccionDialogHeaderMeta accion={accion} className="shrink-0" />
+            ) : null}
+          </div>
         </div>
         <div
           id={`${formBaseId}-dialog-body`}
-          className="accion-form-dialog-body flex-1 min-h-0 overflow-y-auto px-6 py-5"
+          className="accion-form-dialog-body flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-3 py-3 sm:px-5 sm:py-4 md:px-6 md:py-5"
         >
           <AccionForm
             key={`${accion?.id ?? 'new'}-${isEdit ? (o2cLinksQuery.isFetched ? 'o2c' : 'pending') : 'create'}`}
@@ -494,107 +534,104 @@ export function AccionFormDialog({
             onCancel={() => onOpenChange(false)}
             isSubmitting={isMutating}
             isEdit={isEdit}
-          />
-          {!isEdit && (
-            <div
-              id={`${formBaseId}-checklist-draft`}
-              className="accion-form-dialog-checklist mt-6 border-t border-border/60 pt-5"
-            >
-              <AccionChecklistEditor
-                items={checklistDrafts}
-                onChange={setChecklistDrafts}
-                disabled={createAccion.isPending}
-              />
-            </div>
-          )}
-          {!isEdit && (
-            <div
-              id={`${formBaseId}-section-evidencia-adjunta`}
-              className="accion-form-dialog-evidencia-adjunta mt-6 border-t border-border/60 pt-5"
-            >
-              <Card className="accion-form-section accion-form-section--evidencia-adjunta border-border/60 bg-muted/5">
-                <CardHeader className="flex flex-row items-center gap-2 pb-2 pt-4">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <Paperclip className="h-4 w-4" />
+            validationExtras={
+              !isEdit ? (
+                <>
+                  <div id={`${formBaseId}-checklist-draft`}>
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Puntos a validar (opcional)
+                    </p>
+                    <AccionChecklistEditor
+                      items={checklistDrafts}
+                      onChange={setChecklistDrafts}
+                      disabled={createAccion.isPending}
+                    />
                   </div>
-                  <div>
-                    <h4 className="text-sm font-semibold">Evidencia adjunta (opcional)</h4>
-                    <p className="text-xs text-muted-foreground">PDF, PNG o JPG (máx. 10 MB)</p>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3 pt-0">
-                  <input
-                    id={`${formBaseId}-evidencia-file-input`}
-                    ref={fileInputRef}
-                    type="file"
-                    accept={getAcceptedAccept()}
-                    className="accion-form-evidencia-file-input hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) handleNewEvidenciaFile(file)
-                      e.target.value = ''
-                    }}
-                  />
-                  <div
-                    onDragOver={(e) => { e.preventDefault(); setDragOverNew(true) }}
-                    onDragLeave={() => setDragOverNew(false)}
-                    onDrop={(e) => {
-                      e.preventDefault()
-                      setDragOverNew(false)
-                      const file = e.dataTransfer.files?.[0]
-                      if (file) handleNewEvidenciaFile(file)
-                    }}
-                    className={`accion-form-evidencia-dropzone rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors ${dragOverNew ? 'border-primary bg-primary/5' : 'border-border/60 bg-muted/20'}`}
+                  <AccionFormSection
+                    sectionId={`${formBaseId}-evidencia-adjunta`}
+                    icon={Paperclip}
+                    eyebrow="Adjuntos"
+                    title="Evidencia adjunta (opcional)"
+                    subtitle="PDF, PNG o JPG (máx. 10 MB). Se sube al crear la acción."
                   >
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      id={`${formBaseId}-evidencia-file-trigger`}
-                      className="accion-form-evidencia-file-trigger"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Paperclip className="mr-2 h-4 w-4" />
-                      Seleccionar archivo
-                    </Button>
-                    <p className="mt-2 text-xs text-muted-foreground">o arrastra un archivo aquí</p>
-                  </div>
-                  {pendingNewEvidencias.length > 0 && (
-                    <ul className="space-y-2">
-                      {pendingNewEvidencias.map((f, i) => (
-                        <li
-                          key={`${f.name}-${i}`}
-                          className="flex items-center gap-3 rounded-lg border border-border/50 bg-background px-3 py-2"
+                    <div className="space-y-3">
+                      <input
+                        id={`${formBaseId}-evidencia-file-input`}
+                        ref={fileInputRef}
+                        type="file"
+                        accept={getAcceptedAccept()}
+                        className="accion-form-evidencia-file-input hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) handleNewEvidenciaFile(file)
+                          e.target.value = ''
+                        }}
+                      />
+                      <div
+                        onDragOver={(e) => {
+                          e.preventDefault()
+                          setDragOverNew(true)
+                        }}
+                        onDragLeave={() => setDragOverNew(false)}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          setDragOverNew(false)
+                          const file = e.dataTransfer.files?.[0]
+                          if (file) handleNewEvidenciaFile(file)
+                        }}
+                        className={`accion-form-evidencia-dropzone rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors ${dragOverNew ? 'border-primary bg-primary/5' : 'border-border/60 bg-muted/20'}`}
+                      >
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          id={`${formBaseId}-evidencia-file-trigger`}
+                          className="accion-form-evidencia-file-trigger h-10 w-full sm:w-auto"
+                          onClick={() => fileInputRef.current?.click()}
                         >
-                          {f.type.startsWith('image/') ? (
-                            <Image className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          ) : (
-                            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          )}
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium">{f.name}</span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 shrink-0 text-destructive hover:text-destructive"
-                            onClick={() => setPendingNewEvidencias((p) => p.filter((_, j) => j !== i))}
-                            aria-label="Quitar"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          )}
+                          <Paperclip className="mr-2 h-4 w-4" />
+                          Seleccionar archivo
+                        </Button>
+                        <p className="mt-2 text-xs text-muted-foreground">o arrastra un archivo aquí</p>
+                      </div>
+                      {pendingNewEvidencias.length > 0 && (
+                        <ul className="space-y-2">
+                          {pendingNewEvidencias.map((f, i) => (
+                            <li
+                              key={`${f.name}-${i}`}
+                              className="flex items-center gap-3 rounded-lg border border-border/50 bg-background px-3 py-2"
+                            >
+                              {f.type.startsWith('image/') ? (
+                                <Image className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              ) : (
+                                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              )}
+                              <span className="min-w-0 flex-1 truncate text-sm font-medium">{f.name}</span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 shrink-0 text-destructive hover:text-destructive"
+                                onClick={() => setPendingNewEvidencias((p) => p.filter((_, j) => j !== i))}
+                                aria-label="Quitar"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </AccionFormSection>
+                </>
+              ) : undefined
+            }
+          />
         {isEdit && accion && (
-          <>
+          <div className="accion-form-dialog-edit-extras mt-4 space-y-4 sm:mt-6 sm:space-y-5">
             <div
               id={`${formBaseId}-checklist-manage`}
-              className="accion-form-dialog-checklist-manage mt-6 border-t border-border/60 pt-5"
+              className="accion-form-dialog-checklist-manage border-t border-border/60 pt-4 sm:pt-5"
             >
               <AccionChecklistManage
                 accionId={accion.id}
@@ -605,43 +642,62 @@ export function AccionFormDialog({
             </div>
             <div
               id={`${formBaseId}-evidencias-section`}
-              className="accion-form-dialog-evidencias mt-6 border-t border-border/60 pt-5"
+              className="accion-form-dialog-evidencias border-t border-border/60 pt-4 sm:pt-5"
             >
               <AccionEvidenciasSection accionId={accion.id} />
             </div>
-            <div
-              id={`${formBaseId}-comentarios`}
-              className="accion-form-dialog-comentarios mt-6 border-t border-border/60 pt-5"
-            >
+            <div id={`${formBaseId}-comentarios`} className="accion-form-dialog-comentarios">
               <AccionComentarios
                 accionId={accion.id}
+                tituloAccion={accion.titulo_accion ?? ''}
+                descripcionAccion={accion.descripcion_accion ?? ''}
+                creadorId={accion.created_by}
+                creadorNombre={userNameById(accion.created_by)}
                 responsableId={accion.responsable}
                 responsableNames={responsableNames}
               />
             </div>
-          </>
+          </div>
         )}
         </div>
         <div
           id={`${formBaseId}-dialog-footer`}
-          className="accion-form-dialog-footer flex shrink-0 flex-col gap-3 border-t border-border/70 bg-muted/20 px-5 py-4 sm:px-6"
+          className={cn(
+            'accion-form-dialog-footer flex shrink-0 flex-col gap-2 border-t border-border/70 bg-card/95 px-3 py-3 backdrop-blur-sm',
+            'pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:gap-3 sm:px-5 sm:py-4 md:px-6'
+          )}
         >
-          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex justify-start">
-              {canDeleteAccion ? (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      id={`${formBaseId}-delete`}
-                      className="accion-form-dialog-delete gap-2"
-                      disabled={isMutating}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      Eliminar accion
-                    </Button>
-                  </AlertDialogTrigger>
+          {submitFooterErrors && submitFooterErrors.length > 0 ? (
+            <div
+              id={`${formBaseId}-submit-validation-summary`}
+              role="alert"
+              aria-live="assertive"
+              className="order-first w-full rounded-lg border border-destructive/35 bg-destructive/10 px-3 py-2.5 text-left text-xs text-destructive"
+            >
+              <p className="font-medium">No se puede guardar aún:</p>
+              <ul className="mt-1.5 max-h-24 list-disc space-y-1 overflow-y-auto pl-4">
+                {submitFooterErrors.map((msg, idx) => (
+                  <li key={idx}>{msg}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {canDeleteAccion ? (
+            <div className="w-full">
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    id={`${formBaseId}-delete`}
+                    className="accion-form-dialog-delete h-9 w-full gap-2 text-xs sm:text-sm"
+                    disabled={isMutating}
+                  >
+                    <Trash2 className="h-4 w-4 shrink-0" />
+                    Eliminar acción
+                  </Button>
+                </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
                       <AlertDialogTitle>Eliminar accion</AlertDialogTitle>
@@ -663,15 +719,19 @@ export function AccionFormDialog({
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
-                </AlertDialog>
-              ) : null}
+              </AlertDialog>
             </div>
-            <div className="flex justify-end gap-3">
+          ) : null}
+
+          <div
+            id={`${formBaseId}-dialog-footer-actions`}
+            className="accion-form-dialog-footer-actions grid w-full grid-cols-2 gap-2"
+          >
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               id={`${formBaseId}-cancel`}
-              className="accion-form-dialog-cancel"
+              className="accion-form-dialog-cancel h-10 w-full px-2 text-sm sm:h-9"
               onClick={() => onOpenChange(false)}
               disabled={isMutating}
             >
@@ -682,32 +742,19 @@ export function AccionFormDialog({
               form={formBaseId}
               id={`${formBaseId}-submit`}
               variant="default"
-              className="accion-form-dialog-submit"
+              className="accion-form-dialog-submit h-10 w-full px-2 text-sm sm:h-9"
               disabled={isMutating}
             >
-              {createAccion.isPending || updateAccion.isPending
-                ? 'Guardando…'
-                : isEdit
-                  ? 'Guardar cambios'
-                  : 'Crear acción'}
+              {createAccion.isPending || updateAccion.isPending ? (
+                'Guardando…'
+              ) : (
+                <>
+                  <span className="sm:hidden">Guardar</span>
+                  <span className="hidden sm:inline">Guardar acción</span>
+                </>
+              )}
             </Button>
-            </div>
           </div>
-          {submitFooterErrors && submitFooterErrors.length > 0 ? (
-            <div
-              id={`${formBaseId}-submit-validation-summary`}
-              role="alert"
-              aria-live="assertive"
-              className="w-full rounded-lg border border-destructive/35 bg-destructive/10 px-3 py-2.5 text-left text-xs text-destructive"
-            >
-              <p className="font-medium">No se puede guardar aún:</p>
-              <ul className="mt-1.5 list-disc space-y-1 pl-4">
-                {submitFooterErrors.map((msg, idx) => (
-                  <li key={idx}>{msg}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
         </div>
       </DialogContent>
     </Dialog>

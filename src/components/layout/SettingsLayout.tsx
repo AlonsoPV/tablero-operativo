@@ -2,7 +2,7 @@ import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants'
 import { useAuth } from '@/features/auth/hooks/useAuth'
-import { canAccessRouteByRole, isAnalystByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
+import { canAccessRouteByRole, canManageAcademyModulesByRole, isAnalystByRole } from '@/features/auth/lib/permissions'
 import {
   Users,
   FolderOpen,
@@ -39,7 +39,9 @@ export function SettingsLayout() {
   const location = useLocation()
   const { profile } = useAuth()
   const visibleSettingsLinks = SETTINGS_LINKS.filter(
-    (link) => canAccessRouteByRole(profile?.rol, link.to) && (!('superAdminOnly' in link) || isSuperAdminByRole(profile?.rol))
+    (link) =>
+      canAccessRouteByRole(profile?.rol, link.to) &&
+      (!('superAdminOnly' in link) || canManageAcademyModulesByRole(profile?.rol))
   )
   const visibleCatalogLinks = CATALOG_LINKS.filter((link) => canAccessRouteByRole(profile?.rol, link.to))
   const isCatalogs = location.pathname.startsWith('/settings/catalogs')

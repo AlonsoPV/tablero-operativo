@@ -6,7 +6,7 @@ import {
   ListTodo,
   CheckCircle2,
   AlertCircle,
-  FileQuestion,
+  AlertTriangle,
   TrendingUp,
 } from 'lucide-react'
 import type { MetricasAcciones } from '@/features/operations'
@@ -21,7 +21,7 @@ export function DashboardKpiCards({ metricas, isLoading }: DashboardKpiCardsProp
   return (
     <div
       id="dashboard-kpi-cards"
-      className="dashboard-kpi-cards grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-5"
+      className="dashboard-kpi-cards grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5 lg:gap-4"
     >
       <DashboardKpiCard
         id="dashboard-kpi-card-total"
@@ -54,18 +54,18 @@ export function DashboardKpiCards({ metricas, isLoading }: DashboardKpiCardsProp
         isLoading={isLoading}
       />
       <DashboardKpiCard
-        id="dashboard-kpi-card-sin-evidencia"
-        className="dashboard-kpi-card dashboard-kpi-card-sin-evidencia"
-        title="Sin evidencia"
-        value={metricas.sinEvidencia}
-        description="Listas sin adjunto"
-        icon={FileQuestion}
-        accent="amber"
+        id="dashboard-kpi-card-retraso"
+        className="dashboard-kpi-card dashboard-kpi-card-retraso"
+        title="Retraso"
+        value={metricas.retraso}
+        description="Fecha límite vencida sin cerrar"
+        icon={AlertTriangle}
+        accent="orange"
         isLoading={isLoading}
       />
       <DashboardKpiCard
         id="dashboard-kpi-card-eficiencia"
-        className="dashboard-kpi-card dashboard-kpi-card-eficiencia"
+        className="dashboard-kpi-card dashboard-kpi-card-eficiencia col-span-2 lg:col-span-1"
         title="Eficiencia"
         value={`${metricas.eficienciaPorcentaje}%`}
         description="Completadas ÷ total"

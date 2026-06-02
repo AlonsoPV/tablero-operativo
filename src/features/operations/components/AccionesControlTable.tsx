@@ -3,6 +3,7 @@
  * Vista cuadrícula optimizada: cabecera fija, bordes por estado, prioridad y indicadores claros.
  */
 
+import { useMemo, useState } from 'react'
 import {
   Table,
   TableBody,
@@ -16,11 +17,28 @@ import { Button } from '@/components/ui/button'
 import type { AccionDiaria } from '@/types'
 import { cn } from '@/lib/utils'
 import { isEnRetraso } from '../utils/accionUtils'
-import { AlertCircle, AlertTriangle, Clock, FileCheck, ClipboardList, Plus, MessageSquare } from 'lucide-react'
-import { CountdownTimer } from './CountdownTimer'
+import { accionStoryPoints } from '@/features/kpi/utils/gapProgress'
+import {
+  accionEstadoBadgeClass,
+  accionEstadoLabel,
+  getAccionDisplayEstado,
+} from '../utils/accionEstadoDisplay'
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Clock,
+  FileCheck,
+  ClipboardList,
+  Plus,
+  MessageSquare,
+} from 'lucide-react'
 import { AccionIdDisplay } from './AccionIdDisplay'
 import { EvidenciaCargadaIndicator } from './EvidenciaCargadaIndicator'
 import { AccionChecklistProgressBadge } from './AccionChecklistProgress'
+import { TIPO_ACCION_CONFIG, type TipoAccion } from '../utils/tipoAccionConfig'
 
 const ESTADO_LABELS: Record<string, string> = {
   Pendiente: 'Pendiente',
@@ -38,6 +56,36 @@ const PRIORIDAD_LABELS: Record<string, string> = {
   P3_Baja: 'Baja',
 }
 
+const PRIORIDAD_SORT_ORDER: Record<string, number> = {
+  P1_Critica: 1,
+  P2_Media: 2,
+  P3_Baja: 3,
+}
+
+const ESTADO_SORT_ORDER: Record<string, number> = {
+  Retraso: 0,
+  Bloqueado: 1,
+  Pendiente: 2,
+  Hoy: 3,
+  En_Ejecucion: 4,
+  Hecho: 5,
+  Verificado: 6,
+}
+
+export type AccionControlSortKey =
+  | 'id'
+  | 'descripcion'
+  | 'estado'
+  | 'responsable'
+  | 'pts'
+  | 'fecha'
+  | 'prioridad'
+  | 'indicadores'
+
+type SortDir = 'asc' | 'desc'
+
+const DEFAULT_SORT: { key: AccionControlSortKey; dir: SortDir } = { key: 'fecha', dir: 'asc' }
+
 /** Borde izquierdo sutil por estado para escaneo rápido */
 const ESTADO_ROW_BORDER: Record<string, string> = {
   Pendiente: 'border-l-4 border-l-slate-400',
@@ -53,6 +101,158 @@ const PRIORIDAD_BADGE: Record<string, string> = {
   P1_Critica: 'bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30',
   P2_Media: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30',
   P3_Baja: 'bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30',
+}
+
+function formatFechaLimite(fecha: string): string {
+  const parts = fecha.split('-').map(Number)
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return fecha
+  const [y, m, d] = parts
+  return new Date(y, m - 1, d).toLocaleDateString('es-MX', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function formatStoryPoints(accion: AccionDiaria): string {
+  const pts = accionStoryPoints(accion)
+  return pts > 0 ? String(pts) : '—'
+}
+
+function accionTitulo(accion: AccionDiaria): string {
+  return (accion.titulo_accion?.trim() || accion.descripcion_accion || '').toLocaleLowerCase('es')
+}
+
+function accionEstadoSortValue(accion: AccionDiaria): number {
+  const key = isEnRetraso(accion) ? 'Retraso' : accion.estado
+  return ESTADO_SORT_ORDER[key] ?? 99
+}
+
+function indicadoresSortValue(
+  accion: AccionDiaria,
+  commentCounts: Record<string, number>,
+  checklistProgressByAccionId: Record<string, { total: number; completed: number }>
+): number {
+  let score = 0
+  score += (commentCounts[accion.id] ?? 0) * 10
+  const prog = checklistProgressByAccionId[accion.id]
+  if (prog && prog.total > 0) score += Math.round((prog.completed / prog.total) * 20)
+  if (accion.evidencia_cargada) score += 5
+  if (isEnRetraso(accion)) score += 50
+  if (accion.estado === 'Bloqueado') score += 40
+  return score
+}
+
+function compareAccionesControl(
+  a: AccionDiaria,
+  b: AccionDiaria,
+  sortKey: AccionControlSortKey,
+  sortDir: SortDir,
+  responsableNames: Record<string, string>,
+  commentCounts: Record<string, number>,
+  checklistProgressByAccionId: Record<string, { total: number; completed: number }>
+): number {
+  let cmp = 0
+  switch (sortKey) {
+    case 'id':
+      cmp = a.id.localeCompare(b.id)
+      break
+    case 'descripcion':
+      cmp = accionTitulo(a).localeCompare(accionTitulo(b), 'es')
+      break
+    case 'estado':
+      cmp = accionEstadoSortValue(a) - accionEstadoSortValue(b)
+      break
+    case 'responsable': {
+      const na = (responsableNames[a.responsable] ?? a.responsable ?? '').toLocaleLowerCase('es')
+      const nb = (responsableNames[b.responsable] ?? b.responsable ?? '').toLocaleLowerCase('es')
+      cmp = na.localeCompare(nb, 'es')
+      break
+    }
+    case 'pts':
+      cmp = accionStoryPoints(a) - accionStoryPoints(b)
+      break
+    case 'fecha':
+      cmp = a.fecha.localeCompare(b.fecha) || (a.hora_limite ?? '').localeCompare(b.hora_limite ?? '')
+      break
+    case 'prioridad':
+      cmp =
+        (PRIORIDAD_SORT_ORDER[a.prioridad] ?? 99) - (PRIORIDAD_SORT_ORDER[b.prioridad] ?? 99)
+      break
+    case 'indicadores':
+      cmp =
+        indicadoresSortValue(a, commentCounts, checklistProgressByAccionId) -
+        indicadoresSortValue(b, commentCounts, checklistProgressByAccionId)
+      break
+  }
+  return sortDir === 'asc' ? cmp : -cmp
+}
+
+function sortAccionesControl(
+  acciones: AccionDiaria[],
+  sortKey: AccionControlSortKey,
+  sortDir: SortDir,
+  responsableNames: Record<string, string>,
+  commentCounts: Record<string, number>,
+  checklistProgressByAccionId: Record<string, { total: number; completed: number }>
+): AccionDiaria[] {
+  return [...acciones].sort((a, b) =>
+    compareAccionesControl(a, b, sortKey, sortDir, responsableNames, commentCounts, checklistProgressByAccionId)
+  )
+}
+
+function AccionSortHeader({
+  columnKey,
+  label,
+  sortKey,
+  sortDir,
+  onToggle,
+  className,
+}: {
+  columnKey: AccionControlSortKey
+  label: string
+  sortKey: AccionControlSortKey
+  sortDir: SortDir
+  onToggle: (key: AccionControlSortKey) => void
+  className?: string
+}) {
+  const active = sortKey === columnKey
+  return (
+    <TableHead
+      className={cn(
+        'sticky top-0 z-10 bg-muted/70 backdrop-blur-sm py-3.5 text-foreground/90',
+        className
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => onToggle(columnKey)}
+        className={cn(
+          'inline-flex w-full items-center gap-1 text-left text-xs font-semibold transition-colors hover:text-foreground',
+          active && 'text-foreground'
+        )}
+        aria-label={`Ordenar por ${label}`}
+      >
+        <span className="min-w-0 truncate">{label}</span>
+        {active ? (
+          sortDir === 'asc' ? (
+            <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          ) : (
+            <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          )
+        ) : (
+          <ArrowUpDown className="h-3.5 w-3.5 shrink-0 opacity-40" aria-hidden />
+        )}
+      </button>
+    </TableHead>
+  )
+}
+
+const TIPO_ACCION_BADGE: Record<TipoAccion, string> = {
+  operativa: 'border-slate-500/25 bg-slate-500/10 text-slate-700 dark:text-slate-300',
+  sprint: 'border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300',
+  estrategica: 'border-violet-500/25 bg-violet-500/10 text-violet-700 dark:text-violet-300',
+  desbloqueo: 'border-cyan-500/30 bg-cyan-500/15 text-cyan-800 dark:text-cyan-200',
 }
 
 export interface AccionesControlTableProps {
@@ -74,6 +274,132 @@ export interface AccionesControlTableProps {
   onEmptyAction?: () => void
 }
 
+type AccionRowSharedProps = {
+  accion: AccionDiaria
+  commentCounts: Record<string, number>
+  responsableNames: Record<string, string>
+  checklistProgressByAccionId: Record<string, { total: number; completed: number }>
+  onSelectAccion?: (accion: AccionDiaria) => void
+}
+
+function AccionControlMobileCard({
+  accion,
+  commentCounts,
+  responsableNames,
+  checklistProgressByAccionId,
+  onSelectAccion,
+}: AccionRowSharedProps) {
+  const displayStatus = getAccionDisplayEstado(accion)
+  const estadoLabel = accionEstadoLabel(displayStatus)
+  const rowBorder = ESTADO_ROW_BORDER[displayStatus] ?? 'border-l-4 border-l-border'
+  const prioridadClass = PRIORIDAD_BADGE[accion.prioridad] ?? PRIORIDAD_BADGE.P2_Media
+  const checklistProg = checklistProgressByAccionId[accion.id]
+  const comments = commentCounts[accion.id] ?? 0
+  const titulo = accion.titulo_accion?.trim() || accion.descripcion_accion
+  const Wrapper = onSelectAccion ? 'button' : 'div'
+
+  return (
+    <Wrapper
+      {...(onSelectAccion
+        ? { type: 'button' as const, onClick: () => onSelectAccion(accion) }
+        : {})}
+      data-accion-id={accion.id}
+      className={cn(
+        'acciones-control-mobile-card w-full rounded-lg border border-border/50 bg-card px-3 py-2.5 text-left transition-colors',
+        rowBorder,
+        onSelectAccion && 'cursor-pointer active:bg-muted/40 hover:bg-muted/30'
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <AccionIdDisplay id={accion.id} variant="compact" className="text-[11px] font-semibold text-foreground" />
+        <span
+          className={cn(
+            'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none',
+            accionEstadoBadgeClass(displayStatus)
+          )}
+        >
+          {estadoLabel}
+        </span>
+      </div>
+      <p className="mt-1.5 line-clamp-2 text-sm font-medium leading-snug text-foreground">{titulo}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        <span className="max-w-[55%] truncate">
+          {responsableNames[accion.responsable] ?? 'Sin responsable'}
+        </span>
+        <span className="text-border/80" aria-hidden>
+          ·
+        </span>
+        <span className="font-semibold tabular-nums text-foreground">{formatStoryPoints(accion)} pts</span>
+        <span
+          className={cn(
+            'rounded border px-1.5 py-0.5 text-[10px] font-medium',
+            prioridadClass
+          )}
+        >
+          {PRIORIDAD_LABELS[accion.prioridad] ?? accion.prioridad}
+        </span>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">
+          <span className="font-medium text-foreground/80">Fecha límite:</span>{' '}
+          <span className="tabular-nums">{formatFechaLimite(accion.fecha)}</span>
+        </span>
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {comments > 0 && (
+            <span className="inline-flex items-center gap-0.5 rounded-md bg-muted/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <MessageSquare className="h-3 w-3" />
+              {comments}
+            </span>
+          )}
+          {checklistProg && checklistProg.total > 0 && (
+            <AccionChecklistProgressBadge
+              completados={checklistProg.completed}
+              total={checklistProg.total}
+            />
+          )}
+          <EvidenciaCargadaIndicator cargada={accion.evidencia_cargada} />
+          {isEnRetraso(accion) && (
+            <AlertTriangle className="h-3.5 w-3.5 text-orange-600" aria-label="En retraso" />
+          )}
+          {accion.estado === 'Bloqueado' && (
+            <AlertCircle className="h-3.5 w-3.5 text-destructive" aria-label="Bloqueado" />
+          )}
+        </div>
+      </div>
+    </Wrapper>
+  )
+}
+
+function AccionesControlMobileList({
+  acciones,
+  commentCounts,
+  responsableNames,
+  checklistProgressByAccionId,
+  onSelectAccion,
+}: {
+  acciones: AccionDiaria[]
+  commentCounts: Record<string, number>
+  responsableNames: Record<string, string>
+  checklistProgressByAccionId: Record<string, { total: number; completed: number }>
+  onSelectAccion?: (accion: AccionDiaria) => void
+}) {
+  return (
+    <ul className="acciones-control-mobile-list divide-y divide-border/40 px-2 py-2 sm:px-3">
+      {acciones.map((accion) => (
+        <li key={accion.id} className="py-1.5 first:pt-0 last:pb-0">
+          <AccionControlMobileCard
+            accion={accion}
+            commentCounts={commentCounts}
+            responsableNames={responsableNames}
+            checklistProgressByAccionId={checklistProgressByAccionId}
+            onSelectAccion={onSelectAccion}
+          />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export function AccionesControlTable({
   acciones,
   isLoading,
@@ -85,9 +411,40 @@ export function AccionesControlTable({
   emptyActionLabel,
   onEmptyAction,
 }: AccionesControlTableProps) {
+  const [sortKey, setSortKey] = useState<AccionControlSortKey>(DEFAULT_SORT.key)
+  const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_SORT.dir)
+
+  const handleSortToggle = (key: AccionControlSortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
+  const accionesOrdenadas = useMemo(
+    () =>
+      sortAccionesControl(
+        acciones,
+        sortKey,
+        sortDir,
+        responsableNames,
+        commentCounts,
+        checklistProgressByAccionId
+      ),
+    [acciones, sortKey, sortDir, responsableNames, commentCounts, checklistProgressByAccionId]
+  )
+
   if (isLoading) {
     return (
-      <div className="min-h-[280px] overflow-hidden rounded-xl">
+      <>
+        <div className="min-h-[200px] space-y-2 px-2 py-2 md:hidden" aria-busy="true">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-[5.5rem] animate-pulse rounded-lg border border-border/40 bg-muted/30" />
+          ))}
+        </div>
+        <div className="hidden min-h-[280px] overflow-hidden rounded-xl md:block">
         <Table>
           <TableHeader>
             <TableRow className="border-border/60 hover:bg-transparent">
@@ -95,8 +452,8 @@ export function AccionesControlTable({
               <TableHead className="bg-muted/40 font-semibold">Descripción</TableHead>
               <TableHead className="bg-muted/40 font-semibold w-[120px]">Estado</TableHead>
               <TableHead className="bg-muted/40 font-semibold w-[140px]">Responsable</TableHead>
-              <TableHead className="bg-muted/40 font-semibold w-[100px]">Hora límite</TableHead>
-              <TableHead className="bg-muted/40 font-semibold w-[100px]">Temporizador</TableHead>
+              <TableHead className="bg-muted/40 font-semibold w-[56px]">Pts</TableHead>
+              <TableHead className="bg-muted/40 font-semibold w-[120px]">Fecha límite</TableHead>
               <TableHead className="bg-muted/40 font-semibold w-[90px]">Prioridad</TableHead>
               <TableHead className="bg-muted/40 font-semibold w-[100px]">Indicadores</TableHead>
             </TableRow>
@@ -116,13 +473,14 @@ export function AccionesControlTable({
             ))}
           </TableBody>
         </Table>
-      </div>
+        </div>
+      </>
     )
   }
 
   if (!acciones.length) {
     return (
-      <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border/60 bg-muted/5 px-4 py-16 text-center">
+      <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/60 bg-muted/5 px-4 py-10 text-center sm:min-h-[320px] sm:gap-4 sm:py-16">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/60">
           <ClipboardList className="h-7 w-7 text-muted-foreground" />
         </div>
@@ -143,38 +501,93 @@ export function AccionesControlTable({
   }
 
   return (
-    <div id="acciones-control-table" className="acciones-control-table relative min-h-[280px] overflow-auto rounded-xl border border-border/50 bg-card [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:rounded [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/80">
+    <>
+      <div
+        id="acciones-control-table-mobile"
+        className="acciones-control-table-mobile relative min-h-[120px] overflow-hidden rounded-xl border border-border/50 bg-card md:hidden"
+      >
+        <AccionesControlMobileList
+          acciones={accionesOrdenadas}
+          commentCounts={commentCounts}
+          responsableNames={responsableNames}
+          checklistProgressByAccionId={checklistProgressByAccionId}
+          onSelectAccion={onSelectAccion}
+        />
+      </div>
+      <div
+        id="acciones-control-table"
+        className="acciones-control-table relative hidden min-h-[280px] overflow-auto rounded-xl border border-border/50 bg-card md:block [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:rounded [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/80"
+      >
       <Table className="acciones-control-table-grid">
         <TableHeader>
           <TableRow className="border-border/60 hover:bg-transparent">
-            <TableHead className="sticky top-0 z-10 w-[120px] bg-muted/70 backdrop-blur-sm font-semibold text-foreground/90 py-3.5">
-              ID
-            </TableHead>
-            <TableHead className="sticky top-0 z-10 bg-muted/70 backdrop-blur-sm font-semibold text-foreground/90 py-3.5">
-              Descripción
-            </TableHead>
-            <TableHead className="sticky top-0 z-10 w-[120px] bg-muted/70 backdrop-blur-sm font-semibold text-foreground/90 py-3.5">
-              Estado
-            </TableHead>
-            <TableHead className="sticky top-0 z-10 w-[140px] bg-muted/70 backdrop-blur-sm font-semibold text-foreground/90 py-3.5">
-              Responsable
-            </TableHead>
-            <TableHead className="sticky top-0 z-10 w-[100px] bg-muted/70 backdrop-blur-sm font-semibold text-foreground/90 py-3.5">
-              Hora límite
-            </TableHead>
-            <TableHead className="sticky top-0 z-10 w-[100px] bg-muted/70 backdrop-blur-sm font-semibold text-foreground/90 py-3.5">
-              Temporizador
-            </TableHead>
-            <TableHead className="sticky top-0 z-10 w-[90px] bg-muted/70 backdrop-blur-sm font-semibold text-foreground/90 py-3.5">
-              Prioridad
-            </TableHead>
-            <TableHead className="sticky top-0 z-10 w-[100px] bg-muted/70 backdrop-blur-sm font-semibold text-foreground/90 py-3.5">
-              Indicadores
-            </TableHead>
+            <AccionSortHeader
+              columnKey="id"
+              label="ID"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onToggle={handleSortToggle}
+              className="w-[120px]"
+            />
+            <AccionSortHeader
+              columnKey="descripcion"
+              label="Descripción"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onToggle={handleSortToggle}
+            />
+            <AccionSortHeader
+              columnKey="estado"
+              label="Estado"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onToggle={handleSortToggle}
+              className="w-[120px]"
+            />
+            <AccionSortHeader
+              columnKey="responsable"
+              label="Responsable"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onToggle={handleSortToggle}
+              className="w-[140px]"
+            />
+            <AccionSortHeader
+              columnKey="pts"
+              label="Pts"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onToggle={handleSortToggle}
+              className="w-[56px]"
+            />
+            <AccionSortHeader
+              columnKey="fecha"
+              label="Fecha límite"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onToggle={handleSortToggle}
+              className="w-[120px]"
+            />
+            <AccionSortHeader
+              columnKey="prioridad"
+              label="Prioridad"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onToggle={handleSortToggle}
+              className="w-[90px]"
+            />
+            <AccionSortHeader
+              columnKey="indicadores"
+              label="Indicadores"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onToggle={handleSortToggle}
+              className="w-[100px]"
+            />
           </TableRow>
         </TableHeader>
         <TableBody>
-          {acciones.map((accion) => {
+          {accionesOrdenadas.map((accion) => {
             const displayStatus = isEnRetraso(accion) ? 'Retraso' : accion.estado
             const rowBorder = ESTADO_ROW_BORDER[displayStatus] ?? ''
             const prioridadClass = PRIORIDAD_BADGE[accion.prioridad] ?? PRIORIDAD_BADGE.P2_Media
@@ -217,16 +630,11 @@ export function AccionesControlTable({
                 <TableCell className="py-3 text-muted-foreground text-sm align-middle">
                   {responsableNames[accion.responsable] ?? accion.responsable ?? '—'}
                 </TableCell>
-                <TableCell className="py-3 font-mono text-sm tabular-nums text-foreground align-middle">
-                  {accion.hora_limite?.slice(0, 5) ?? '—'}
+                <TableCell className="py-3 text-sm font-semibold tabular-nums text-foreground align-middle">
+                  {formatStoryPoints(accion)}
                 </TableCell>
-                <TableCell className="py-3 align-middle">
-                  <CountdownTimer
-                    fecha={accion.fecha}
-                    hora_limite={accion.hora_limite ?? '23:59'}
-                    estado={accion.estado}
-                    variant="compact"
-                  />
+                <TableCell className="py-3 text-sm tabular-nums text-foreground align-middle">
+                  {formatFechaLimite(accion.fecha)}
                 </TableCell>
                 <TableCell className="py-3 align-middle">
                   <span
@@ -260,6 +668,25 @@ export function AccionesControlTable({
                       </span>
                     )}
                     <EvidenciaCargadaIndicator cargada={accion.evidencia_cargada} />
+                    {accion.tipo_accion === 'desbloqueo' ? (
+                      <span
+                        title={TIPO_ACCION_CONFIG[accion.tipo_accion].description}
+                        className={cn(
+                          'inline-flex rounded-md border px-1.5 py-0.5 text-xs font-semibold',
+                          TIPO_ACCION_BADGE[accion.tipo_accion]
+                        )}
+                      >
+                        {TIPO_ACCION_CONFIG[accion.tipo_accion].shortLabel}
+                      </span>
+                    ) : null}
+                    {accion.tipo_accion === 'desbloqueo' && accion.responsable_bloqueo ? (
+                      <span
+                        title="El desbloqueo tiene responsable asignado"
+                        className="inline-flex rounded-md bg-muted/80 px-1.5 py-0.5 text-xs text-muted-foreground"
+                      >
+                        Desbloqueo
+                      </span>
+                    ) : null}
                     {checklistProg && checklistProg.total > 0 && (
                       <AccionChecklistProgressBadge
                         completados={checklistProg.completed}
@@ -288,5 +715,6 @@ export function AccionesControlTable({
         </TableBody>
       </Table>
     </div>
+    </>
   )
 }

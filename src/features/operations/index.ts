@@ -39,6 +39,7 @@ export {
 } from './utils/actionPermissions'
 export { useActionEstadoPermissions } from './hooks/useActionEstadoPermissions'
 export { KanbanHeader } from './components/KanbanHeader'
+export { KanbanNextDeadline } from './components/KanbanNextDeadline'
 export { KanbanToolbar } from './components/KanbanToolbar'
 export type { KanbanToolbarLayout } from './components/KanbanToolbar'
 export { CountdownTimer } from './components/CountdownTimer'

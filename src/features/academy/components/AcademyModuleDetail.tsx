@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChevronDown, Download, ExternalLink, FileText, Upload } from 'lucide-react'
 import { useAuth } from '@/features/auth/hooks/useAuth'
-import { isAdminByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
+import { canManageAcademyModulesByRole, isAdminByRole } from '@/features/auth/lib/permissions'
 import { getAcademyPdfDownloadUrl, uploadAcademyPdf } from '@/services/academyStorage.service'
 import { useAcademyPdfUrl } from '../hooks/useAcademyPdfUrl'
 import type { LearningModule } from '../types/academy.types'
@@ -75,7 +75,7 @@ export function AcademyModuleDetail({
   onToggleStep,
 }: AcademyModuleDetailProps) {
   const { profile } = useAuth()
-  const canUploadPdf = profile ? isAdminByRole(profile.rol) || isSuperAdminByRole(profile.rol) : false
+  const canUploadPdf = profile ? isAdminByRole(profile.rol) || canManageAcademyModulesByRole(profile.rol) : false
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isDownloading, setIsDownloading] = useState(false)
   const [isUploading, setIsUploading] = useState(false)

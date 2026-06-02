@@ -33,23 +33,63 @@ ALTER TABLE public.academy_modules ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS academy_modules_select_authenticated ON public.academy_modules;
 CREATE POLICY academy_modules_select_authenticated ON public.academy_modules
   FOR SELECT TO authenticated
-  USING (is_active OR public.is_super_admin());
+  USING (
+    is_active
+    OR public.is_super_admin()
+    OR EXISTS (
+      SELECT 1 FROM public.usuarios u
+      WHERE u.user_id = auth.uid()
+        AND lower(trim(u.rol)) IN ('dirección', 'direccion')
+    )
+  );
 
 DROP POLICY IF EXISTS academy_modules_insert_super_admin ON public.academy_modules;
 CREATE POLICY academy_modules_insert_super_admin ON public.academy_modules
   FOR INSERT TO authenticated
-  WITH CHECK (public.is_super_admin() OR public.has_business_role('super_admin'));
+  WITH CHECK (
+    public.is_super_admin()
+    OR public.has_business_role('super_admin')
+    OR EXISTS (
+      SELECT 1 FROM public.usuarios u
+      WHERE u.user_id = auth.uid()
+        AND lower(trim(u.rol)) IN ('dirección', 'direccion')
+    )
+  );
 
 DROP POLICY IF EXISTS academy_modules_update_super_admin ON public.academy_modules;
 CREATE POLICY academy_modules_update_super_admin ON public.academy_modules
   FOR UPDATE TO authenticated
-  USING (public.is_super_admin() OR public.has_business_role('super_admin'))
-  WITH CHECK (public.is_super_admin() OR public.has_business_role('super_admin'));
+  USING (
+    public.is_super_admin()
+    OR public.has_business_role('super_admin')
+    OR EXISTS (
+      SELECT 1 FROM public.usuarios u
+      WHERE u.user_id = auth.uid()
+        AND lower(trim(u.rol)) IN ('dirección', 'direccion')
+    )
+  )
+  WITH CHECK (
+    public.is_super_admin()
+    OR public.has_business_role('super_admin')
+    OR EXISTS (
+      SELECT 1 FROM public.usuarios u
+      WHERE u.user_id = auth.uid()
+        AND lower(trim(u.rol)) IN ('dirección', 'direccion')
+    )
+  );
 
 DROP POLICY IF EXISTS academy_modules_delete_super_admin ON public.academy_modules;
 CREATE POLICY academy_modules_delete_super_admin ON public.academy_modules
   FOR DELETE TO authenticated
-  USING (public.is_super_admin() OR public.has_business_role('super_admin'));
+  USING (
+    public.is_super_admin()
+    OR public.has_business_role('super_admin')
+    OR EXISTS (
+      SELECT 1 FROM public.usuarios u
+      WHERE u.user_id = auth.uid()
+        AND lower(trim(u.rol)) IN ('dirección', 'direccion')
+    )
+  );
 
 COMMENT ON TABLE public.academy_modules IS 'Modulos adicionales de Academia O2C creados desde super admin.';
 
@@ -62,9 +102,9 @@ CREATE POLICY academia_insert ON storage.objects
       public.is_app_admin()
       OR public.has_business_role('super_admin')
       OR EXISTS (
-        SELECT 1 FROM public.usuarios u
+          SELECT 1 FROM public.usuarios u
         WHERE u.user_id = auth.uid()
-          AND trim(u.rol) IN ('DG', 'Sistemas')
+          AND lower(trim(u.rol)) IN ('dg', 'sistemas', 'dirección', 'direccion')
       )
     )
   );
@@ -80,7 +120,7 @@ CREATE POLICY academia_update ON storage.objects
       OR EXISTS (
         SELECT 1 FROM public.usuarios u
         WHERE u.user_id = auth.uid()
-          AND trim(u.rol) IN ('DG', 'Sistemas')
+          AND lower(trim(u.rol)) IN ('dg', 'sistemas', 'dirección', 'direccion')
       )
     )
   );
@@ -96,7 +136,7 @@ CREATE POLICY academia_delete ON storage.objects
       OR EXISTS (
         SELECT 1 FROM public.usuarios u
         WHERE u.user_id = auth.uid()
-          AND trim(u.rol) IN ('DG', 'Sistemas')
+          AND lower(trim(u.rol)) IN ('dg', 'sistemas', 'dirección', 'direccion')
       )
     )
   );

@@ -5,7 +5,7 @@
 
 import type { TipoAccion } from '@/features/operations/utils/tipoAccionConfig'
 import type { UserRole } from './enums'
-import type { ActionStatus, PrioridadNc } from './enums'
+import type { ActionStatus } from './enums'
 import type { NombreKpi, KpiUnidad } from './enums'
 
 export interface Usuario {
@@ -46,7 +46,8 @@ export interface AccionDiaria {
   proceso: string | null
   area: string | null
   cliente_id: string | null
-  prioridad: PrioridadNc
+  /** Nombre de prioridad; conectado con priorities.nombre */
+  prioridad: string
   causa_raiz: string | null
   responsable_bloqueo: string | null
   escalado: boolean

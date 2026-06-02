@@ -1,29 +1,21 @@
 import { useState, type ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { SectionCard, SectionCardBody } from '@/components/SectionCard'
 import { useAuth } from '@/features/auth/hooks/useAuth'
-import { useCurrentUser } from '../hooks'
-import { useUpdateUser } from '../hooks'
-import { ChangePasswordCard } from '../components/ChangePasswordCard'
+import { useCurrentUser, useUpdateUser } from '../hooks'
+import { EditProfileDialog } from '../components/EditProfileDialog'
 import {
+  Building2,
   CalendarClock,
   CalendarDays,
   Mail,
+  MapPin,
   Pencil,
   PartyPopper,
+  Shield,
   ShieldCheck,
-  type LucideIcon,
 } from 'lucide-react'
-import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
 function formatDateLong(iso: string) {
@@ -40,6 +32,22 @@ function formatDateLong(iso: string) {
   }
 }
 
+function formatRelativeAccess(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return null
+  const diffMs = Date.now() - then
+  const min = Math.floor(diffMs / 60_000)
+  const hr = Math.floor(min / 60)
+  const days = Math.floor(hr / 24)
+  if (min < 1) return 'hace un momento'
+  if (min < 60) return `hace ${min} min`
+  if (hr < 24) return `hace ${hr} h`
+  if (days === 1) return 'ayer'
+  if (days < 30) return `hace ${days} días`
+  return formatDateLong(iso)
+}
+
 function initialsFromName(nombre: string) {
   const parts = nombre.trim().split(/\s+/).filter(Boolean)
   if (parts.length === 0) return '?'
@@ -47,69 +55,28 @@ function initialsFromName(nombre: string) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-function SectionHeader({
-  kicker,
-  title,
-  description,
-}: {
-  kicker?: string
-  title: string
-  description?: string
-}) {
-  return (
-    <header className="space-y-1 px-0.5">
-      {kicker ? (
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{kicker}</p>
-      ) : null}
-      <h2 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">{title}</h2>
-      {description ? <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p> : null}
-    </header>
-  )
-}
-
-const panelClass =
-  'rounded-2xl border border-border/40 bg-card/40 p-6 shadow-sm ring-1 ring-inset ring-black/[0.04] backdrop-blur-[2px] dark:bg-card/25 dark:ring-white/[0.06] sm:p-8'
-
-function DetailRow({
+function InfoTile({
   icon: Icon,
   label,
-  children,
+  value,
+  className,
 }: {
-  icon: LucideIcon
+  icon: typeof Mail
   label: string
-  children: ReactNode
+  value: ReactNode
+  className?: string
 }) {
   return (
-    <div className="flex gap-3 sm:gap-4">
-      <span
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted/60 text-muted-foreground ring-1 ring-inset ring-black/5 dark:ring-white/10"
-        aria-hidden
-      >
-        <Icon className="h-4 w-4" />
-      </span>
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-        <div className="text-base font-medium leading-snug tracking-tight text-foreground">{children}</div>
-      </div>
-    </div>
-  )
-}
-
-function MetadataCell({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: LucideIcon
-  label: string
-  children: ReactNode
-}) {
-  return (
-    <div className="flex gap-3 rounded-xl border border-border/30 bg-background/40 p-4 dark:bg-background/20">
+    <div
+      className={cn(
+        'flex gap-3 rounded-xl border border-border/40 bg-muted/15 px-4 py-3.5',
+        className
+      )}
+    >
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-      <div className="min-w-0 space-y-1.5">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-        <div className="text-sm font-medium text-foreground">{children}</div>
+      <div className="min-w-0 space-y-0.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+        <div className="text-sm font-medium leading-snug text-foreground">{value}</div>
       </div>
     </div>
   )
@@ -120,35 +87,21 @@ export function ProfilePage() {
   const { data: user, isLoading, isError, error: profileError } = useCurrentUser()
   const updateUser = useUpdateUser()
   const [editOpen, setEditOpen] = useState(false)
-  const [nombreEdit, setNombreEdit] = useState('')
 
-  const handleOpenEdit = () => {
-    if (user) {
-      setNombreEdit(user.nombre)
-      setEditOpen(true)
-    }
-  }
-
-  const handleSaveNombre = () => {
+  const handleSaveProfile = async (input: { nombre: string; area: string | null }) => {
     if (!user) return
-    updateUser.mutate(
-      { id: user.id, input: { nombre: nombreEdit.trim() } },
-      {
-        onSuccess: () => {
-          toast.success('Perfil actualizado')
-          setEditOpen(false)
-          refetchAuth()
-        },
-        onError: (err) => {
-          toast.error(err instanceof Error ? err.message : 'No pudimos guardar los cambios. Inténtalo de nuevo.')
-        },
-      }
-    )
+    await updateUser.mutateAsync({
+      id: user.id,
+      input: { nombre: input.nombre, area: input.area },
+    })
+    refetchAuth()
   }
 
   if (isLoading) {
     return (
-      <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">Cargando tu perfil…</div>
+      <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+        Cargando tu perfil…
+      </div>
     )
   }
 
@@ -165,142 +118,113 @@ export function ProfilePage() {
             Usuarios.
           </p>
         ) : null}
-        {isError ? (
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            Revisa tu conexión e inténtalo de nuevo. Si sigue igual, avisa a quien administra la plataforma.
-          </p>
-        ) : null}
       </div>
     )
   }
 
   const email = authUser?.email ?? '—'
   const areaLabel = user.area ?? 'Sin área'
+  const lastAccess = formatRelativeAccess(authUser?.last_sign_in_at ?? null)
 
   return (
-    <div className="mx-auto max-w-3xl space-y-12 pb-16 pt-1 lg:max-w-4xl">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Cuenta</p>
-
-      {/* Identidad */}
-      <header className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
-        <div className="flex min-w-0 gap-4 sm:gap-5">
-          <div
-            className={cn(
-              'flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl text-lg font-semibold tracking-tight text-primary sm:h-20 sm:w-20 sm:text-xl',
-              'bg-gradient-to-br from-primary/15 to-primary/5 ring-1 ring-inset ring-primary/10'
-            )}
-            aria-hidden
-          >
-            {initialsFromName(user.nombre)}
-          </div>
-          <div className="min-w-0 space-y-3">
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">{user.nombre}</h1>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary" className="font-medium">
-                {user.rol}
-              </Badge>
-              <Badge variant="outline" className="border-border/60 bg-background/50 font-medium text-muted-foreground">
-                {areaLabel}
-              </Badge>
+    <div className="mx-auto w-full max-w-3xl space-y-6">
+      {/* Encabezado */}
+      <SectionCard>
+        <SectionCardBody className="p-4 sm:p-6">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-4">
+              <div
+                className={cn(
+                  'flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-base font-semibold text-primary sm:h-16 sm:w-16 sm:text-lg',
+                  'bg-gradient-to-br from-primary/20 to-primary/5 ring-1 ring-primary/15'
+                )}
+                aria-hidden
+              >
+                {initialsFromName(user.nombre)}
+              </div>
+              <div className="min-w-0 space-y-2">
+                <h1 className="truncate text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+                  {user.nombre}
+                </h1>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary" className="font-medium">
+                    {user.rol}
+                  </Badge>
+                  <Badge variant="outline" className="font-medium text-muted-foreground">
+                    {areaLabel}
+                  </Badge>
+                  <Badge variant={user.activo ? 'success' : 'muted'} className="font-medium">
+                    {user.activo ? 'Activo' : 'Inactivo'}
+                  </Badge>
+                </div>
+              </div>
             </div>
+            <Button className="h-10 w-full shrink-0 sm:w-auto" onClick={() => setEditOpen(true)}>
+              <Pencil className="mr-2 h-4 w-4" />
+              Editar perfil
+            </Button>
           </div>
-        </div>
-        <Button size="lg" className="h-11 w-full shrink-0 px-5 sm:w-auto" onClick={handleOpenEdit}>
-          <Pencil className="mr-2 h-4 w-4" />
-          Editar perfil
-        </Button>
-      </header>
+        </SectionCardBody>
+      </SectionCard>
 
-      {/* Información personal */}
-      <section className="space-y-4">
-        <SectionHeader
-          title="Información personal"
-          description="Correo vinculado a tu acceso. El nombre que ves arriba lo actualizas con «Editar perfil»."
-        />
-        <div className={panelClass}>
-          <div className="max-w-xl">
-            <DetailRow icon={Mail} label="Correo electrónico">
-              <span className="break-all">{email}</span>
-            </DetailRow>
-          </div>
+      {/* Cuenta */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-foreground">Tu cuenta</h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <InfoTile icon={Mail} label="Correo" value={<span className="break-all">{email}</span>} />
+          <InfoTile icon={Building2} label="Área" value={areaLabel} />
+          <InfoTile
+            icon={Shield}
+            label="Seguridad"
+            value={
+              <span className="text-muted-foreground">
+                Nombre, área y contraseña desde{' '}
+                <button
+                  type="button"
+                  className="font-medium text-primary hover:underline"
+                  onClick={() => setEditOpen(true)}
+                >
+                  Editar perfil
+                </button>
+              </span>
+            }
+            className="sm:col-span-2"
+          />
+          {lastAccess ? (
+            <InfoTile icon={CalendarClock} label="Último acceso" value={lastAccess} className="sm:col-span-2" />
+          ) : null}
         </div>
       </section>
 
-      {/* Información del sistema */}
-      <section className="space-y-4">
-        <SectionHeader
-          title="Información del sistema"
-          description="Estado de tu cuenta y fechas administradas por la plataforma. El rol y el área solo los cambia un administrador."
-        />
-        <div className={panelClass}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <MetadataCell icon={ShieldCheck} label="Estatus">
-              <Badge variant={user.activo ? 'success' : 'muted'} className="font-medium">
-                {user.activo ? 'Activo' : 'Inactivo'}
-              </Badge>
-            </MetadataCell>
-            <MetadataCell icon={PartyPopper} label="Registro de bienvenida">
+      {/* Sistema */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-foreground">Información del sistema</h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <InfoTile
+            icon={PartyPopper}
+            label="Bienvenida"
+            value={
               <Badge variant={user.onboarding_completed ? 'success' : 'outline'} className="font-medium">
                 {user.onboarding_completed ? 'Completado' : 'Pendiente'}
               </Badge>
-            </MetadataCell>
-            <MetadataCell icon={CalendarDays} label="Cuenta creada">
-              {formatDateLong(user.created_at)}
-            </MetadataCell>
-            <MetadataCell icon={CalendarClock} label="Última actualización">
-              {formatDateLong(user.updated_at)}
-            </MetadataCell>
-          </div>
+            }
+          />
+          <InfoTile icon={ShieldCheck} label="Rol" value={user.rol} />
+          <InfoTile icon={CalendarDays} label="Cuenta creada" value={formatDateLong(user.created_at)} />
+          <InfoTile icon={MapPin} label="Última actualización" value={formatDateLong(user.updated_at)} />
         </div>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          El rol lo asigna un administrador. Puedes cambiar tu nombre, área y contraseña en cualquier momento.
+        </p>
       </section>
 
-      {/* Seguridad */}
-      <section className="space-y-4">
-        <SectionHeader
-          title="Seguridad"
-          description="Tu contraseña protege el acceso. No compartas credenciales ni reutilices contraseñas de otros sitios."
-        />
-        <ChangePasswordCard lastSignInAt={authUser?.last_sign_in_at ?? null} />
-      </section>
-
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent aria-describedby={undefined}>
-          <DialogHeader>
-            <DialogTitle>Editar perfil</DialogTitle>
-            <DialogDescription>
-              Actualiza cómo aparece tu nombre en el tablero. El rol y el área solo los modifica un administrador.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 pt-2">
-            <div className="space-y-2">
-              <Label htmlFor="profile-nombre">Nombre para mostrar</Label>
-              <Input
-                id="profile-nombre"
-                value={nombreEdit}
-                onChange={(e) => setNombreEdit(e.target.value)}
-                placeholder="Tu nombre"
-                autoComplete="name"
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setEditOpen(false)} disabled={updateUser.isPending}>
-                Cancelar
-              </Button>
-              <Button
-                onClick={handleSaveNombre}
-                disabled={
-                  !nombreEdit.trim() ||
-                  nombreEdit.trim().length < 2 ||
-                  nombreEdit.trim() === user.nombre ||
-                  updateUser.isPending
-                }
-              >
-                {updateUser.isPending ? 'Guardando…' : 'Guardar'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <EditProfileDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        user={user}
+        onSaveProfile={handleSaveProfile}
+        isSavingProfile={updateUser.isPending}
+      />
     </div>
   )
 }

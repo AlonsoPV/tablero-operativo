@@ -44,3 +44,15 @@ export function parseDescripcionTriada(text: string): {
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
+
+/** Si hay triada distinta o campos Quiere/Para qué, usar modo estructurado en el formulario. */
+export function inferDescripcionModo(tri: {
+  descripcion_como: string
+  descripcion_quiero: string
+  descripcion_para_que: string
+}): 'simple' | 'estructurada' {
+  const q = tri.descripcion_quiero.trim()
+  const p = tri.descripcion_para_que.trim()
+  if (q.length > 0 || p.length > 0) return 'estructurada'
+  return 'simple'
+}

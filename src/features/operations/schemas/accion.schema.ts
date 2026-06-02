@@ -4,11 +4,12 @@
  */
 
 import { z } from 'zod'
-import { ACTION_STATUS, PRIORIDAD_NC } from '@/types'
+import { ACTION_STATUS } from '@/types'
+import { DEFAULT_PRIORITY_NOMBRE } from '../utils/priorityLabels'
 import { formatDescripcionTriada } from '../utils/descripcionAccionTriada'
 import { STORY_POINTS_OPTIONS } from '../utils/tipoAccionConfig'
 
-const TIPO_ACCION_ENUM = z.enum(['operativa', 'sprint'])
+const TIPO_ACCION_ENUM = z.enum(['operativa', 'sprint', 'estrategica', 'desbloqueo'])
 
 const tituloAccionSchema = z
   .string()
@@ -45,17 +46,27 @@ const horaSchema = z
     { message: 'Hora inválida' }
   )
 
+const DESCRIPCION_SIMPLE_MIN = 15
+
 const accionInputShape = z.object({
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha YYYY-MM-DD').optional(),
   titulo_accion: tituloAccionSchema,
-  descripcion_como: descripcionParteSchema,
-  descripcion_quiero: descripcionParteSchema,
-  descripcion_para_que: descripcionParteSchema,
+  /** Modo de captura: una sola caja o triada estructurada. */
+  descripcion_modo: z.enum(['simple', 'estructurada']).default('simple'),
+  descripcion_simple: z.string().optional(),
+  descripcion_como: z.string().optional(),
+  descripcion_quiero: z.string().optional(),
+  descripcion_para_que: z.string().optional(),
   responsable: z.string().uuid('Responsable obligatorio'),
   hora_limite: horaSchema,
   evidencia_esperada: evidenciaEsperadaSchema,
   estado: z.enum(ACTION_STATUS as unknown as [string, ...string[]]).optional(),
-  prioridad: z.enum(PRIORIDAD_NC as unknown as [string, ...string[]]).optional(),
+  prioridad: z
+    .string()
+    .min(1, 'Prioridad obligatoria')
+    .max(100)
+    .optional()
+    .default(DEFAULT_PRIORITY_NOMBRE),
   kpi_afectado: z.string().uuid().nullable().optional(),
   /** Brechas O2C impactadas (tabla puente + columna primaria = primer id). */
   gap_ids: z.array(z.string().uuid()).max(50).optional().default([]),
@@ -86,10 +97,41 @@ const accionInputShape = z.object({
       message: 'Selecciona un sprint para una accion de sprint.',
     })
   }
+  if (value.tipo_accion === 'desbloqueo' && !value.responsable_bloqueo) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['responsable_bloqueo'],
+      message: 'Selecciona quien debe desbloquear esta accion.',
+    })
+  }
+  if (value.descripcion_modo === 'estructurada') {
+    for (const [field, path] of [
+      ['descripcion_como', 'descripcion_como'],
+      ['descripcion_quiero', 'descripcion_quiero'],
+      ['descripcion_para_que', 'descripcion_para_que'],
+    ] as const) {
+      const parsed = descripcionParteSchema.safeParse(value[field] ?? '')
+      if (!parsed.success) {
+        const msg = parsed.error.issues[0]?.message ?? 'Este campo es obligatorio'
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message: msg })
+      }
+    }
+  } else {
+    const s = (value.descripcion_simple ?? '').trim()
+    if (s.length < DESCRIPCION_SIMPLE_MIN) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['descripcion_simple'],
+        message: `Mínimo ${DESCRIPCION_SIMPLE_MIN} caracteres para describir la acción.`,
+      })
+    }
+  }
 })
 
 export const accionCreateSchema = accionInputShape.transform(
   ({
+    descripcion_modo,
+    descripcion_simple,
     descripcion_como,
     descripcion_quiero,
     descripcion_para_que,
@@ -99,9 +141,20 @@ export const accionCreateSchema = accionInputShape.transform(
   }) => {
     const gids = gap_ids ?? []
     const kids = catalog_kpi_ids ?? []
+    let como: string
+    let quiero: string
+    let para: string
+    if (descripcion_modo === 'estructurada') {
+      como = (descripcion_como ?? '').trim()
+      quiero = (descripcion_quiero ?? '').trim()
+      para = (descripcion_para_que ?? '').trim()
+    } else {
+      const s = (descripcion_simple ?? '').trim()
+      como = quiero = para = s
+    }
     return {
       ...rest,
-      descripcion_accion: formatDescripcionTriada(descripcion_como, descripcion_quiero, descripcion_para_que),
+      descripcion_accion: formatDescripcionTriada(como, quiero, para),
       gap_ids: gids,
       catalog_kpi_ids: kids,
       gap_id: gids[0] ?? null,
@@ -129,7 +182,7 @@ export const accionUpdateSchema = z
     hora_limite: horaSchema.optional(),
     evidencia_esperada: z.string().min(5).max(500).optional(),
     estado: z.enum(ACTION_STATUS as unknown as [string, ...string[]]).optional(),
-    prioridad: z.enum(PRIORIDAD_NC as unknown as [string, ...string[]]).optional(),
+    prioridad: z.string().min(1, 'Prioridad obligatoria').max(100).optional(),
     kpi_afectado: z.string().uuid().nullable().optional(),
     gap_id: z.string().uuid().nullable().optional(),
     catalog_kpi_id: z.string().uuid().nullable().optional(),
@@ -162,6 +215,13 @@ export const accionUpdateSchema = z
         code: z.ZodIssueCode.custom,
         path: ['sprint_id'],
         message: 'Selecciona un sprint para una accion de sprint.',
+      })
+    }
+    if (value.tipo_accion === 'desbloqueo' && !value.responsable_bloqueo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['responsable_bloqueo'],
+        message: 'Selecciona quien debe desbloquear esta accion.',
       })
     }
   })

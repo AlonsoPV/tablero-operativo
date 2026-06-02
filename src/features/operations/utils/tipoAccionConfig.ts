@@ -1,4 +1,4 @@
-export type TipoAccion = 'operativa' | 'sprint' | 'estrategica'
+export type TipoAccion = 'operativa' | 'sprint' | 'estrategica' | 'desbloqueo'
 export type EsfuerzoAccion =
   | 'configuracion'
   | 'reporte'
@@ -22,7 +22,7 @@ export type TipoAccionConfig = {
 
 export const TIPO_ACCION_CONFIG: Record<TipoAccion, TipoAccionConfig> = {
   operativa: {
-    label: 'Operativa',
+    label: 'Accion (RUN)',
     shortLabel: 'RUN',
     description: 'Trabajo diario o recurrente.',
     intent: 'Mantiene la operacion funcionando; puede vivir fuera de sprints.',
@@ -56,6 +56,18 @@ export const TIPO_ACCION_CONFIG: Record<TipoAccion, TipoAccionConfig> = {
     puntosMin: 1,
     puntosMax: 13,
     puntosSugerido: 3,
+  },
+  desbloqueo: {
+    label: 'Desbloqueo',
+    shortLabel: 'DESB',
+    description: 'Decision, aprobacion, validacion o entrega necesaria para avanzar.',
+    intent: 'Homologa decisiones y dependencias en un solo compromiso visible con responsable de desbloqueo.',
+    requiresSprint: false,
+    allowsSprint: false,
+    defaultStoryPoints: 0,
+    puntosMin: 0,
+    puntosMax: 0,
+    puntosSugerido: 0,
   },
 }
 

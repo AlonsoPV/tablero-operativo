@@ -1,23 +1,17 @@
 import { useMemo } from 'react'
 import { useAcciones } from '@/features/operations/hooks'
-import { accionStoryPoints } from '../utils/gapProgress'
-import { calcularImpactoAccion } from '../utils/impactCalculations'
-import { DEFAULT_O2C_TARGET_HORIZON } from '../utils/kpiCalculations'
 import { useCatalogKpiO2cMetricItems } from './useCatalogKpiO2cMetricItems'
+import { useGapAccionesForGapIds } from './useGapAccionesForGapIds'
 import { useGaps } from './useGaps'
+import { DEFAULT_O2C_TARGET_HORIZON } from '../utils/kpiCalculations'
+import {
+  buildAccionGapIdsMap,
+  buildImpactRowsFromAcciones,
+  buildTotalPtsByGap,
+  type ImpactRow,
+} from '../utils/impactMatrixRows'
 
-export type ImpactRow = {
-  accionId: string
-  titulo: string
-  gapId: string | null
-  gapNombre: string | null
-  storyPoints: number | null
-  totalPuntosGap: number
-  kpiNombre: string | null
-  pesoKpi: number | null
-  impactoPct: number | null
-  estado: string | null
-}
+export type { ImpactRow } from '../utils/impactMatrixRows'
 
 export type GapImpactSummaryRow = {
   gapId: string
@@ -27,13 +21,28 @@ export type GapImpactSummaryRow = {
   accionCount: number
 }
 
-export function useImpactMatrix() {
-  const { data: gaps = [], isLoading: gapsLoading } = useGaps({ filters: { activo: true } })
-  const { data: acciones = [], isLoading: accionesLoading } = useAcciones({})
+export type UseImpactMatrixOptions = {
+  /** false para roles sin acceso (p. ej. Analista). */
+  enabled?: boolean
+}
+
+export function useImpactMatrix(options: UseImpactMatrixOptions = {}) {
+  const enabled = options.enabled ?? true
+
+  const { data: gaps = [], isLoading: gapsLoading } = useGaps({
+    filters: { activo: true },
+    enabled,
+  })
+  const gapIds = useMemo(() => (enabled ? gaps.map((g) => g.id) : []), [enabled, gaps])
+  const { data: gapAccionesData, isLoading: gapAccionesLoading } = useGapAccionesForGapIds(gapIds)
+  const { data: acciones = [], isLoading: accionesLoading } = useAcciones({}, { enabled })
   const { metricItems, isLoading: kpisLoading } = useCatalogKpiO2cMetricItems({
     activo: true,
     targetHorizon: DEFAULT_O2C_TARGET_HORIZON,
+    enabled,
   })
+
+  const junctionAccionIdsByGap = gapAccionesData?.junctionAccionIdsByGap ?? new Map<string, Set<string>>()
 
   const gapById = useMemo(() => {
     return new Map(gaps.map((g) => [g.id, g] as const))
@@ -50,49 +59,26 @@ export function useImpactMatrix() {
     return m
   }, [metricItems])
 
-  const totalPtsByGap = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const a of acciones) {
-      if (!a.gap_id) continue
-      m.set(a.gap_id, (m.get(a.gap_id) ?? 0) + accionStoryPoints(a))
-    }
-    return m
-  }, [acciones])
+  const accionGapIds = useMemo(
+    () => buildAccionGapIdsMap(acciones, junctionAccionIdsByGap),
+    [acciones, junctionAccionIdsByGap]
+  )
+
+  const totalPtsByGap = useMemo(
+    () => buildTotalPtsByGap(acciones, accionGapIds),
+    [acciones, accionGapIds]
+  )
 
   const rows: ImpactRow[] = useMemo(() => {
-    const out: ImpactRow[] = []
-
-    for (const a of acciones) {
-      const storyPoints = accionStoryPoints(a)
-      if (!a.gap_id || storyPoints <= 0) continue
-
-      const gap = gapById.get(a.gap_id) ?? null
-      const kpi = kpiByGapId.get(a.gap_id) ?? null
-      if (!gap || !kpi) continue
-
-      const totalPtsAcciones = totalPtsByGap.get(a.gap_id) ?? 0
-      const totalPuntosGap = totalPtsAcciones > 0 ? totalPtsAcciones : (gap.total_story_points ?? 0)
-      const impacto =
-        kpi.weight != null
-          ? calcularImpactoAccion(kpi.weight, storyPoints, totalPuntosGap)
-          : null
-
-      out.push({
-        accionId: a.id,
-        titulo: a.titulo_accion || '—',
-        gapId: a.gap_id,
-        gapNombre: gap.nombre,
-        storyPoints,
-        totalPuntosGap,
-        kpiNombre: kpi.nombre,
-        pesoKpi: kpi.weight ?? null,
-        impactoPct: impacto,
-        estado: a.estado ?? null,
-      })
-    }
-
-    return out.sort((a, b) => (b.impactoPct ?? 0) - (a.impactoPct ?? 0))
-  }, [acciones, gapById, kpiByGapId, totalPtsByGap])
+    if (!enabled) return []
+    return buildImpactRowsFromAcciones({
+      acciones,
+      accionGapIds,
+      gapById,
+      kpiByGapId,
+      totalPtsByGap,
+    })
+  }, [enabled, acciones, accionGapIds, gapById, kpiByGapId, totalPtsByGap])
 
   const gapSummary = useMemo((): GapImpactSummaryRow[] => {
     const m = new Map<string, GapImpactSummaryRow>()
@@ -127,6 +113,6 @@ export function useImpactMatrix() {
     gapSummary,
     top10,
     impactoTotal,
-    isLoading: gapsLoading || accionesLoading || kpisLoading,
+    isLoading: enabled && (gapsLoading || accionesLoading || kpisLoading || gapAccionesLoading),
   }
 }

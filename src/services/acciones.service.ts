@@ -8,7 +8,7 @@ import { gapActionsLogService } from '@/services/gapActionsLog.service'
 import { listGapIdsForAccion } from '@/services/accionLinks.service'
 import { usuariosService } from '@/services/usuarios.service'
 import { assertAccionEstadoTransition } from '@/services/accionEstadoValidation.service'
-import type { AccionDiaria, ActionStatus, PrioridadNc } from '@/types'
+import type { AccionDiaria, ActionStatus } from '@/types'
 import type { TipoAccion } from '@/features/operations/utils/tipoAccionConfig'
 
 function isEnRetraso(a: AccionDiaria): boolean {
@@ -88,9 +88,11 @@ export interface AccionesFilter {
   estado?: ActionStatus | ActionStatus[]
   /** Estados a excluir (ej. Verificado para calendario: mostrar solo activas). */
   excluir_estados?: ActionStatus[]
-  prioridad?: PrioridadNc | PrioridadNc[]
+  prioridad?: string | string[]
   area?: string
   responsable?: string
+  /** Usuario que creó la acción (usuarios.id). Independiente de `responsable`. */
+  created_by?: string
   tipo_accion?: TipoAccion | TipoAccion[]
   sprint_id?: string
   search?: string
@@ -99,9 +101,14 @@ export interface AccionesFilter {
 function normalizeAccionPayload(payload: Partial<AccionDiaria>): Partial<AccionDiaria> {
   const next: Partial<AccionDiaria> = { ...payload }
   if (next.tipo_accion == null) next.tipo_accion = 'operativa'
-  if (next.tipo_accion === 'operativa') next.sprint_id = null
+  if (next.tipo_accion === 'operativa' || next.tipo_accion === 'desbloqueo') {
+    next.sprint_id = null
+  }
   if (next.tipo_accion === 'sprint' && !next.sprint_id) {
     throw new Error('Una accion de sprint requiere seleccionar sprint.')
+  }
+  if (next.tipo_accion === 'desbloqueo' && !next.responsable_bloqueo) {
+    throw new Error('Un desbloqueo requiere responsable de desbloqueo.')
   }
   return next
 }
@@ -154,6 +161,7 @@ export const accionesService = {
     }
     if (filter.area != null && filter.area !== '') q = q.eq('area', filter.area)
     if (filter.responsable) q = q.eq('responsable', filter.responsable)
+    if (filter.created_by) q = q.eq('created_by', filter.created_by)
     if (filter.tipo_accion) {
       const tipos = Array.isArray(filter.tipo_accion)
         ? filter.tipo_accion
@@ -191,6 +199,20 @@ export const accionesService = {
     return data as AccionDiaria
   },
 
+  /** Títulos y autores para enriquecer notificaciones (batch). */
+  async listSummaryByIds(ids: string[]) {
+    const unique = [...new Set(ids.filter(Boolean))]
+    if (unique.length === 0) {
+      return [] as Pick<AccionDiaria, 'id' | 'titulo_accion' | 'descripcion_accion' | 'created_by'>[]
+    }
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select('id, titulo_accion, descripcion_accion, created_by')
+      .in('id', unique)
+    if (error) throw error
+    return (data ?? []) as Pick<AccionDiaria, 'id' | 'titulo_accion' | 'descripcion_accion' | 'created_by'>[]
+  },
+
   /**
    * Inserta una acción. No usa .select() para evitar fallos por RLS
    * (si asignas responsable a otro usuario, no podrías leer la fila devuelta).
@@ -223,7 +245,8 @@ export const accionesService = {
     if (
       payload.sprint_id !== undefined ||
       payload.tipo_accion === 'operativa' ||
-      payload.tipo_accion === 'sprint'
+      payload.tipo_accion === 'sprint' ||
+      payload.tipo_accion === 'desbloqueo'
     ) {
       cleanPayload.sprint_id = mergedPayload.sprint_id ?? null
     }

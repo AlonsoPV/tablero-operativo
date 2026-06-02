@@ -29,7 +29,13 @@ export function InfoHint({
             <CircleHelp className="h-4 w-4" />
           </button>
         </TooltipTrigger>
-        <TooltipContent>{text}</TooltipContent>
+        <TooltipContent
+          side="top"
+          align="start"
+          className="max-w-[min(20rem,calc(100vw-2rem))] text-left leading-relaxed"
+        >
+          {text}
+        </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   )

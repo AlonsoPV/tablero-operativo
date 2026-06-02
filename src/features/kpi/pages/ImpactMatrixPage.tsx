@@ -1,5 +1,9 @@
 import { useMemo, useState } from 'react'
+import { Navigate } from 'react-router-dom'
 import { BarChart3, Download, Filter, RefreshCw } from 'lucide-react'
+import { ROUTES } from '@/constants'
+import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
+import { canAccessRouteByRole, getDefaultRouteByRole } from '@/features/auth/lib/permissions'
 import { getAppNow } from '@/lib/clock'
 import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
 import { InfoHint } from '@/components/InfoHint'
@@ -105,7 +109,13 @@ function ImpactTable({
 }
 
 export function ImpactMatrixPage() {
-  const { rows, gapSummary, top10, impactoTotal, isLoading } = useImpactMatrix()
+  const { data: currentUser } = useCurrentUser()
+  const canAccess = canAccessRouteByRole(currentUser?.rol, ROUTES.DASHBOARD_IMPACTO)
+  const { rows, gapSummary, top10, impactoTotal, isLoading } = useImpactMatrix({ enabled: canAccess })
+
+  if (!canAccess) {
+    return <Navigate to={getDefaultRouteByRole(currentUser?.rol)} replace />
+  }
   const [gapFilter, setGapFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [search, setSearch] = useState('')

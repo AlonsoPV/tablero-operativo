@@ -17,6 +17,9 @@ export interface DashboardHeaderProps {
   filtersExpanded?: boolean
   /** Hay estado, prioridad, área o responsable distinto de “todos”. */
   advancedFiltersActive?: boolean
+  title?: string
+  eyebrow?: string
+  showExport?: boolean
   onToggleFilters?: () => void
   onNewAction?: () => void
   className?: string
@@ -25,6 +28,9 @@ export interface DashboardHeaderProps {
 export function DashboardHeader({
   filtersExpanded,
   advancedFiltersActive,
+  title = 'Vista general O2C',
+  eyebrow = 'Tablero ejecutivo',
+  showExport = true,
   onToggleFilters,
   onNewAction,
   className,
@@ -40,13 +46,13 @@ export function DashboardHeader({
       <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
         <div className="dashboard-header-title-area min-w-0 max-w-2xl space-y-1 sm:space-y-1.5">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Tablero ejecutivo
+            {eyebrow}
           </p>
           <h1
             id="dashboard-title"
             className="dashboard-title text-balance text-2xl font-semibold tracking-tight text-foreground sm:text-3xl"
           >
-            Vista general O2C
+            {title}
           </h1>
           <p className="dashboard-subtitle text-pretty text-sm leading-relaxed text-muted-foreground">
             Crea acciones, revisa el tablero y ajusta el alcance temporal sin perder contexto.
@@ -72,15 +78,17 @@ export function DashboardHeader({
             role="group"
             aria-label="Acciones secundarias"
           >
-            <Button
-              id="dashboard-btn-export"
-              className="dashboard-btn-export h-10 shrink-0 gap-2 border-border/60 bg-background px-3 sm:h-9"
-              variant="outline"
-              size="sm"
-            >
-              <Download className="h-4 w-4 shrink-0" />
-              Exportar
-            </Button>
+            {showExport ? (
+              <Button
+                id="dashboard-btn-export"
+                className="dashboard-btn-export h-10 shrink-0 gap-2 border-border/60 bg-background px-3 sm:h-9"
+                variant="outline"
+                size="sm"
+              >
+                <Download className="h-4 w-4 shrink-0" />
+                Exportar
+              </Button>
+            ) : null}
             <Button
               id="dashboard-btn-kanban"
               className="dashboard-btn-kanban h-10 shrink-0 gap-2 border-border/60 bg-background px-3 sm:h-9"

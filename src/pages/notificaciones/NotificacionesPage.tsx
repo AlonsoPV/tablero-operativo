@@ -8,16 +8,20 @@ import { NotificationCenter } from '@/features/notifications'
 
 export function NotificacionesPage() {
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-8 px-4 py-6 sm:px-6">
-      <header className="space-y-1">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Centro de mensajes</p>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Notificaciones</h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          Tiempo real: comentarios, asignaciones y cambios de estado.
+    <div className="mx-auto w-full max-w-4xl space-y-6 px-4 py-6 sm:px-6 lg:py-8">
+      <header className="space-y-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Centro de mensajes
+        </p>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+          Notificaciones
+        </h1>
+        <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">
+          Comentarios, asignaciones y cambios de estado en tus acciones.
         </p>
       </header>
-      <SectionCard>
-        <SectionCardBody className="space-y-4">
+      <SectionCard className="shadow-md">
+        <SectionCardBody className="p-0">
           <NotificationCenter />
         </SectionCardBody>
       </SectionCard>

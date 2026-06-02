@@ -4,7 +4,7 @@ import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/Se
 import { Button } from '@/components/ui/button'
 import { ROUTES } from '@/constants'
 import { useAuth } from '@/features/auth/hooks/useAuth'
-import { isSuperAdminByRole } from '@/features/auth/lib/permissions'
+import { canManageAcademyModulesByRole } from '@/features/auth/lib/permissions'
 import { useAcademyProgress } from '../hooks/useAcademyProgress'
 import { useAcademyModules } from '../hooks/useAcademyModules'
 import { AcademyModuleCard } from '../components/AcademyModuleCard'
@@ -60,7 +60,7 @@ export function AcademyPage() {
             Ruta formativa con desbloqueo progresivo, quiz obligatorio y progreso persistente por usuario.
           </p>
         </div>
-        {isSuperAdminByRole(profile?.rol) ? (
+        {canManageAcademyModulesByRole(profile?.rol) ? (
           <Button variant="outline" size="sm" asChild>
             <Link to={ROUTES.SETTINGS_ACADEMY_MODULES}>Crear modulo</Link>
           </Button>

@@ -23,6 +23,17 @@ export interface CreateCalendarReminderInput {
 }
 
 export const calendarRemindersService = {
+  async listRecentByUser(userId: string, limit = 8): Promise<CalendarReminder[]> {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+    if (error) throw error
+    return (data ?? []) as CalendarReminder[]
+  },
+
   async listByRange(userId: string, from: string, to: string): Promise<CalendarReminder[]> {
     const { data, error } = await supabase
       .from(TABLE)

@@ -1,6 +1,5 @@
 /**
- * Encabezado premium del módulo Kanban — estilo SaaS/producto moderno.
- * Título fuerte, subtítulo secundario, acciones rápidas a la derecha.
+ * Encabezado del módulo Kanban — jerarquía clara y layout responsivo.
  */
 
 import { Button } from '@/components/ui/button'
@@ -10,20 +9,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Plus, Download, LayoutGrid, SlidersHorizontal, List, Check } from 'lucide-react'
+import { Plus, LayoutGrid, SlidersHorizontal, List, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export type KanbanViewMode = 'kanban' | 'lista'
 
 export interface KanbanHeaderProps {
-  /** Si el toolbar de filtros está expandido (para alternar desde "Filtros") */
   filtersExpanded?: boolean
   onToggleFilters?: () => void
   onNewAction?: () => void
-  /** Vista actual: Kanban (tablero) o Lista */
   viewMode?: KanbanViewMode
   onViewModeChange?: (mode: KanbanViewMode) => void
-  /** Nodo opcional a la derecha del título (ej. resumen o countdown) */
   rightOfTitle?: React.ReactNode
   className?: string
 }
@@ -32,6 +28,9 @@ const VIEW_LABELS: Record<KanbanViewMode, string> = {
   kanban: 'Tablero Kanban',
   lista: 'Lista',
 }
+
+const ACTION_BTN =
+  'h-10 w-full justify-center gap-1.5 text-sm md:h-9 md:w-auto md:min-w-[5.25rem]'
 
 export function KanbanHeader({
   filtersExpanded,
@@ -46,106 +45,109 @@ export function KanbanHeader({
     <header
       id="kanban-header"
       className={cn(
-        'kanban-header flex min-w-0 flex-col gap-4 overflow-x-hidden sm:flex-row sm:items-start sm:justify-between',
+        'kanban-header flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6',
         className
       )}
     >
-      <div className="kanban-header-title-area min-w-0 space-y-1">
+      <div className="kanban-header-title-area min-w-0 flex-1 space-y-2.5">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Operaciones
         </p>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+
+        <div className="grid min-w-0 gap-2.5 md:grid-cols-[minmax(0,auto)_minmax(0,1fr)] md:items-start md:gap-x-4 lg:gap-x-5">
           <h1
             id="kanban-title"
-            className="kanban-title text-xl font-semibold tracking-tight text-foreground sm:text-2xl"
+            className="kanban-title text-xl font-semibold tracking-tight text-foreground md:pt-0.5 md:text-2xl"
           >
             Kanban
           </h1>
-          {rightOfTitle}
+          {rightOfTitle ? (
+            <div className="kanban-header-right-slot min-w-0 w-full md:max-w-none lg:max-w-md">
+              {rightOfTitle}
+            </div>
+          ) : null}
         </div>
-        <p className="kanban-subtitle max-w-2xl text-sm leading-relaxed text-muted-foreground">
+
+        <p className="kanban-subtitle max-w-2xl text-xs leading-relaxed text-muted-foreground sm:text-sm">
           {viewMode === 'kanban'
-            ? 'Gestiona tus acciones por estado. Arrastra las tarjetas entre columnas para actualizar el progreso.'
-            : 'Vista en lista. Haz clic en una fila para editar la acción.'}
+            ? 'Gestiona acciones por estado. Arrastra tarjetas entre columnas.'
+            : 'Vista en lista. Toca una fila para editar la acción.'}
         </p>
       </div>
-      <div className="kanban-header-actions grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:gap-2 sm:flex-wrap sm:items-center sm:justify-end">
-        {onNewAction && (
+
+      <div className="kanban-header-actions flex w-full min-w-0 shrink-0 flex-col gap-2 md:w-auto">
+        {onNewAction ? (
           <Button
             id="kanban-btn-new-action"
             variant="default"
-            className="kanban-btn-new-action col-span-2 shadow-sm sm:col-span-1"
+            className="kanban-btn-new-action h-11 w-full shadow-sm md:h-9 md:w-auto"
             onClick={onNewAction}
             size="sm"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-4 w-4 shrink-0" />
             Nueva acción
           </Button>
-        )}
-        <Button
-          id="kanban-btn-export"
-          type="button"
-          className="kanban-btn-export h-9 sm:h-8"
-          variant="outline"
-          size="sm"
-          disabled
-          title="Exportar CSV — próximamente"
-        >
-          <Download className="h-3.5 w-3.5" />
-          Exportar
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        ) : null}
+
+        <div className="kanban-header-actions-secondary grid w-full grid-cols-2 gap-2 md:flex md:w-auto md:flex-wrap md:items-center md:justify-end md:gap-2">
+          {onToggleFilters ? (
             <Button
-              id="kanban-btn-view"
-              className="kanban-btn-view h-9 min-w-0 justify-between gap-1.5 border-border/60 bg-background/80 sm:h-8 sm:min-w-[90px]"
-              variant="outline"
-              size="sm"
-            >
-              {viewMode === 'kanban' ? (
-                <LayoutGrid className="h-3.5 w-3.5" />
-              ) : (
-                <List className="h-3.5 w-3.5" />
+              id="kanban-btn-filters"
+              className={cn(
+                'kanban-btn-filters border-border/60 bg-background/80',
+                ACTION_BTN,
+                filtersExpanded && 'border-primary/40 bg-primary/5 text-primary'
               )}
-              Vista
+              variant={filtersExpanded ? 'secondary' : 'outline'}
+              size="sm"
+              onClick={onToggleFilters}
+              aria-expanded={filtersExpanded}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">Filtros</span>
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-[160px]">
-            <DropdownMenuItem
-              onClick={() => onViewModeChange?.('kanban')}
-              className="flex items-center justify-between"
-            >
-              <span className="flex items-center gap-2">
-                <LayoutGrid className="h-4 w-4" />
-                {VIEW_LABELS.kanban}
-              </span>
-              {viewMode === 'kanban' && <Check className="h-4 w-4 text-primary" />}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onViewModeChange?.('lista')}
-              className="flex items-center justify-between"
-            >
-              <span className="flex items-center gap-2">
-                <List className="h-4 w-4" />
-                {VIEW_LABELS.lista}
-              </span>
-              {viewMode === 'lista' && <Check className="h-4 w-4 text-primary" />}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {onToggleFilters && (
-          <Button
-            id="kanban-btn-filters"
-            className="kanban-btn-filters h-9 border-border/60 bg-background/80 sm:h-8"
-            variant={filtersExpanded ? 'secondary' : 'outline'}
-            size="sm"
-            onClick={onToggleFilters}
-            aria-expanded={filtersExpanded}
-          >
-            <SlidersHorizontal className="h-3.5 w-3.5" />
-            Filtros
-          </Button>
-        )}
+          ) : null}
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                id="kanban-btn-view"
+                className={cn('kanban-btn-view border-border/60 bg-background/80', ACTION_BTN)}
+                variant="outline"
+                size="sm"
+              >
+                {viewMode === 'kanban' ? (
+                  <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <List className="h-3.5 w-3.5 shrink-0" />
+                )}
+                <span className="truncate">Vista</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[160px]">
+              <DropdownMenuItem
+                onClick={() => onViewModeChange?.('kanban')}
+                className="flex items-center justify-between"
+              >
+                <span className="flex items-center gap-2">
+                  <LayoutGrid className="h-4 w-4" />
+                  {VIEW_LABELS.kanban}
+                </span>
+                {viewMode === 'kanban' ? <Check className="h-4 w-4 text-primary" /> : null}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => onViewModeChange?.('lista')}
+                className="flex items-center justify-between"
+              >
+                <span className="flex items-center gap-2">
+                  <List className="h-4 w-4" />
+                  {VIEW_LABELS.lista}
+                </span>
+                {viewMode === 'lista' ? <Check className="h-4 w-4 text-primary" /> : null}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </header>
   )

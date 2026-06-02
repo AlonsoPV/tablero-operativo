@@ -122,7 +122,7 @@ function KpiChip({
   return (
     <div
       className={cn(
-        'flex flex-col justify-center rounded-lg border px-3 py-2.5',
+        'flex flex-col justify-center rounded-lg border px-2 py-2 sm:px-3 sm:py-2.5',
         tone === 'default' && 'border-border/60 bg-background/80',
         tone === 'amber' && 'border-amber-500/25 bg-amber-500/[0.07]',
         tone === 'emerald' && 'border-emerald-500/25 bg-emerald-500/[0.07]',
@@ -132,7 +132,7 @@ function KpiChip({
       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
       <p
         className={cn(
-          'mt-0.5 text-2xl font-semibold tabular-nums leading-none tracking-tight',
+          'mt-0.5 text-xl font-semibold tabular-nums leading-none tracking-tight sm:text-2xl',
           tone === 'amber' && 'text-amber-950 dark:text-amber-50',
           tone === 'emerald' && 'text-emerald-950 dark:text-emerald-50',
           tone === 'risk' && 'text-amber-900 dark:text-amber-100',
@@ -244,12 +244,12 @@ function GrupoAccionesLista({
     >
       <button
         type="button"
-        className="flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-4"
+        className="flex w-full min-h-11 items-center gap-2.5 px-2.5 py-2.5 text-left touch-manipulation transition-colors hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:gap-3 sm:px-3 sm:py-3"
         aria-expanded={open}
         onClick={() => setOpen((prev) => !prev)}
       >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted/60 text-primary">
-          <Icon className="h-4 w-4" aria-hidden />
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/60 text-primary sm:h-9 sm:w-9">
+          <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -363,34 +363,37 @@ export function DisciplinaAccionesCard({ fecha, usuarioId }: DisciplinaAccionesC
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm">
-      <div className="border-b border-border/50 bg-muted/20 px-4 py-4 sm:px-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-              Ejecución
-            </p>
-            <h3 className="mt-0.5 text-lg font-semibold tracking-tight text-foreground">Acciones del día</h3>
-            <p className="mt-1 text-sm capitalize text-muted-foreground">{fechaLabel}</p>
-          </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <Button variant="outline" size="sm" className="h-9 rounded-lg" asChild>
-              <Link to={ROUTES.DASHBOARD}>
-                <LayoutDashboard className="mr-1.5 h-3.5 w-3.5" />
-                Tablero
-              </Link>
-            </Button>
-            <Button size="sm" className="h-9 rounded-lg shadow-sm" asChild>
-              <Link to={`${ROUTES.KANBAN}?fecha=${encodeURIComponent(fecha)}`}>
-                <Columns3 className="mr-1.5 h-3.5 w-3.5" />
-                Ir al Kanban
-              </Link>
-            </Button>
-          </div>
+    <div
+      id="disciplina-acciones-card"
+      className="disciplina-acciones-card flex h-full flex-col overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm"
+    >
+      <div className="border-b border-border/50 bg-muted/20 px-3 py-3 sm:px-4 sm:py-4">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+            Ejecución
+          </p>
+          <h3 className="mt-0.5 text-base font-semibold tracking-tight text-foreground sm:text-lg">
+            Acciones del día
+          </h3>
+          <p className="mt-0.5 text-xs capitalize text-muted-foreground sm:text-sm">{fechaLabel}</p>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <Button variant="outline" size="sm" className="h-9 w-full rounded-lg px-2 text-xs sm:text-sm" asChild>
+            <Link to={ROUTES.DASHBOARD}>
+              <LayoutDashboard className="mr-1 h-3.5 w-3.5 shrink-0" />
+              Tablero
+            </Link>
+          </Button>
+          <Button size="sm" className="h-9 w-full rounded-lg px-2 text-xs shadow-sm sm:text-sm" asChild>
+            <Link to={`${ROUTES.KANBAN}?fecha=${encodeURIComponent(fecha)}`}>
+              <Columns3 className="mr-1 h-3.5 w-3.5 shrink-0" />
+              Kanban
+            </Link>
+          </Button>
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col gap-5 p-4 sm:p-5">
+      <div className="flex flex-1 flex-col gap-3 p-3 sm:gap-4 sm:p-4">
         {isError ? (
           <p className="text-sm text-destructive">No se pudieron cargar las acciones.</p>
         ) : isLoading ? (
@@ -400,11 +403,8 @@ export function DisciplinaAccionesCard({ fecha, usuarioId }: DisciplinaAccionesC
           </div>
         ) : (
           <>
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Resumen de lo que te involucra hoy: creadas, asignadas o etiquetadas en comentarios.
-              </p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 sm:gap-2">
                 <KpiChip label="Total" value={exec.total} />
                 <KpiChip label="En curso" value={exec.enCurso} tone="amber" />
                 <KpiChip label="Cerradas" value={exec.cerradas} tone="emerald" />
@@ -419,23 +419,25 @@ export function DisciplinaAccionesCard({ fecha, usuarioId }: DisciplinaAccionesC
             {exec.riesgo > 0 ? (
               <div
                 role="status"
-                className="flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-950 dark:text-amber-100"
+                className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-xs text-amber-950 dark:text-amber-100 sm:px-3 sm:py-2.5 sm:text-sm"
               >
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" aria-hidden />
                 <p>
-                  <span className="font-semibold">{exec.riesgo} acción{exec.riesgo !== 1 ? 'es' : ''} cerrada{exec.riesgo !== 1 ? 's' : ''} sin evidencia.</span>{' '}
-                  Ábrelas desde la lista y adjunta respaldo en el Kanban.
+                  <span className="font-semibold">
+                    {exec.riesgo} sin evidencia
+                  </span>
+                  <span className="hidden sm:inline"> — adjunta respaldo en el Kanban.</span>
                 </p>
               </div>
             ) : null}
 
-            <div className="flex flex-1 flex-col rounded-xl border border-border/50 bg-muted/15 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                  <h4 className="text-sm font-semibold text-foreground">Tus acciones visibles</h4>
+            <div className="flex flex-1 flex-col rounded-lg border border-border/50 bg-muted/15 p-2.5 sm:rounded-xl sm:p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-1">
+                  <h4 className="truncate text-sm font-semibold text-foreground">Tus acciones</h4>
                   <TusAccionesVisiblesInfoHint />
                 </div>
-                <p className="text-xs text-muted-foreground">Toca una fila para abrirla en el Kanban</p>
+                <p className="shrink-0 text-[10px] text-muted-foreground sm:text-xs">Toca para abrir</p>
               </div>
 
               {loadingComments ? (
