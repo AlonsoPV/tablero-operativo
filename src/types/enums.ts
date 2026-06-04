@@ -14,7 +14,7 @@ export const USER_ROLE = [
   'Mantenimiento',
   'RH',
   'Comercial',
-  'Analista',
+  'Operativo',
   'Dirección',
 ] as const
 

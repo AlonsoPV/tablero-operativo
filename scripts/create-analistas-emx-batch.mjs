@@ -1,5 +1,5 @@
 /**
- * Alta masiva: usuarios Analista por área (correo nombre@emx.mx, contraseña emx@2026).
+ * Alta masiva: usuarios Operativo por área (correo nombre@emx.mx, contraseña emx@2026).
  *
  * Requiere en .env (raíz del repo):
  *   SUPABASE_URL o VITE_SUPABASE_URL
@@ -21,7 +21,7 @@ import { loadDotenv } from './_load-dotenv.mjs'
 loadDotenv(import.meta.url)
 
 const DEFAULT_PASSWORD = 'emx@2026'
-const BUSINESS_ROLE = 'Analista'
+const BUSINESS_ROLE = 'Operativo'
 const APP_ROLE = 'viewer'
 
 /** @type {{ area: string; nombre: string }[]} */
@@ -208,7 +208,7 @@ async function provisionUser({ area, nombre }, authByEmail) {
 }
 
 async function main() {
-  console.log(`Tablero operativo — alta Analistas EMX`)
+  console.log(`Tablero operativo — alta Operativos EMX`)
   console.log(`Contraseña: ${DEFAULT_PASSWORD}`)
   console.log(`Rol negocio: ${BUSINESS_ROLE} | Rol app: ${APP_ROLE}\n`)
 

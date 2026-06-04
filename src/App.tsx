@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 import { Toaster } from 'sonner'
+import 'sonner/dist/styles.css'
 import { AppErrorBoundary } from '@/components/AppErrorBoundary'
 import { PageLoadingFallback } from '@/components/PageLoadingFallback'
 import { AppProviders } from '@/providers'
@@ -13,7 +14,15 @@ export function App() {
           <Routes />
         </Suspense>
       </AppErrorBoundary>
-      <Toaster richColors position="top-right" />
+      <Toaster
+        richColors
+        position="top-right"
+        closeButton
+        toastOptions={{
+          closeButton: true,
+          dismissible: true,
+        }}
+      />
     </AppProviders>
   )
 }

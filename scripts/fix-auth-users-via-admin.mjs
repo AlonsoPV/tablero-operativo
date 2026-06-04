@@ -113,7 +113,7 @@ async function loadProfile(userId) {
   return {
     usuario: usuario ?? {
       nombre: email.split('@')[0],
-      rol: 'Analista',
+      rol: 'Operativo',
       area: null,
       activo: true,
       onboarding_completed: true,

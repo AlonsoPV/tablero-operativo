@@ -1,9 +1,9 @@
 -- =============================================================================
--- Alta masiva: usuarios Analista EMX (correo nombre@emx.mx, contraseña emx@2026).
+-- Alta masiva: usuarios Operativo EMX (correo nombre@emx.mx, contraseña emx@2026).
 -- Ejecutar en Supabase Dashboard → SQL Editor (rol postgres / service role).
 --
 -- Crea áreas en catálogo si faltan, usuarios en auth.users + auth.identities,
--- perfil en public.usuarios (rol Analista) y app_role viewer en public.user_roles.
+-- perfil en public.usuarios (rol Operativo) y app_role viewer en public.user_roles.
 -- Idempotente: si el correo ya existe, actualiza contraseña y perfil.
 -- =============================================================================
 
@@ -12,19 +12,19 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- Rol de negocio en catálogo (por si la migración aún no corrió en el entorno).
 INSERT INTO public.catalog_roles (nombre, descripcion, activo)
 SELECT
-  'Analista',
-  'Rol consultivo con acceso a kanban, academia, disciplina, calendario, notificaciones, manual y mi perfil.',
+  'Operativo',
+  'Rol operativo con acceso a kanban, academia, disciplina, calendario, notificaciones, manual y mi perfil.',
   true
 WHERE NOT EXISTS (
   SELECT 1
   FROM public.catalog_roles cr
-  WHERE lower(trim(cr.nombre)) = lower('Analista')
+  WHERE lower(trim(cr.nombre)) = lower('Operativo')
 );
 
 DO $$
 DECLARE
   v_password constant text := 'emx@2026';
-  v_business_role constant text := 'Analista';
+  v_business_role constant text := 'Operativo';
   v_app_role constant public.app_role := 'viewer';
   v_encrypted_pw text := crypt(v_password, gen_salt('bf'));
 
@@ -186,5 +186,5 @@ BEGIN
           updated_at = NOW();
   END LOOP;
 
-  RAISE NOTICE 'Listo: 12 usuarios Analista con contraseña %', v_password;
+  RAISE NOTICE 'Listo: 12 usuarios Operativo con contraseña %', v_password;
 END $$;

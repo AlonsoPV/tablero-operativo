@@ -12,7 +12,8 @@ import type { Usuario } from '@/types'
 
 /** Roles que tienen privilegios de admin (spec 2.2). */
 const ADMIN_ROLES = ['DG', 'Sistemas', 'super_admin'] as const
-const ANALYST_ROLE = 'Analista'
+const OPERATIVE_ROLE = 'Operativo'
+const LEGACY_ANALYST_ROLE = 'Analista'
 const DIRECTION_ROLE = 'Direccion'
 const SUPER_ADMIN_ROLE = 'super_admin'
 
@@ -44,7 +45,7 @@ const DIRECTION_ALLOWED_ROUTES = [
   ROUTES.SETTINGS_ACADEMY_MODULES,
 ] as const
 
-/** Rutas del bloque «Por Liberar» y módulos no disponibles para Analista. */
+/** Rutas del bloque «Por Liberar» y módulos no disponibles para Operativo. */
 const ANALYST_DENIED_ROUTES = [
   ROUTES.ESTRATEGIA,
   ROUTES.AI_ASSIST,
@@ -94,11 +95,20 @@ export function isAdminByRole(rol: string | null | undefined): boolean {
   return ADMIN_ROLES.some((r) => normalizeRole(r) === normalized)
 }
 
-export function isAnalystByRole(rol: string | null | undefined): boolean {
+export function isOperativeByRole(rol: string | null | undefined): boolean {
   const normalized = normalizeRole(rol)
-  const analyst = normalizeRole(ANALYST_ROLE)
-  return normalized === analyst || normalized.includes(analyst)
+  const operative = normalizeRole(OPERATIVE_ROLE)
+  const legacyAnalyst = normalizeRole(LEGACY_ANALYST_ROLE)
+  return (
+    normalized === operative ||
+    normalized.includes(operative) ||
+    normalized === legacyAnalyst ||
+    normalized.includes(legacyAnalyst)
+  )
 }
+
+/** Alias de compatibilidad; preferir isOperativeByRole. */
+export const isAnalystByRole = isOperativeByRole
 
 export function isDirectionByRole(rol: string | null | undefined): boolean {
   return normalizeRole(rol) === normalizeRole(DIRECTION_ROLE)
@@ -117,7 +127,7 @@ export function canAccessRouteByRole(rol: string | null | undefined, pathname: s
     return DIRECTION_ALLOWED_ROUTES.some((route) => routeMatches(pathname, route))
   }
 
-  if (!isAnalystByRole(rol)) return true
+  if (!isOperativeByRole(rol)) return true
 
   if (
     ANALYST_DENIED_ROUTES.some(

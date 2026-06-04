@@ -35,8 +35,8 @@ describe('role route permissions', () => {
     expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(false)
   })
 
-  it('keeps Analista limited to profile inside settings', () => {
-    const role = 'Analista'
+  it('keeps Operativo limited to profile inside settings', () => {
+    const role = 'Operativo'
 
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_PROFILE)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_USERS)).toBe(false)
@@ -44,8 +44,8 @@ describe('role route permissions', () => {
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS)).toBe(false)
   })
 
-  it('treats extended analyst catalog names as analyst roles', () => {
-    const role = 'Analista O2C'
+  it('treats extended operative catalog names as operative roles', () => {
+    const role = 'Operativo O2C'
 
     expect(canAccessRouteByRole(role, ROUTES.DASHBOARD)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_USERS)).toBe(false)

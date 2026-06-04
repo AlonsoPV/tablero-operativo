@@ -22,7 +22,7 @@ export type GapImpactSummaryRow = {
 }
 
 export type UseImpactMatrixOptions = {
-  /** false para roles sin acceso (p. ej. Analista). */
+  /** false para roles sin acceso (p. ej. Operativo). */
   enabled?: boolean
 }
 
