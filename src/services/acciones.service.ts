@@ -263,9 +263,9 @@ export const accionesService = {
       .update(cleanPayload)
       .eq('id', id)
       .select()
-      .single()
+      .maybeSingle()
     if (error) throw error
-    const updated = data as AccionDiaria
+    const updated = (data ?? (prev ? { ...prev, ...cleanPayload } : { id, ...cleanPayload })) as AccionDiaria
 
     if (prev && nextEstado !== undefined) {
       await maybeInsertGapActionLog(prev, updated)

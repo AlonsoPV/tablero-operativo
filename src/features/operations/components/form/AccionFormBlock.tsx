@@ -15,6 +15,7 @@ type AccionFormBlockProps = {
   children: ReactNode
   /** Resumen en cabecera cuando está colapsado. */
   collapsedSummary?: string
+  editProtected?: boolean
 }
 
 export function AccionFormBlock({
@@ -27,9 +28,13 @@ export function AccionFormBlock({
   onToggle,
   children,
   collapsedSummary,
+  editProtected = false,
 }: AccionFormBlockProps) {
   return (
-    <SectionCard className={cn('accion-form-block', blockId)}>
+    <SectionCard
+      className={cn('accion-form-block', blockId)}
+      data-accion-edit-protected={editProtected ? 'true' : 'false'}
+    >
       <button
         type="button"
         onClick={onToggle}

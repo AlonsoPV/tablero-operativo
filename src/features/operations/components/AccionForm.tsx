@@ -75,12 +75,58 @@ function evidenciaNeedsFreeText(selectValue: string, options: { value: string }[
   return !!opt && String(opt.value).trim().toLowerCase() === 'otro'
 }
 
+function ReadonlyValue({
+  label,
+  value,
+}: {
+  label: string
+  value?: ReactNode
+}) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <div className="mt-1 min-h-5 text-sm font-medium text-foreground">
+        {value || <span className="text-muted-foreground">Sin dato</span>}
+      </div>
+    </div>
+  )
+}
+
+function ReadonlyList({
+  label,
+  values,
+}: {
+  label: string
+  values: string[]
+}) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      {values.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {values.map((value) => (
+            <span
+              key={value}
+              className="inline-flex max-w-full rounded-md border border-border/60 bg-background px-2 py-1 text-xs font-medium text-foreground"
+            >
+              <span className="truncate">{value}</span>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-1 text-sm text-muted-foreground">Sin dato</p>
+      )}
+    </div>
+  )
+}
+
 export interface AccionFormProps {
   defaultValues?: Partial<AccionFormInput> | null
   onSubmit: (values: AccionCreateInput) => void
   onCancel: () => void
   isSubmitting?: boolean
   isEdit?: boolean
+  readonlyStrategicFields?: boolean
   formId?: string
   onSubmitInvalid?: (messages: string[]) => void
   /** Checklist borrador y adjuntos opcionales (bloque 3, solo creación). */
@@ -93,6 +139,7 @@ export function AccionForm({
   onCancel: _onCancel,
   isSubmitting: _isSubmitting = false,
   isEdit = false,
+  readonlyStrategicFields = false,
   formId,
   onSubmitInvalid,
   validationExtras,
@@ -140,6 +187,8 @@ export function AccionForm({
   } = useDropdownOptionsByKey('evidencia_esperada')
   const { data: currentUser } = useCurrentUser()
   const isAnalyst = isAnalystByRole(currentUser?.rol)
+  const isEditProtectedReadonly = isEdit || readonlyStrategicFields || (isEdit && isAnalyst)
+  const showStrategicImpactFields = !isAnalyst || isEdit
 
   const [evidenciaSelect, setEvidenciaSelect] = useState<string>('__none__')
   const [descStructured, setDescStructured] = useState<boolean>(() => {
@@ -186,8 +235,10 @@ export function AccionForm({
     return m
   }, [gaps])
 
-  const gapIds = form.watch('gap_ids') ?? []
-  const catalogKpiIds = form.watch('catalog_kpi_ids') ?? []
+  const watchedGapIds = form.watch('gap_ids')
+  const watchedCatalogKpiIds = form.watch('catalog_kpi_ids')
+  const gapIds = useMemo(() => watchedGapIds ?? [], [watchedGapIds])
+  const catalogKpiIds = useMemo(() => watchedCatalogKpiIds ?? [], [watchedCatalogKpiIds])
   const prioridadSeleccionada = form.watch('prioridad')
 
   const priorityOptions = useMemo((): Priority[] => {
@@ -313,7 +364,7 @@ export function AccionForm({
     }
     const otroOpt = evidenciaOpciones.find((o) => String(o.value).trim().toLowerCase() === 'otro')
     setEvidenciaSelect(otroOpt ? otroOpt.value : EVIDENCIA_OTRO_SPECIFY_INTERNAL)
-  }, [evidenciaSignature, defaultValues?.evidencia_esperada, form])
+  }, [evidenciaSignature, evidenciaOpciones, defaultValues?.evidencia_esperada, form])
 
   const fid = formId ?? 'accion-form'
   const fieldId = (name: string) => `${fid}-${name}`
@@ -327,6 +378,26 @@ export function AccionForm({
       })),
     [evidenciaOpciones]
   )
+  const readonlyResponsableNombre =
+    users.find((u) => u.id === form.watch('responsable'))?.nombre ??
+    form.watch('responsable') ??
+    ''
+  const readonlyGapLabels = gapIds.map(
+    (id) => gapSearchItems.find((g) => g.id === id)?.label ?? id
+  )
+  const readonlyKpiLabels = catalogKpiIds.map(
+    (id) => kpiSearchItems.find((k) => k.id === id)?.label ?? id
+  )
+  const readonlyDescription =
+    descStructured
+      ? [
+          form.watch('descripcion_como') ? `Como: ${form.watch('descripcion_como')}` : null,
+          form.watch('descripcion_quiero') ? `Quiero: ${form.watch('descripcion_quiero')}` : null,
+          form.watch('descripcion_para_que') ? `Para que: ${form.watch('descripcion_para_que')}` : null,
+        ]
+          .filter(Boolean)
+          .join('\n')
+      : (form.watch('descripcion_simple') ?? form.watch('descripcion_como') ?? '')
 
   return (
     <form
@@ -347,7 +418,18 @@ export function AccionForm({
         expanded={blocksOpen.principal}
         onToggle={() => setBlocksOpen((b) => ({ ...b, principal: !b.principal }))}
         collapsedSummary={principalSummary}
+        editProtected
       >
+        {isEditProtectedReadonly ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ReadonlyValue label="Título de la acción" value={form.watch('titulo_accion')} />
+            <ReadonlyValue label="Responsable de ejecutar" value={readonlyResponsableNombre} />
+            <ReadonlyValue label="Fecha compromiso" value={form.watch('fecha')} />
+            <ReadonlyValue label="Hora límite" value={form.watch('hora_limite')} />
+            <ReadonlyValue label="Prioridad" value={priorityDisplayLabel(form.watch('prioridad') ?? '')} />
+          </div>
+        ) : (
+        <fieldset className="space-y-4">
         <AccionFormField label="Título de la acción" htmlFor={fieldId('titulo_accion')} required>
           <Input
             id={fieldId('titulo_accion')}
@@ -357,6 +439,7 @@ export function AccionForm({
             })}
             placeholder="Ej: Revisar informe mensual"
             maxLength={70}
+            disabled={isEditProtectedReadonly}
             className={`${inputBase} h-10`}
           />
           <p className="text-xs text-muted-foreground">
@@ -385,7 +468,7 @@ export function AccionForm({
           <Select
             value={form.watch('responsable') ?? '__none__'}
             onValueChange={(v) => form.setValue('responsable', v === '__none__' ? '' : v)}
-            disabled={usersLoading && users.length === 0}
+            disabled={isEditProtectedReadonly || (usersLoading && users.length === 0)}
           >
             <SelectTrigger id={fieldId('responsable')} className={`${inputBase} h-10`}>
               <SelectValue placeholder="Seleccionar responsable" />
@@ -412,6 +495,7 @@ export function AccionForm({
               id={fieldId('fecha')}
               type="date"
               {...form.register('fecha')}
+              disabled={isEditProtectedReadonly}
               className={`${inputBase} h-10`}
             />
           </AccionFormField>
@@ -426,6 +510,7 @@ export function AccionForm({
               type="time"
               {...form.register('hora_limite')}
               step={60}
+              disabled={isEditProtectedReadonly}
               className={`${inputBase} h-10`}
             />
           </AccionFormField>
@@ -442,7 +527,7 @@ export function AccionForm({
           <Select
             value={prioridadSeleccionada ?? defaultPrioridadNombre}
             onValueChange={(v) => form.setValue('prioridad', v, { shouldValidate: true })}
-            disabled={prioritiesLoading || priorityOptions.length === 0}
+            disabled={isEditProtectedReadonly || prioritiesLoading || priorityOptions.length === 0}
           >
             <SelectTrigger id={fieldId('prioridad')} className={`${inputBase} h-10`}>
               <SelectValue placeholder="Selecciona prioridad" />
@@ -456,6 +541,8 @@ export function AccionForm({
             </SelectContent>
           </Select>
         </AccionFormField>
+        </fieldset>
+        )}
       </AccionFormBlock>
 
       <AccionFormBlock
@@ -466,6 +553,7 @@ export function AccionForm({
         icon={Target}
         expanded={blocksOpen.impacto}
         onToggle={() => setBlocksOpen((b) => ({ ...b, impacto: !b.impacto }))}
+        editProtected
         collapsedSummary={
           [
             gapIds.length ? `${gapIds.length} brecha(s)` : null,
@@ -475,12 +563,21 @@ export function AccionForm({
             .join(' · ') || undefined
         }
       >
+        {isEditProtectedReadonly ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ReadonlyList label="Brecha que atiende" values={readonlyGapLabels} />
+            <ReadonlyList label="Indicador impactado" values={readonlyKpiLabels} />
+            <ReadonlyValue label="Story points" value={String(form.watch('story_points') ?? 0)} />
+            <ReadonlyValue label="Área" value={form.watch('area')} />
+          </div>
+        ) : (
+        <fieldset className="space-y-4">
         {/*
           Tipo de acción (RUN / Sprint / Estratégica / Desbloqueo) — oculto por ahora.
           Todas las acciones se registran como operativa (RUN).
         */}
 
-        {!isAnalyst && (
+        {showStrategicImpactFields && (
           <>
             <AccionFormField label="Brecha que atiende" htmlFor={fieldId('gap_ids')}>
               {gapsLoading && <p className="text-xs text-muted-foreground">Cargando brechas…</p>}
@@ -498,7 +595,7 @@ export function AccionForm({
                 placeholder="Buscar brecha por nombre o código…"
                 emptyLabel="Sin brechas en catálogo"
                 loading={gapsLoading}
-                disabled={gapsLoading && gaps.length === 0}
+                disabled={isEditProtectedReadonly || (gapsLoading && gaps.length === 0)}
               />
             </AccionFormField>
 
@@ -520,7 +617,7 @@ export function AccionForm({
                   gapIds.length > 0 ? 'Sin KPIs para las brechas seleccionadas' : 'Buscar en catálogo'
                 }
                 loading={kpisLoading}
-                disabled={kpisLoading && catalogKpis.length === 0}
+                disabled={isEditProtectedReadonly || (kpisLoading && catalogKpis.length === 0)}
               />
             </AccionFormField>
           </>
@@ -540,9 +637,10 @@ export function AccionForm({
                   <button
                     key={pts}
                     type="button"
+                    disabled={isEditProtectedReadonly}
                     onClick={() => field.onChange(pts)}
                     className={cn(
-                      'h-10 min-w-10 shrink-0 rounded-lg border px-2 text-sm font-semibold transition-colors sm:h-9 sm:min-w-9',
+                      'h-10 min-w-10 shrink-0 rounded-lg border px-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:min-w-9',
                       (field.value ?? 0) === pts
                         ? 'border-primary bg-primary text-primary-foreground'
                         : 'border-border bg-background hover:border-primary/50'
@@ -570,7 +668,7 @@ export function AccionForm({
           <Select
             value={form.watch('area') ?? '__none__'}
             onValueChange={(v) => form.setValue('area', v === '__none__' ? undefined : v)}
-            disabled={areasLoading && areas.length === 0}
+            disabled={isEditProtectedReadonly || (areasLoading && areas.length === 0)}
           >
             <SelectTrigger id={fieldId('area')} className={`${inputBase} h-10`}>
               <SelectValue placeholder="Sin área" />
@@ -585,6 +683,8 @@ export function AccionForm({
             </SelectContent>
           </Select>
         </AccionFormField>
+        </fieldset>
+        )}
       </AccionFormBlock>
 
       <AccionFormBlock
@@ -595,7 +695,25 @@ export function AccionForm({
         icon={FileCheck}
         expanded={blocksOpen.validacion}
         onToggle={() => setBlocksOpen((b) => ({ ...b, validacion: !b.validacion }))}
+        editProtected
       >
+        {isEditProtectedReadonly ? (
+          <div className="grid gap-3">
+            <ReadonlyValue
+              label="Evidencia esperada"
+              value={form.watch('evidencia_esperada')}
+            />
+            <ReadonlyValue
+              label="Descripción"
+              value={
+                readonlyDescription ? (
+                  <span className="whitespace-pre-wrap">{readonlyDescription}</span>
+                ) : undefined
+              }
+            />
+          </div>
+        ) : (
+        <>
         {(evidenciaLoading || evidenciaFetching) && (
           <p className="text-xs text-muted-foreground">Cargando catálogo de evidencia…</p>
         )}
@@ -725,6 +843,8 @@ export function AccionForm({
         </AccionFormField>
 
         {validationExtras ? <div className="space-y-4 border-t border-border/50 pt-4">{validationExtras}</div> : null}
+        </>
+        )}
       </AccionFormBlock>
     </form>
   )

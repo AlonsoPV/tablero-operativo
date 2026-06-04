@@ -192,14 +192,16 @@ export function CatalogSearchMultiSelect({
               className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 bg-muted/30 py-0.5 pl-2 pr-1 text-xs"
             >
               <span className="truncate">{item.label}</span>
-              <button
-                type="button"
-                className="rounded p-0.5 hover:bg-muted"
-                aria-label={`Quitar ${item.label}`}
-                onClick={() => toggle(item.id)}
-              >
-                <X className="h-3 w-3" />
-              </button>
+              {!disabled ? (
+                <button
+                  type="button"
+                  className="rounded p-0.5 hover:bg-muted"
+                  aria-label={`Quitar ${item.label}`}
+                  onClick={() => toggle(item.id)}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              ) : null}
             </span>
           ))}
         </div>

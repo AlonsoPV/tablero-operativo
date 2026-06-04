@@ -97,6 +97,8 @@ export function AccionFormDialog({
   const deleteAccion = useDeleteAccion()
   const isEdit = !!accion?.id
   const canDeleteAccion = isEdit && isSuperAdminByRole(currentUser?.rol)
+  const isEditProtectedReadonly = isEdit
+  const isActionCreator = !!accion?.created_by && accion.created_by === currentUser?.id
   const isMutating = createAccion.isPending || updateAccion.isPending || deleteAccion.isPending
 
   const o2cLinksQuery = useQuery({
@@ -283,31 +285,41 @@ export function AccionFormDialog({
 
   const handleSubmit = (values: AccionCreateInput) => {
     setSubmitFooterErrors(null)
-    const gapIds = values.gap_ids ?? []
-    const catalogKpiIds = values.catalog_kpi_ids ?? []
-    const fecha = values.fecha ?? todayISO()
-    const prioridad = values.prioridad ?? DEFAULT_PRIORITY_NOMBRE
+    const originalGapIds = defaultValues?.gap_ids ?? []
+    const originalCatalogKpiIds = defaultValues?.catalog_kpi_ids ?? []
+    const gapIds = isEditProtectedReadonly ? originalGapIds : (values.gap_ids ?? [])
+    const catalogKpiIds = isEditProtectedReadonly ? originalCatalogKpiIds : (values.catalog_kpi_ids ?? [])
+    const fecha = isEditProtectedReadonly && accion ? accion.fecha : (values.fecha ?? todayISO())
+    const prioridad =
+      isEditProtectedReadonly && accion
+        ? accion.prioridad
+        : (values.prioridad ?? DEFAULT_PRIORITY_NOMBRE)
     const estado = (values.estado ?? 'Pendiente') as ActionStatus
-    const payload: Partial<AccionDiaria> = {
-      fecha,
-      titulo_accion: (values.titulo_accion ?? '').trim().slice(0, 70),
-      descripcion_accion: values.descripcion_accion,
-      responsable: values.responsable,
-      hora_limite: values.hora_limite,
-      evidencia_esperada: values.evidencia_esperada,
-      prioridad,
-      estado,
-      area: values.area ?? null,
-      tipo_accion: values.tipo_accion ?? 'operativa',
-      story_points: values.story_points ?? 0,
-      gap_id: values.gap_id ?? null,
-      catalog_kpi_id: values.catalog_kpi_id ?? null,
-      sprint_id: values.sprint_id ?? null,
-      responsable_bloqueo: values.responsable_bloqueo ?? null,
-      ...(isEdit
-        ? { updated_by: currentUser?.id ?? null }
-        : { created_by: currentUser?.id ?? null }),
-    }
+    const payload: Partial<AccionDiaria> =
+      isEditProtectedReadonly && accion
+        ? {
+            updated_by: currentUser?.id ?? null,
+          }
+        : {
+            fecha,
+            titulo_accion: (values.titulo_accion ?? '').trim().slice(0, 70),
+            descripcion_accion: values.descripcion_accion,
+            responsable: values.responsable,
+            hora_limite: values.hora_limite,
+            evidencia_esperada: values.evidencia_esperada,
+            prioridad,
+            estado,
+            area: values.area ?? null,
+            tipo_accion: values.tipo_accion ?? 'operativa',
+            story_points: values.story_points ?? 0,
+            gap_id: values.gap_id ?? null,
+            catalog_kpi_id: values.catalog_kpi_id ?? null,
+            sprint_id: values.sprint_id ?? null,
+            responsable_bloqueo: values.responsable_bloqueo ?? null,
+            ...(isEdit
+              ? { updated_by: currentUser?.id ?? null }
+              : { created_by: currentUser?.id ?? null }),
+          }
 
     if (isEdit && accion) {
       const nuevoResponsable = payload.responsable ?? null
@@ -328,25 +340,27 @@ export function AccionFormDialog({
             onOpenChange(false)
             onSuccess?.()
 
-            void syncAccionO2cLinks(accion.id, {
-              gapIds,
-              catalogKpiIds,
-            })
-              .then(() =>
-                Promise.allSettled([
-                  qc.invalidateQueries({ queryKey: ['accion-o2c-links', accion.id] }),
-                  qc.invalidateQueries({ queryKey: kpiQueryKeys.gapAcciones, refetchType: 'active' }),
-                  qc.invalidateQueries({ queryKey: kpiQueryKeys.gaps, refetchType: 'active' }),
-                  qc.invalidateQueries({ queryKey: kpiQueryKeys.catalogKpiAccionImpact, refetchType: 'active' }),
-                ])
-              )
-              .catch((e) => {
-                toast.error(
-                  e instanceof Error
-                    ? e.message
-                    : 'No se pudieron guardar los vinculos con brechas/KPIs'
-                )
+            if (!isEditProtectedReadonly) {
+              void syncAccionO2cLinks(accion.id, {
+                gapIds,
+                catalogKpiIds,
               })
+                .then(() =>
+                  Promise.allSettled([
+                    qc.invalidateQueries({ queryKey: ['accion-o2c-links', accion.id] }),
+                    qc.invalidateQueries({ queryKey: kpiQueryKeys.gapAcciones, refetchType: 'active' }),
+                    qc.invalidateQueries({ queryKey: kpiQueryKeys.gaps, refetchType: 'active' }),
+                    qc.invalidateQueries({ queryKey: kpiQueryKeys.catalogKpiAccionImpact, refetchType: 'active' }),
+                  ])
+                )
+                .catch((e) => {
+                  toast.error(
+                    e instanceof Error
+                      ? e.message
+                      : 'No se pudieron guardar los vinculos con brechas/KPIs'
+                  )
+                })
+            }
           },
           onError: (e) =>
             toast.error(e instanceof Error ? e.message : 'Error al actualizar'),
@@ -496,6 +510,7 @@ export function AccionFormDialog({
           'sm:[&>button]:right-4 sm:[&>button]:top-4 sm:[&>button]:h-auto sm:[&>button]:w-auto'
         )}
         data-accion-dialog-mode={isEdit ? 'edit' : 'create'}
+        data-accion-dialog-readonly-strategic={isEditProtectedReadonly ? 'true' : 'false'}
         aria-describedby={undefined}
       >
         <DialogTitle className="sr-only">
@@ -534,6 +549,7 @@ export function AccionFormDialog({
             onCancel={() => onOpenChange(false)}
             isSubmitting={isMutating}
             isEdit={isEdit}
+            readonlyStrategicFields={isEditProtectedReadonly}
             validationExtras={
               !isEdit ? (
                 <>
@@ -551,7 +567,7 @@ export function AccionFormDialog({
                     sectionId={`${formBaseId}-evidencia-adjunta`}
                     icon={Paperclip}
                     eyebrow="Adjuntos"
-                    title="Evidencia adjunta (opcional)"
+                    title="Apoyo documental (opcional)"
                     subtitle="PDF, PNG o JPG (máx. 10 MB). Se sube al crear la acción."
                   >
                     <div className="space-y-3">
@@ -637,6 +653,7 @@ export function AccionFormDialog({
                 accionId={accion.id}
                 currentUsuarioId={currentUser?.id ?? null}
                 disabled={updateAccion.isPending}
+                readOnly={!isActionCreator}
                 responsableNames={responsableNames}
               />
             </div>
@@ -644,7 +661,7 @@ export function AccionFormDialog({
               id={`${formBaseId}-evidencias-section`}
               className="accion-form-dialog-evidencias border-t border-border/60 pt-4 sm:pt-5"
             >
-              <AccionEvidenciasSection accionId={accion.id} />
+              <AccionEvidenciasSection accionId={accion.id} readOnly={!isActionCreator} />
             </div>
             <div id={`${formBaseId}-comentarios`} className="accion-form-dialog-comentarios">
               <AccionComentarios
@@ -743,10 +760,12 @@ export function AccionFormDialog({
               id={`${formBaseId}-submit`}
               variant="default"
               className="accion-form-dialog-submit h-10 w-full px-2 text-sm sm:h-9"
-              disabled={isMutating}
+              disabled={isMutating || isEditProtectedReadonly}
             >
               {createAccion.isPending || updateAccion.isPending ? (
                 'Guardando…'
+              ) : isEditProtectedReadonly ? (
+                'Solo lectura'
               ) : (
                 <>
                   <span className="sm:hidden">Guardar</span>

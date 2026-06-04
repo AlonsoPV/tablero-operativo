@@ -39,6 +39,7 @@ import { AccionIdDisplay } from './AccionIdDisplay'
 import { EvidenciaCargadaIndicator } from './EvidenciaCargadaIndicator'
 import { AccionChecklistProgressBadge } from './AccionChecklistProgress'
 import { TIPO_ACCION_CONFIG, type TipoAccion } from '../utils/tipoAccionConfig'
+import { priorityDisplayLabel } from '../utils/priorityLabels'
 
 const ESTADO_LABELS: Record<string, string> = {
   Pendiente: 'Pendiente',
@@ -48,12 +49,6 @@ const ESTADO_LABELS: Record<string, string> = {
   Retraso: 'Retraso',
   Hecho: 'Hecho',
   Verificado: 'Verificado',
-}
-
-const PRIORIDAD_LABELS: Record<string, string> = {
-  P1_Critica: 'Crítica',
-  P2_Media: 'Media',
-  P3_Baja: 'Baja',
 }
 
 const PRIORIDAD_SORT_ORDER: Record<string, number> = {
@@ -336,7 +331,7 @@ function AccionControlMobileCard({
             prioridadClass
           )}
         >
-          {PRIORIDAD_LABELS[accion.prioridad] ?? accion.prioridad}
+          {priorityDisplayLabel(accion.prioridad)}
         </span>
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -643,7 +638,7 @@ export function AccionesControlTable({
                       prioridadClass
                     )}
                   >
-                    {PRIORIDAD_LABELS[accion.prioridad] ?? accion.prioridad}
+                    {priorityDisplayLabel(accion.prioridad)}
                   </span>
                 </TableCell>
                 <TableCell className="py-3 align-middle">

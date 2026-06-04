@@ -21,11 +21,13 @@ const EVIDENCIAS_KEY = ['accion_evidencias'] as const
 
 export interface AccionEvidenciasSectionProps {
   accionId: string
+  readOnly?: boolean
   onEvidenciaChange?: () => void
 }
 
 export function AccionEvidenciasSection({
   accionId,
+  readOnly = false,
   onEvidenciaChange,
 }: AccionEvidenciasSectionProps) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -73,6 +75,10 @@ export function AccionEvidenciasSection({
   const [dragOver, setDragOver] = useState(false)
 
   const handleFile = (file: File) => {
+    if (readOnly) {
+      toast.error('Solo la persona creadora de la acción puede editar la evidencia.')
+      return
+    }
     if (!isAcceptedFile(file)) {
       toast.error('Solo PDF, PNG o JPG (máx. 10 MB)')
       return
@@ -89,6 +95,7 @@ export function AccionEvidenciasSection({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
+    if (readOnly) return
     const file = e.dataTransfer.files?.[0]
     if (file) handleFile(file)
   }
@@ -120,7 +127,14 @@ export function AccionEvidenciasSection({
           accept={getAcceptedAccept()}
           className="hidden"
           onChange={handleInputChange}
+          disabled={readOnly}
         />
+        {readOnly && (
+          <p className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-xs leading-snug text-muted-foreground">
+            Solo la persona creadora de la acción puede editar la evidencia.
+          </p>
+        )}
+        {!readOnly && (
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
           onDragLeave={() => setDragOver(false)}
@@ -148,6 +162,7 @@ export function AccionEvidenciasSection({
             o arrastra un archivo aquí
           </p>
         </div>
+        )}
 
         {isLoading ? (
           <p className="text-xs text-muted-foreground">Cargando…</p>
@@ -170,17 +185,19 @@ export function AccionEvidenciasSection({
                 >
                   {ev.file_name ?? ev.storage_path}
                 </button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 shrink-0 text-destructive hover:text-destructive"
-                  onClick={() => deleteMutation.mutate(ev.id)}
-                  disabled={deleteMutation.isPending}
-                  aria-label="Eliminar"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                {!readOnly && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 text-destructive hover:text-destructive"
+                    onClick={() => deleteMutation.mutate(ev.id)}
+                    disabled={deleteMutation.isPending}
+                    aria-label="Eliminar"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </li>
             ))}
           </ul>

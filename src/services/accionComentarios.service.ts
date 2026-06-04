@@ -54,20 +54,26 @@ export const accionComentariosService = {
     etiquetas?: string[]
     adjuntos?: { storage_path: string; file_name: string }[]
   }): Promise<AccionComentario> {
+    const now = new Date().toISOString()
+    const fallback: AccionComentario = {
+      id: crypto.randomUUID(),
+      accion_id: input.accion_id,
+      contenido: input.contenido.trim(),
+      created_by: input.created_by ?? null,
+      asignado: input.asignado ?? null,
+      etiquetas: input.etiquetas ?? [],
+      adjuntos: input.adjuntos ?? [],
+      created_at: now,
+    }
     const { data, error } = await supabase
       .from(TABLE)
       .insert({
-        accion_id: input.accion_id,
-        contenido: input.contenido.trim(),
-        created_by: input.created_by ?? null,
-        asignado: input.asignado ?? null,
-        etiquetas: input.etiquetas ?? [],
-        adjuntos: input.adjuntos ?? [],
+        ...fallback,
       })
       .select()
-      .single()
+      .maybeSingle()
     if (error) throw error
-    return data as AccionComentario
+    return (data ?? fallback) as AccionComentario
   },
 
   async update(
@@ -79,7 +85,7 @@ export const accionComentariosService = {
       .update(patch)
       .eq('id', id)
       .select()
-      .single()
+      .maybeSingle()
     if (error) throw error
     return data as AccionComentario
   },

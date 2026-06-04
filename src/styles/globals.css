@@ -111,3 +111,23 @@
     @apply bg-background text-foreground antialiased;
   }
 }
+
+@layer components {
+  [data-accion-dialog-mode='edit'] [data-accion-edit-protected='true'] input,
+  [data-accion-dialog-mode='edit'] [data-accion-edit-protected='true'] textarea,
+  [data-accion-dialog-mode='edit'] [data-accion-edit-protected='true'] select,
+  [data-accion-dialog-mode='edit'] [data-accion-edit-protected='true'] [role='combobox'],
+  [data-accion-dialog-mode='edit'] [data-accion-edit-protected='true'] [role='radio'],
+  [data-accion-dialog-mode='edit'] [data-accion-edit-protected='true'] [role='button'],
+  [data-accion-dialog-mode='edit'] [data-accion-edit-protected='true'] button:not([aria-expanded]) {
+    pointer-events: none;
+    cursor: default;
+  }
+
+  [data-accion-dialog-mode='edit'] [data-accion-edit-protected='true'] input,
+  [data-accion-dialog-mode='edit'] [data-accion-edit-protected='true'] textarea,
+  [data-accion-dialog-mode='edit'] [data-accion-edit-protected='true'] [role='combobox'],
+  [data-accion-dialog-mode='edit'] [data-accion-edit-protected='true'] button:not([aria-expanded]) {
+    opacity: 0.7;
+  }
+}

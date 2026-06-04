@@ -95,7 +95,9 @@ export function isAdminByRole(rol: string | null | undefined): boolean {
 }
 
 export function isAnalystByRole(rol: string | null | undefined): boolean {
-  return normalizeRole(rol) === normalizeRole(ANALYST_ROLE)
+  const normalized = normalizeRole(rol)
+  const analyst = normalizeRole(ANALYST_ROLE)
+  return normalized === analyst || normalized.includes(analyst)
 }
 
 export function isDirectionByRole(rol: string | null | undefined): boolean {

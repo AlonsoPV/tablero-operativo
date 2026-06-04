@@ -1,10 +1,17 @@
-import type { ReactNode } from 'react'
+import type { ComponentPropsWithoutRef, ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export function SectionCard({ children, className }: { children: ReactNode; className?: string }) {
+export function SectionCard({
+  children,
+  className,
+  ...props
+}: { children: ReactNode; className?: string } & ComponentPropsWithoutRef<'div'>) {
   return (
-    <div className={cn('overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm', className)}>
+    <div
+      className={cn('overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm', className)}
+      {...props}
+    >
       {children}
     </div>
   )

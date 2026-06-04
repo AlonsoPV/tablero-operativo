@@ -139,19 +139,17 @@ const COLUMN_STYLES: Record<ActionStatus, { border: string; bg: string; icon: st
 }
 
 
-const PRIORITY_STYLES: Record<string, { dot: string; label: string }> = {
-  P1_Critica: { dot: 'bg-red-500', label: 'Crítica' },
-  P2_Media: { dot: 'bg-amber-500', label: 'Media' },
-  P3_Baja: { dot: 'bg-slate-400', label: 'Baja' },
+const PRIORITY_DOT_CLASSES: Record<string, string> = {
+  P1_Critica: 'bg-red-500',
+  P2_Media: 'bg-amber-500',
+  P3_Baja: 'bg-slate-400',
 }
 
 function priorityStyleFor(nombre: string) {
-  return (
-    PRIORITY_STYLES[nombre] ?? {
-      dot: 'bg-slate-400',
-      label: priorityDisplayLabel(nombre),
-    }
-  )
+  return {
+    dot: PRIORITY_DOT_CLASSES[nombre] ?? 'bg-slate-400',
+    label: priorityDisplayLabel(nombre),
+  }
 }
 
 const TIPO_ACCION_BADGE: Record<TipoAccion, string> = {

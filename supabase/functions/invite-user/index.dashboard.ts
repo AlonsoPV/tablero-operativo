@@ -1,14 +1,117 @@
-import { createClient } from '@supabase/supabase-js'
-import { handleCorsPreflight, jsonResponse } from '../_shared/cors.ts'
-import { requireAuthUser } from '../_shared/requireUser.ts'
-import { canInviteUsers } from '../_shared/invitePermissions.ts'
+/**
+ * Versión autocontenida para pegar en Supabase Dashboard → Edge Functions → invite-user.
+ * Reemplaza TODO el contenido del editor por este archivo.
+ *
+ * Configuración:
+ * - verify_jwt: OFF (la función valida el JWT internamente)
+ * - Secrets: SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY (suelen estar predefinidos)
+ *
+ * Mantener en sync con index.ts + _shared cuando alguien pueda usar CLI deploy.
+ */
+// @ts-nocheck — runtime Deno Edge; el bundler de Supabase exige import npm:
+import { createClient } from 'npm:@supabase/supabase-js@2'
 
-/** Stubs para el checker de TypeScript del repo (runtime = Deno en Supabase Edge). */
-declare global {
-  // eslint-disable-next-line no-var
-  var Deno: {
-    env: { get(key: string): string | undefined }
-    serve: (handler: (req: Request) => Response | Promise<Response>) => void
+/** Runtime Deno en Supabase Edge (el IDE del repo no lo incluye por defecto). */
+declare const Deno: {
+  env: { get(key: string): string | undefined }
+  serve: (handler: (req: Request) => Response | Promise<Response>) => void
+}
+
+const corsHeaders: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Max-Age': '86400',
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json; charset=utf-8',
+    },
+  })
+}
+
+function handleCorsPreflight(req: Request): Response | null {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders })
+  }
+  return null
+}
+
+const ADMIN_BUSINESS_ROLES = ['dg', 'sistemas', 'super_admin'] as const
+const DIRECTION_ROLE = 'direccion'
+
+function normalizeBusinessRole(rol: unknown): string {
+  return (typeof rol === 'string' ? rol : '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('es-MX')
+}
+
+function isDirectionRole(rol: unknown): boolean {
+  return normalizeBusinessRole(rol) === DIRECTION_ROLE
+}
+
+function isBusinessAdminRole(rol: unknown): boolean {
+  const normalized = normalizeBusinessRole(rol)
+  return ADMIN_BUSINESS_ROLES.some((role) => normalized === role)
+}
+
+function canInviteUsers(params: {
+  appRole: string | null | undefined
+  businessRol: unknown
+  activo: boolean | null | undefined
+}): boolean {
+  const isAppAdmin = params.appRole === 'admin' || params.appRole === 'super_admin'
+  const businessAllowed =
+    Boolean(params.activo) &&
+    (isDirectionRole(params.businessRol) || isBusinessAdminRole(params.businessRol))
+  return isAppAdmin || businessAllowed
+}
+
+async function requireAuthUser(req: Request) {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return {
+      ok: false as const,
+      response: jsonResponse({ error: 'Configuración de servidor incompleta' }, 500),
+    }
+  }
+
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader?.startsWith('Bearer ')) {
+    return {
+      ok: false as const,
+      response: jsonResponse({ error: 'No autorizado' }, 401),
+    }
+  }
+
+  const token = authHeader.slice(7)
+  const adminClient = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  })
+
+  const { data: userData, error: userError } = await adminClient.auth.getUser(token)
+  if (userError || !userData.user) {
+    return {
+      ok: false as const,
+      response: jsonResponse({ error: 'Sesión inválida' }, 401),
+    }
+  }
+
+  return {
+    ok: true as const,
+    data: { user: userData.user, token },
   }
 }
 
@@ -37,7 +140,7 @@ Deno.serve(async (req) => {
 
   const auth = await requireAuthUser(req)
   if (!auth.ok) {
-    const payload = await auth.response.json().catch(() => ({})) as { error?: string }
+    const payload = (await auth.response.json().catch(() => ({}))) as { error?: string }
     const message =
       payload.error === 'Sesión inválida'
         ? 'Sesion invalida'
@@ -145,7 +248,8 @@ Deno.serve(async (req) => {
     return jsonResponse(
       {
         ok: false,
-        message: roleInsertError.message || 'Usuario creado, pero no se pudo asignar rol de aplicacion',
+        message:
+          roleInsertError.message || 'Usuario creado, pero no se pudo asignar rol de aplicacion',
       },
       500
     )

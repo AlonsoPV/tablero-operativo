@@ -13,24 +13,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useMemo } from 'react'
 import type { AccionesFilter } from '@/services/acciones.service'
-import type { ActionStatus, PrioridadNc } from '@/types'
+import type { ActionStatus } from '@/types'
 import { ACTION_STATUS } from '@/types'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import { useAreas } from '@/features/catalogs/hooks/useAreas'
+import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
 import { Search, X } from 'lucide-react'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
+import { priorityDisplayLabel } from '../utils/priorityLabels'
 
 const ESTADO_OPTIONS = [
   { value: 'all', label: 'Todos' },
   ...ACTION_STATUS.map((s) => ({ value: s, label: s })),
-]
-
-const PRIORIDAD_OPTIONS = [
-  { value: 'all', label: 'Todas' },
-  { value: 'P1_Critica', label: 'Crítica' },
-  { value: 'P2_Media', label: 'Media' },
-  { value: 'P3_Baja', label: 'Baja' },
 ]
 
 export interface AccionesFilterBarProps {
@@ -46,10 +42,26 @@ export function AccionesFilterBar({
 }: AccionesFilterBarProps) {
   const { data: users = [] } = useUsers({ activo: true })
   const { data: areas = [] } = useAreas({ activo: true })
+  const { data: priorities = [] } = usePriorities({ activo: true })
   const todayYmd = todayWallClockCDMX()
   const fechaEffective = filter.fecha_creacion ?? todayYmd
   const fechaDiffersFromToday =
     filter.fecha_creacion != null && filter.fecha_creacion !== todayYmd
+  const prioridadValue = Array.isArray(filter.prioridad)
+    ? (filter.prioridad[0] ?? 'all')
+    : (filter.prioridad ?? 'all')
+  const prioridadOptions = useMemo(() => {
+    const options = [
+      { value: 'all', label: 'Todas' },
+      ...[...priorities]
+        .sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre))
+        .map((p) => ({ value: p.nombre, label: priorityDisplayLabel(p.nombre, p.descripcion) })),
+    ]
+    if (prioridadValue !== 'all' && !options.some((o) => o.value === prioridadValue)) {
+      options.push({ value: prioridadValue, label: priorityDisplayLabel(prioridadValue) })
+    }
+    return options
+  }, [priorities, prioridadValue])
 
   const hasFilters =
     (filter.search != null && filter.search !== '') ||
@@ -121,15 +133,11 @@ export function AccionesFilterBar({
       <div className="w-[130px] space-y-2">
         <Label>Prioridad</Label>
         <Select
-          value={
-            Array.isArray(filter.prioridad)
-              ? (filter.prioridad[0] ?? 'all')
-              : (filter.prioridad ?? 'all')
-          }
+          value={prioridadValue}
           onValueChange={(v) =>
             onFilterChange({
               ...filter,
-              prioridad: v === 'all' ? undefined : (v as PrioridadNc),
+              prioridad: v === 'all' ? undefined : v,
             })
           }
         >
@@ -137,7 +145,7 @@ export function AccionesFilterBar({
             <SelectValue placeholder="Todas" />
           </SelectTrigger>
           <SelectContent>
-            {PRIORIDAD_OPTIONS.map((o) => (
+            {prioridadOptions.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
               </SelectItem>

@@ -45,6 +45,7 @@ export interface AccionChecklistManageProps {
   /** usuarios.id del usuario actual (marca checked_by al completar). */
   currentUsuarioId: string | null
   disabled?: boolean
+  readOnly?: boolean
   /** Nombres para mostrar auditoría de `checked_by` (mismo mapa que responsables del diálogo). */
   responsableNames?: Record<string, string>
 }
@@ -53,6 +54,7 @@ export function AccionChecklistManage({
   accionId,
   currentUsuarioId,
   disabled,
+  readOnly = false,
   responsableNames = {},
 }: AccionChecklistManageProps) {
   const { data: checkpoints = [], isLoading } = useAccionCheckpoints(accionId)
@@ -157,6 +159,7 @@ export function AccionChecklistManage({
 
   const busy =
     disabled ||
+    readOnly ||
     insertCp.isPending ||
     deleteCp.isPending ||
     updateCp.isPending ||
@@ -182,6 +185,11 @@ export function AccionChecklistManage({
         ) : (
           <>
             <AccionChecklistProgress completados={completados} total={total} />
+            {readOnly && (
+              <p className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-xs leading-snug text-muted-foreground">
+                Solo la persona creadora de la acción puede editar el checklist.
+              </p>
+            )}
             {pendientes > 0 && total > 0 && (
               <p className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-xs leading-snug text-amber-950 dark:text-amber-100">
                 Faltan <span className="font-semibold tabular-nums">{pendientes}</span> punto
@@ -190,6 +198,7 @@ export function AccionChecklistManage({
               </p>
             )}
 
+            {!readOnly && (
             <div className="rounded-lg border border-dashed border-border/70 bg-background/50 p-4 space-y-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                 <div className="min-w-0 flex-1 space-y-1.5">
@@ -226,6 +235,7 @@ export function AccionChecklistManage({
                 </Button>
               </div>
             </div>
+            )}
 
             {sorted.length > 0 ? (
               <ul className="space-y-2.5">
@@ -293,7 +303,7 @@ export function AccionChecklistManage({
                             </div>
                           </div>
                         </label>
-                        {!c.completado && (
+                        {!c.completado && !readOnly && (
                           <div className="flex shrink-0 items-center justify-end gap-0.5 border-t border-border/40 pt-2 sm:border-t-0 sm:pt-0 sm:pl-1">
                             <Button
                               type="button"

@@ -21,6 +21,20 @@ export interface AccionEvidencia {
 const ACCEPTED_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg']
 const MAX_SIZE_MB = 10
 
+function normalizeEvidenciaError(error: unknown): Error {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    (error as { code?: string }).code === '42501'
+  ) {
+    return new Error(
+      'No tienes permiso para modificar la evidencia de esta accion. Solo puede hacerlo la persona creadora.'
+    )
+  }
+  return error instanceof Error ? error : new Error('No se pudo guardar la evidencia.')
+}
+
 export function isAcceptedFile(file: File): boolean {
   const ok = ACCEPTED_TYPES.includes(file.type) && file.size <= MAX_SIZE_MB * 1024 * 1024
   return ok
@@ -54,7 +68,7 @@ export const accionEvidenciasService = {
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
       .upload(path, file, { contentType: file.type, upsert: false })
-    if (uploadError) throw uploadError
+    if (uploadError) throw normalizeEvidenciaError(uploadError)
     const { data: row, error } = await supabase
       .from(TABLE)
       .insert({
@@ -66,7 +80,7 @@ export const accionEvidenciasService = {
       })
       .select()
       .single()
-    if (error) throw error
+    if (error) throw normalizeEvidenciaError(error)
     return row as AccionEvidencia
   },
 
@@ -85,9 +99,10 @@ export const accionEvidenciasService = {
       .eq('id', id)
       .single()
     if (row?.storage_path) {
-      await supabase.storage.from(BUCKET).remove([row.storage_path])
+      const { error: storageError } = await supabase.storage.from(BUCKET).remove([row.storage_path])
+      if (storageError) throw normalizeEvidenciaError(storageError)
     }
     const { error } = await supabase.from(TABLE).delete().eq('id', id)
-    if (error) throw error
+    if (error) throw normalizeEvidenciaError(error)
   },
 }

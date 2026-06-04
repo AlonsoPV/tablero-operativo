@@ -23,7 +23,7 @@ function normalizeCheckpointError(error: unknown): Error {
     (error as { code?: string }).code === '42501'
   ) {
     return new Error(
-      'No tienes permiso para modificar el checklist de esta accion. Puede hacerlo el creador, el responsable o un administrador.'
+      'No tienes permiso para modificar el checklist de esta accion. Solo puede hacerlo la persona creadora.'
     )
   }
   return error instanceof Error ? error : new Error('No se pudo guardar el checklist.')
