@@ -22,6 +22,8 @@ export function useNotifications(usuarioId: string | undefined, options?: { leid
     queryFn: () => notificacionesService.listByUsuario(usuarioId!, options),
     enabled: !!usuarioId,
     staleTime: 30_000,
+    /** Respaldo si el WebSocket de Realtime falla (firewall, proyecto sin Realtime, etc.). */
+    refetchInterval: options?.subscribe === false ? false : 45_000,
   })
 }
 

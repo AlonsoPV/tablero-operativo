@@ -194,8 +194,11 @@ export const accionesService = {
       .from(TABLE)
       .select('*')
       .eq('id', id)
-      .single()
+      .maybeSingle()
     if (error) throw error
+    if (!data) {
+      throw new Error('No se encontró la acción o no tienes permiso para verla.')
+    }
     return data as AccionDiaria
   },
 
@@ -224,8 +227,13 @@ export const accionesService = {
       .from(TABLE)
       .insert(cleanPayload)
       .select()
-      .single()
+      .maybeSingle()
     if (error) throw error
+    if (!data) {
+      throw new Error(
+        'La acción se guardó, pero no pudimos leerla con tu perfil. Actualiza el listado o revisa permisos.'
+      )
+    }
     return data as AccionDiaria
   },
 

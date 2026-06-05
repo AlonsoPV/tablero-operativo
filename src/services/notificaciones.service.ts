@@ -61,7 +61,7 @@ export const notificacionesService = {
   },
 
   subscribe(usuarioId: string, callback: (payload: unknown) => void) {
-    return supabase
+    const channel = supabase
       .channel(`notificaciones:${usuarioId}`)
       .on(
         'postgres_changes',
@@ -73,6 +73,18 @@ export const notificacionesService = {
         },
         (payload) => callback(payload)
       )
-      .subscribe()
+
+    channel.subscribe((status, err) => {
+      if (status === 'SUBSCRIBED') return
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        console.warn(
+          '[notificaciones] Realtime no disponible; se actualizará el listado de forma periódica.',
+          err?.message ?? status
+        )
+        void supabase.removeChannel(channel)
+      }
+    })
+
+    return channel
   },
 }
