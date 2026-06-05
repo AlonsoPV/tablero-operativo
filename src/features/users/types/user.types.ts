@@ -9,6 +9,8 @@ export interface UserProfile {
   id: string
   user_id: string
   nombre: string
+  /** Correo de auth.users; se rellena en listados de administración. */
+  email?: string | null
   rol: string
   area: string | null
   activo: boolean

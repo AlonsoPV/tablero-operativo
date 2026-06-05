@@ -44,12 +44,12 @@ export function UserFilters({ filter, onFilterChange, onClear }: UserFiltersProp
   return (
     <div className="flex flex-wrap items-end gap-4 rounded-lg border bg-card p-4">
       <div className="flex-1 min-w-[200px] space-y-2">
-        <Label htmlFor="search">Buscar por nombre o área</Label>
+        <Label htmlFor="search">Buscar por nombre, correo o área</Label>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             id="search"
-            placeholder="Nombre o área..."
+            placeholder="Nombre, correo o área..."
             value={filter.search ?? ''}
             onChange={(e) => onFilterChange({ ...filter, search: e.target.value || undefined })}
             className="pl-9"

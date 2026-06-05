@@ -74,10 +74,10 @@ export function UsersTable({
         <TableHeader>
           <TableRow>
             <TableHead>Nombre</TableHead>
+            <TableHead>Correo</TableHead>
             <TableHead>Rol</TableHead>
             <TableHead>Área</TableHead>
             <TableHead>Activo</TableHead>
-            <TableHead>Onboarding</TableHead>
             <TableHead>Fecha alta</TableHead>
             <TableHead className="w-[70px]">Acciones</TableHead>
           </TableRow>
@@ -86,6 +86,9 @@ export function UsersTable({
           {users.map((user) => (
             <TableRow key={user.id}>
               <TableCell className="font-medium">{user.nombre}</TableCell>
+              <TableCell className="max-w-[220px] truncate text-muted-foreground" title={user.email ?? undefined}>
+                {user.email ?? '—'}
+              </TableCell>
               <TableCell>
                 <Badge variant="secondary">{user.rol}</Badge>
               </TableCell>
@@ -93,11 +96,6 @@ export function UsersTable({
               <TableCell>
                 <Badge variant={user.activo ? 'success' : 'muted'}>
                   {user.activo ? 'Activo' : 'Inactivo'}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <Badge variant={user.onboarding_completed ? 'success' : 'outline'}>
-                  {user.onboarding_completed ? 'Completado' : 'Pendiente'}
                 </Badge>
               </TableCell>
               <TableCell className="text-muted-foreground text-sm">

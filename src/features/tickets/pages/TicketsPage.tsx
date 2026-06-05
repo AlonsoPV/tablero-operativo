@@ -26,7 +26,7 @@ import { toast } from 'sonner'
 import { useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -419,6 +419,31 @@ function TicketsBoard({
   )
 }
 
+const TICKET_TEXTAREA_CLASS =
+  'w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60'
+
+function FormSection({
+  title,
+  description,
+  children,
+  className,
+}: {
+  title: string
+  description?: string
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <section className={cn('space-y-4', className)}>
+      <div className="space-y-1">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        {description ? <p className="text-xs leading-relaxed text-muted-foreground">{description}</p> : null}
+      </div>
+      {children}
+    </section>
+  )
+}
+
 function TicketDialog({
   open,
   ticket,
@@ -528,67 +553,212 @@ function TicketDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="max-h-[92vh] max-w-4xl gap-0 overflow-y-auto p-0 sm:max-w-4xl">
+        <DialogHeader className="space-y-2 border-b border-border/60 px-6 py-5">
           <DialogTitle>{isEdit ? 'Editar ticket' : 'Nuevo ticket'}</DialogTitle>
+          <DialogDescription className="text-left">
+            {isEdit && ticket ? (
+              <>
+                ID {shortId(ticket.id)} · Creado {formatDateTimeCDMX(ticket.created_at)}
+                {!canEdit ? ' · Solo lectura (edita super admin)' : null}
+              </>
+            ) : (
+              'Describe tu solicitud con claridad: cuanto mas contexto, mas rapido podremos atenderla.'
+            )}
+          </DialogDescription>
         </DialogHeader>
-        <form className="grid gap-5" onSubmit={(event) => void handleSubmit(event)}>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Titulo" htmlFor="ticket-titulo" className="md:col-span-2">
-              <Input id="ticket-titulo" value={form.titulo} onChange={(e) => setField('titulo', e.target.value)} disabled={!canEdit} required maxLength={120} />
-            </Field>
-            <Field label="Modulo" htmlFor="ticket-modulo">
-              <Select value={form.modulo} onValueChange={(value) => setField('modulo', value)} disabled={!canEdit}>
-                <SelectTrigger id="ticket-modulo"><SelectValue /></SelectTrigger>
-                <SelectContent>{moduleOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </Field>
-            <Field label="Tipo" htmlFor="ticket-tipo">
-              <Select value={form.tipo} onValueChange={(value) => setField('tipo', value)} disabled={!canEdit}>
-                <SelectTrigger id="ticket-tipo"><SelectValue /></SelectTrigger>
-                <SelectContent>{typeOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </Field>
-            <Field label="Prioridad" htmlFor="ticket-prioridad">
-              <Select value={form.prioridad} onValueChange={(value) => setField('prioridad', value)} disabled={!canEdit}>
-                <SelectTrigger id="ticket-prioridad"><SelectValue /></SelectTrigger>
-                <SelectContent>{priorityOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </Field>
-            <Field label="Impacto" htmlFor="ticket-impacto">
-              <Select value={form.impacto} onValueChange={(value) => setField('impacto', value)} disabled={!canEdit}>
-                <SelectTrigger id="ticket-impacto"><SelectValue /></SelectTrigger>
-                <SelectContent>{impactOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </Field>
-            <Field label="Estatus" htmlFor="ticket-status">
-              <Select value={form.status} onValueChange={(value) => setField('status', value)} disabled={!canEdit}>
-                <SelectTrigger id="ticket-status"><SelectValue /></SelectTrigger>
-                <SelectContent>{STATUS_ORDER.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
-              </Select>
-            </Field>
-            <Field label="Descripcion" htmlFor="ticket-descripcion" className="md:col-span-2">
-              <textarea
-                id="ticket-descripcion"
-                value={form.descripcion}
-                onChange={(e) => setField('descripcion', e.target.value)}
-                disabled={!canEdit}
-                required
-                rows={4}
-                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
-              />
-            </Field>
-            <Field label="Pasos para reproducir" htmlFor="ticket-pasos">
-              <textarea id="ticket-pasos" value={form.pasos_reproduccion} onChange={(e) => setField('pasos_reproduccion', e.target.value)} disabled={!canEdit} rows={3} className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60" />
-            </Field>
-            <Field label="Resultado esperado" htmlFor="ticket-esperado">
-              <textarea id="ticket-esperado" value={form.resultado_esperado} onChange={(e) => setField('resultado_esperado', e.target.value)} disabled={!canEdit} rows={3} className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60" />
-            </Field>
-            <Field label="Resultado actual" htmlFor="ticket-actual" className="md:col-span-2">
-              <textarea id="ticket-actual" value={form.resultado_actual} onChange={(e) => setField('resultado_actual', e.target.value)} disabled={!canEdit} rows={3} className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60" />
-            </Field>
+        <form className="flex flex-col" onSubmit={(event) => void handleSubmit(event)}>
+          <div className="space-y-6 px-6 py-5">
+            <FormSection
+              title="Que necesitas"
+              description="Resume el problema o la mejora en pocas palabras y explica el contexto."
+            >
+              <div className="grid gap-4">
+                <Field
+                  label="Titulo"
+                  htmlFor="ticket-titulo"
+                  hint="Frase corta que identifique el ticket de un vistazo."
+                >
+                  <Input
+                    id="ticket-titulo"
+                    value={form.titulo}
+                    onChange={(e) => setField('titulo', e.target.value)}
+                    disabled={!canEdit}
+                    required
+                    maxLength={120}
+                    placeholder="Ej. No puedo mover acciones en el Kanban"
+                  />
+                </Field>
+                <Field
+                  label="Descripcion"
+                  htmlFor="ticket-descripcion"
+                  hint="Minimo 10 caracteres. Incluye que hiciste, que esperabas y que ocurrio."
+                >
+                  <textarea
+                    id="ticket-descripcion"
+                    value={form.descripcion}
+                    onChange={(e) => setField('descripcion', e.target.value)}
+                    disabled={!canEdit}
+                    required
+                    rows={4}
+                    className={TICKET_TEXTAREA_CLASS}
+                    placeholder={
+                      'Ej. Al arrastrar una accion de Pendiente a En proceso, la tarjeta vuelve a su columna original.\n' +
+                      'Ocurre en Chrome con mi usuario operativo desde el tablero principal.'
+                    }
+                  />
+                </Field>
+              </div>
+            </FormSection>
+
+            <FormSection
+              title="Clasificacion"
+              description="Ayuda al equipo a priorizar y asignar el ticket al area correcta."
+              className="border-t border-border/60 pt-6"
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Modulo" htmlFor="ticket-modulo" hint="Pantalla o area de la plataforma afectada.">
+                  <Select value={form.modulo} onValueChange={(value) => setField('modulo', value)} disabled={!canEdit}>
+                    <SelectTrigger id="ticket-modulo">
+                      <SelectValue placeholder="Selecciona el modulo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {moduleOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Tipo" htmlFor="ticket-tipo" hint="Error: falla actual. Mejora: idea nueva. Cambio: ajuste solicitado.">
+                  <Select value={form.tipo} onValueChange={(value) => setField('tipo', value)} disabled={!canEdit}>
+                    <SelectTrigger id="ticket-tipo">
+                      <SelectValue placeholder="Selecciona el tipo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {typeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Prioridad" htmlFor="ticket-prioridad" hint="Urgente solo si bloquea trabajo critico del dia.">
+                  <Select value={form.prioridad} onValueChange={(value) => setField('prioridad', value)} disabled={!canEdit}>
+                    <SelectTrigger id="ticket-prioridad">
+                      <SelectValue placeholder="Selecciona la prioridad" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {priorityOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Impacto" htmlFor="ticket-impacto" hint="Cuantas personas o procesos se ven afectados.">
+                  <Select value={form.impacto} onValueChange={(value) => setField('impacto', value)} disabled={!canEdit}>
+                    <SelectTrigger id="ticket-impacto">
+                      <SelectValue placeholder="Selecciona el impacto" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {impactOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+            </FormSection>
+
+            <FormSection
+              title="Detalle tecnico"
+              description={
+                form.tipo === 'error'
+                  ? 'Recomendado para errores: ayuda a reproducir y validar la solucion.'
+                  : 'Opcional. Agrega pasos o resultados si aportan contexto extra.'
+              }
+              className="border-t border-border/60 pt-6"
+            >
+              <div className="grid gap-4">
+                <Field
+                  label="Pasos para reproducir"
+                  htmlFor="ticket-pasos"
+                  hint="Lista numerada: que hacer antes de que aparezca el problema."
+                >
+                  <textarea
+                    id="ticket-pasos"
+                    value={form.pasos_reproduccion}
+                    onChange={(e) => setField('pasos_reproduccion', e.target.value)}
+                    disabled={!canEdit}
+                    rows={3}
+                    className={TICKET_TEXTAREA_CLASS}
+                    placeholder={
+                      '1. Entrar a Operaciones > Kanban\n' +
+                      '2. Arrastrar una tarjeta a otra columna\n' +
+                      '3. Soltar la tarjeta'
+                    }
+                  />
+                </Field>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="Resultado esperado" htmlFor="ticket-esperado" hint="Que deberia pasar si todo funciona bien.">
+                    <textarea
+                      id="ticket-esperado"
+                      value={form.resultado_esperado}
+                      onChange={(e) => setField('resultado_esperado', e.target.value)}
+                      disabled={!canEdit}
+                      rows={3}
+                      className={TICKET_TEXTAREA_CLASS}
+                      placeholder="Ej. La tarjeta queda en la columna destino y el estatus se guarda."
+                    />
+                  </Field>
+                  <Field label="Resultado actual" htmlFor="ticket-actual" hint="Que ocurre hoy en la plataforma.">
+                    <textarea
+                      id="ticket-actual"
+                      value={form.resultado_actual}
+                      onChange={(e) => setField('resultado_actual', e.target.value)}
+                      disabled={!canEdit}
+                      rows={3}
+                      className={TICKET_TEXTAREA_CLASS}
+                      placeholder="Ej. La tarjeta regresa a la columna original sin mensaje de error."
+                    />
+                  </Field>
+                </div>
+              </div>
+            </FormSection>
+
+            {isEdit && canEdit ? (
+              <FormSection
+                title="Gestion interna"
+                description="Solo visible para super admin al editar un ticket existente."
+                className="border-t border-border/60 pt-6"
+              >
+                <div className="grid gap-4 sm:max-w-xs">
+                  <Field label="Estatus" htmlFor="ticket-status" hint={STATUS_META[form.status].description}>
+                    <Select value={form.status} onValueChange={(value) => setField('status', value as TicketStatus)} disabled={!canEdit}>
+                      <SelectTrigger id="ticket-status">
+                        <SelectValue placeholder="Selecciona el estatus" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUS_ORDER.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {status}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+              </FormSection>
+            ) : null}
           </div>
-          <div className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+
+          <div className="flex flex-col-reverse gap-2 border-t border-border/60 bg-muted/20 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               {ticket && canDelete ? (
                 <Button type="button" variant="destructive" className="gap-1.5" onClick={() => void handleDelete()}>
@@ -608,12 +778,14 @@ function TicketDialog({
           </div>
         </form>
         {ticket ? (
-          <TicketComments
-            ticket={ticket}
-            users={users}
-            currentUserId={currentUser?.id ?? null}
-            currentUserName={currentUser?.nombre ?? null}
-          />
+          <div className="border-t border-border/60 px-6 pb-6">
+            <TicketComments
+              ticket={ticket}
+              users={users}
+              currentUserId={currentUser?.id ?? null}
+              currentUserName={currentUser?.nombre ?? null}
+            />
+          </div>
         ) : null}
       </DialogContent>
     </Dialog>
@@ -624,16 +796,19 @@ function Field({
   label,
   htmlFor,
   className,
+  hint,
   children,
 }: {
   label: string
   htmlFor: string
   className?: string
+  hint?: string
   children: ReactNode
 }) {
   return (
     <div className={cn('space-y-1.5', className)}>
       <Label htmlFor={htmlFor}>{label}</Label>
+      {hint ? <p className="text-[11px] leading-relaxed text-muted-foreground">{hint}</p> : null}
       {children}
     </div>
   )

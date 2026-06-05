@@ -88,11 +88,15 @@ export const usersAdminService = {
 
     let list = (data ?? []) as UserProfile[]
 
+    const emails = await Promise.all(list.map((user) => this.getAuthEmail(user.user_id)))
+    list = list.map((user, index) => ({ ...user, email: emails[index] }))
+
     if (filter.search?.trim()) {
       const term = filter.search.trim().toLowerCase()
       list = list.filter(
         (u) =>
           u.nombre.toLowerCase().includes(term) ||
+          (u.email?.toLowerCase().includes(term) ?? false) ||
           (u.area?.toLowerCase().includes(term) ?? false)
       )
     }
