@@ -18,7 +18,6 @@ const DIRECTION_ROLE = 'Direccion'
 const SUPER_ADMIN_ROLE = 'super_admin'
 
 const ANALYST_ALLOWED_ROUTES = [
-  ROUTES.DASHBOARD,
   ROUTES.KANBAN,
   ROUTES.TICKETS,
   ROUTES.ACADEMIA,
@@ -31,6 +30,7 @@ const ANALYST_ALLOWED_ROUTES = [
 ] as const
 
 const DIRECTION_ALLOWED_ROUTES = [
+  ROUTES.DASHBOARD,
   ...ANALYST_ALLOWED_ROUTES,
   ROUTES.SETTINGS_USERS,
   ROUTES.SETTINGS_USERS_DETAIL,
@@ -145,8 +145,8 @@ export function canAccessRouteByRole(rol: string | null | undefined, pathname: s
   return ANALYST_ALLOWED_ROUTES.some((route) => routeMatches(pathname, route))
 }
 
-export function getDefaultRouteByRole(_rol: string | null | undefined): string {
-  void _rol
+export function getDefaultRouteByRole(rol: string | null | undefined): string {
+  if (isOperativeByRole(rol)) return ROUTES.KANBAN
   return ROUTES.DASHBOARD
 }
 

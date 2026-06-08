@@ -26,7 +26,7 @@ import { AccionEvidenciasSection } from './AccionEvidenciasSection'
 import { AccionComentarios } from './AccionComentarios'
 import { useCreateAccion, useDeleteAccion, useUpdateAccion } from '../hooks'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { isSuperAdminByRole } from '@/features/auth/lib/permissions'
+import { isAnalystByRole, isDirectionByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
 import { usersAdminService } from '@/features/users/services/users.service'
 import { usersQueryKey } from '@/features/users/hooks/useUsers'
 import { notificacionesService } from '@/services/notificaciones.service'
@@ -40,7 +40,7 @@ import { accionCheckpointsService } from '@/services/accionCheckpoints.service'
 import type { AccionDiaria, ActionStatus } from '@/types'
 import { DEFAULT_PRIORITY_NOMBRE } from '../utils/priorityLabels'
 import type { AccionCreateInput, AccionFormInput } from '../schemas/accion.schema'
-import { inferDescripcionModo, parseDescripcionTriada } from '../utils/descripcionAccionTriada'
+import { flattenDescripcionForForm } from '../utils/descripcionAccionTriada'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Paperclip, FileText, Image, Trash2 } from 'lucide-react'
@@ -64,9 +64,11 @@ import {
   syncAccionO2cLinks,
 } from '@/services/accionLinks.service'
 
-/** Fecha de hoy en YYYY-MM-DD */
+import { todayWallClockCDMX } from '@/lib/dateUtils'
+
+/** Fecha de hoy en YYYY-MM-DD (calendario CDMX, no UTC). */
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10)
+  return todayWallClockCDMX()
 }
 
 export interface AccionFormDialogProps {
@@ -100,6 +102,8 @@ export function AccionFormDialog({
   const isEditProtectedReadonly = isEdit
   const isActionCreator = !!accion?.created_by && accion.created_by === currentUser?.id
   const isMutating = createAccion.isPending || updateAccion.isPending || deleteAccion.isPending
+  const canViewO2cImpactFields =
+    !isAnalystByRole(currentUser?.rol) && !isDirectionByRole(currentUser?.rol)
 
   const o2cLinksQuery = useQuery({
     queryKey: ['accion-o2c-links', accion?.id] as const,
@@ -115,7 +119,7 @@ export function AccionFormDialog({
       if (accion.catalog_kpi_id) kpiSet.add(accion.catalog_kpi_id)
       return { gap_ids: [...gapSet], catalog_kpi_ids: [...kpiSet] }
     },
-    enabled: open && !!accion?.id,
+    enabled: open && !!accion?.id && canViewO2cImpactFields,
     staleTime: 60_000,
   })
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -138,7 +142,7 @@ export function AccionFormDialog({
 
   useEffect(() => {
     if (!open) return
-    void Promise.allSettled([
+    const prefetches = [
       qc.prefetchQuery({
         queryKey: dropdownOptionsByCatalogKeyQueryKey('evidencia_esperada'),
         queryFn: () => fetchDropdownOptionsByCatalogKey('evidencia_esperada'),
@@ -148,19 +152,24 @@ export function AccionFormDialog({
         queryFn: () => fetchAreas({ activo: true }),
       }),
       qc.prefetchQuery({
-        queryKey: [...kpiQueryKeys.gaps, JSON.stringify({ activo: true })],
-        queryFn: () => listGaps({ activo: true }),
-      }),
-      qc.prefetchQuery({
-        queryKey: ['catalogs', 'kpis', { activo: true }],
-        queryFn: () => catalogKpisService.list({ activo: true }),
-      }),
-      qc.prefetchQuery({
         queryKey: [...usersQueryKey, { activo: true }],
         queryFn: () => usersAdminService.list({ activo: true }),
       }),
-    ])
-  }, [open, qc])
+    ]
+    if (canViewO2cImpactFields) {
+      prefetches.push(
+        qc.prefetchQuery({
+          queryKey: [...kpiQueryKeys.gaps, JSON.stringify({ activo: true })],
+          queryFn: () => listGaps({ activo: true }),
+        }),
+        qc.prefetchQuery({
+          queryKey: ['catalogs', 'kpis', { activo: true }],
+          queryFn: () => catalogKpisService.list({ activo: true }),
+        })
+      )
+    }
+    void Promise.allSettled(prefetches)
+  }, [canViewO2cImpactFields, open, qc])
 
   function userNameById(userId: string | null | undefined): string | null {
     if (!userId) return null
@@ -251,8 +260,6 @@ export function AccionFormDialog({
         responsable_bloqueo: null,
       }
     }
-    const tri = parseDescripcionTriada(accion.descripcion_accion)
-    const descripcionModo = inferDescripcionModo(tri)
     const merged = o2cLinksQuery.data
     const gap_ids = merged?.gap_ids ?? (accion.gap_id ? [accion.gap_id] : [])
     const catalog_kpi_ids =
@@ -260,11 +267,11 @@ export function AccionFormDialog({
     return {
       fecha: accion.fecha,
       titulo_accion: accion.titulo_accion ?? '',
-      descripcion_modo: descripcionModo,
-      descripcion_simple: descripcionModo === 'simple' ? tri.descripcion_como : '',
-      descripcion_como: tri.descripcion_como,
-      descripcion_quiero: tri.descripcion_quiero,
-      descripcion_para_que: tri.descripcion_para_que,
+      descripcion_modo: 'simple',
+      descripcion_simple: flattenDescripcionForForm(accion.descripcion_accion ?? ''),
+      descripcion_como: '',
+      descripcion_quiero: '',
+      descripcion_para_que: '',
       responsable: accion.responsable,
       hora_limite: accion.hora_limite?.slice(0, 5) ?? '17:00',
       evidencia_esperada: accion.evidencia_esperada,
@@ -298,6 +305,7 @@ export function AccionFormDialog({
     const payload: Partial<AccionDiaria> =
       isEditProtectedReadonly && accion
         ? {
+            descripcion_accion: values.descripcion_accion,
             updated_by: currentUser?.id ?? null,
           }
         : {
@@ -760,12 +768,10 @@ export function AccionFormDialog({
               id={`${formBaseId}-submit`}
               variant="default"
               className="accion-form-dialog-submit h-10 w-full px-2 text-sm sm:h-9"
-              disabled={isMutating || isEditProtectedReadonly}
+              disabled={isMutating}
             >
               {createAccion.isPending || updateAccion.isPending ? (
                 'Guardando…'
-              ) : isEditProtectedReadonly ? (
-                'Solo lectura'
               ) : (
                 <>
                   <span className="sm:hidden">Guardar</span>

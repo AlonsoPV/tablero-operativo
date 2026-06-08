@@ -13,7 +13,7 @@ export function useNotifications(usuarioId: string | undefined, options?: { leid
       qc.invalidateQueries({ queryKey: KEY })
     })
     return () => {
-      sub.unsubscribe()
+      void notificacionesService.unsubscribe(sub)
     }
   }, [qc, options?.subscribe, usuarioId])
 

@@ -23,6 +23,7 @@ export interface DisciplinaCalendarioSectionProps {
   notesLoading: boolean
   remindersError: boolean
   notesError: boolean
+  embedded?: boolean
 }
 
 function formatWhenShort(isoOrDate: string, mode: 'datetime' | 'date'): string {
@@ -202,9 +203,9 @@ function MobileCalendarioTabs({
   remindersCount: number
   notesCount: number
 }) {
-  const tabs: { id: CalendarioTab; label: string; count: number }[] = [
-    { id: 'recordatorios', label: 'Recordatorios', count: remindersCount },
-    { id: 'minutas', label: 'Minutas', count: notesCount },
+  const tabs: { id: CalendarioTab; label: string; shortLabel: string; count: number }[] = [
+    { id: 'recordatorios', label: 'Recordatorios', shortLabel: 'Record.', count: remindersCount },
+    { id: 'minutas', label: 'Minutas', shortLabel: 'Minutas', count: notesCount },
   ]
 
   return (
@@ -214,21 +215,23 @@ function MobileCalendarioTabs({
       role="tablist"
       aria-label="Tipo de elemento del calendario"
     >
-      {tabs.map(({ id, label, count }) => (
+      {tabs.map(({ id, label, shortLabel, count }) => (
         <button
           key={id}
           type="button"
           role="tab"
           aria-selected={tab === id}
+          aria-label={label}
           className={cn(
-            'flex min-h-10 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors',
+            'flex min-h-11 touch-manipulation items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors',
             tab === id
               ? 'bg-background text-foreground shadow-sm'
               : 'text-muted-foreground hover:text-foreground'
           )}
           onClick={() => onTabChange(id)}
         >
-          {label}
+          <span className="sm:hidden">{shortLabel}</span>
+          <span className="hidden sm:inline">{label}</span>
           <span
             className={cn(
               'rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums',
@@ -243,7 +246,7 @@ function MobileCalendarioTabs({
   )
 }
 
-export function DisciplinaCalendarioSection({
+function DisciplinaCalendarioContent({
   reminders,
   notes,
   remindersLoading,
@@ -252,6 +255,73 @@ export function DisciplinaCalendarioSection({
   notesError,
 }: DisciplinaCalendarioSectionProps) {
   const [mobileTab, setMobileTab] = useState<CalendarioTab>('recordatorios')
+
+  return (
+    <div className="space-y-3 sm:space-y-4">
+      <MobileCalendarioTabs
+        tab={mobileTab}
+        onTabChange={setMobileTab}
+        remindersCount={reminders.length}
+        notesCount={notes.length}
+      />
+
+      <div className="md:hidden">
+        {mobileTab === 'recordatorios' ? (
+          <RecordatoriosList
+            reminders={reminders}
+            isLoading={remindersLoading}
+            isError={remindersError}
+            className="rounded-lg border border-border/60 bg-muted/10 p-2.5"
+          />
+        ) : (
+          <MinutasList
+            notes={notes}
+            isLoading={notesLoading}
+            isError={notesError}
+            className="rounded-lg border border-border/60 bg-muted/10 p-2.5"
+          />
+        )}
+      </div>
+
+      <div className="hidden gap-4 md:grid md:grid-cols-2">
+        <RecordatoriosList
+          reminders={reminders}
+          isLoading={remindersLoading}
+          isError={remindersError}
+          className="rounded-lg border border-border/60 bg-muted/10 p-3"
+        />
+        <MinutasList
+          notes={notes}
+          isLoading={notesLoading}
+          isError={notesError}
+          className="rounded-lg border border-border/60 bg-muted/10 p-3"
+        />
+      </div>
+    </div>
+  )
+}
+
+export function DisciplinaCalendarioSection({
+  reminders,
+  notes,
+  remindersLoading,
+  notesLoading,
+  remindersError,
+  notesError,
+  embedded = false,
+}: DisciplinaCalendarioSectionProps) {
+  if (embedded) {
+    return (
+      <DisciplinaCalendarioContent
+        reminders={reminders}
+        notes={notes}
+        remindersLoading={remindersLoading}
+        notesLoading={notesLoading}
+        remindersError={remindersError}
+        notesError={notesError}
+      />
+    )
+  }
 
   return (
     <section id="disciplina-calendario" aria-labelledby="disciplina-calendario-heading">
@@ -275,45 +345,14 @@ export function DisciplinaCalendarioSection({
           }
         />
         <SectionCardBody className="space-y-3 p-3 sm:space-y-4 sm:p-4 md:p-6">
-          <MobileCalendarioTabs
-            tab={mobileTab}
-            onTabChange={setMobileTab}
-            remindersCount={reminders.length}
-            notesCount={notes.length}
+          <DisciplinaCalendarioContent
+            reminders={reminders}
+            notes={notes}
+            remindersLoading={remindersLoading}
+            notesLoading={notesLoading}
+            remindersError={remindersError}
+            notesError={notesError}
           />
-
-          <div className="md:hidden">
-            {mobileTab === 'recordatorios' ? (
-              <RecordatoriosList
-                reminders={reminders}
-                isLoading={remindersLoading}
-                isError={remindersError}
-                className="rounded-lg border border-border/60 bg-muted/10 p-2.5"
-              />
-            ) : (
-              <MinutasList
-                notes={notes}
-                isLoading={notesLoading}
-                isError={notesError}
-                className="rounded-lg border border-border/60 bg-muted/10 p-2.5"
-              />
-            )}
-          </div>
-
-          <div className="hidden gap-4 md:grid md:grid-cols-2">
-            <RecordatoriosList
-              reminders={reminders}
-              isLoading={remindersLoading}
-              isError={remindersError}
-              className="rounded-lg border border-border/60 bg-muted/10 p-3"
-            />
-            <MinutasList
-              notes={notes}
-              isLoading={notesLoading}
-              isError={notesError}
-              className="rounded-lg border border-border/60 bg-muted/10 p-3"
-            />
-          </div>
         </SectionCardBody>
       </SectionCard>
     </section>

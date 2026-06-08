@@ -14,6 +14,10 @@ export const MSJ_PERMISO_HECHO =
 export const MSJ_PERMISO_VERIFICADO =
   'Solo la persona que creó esta acción puede marcarla como Verificada.'
 
+/** Mensaje si no es responsable, creador ni admin de negocio (alineado con RLS de UPDATE). */
+export const MSJ_PERMISO_CAMBIAR_ESTADO =
+  'Solo el responsable, quien creó la acción o un administrador pueden cambiar su estatus.'
+
 export function isEstadoConPermisoEstricto(estado: ActionStatus): boolean {
   return estado === 'Hecho' || estado === 'Verificado'
 }
@@ -41,6 +45,19 @@ export function canMoveToVerificado(
   return accion.created_by === currentUsuarioId
 }
 
+/** Puede editar la acción (incluido cambiar estatus), según RLS de acciones_diarias. */
+export function canManageAccionEstado(
+  accion: AccionDiaria,
+  currentUsuarioId: string | null | undefined,
+  options?: { bypassEstadoRoles?: boolean }
+): boolean {
+  if (options?.bypassEstadoRoles) return true
+  if (!currentUsuarioId) return false
+  if (accion.responsable === currentUsuarioId) return true
+  if (accion.created_by != null && accion.created_by === currentUsuarioId) return true
+  return false
+}
+
 /**
  * Indica si el usuario puede llevar la acción al estado indicado.
  * `bypassEstadoRoles`: p.ej. DG/Sistemas (isAdminByRole); debe coincidir con políticas de producto.
@@ -52,12 +69,13 @@ export function canChangeAccionEstado(
   options?: { bypassEstadoRoles?: boolean }
 ): boolean {
   if (options?.bypassEstadoRoles) return true
+  if (!canManageAccionEstado(accion, currentUsuarioId, options)) return false
   if (targetEstado === 'Hecho') return canMoveToHecho(accion, currentUsuarioId)
   if (targetEstado === 'Verificado') return canMoveToVerificado(accion, currentUsuarioId)
   return true
 }
 
-/** Mensaje de denegación para Hecho/Verificado; null si está permitido o el estado no aplica esta regla. */
+/** Mensaje de denegación; null si está permitido. */
 export function getAccionEstadoChangeDenialMessage(
   accion: AccionDiaria,
   currentUsuarioId: string | null | undefined,
@@ -65,6 +83,9 @@ export function getAccionEstadoChangeDenialMessage(
   options?: { bypassEstadoRoles?: boolean }
 ): string | null {
   if (options?.bypassEstadoRoles) return null
+  if (!canManageAccionEstado(accion, currentUsuarioId, options)) {
+    return MSJ_PERMISO_CAMBIAR_ESTADO
+  }
   if (targetEstado === 'Hecho' && !canMoveToHecho(accion, currentUsuarioId)) {
     return MSJ_PERMISO_HECHO
   }

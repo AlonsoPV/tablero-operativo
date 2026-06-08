@@ -3,7 +3,16 @@
  * Columnas con acento visual, cards premium, empty states, scroll refinado.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent,
+  type ReactNode,
+} from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -22,14 +31,14 @@ import { useUpdateAccionEstado } from '../hooks/useAccionMutations'
 import { useCommentCounts } from '../hooks/useCommentCounts'
 import { useActionEstadoPermissions } from '../hooks/useActionEstadoPermissions'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { isEnRetraso } from '../utils/accionUtils'
-import { isEstadoConPermisoEstricto } from '../utils/actionPermissions'
-import { CountdownTimer } from './CountdownTimer'
-import { AccionIdDisplay } from './AccionIdDisplay'
-import { EvidenciaCargadaIndicator } from './EvidenciaCargadaIndicator'
+import {
+  getAccionKanbanColumn,
+  getAutoEstadoPorFechaCompromiso,
+  isEnRetraso,
+} from '../utils/accionUtils'
+import { accionEstadoLabel, getAccionDisplayEstado } from '../utils/accionEstadoDisplay'
 import {
   AlertCircle,
-  FileCheck,
   Clock,
   Sun,
   PlayCircle,
@@ -37,9 +46,7 @@ import {
   BadgeCheck,
   Plus,
   AlertTriangle,
-  Pencil,
   MoreVertical,
-  MessageSquare,
   Info,
   ArrowUpDown,
   ChevronDown,
@@ -56,9 +63,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
-import { AccionChecklistProgressBadge } from './AccionChecklistProgress'
-import { TIPO_ACCION_CONFIG, type TipoAccion } from '../utils/tipoAccionConfig'
-
 const COLUMN_ORDER: ActionStatus[] = [
   'Pendiente',
   'Hoy',
@@ -152,11 +156,57 @@ function priorityStyleFor(nombre: string) {
   }
 }
 
-const TIPO_ACCION_BADGE: Record<TipoAccion, string> = {
-  operativa: 'border-slate-500/25 bg-slate-500/10 text-slate-700 dark:text-slate-300',
-  sprint: 'border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300',
-  estrategica: 'border-violet-500/25 bg-violet-500/10 text-violet-700 dark:text-violet-300',
-  desbloqueo: 'border-cyan-500/30 bg-cyan-500/15 text-cyan-800 dark:text-cyan-200',
+function kanbanCardStatusLabel(accion: AccionDiaria, overdue: boolean): string {
+  if (overdue) return 'Vencido'
+  return accionEstadoLabel(getAccionDisplayEstado(accion))
+}
+
+function kanbanCardStatusTone(status: string): string | undefined {
+  if (status === 'Vencido') return 'text-orange-600 dark:text-orange-400 font-medium'
+  if (status === 'Bloqueado') return 'text-destructive font-medium'
+  return undefined
+}
+
+function KanbanCardMeta({
+  accion,
+  responsableName,
+  checklistProgress,
+  overdue,
+}: {
+  accion: AccionDiaria
+  responsableName: string
+  checklistProgress?: { total: number; completed: number }
+  overdue: boolean
+}) {
+  const status = kanbanCardStatusLabel(accion, overdue)
+  const segments: { key: string; text: string; className?: string }[] = [
+    { key: 'owner', text: responsableName },
+  ]
+
+  if (checklistProgress && checklistProgress.total > 0) {
+    segments.push({
+      key: 'checklist',
+      text: `${checklistProgress.completed}/${checklistProgress.total}`,
+      className: 'tabular-nums font-medium text-foreground/80',
+    })
+  }
+
+  segments.push({
+    key: 'status',
+    text: status,
+    className: kanbanCardStatusTone(status),
+  })
+
+  return (
+    <p className="mt-1 truncate text-xs text-muted-foreground">
+      {segments.map((segment, index) => (
+        <span key={segment.key}>
+          {index > 0 ? <span className="text-muted-foreground/50"> • </span> : null}
+          <span className={segment.className}>{segment.text}</span>
+        </span>
+      ))}
+    </p>
+  )
 }
 
 /** Acciones visibles por columna antes de expandir (el resto queda colapsado). */
@@ -331,9 +381,12 @@ function KanbanCardInner({
   estadoPermission?: ReturnType<typeof useActionEstadoPermissions>
 }) {
   const priorityStyle = priorityStyleFor(accion.prioridad)
-  const displayStatus = isEnRetraso(accion) ? 'Retraso' : accion.estado
+  const overdue = isEnRetraso(accion)
 
-  const stopDrag = (e: React.PointerEvent) => e.stopPropagation()
+  const stopDrag = (e: PointerEvent) => e.stopPropagation()
+  const stopMenuClick = (e: MouseEvent) => e.stopPropagation()
+
+  const title = accion.titulo_accion?.trim() || accion.descripcion_accion
 
   return (
     <div
@@ -342,137 +395,96 @@ function KanbanCardInner({
       role={onClick ? 'button' : undefined}
       onClick={onClick}
       className={cn(
-        'group relative rounded-xl border border-border/60 bg-card p-3.5 text-left shadow-sm',
+        'group rounded-xl border border-border/60 bg-card p-3 text-left shadow-sm',
         'transition-all duration-200 ease-out',
-        !isOverlay && 'cursor-grab active:cursor-grabbing hover:shadow-md hover:border-border',
-        isDragging && 'opacity-40 scale-[0.98]',
-        isOverlay && 'cursor-grabbing shadow-xl ring-2 ring-primary/10 scale-[1.02]'
+        !isOverlay && 'cursor-grab active:cursor-grabbing hover:border-border hover:shadow-md',
+        isDragging && 'scale-[0.98] opacity-40',
+        isOverlay && 'scale-[1.02] cursor-grabbing shadow-xl ring-2 ring-primary/10'
       )}
     >
-      {!isOverlay && (
-        <div className="absolute right-2 top-2 flex items-center gap-0.5" onPointerDown={stopDrag}>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
-            onClick={(e) => { e.stopPropagation(); onClick?.() }}
-            aria-label="Editar"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-          {onMoveEstado && (
+      <div className="flex items-start gap-1.5">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-2 pr-1">
+            <span
+              className={cn('mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full', priorityStyle.dot)}
+              title={priorityStyle.label}
+              aria-hidden
+            />
+            <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground" title={title}>
+              {title}
+            </p>
+          </div>
+          <div className="pl-[18px]">
+            <KanbanCardMeta
+              accion={accion}
+              responsableName={responsableName}
+              checklistProgress={checklistProgress}
+              overdue={overdue}
+            />
+          </div>
+        </div>
+
+        {!isOverlay && (onClick || onMoveEstado) ? (
+          <div className="shrink-0 self-center" onPointerDown={stopDrag} onClick={stopMenuClick}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
-                  aria-label="Mover estado"
+                  className="h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  aria-label="Opciones de la acción"
                 >
-                  <MoreVertical className="h-3.5 w-3.5" />
+                  <MoreVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[200px]">
-                {COLUMN_ORDER.filter((s) => s !== displayStatus).map((status) => {
-                  const restricted =
-                    estadoPermission && isEstadoConPermisoEstricto(status)
-                      ? !estadoPermission.canChangeTo(accion, status)
-                      : false
-                  const denyTitle = restricted
-                    ? estadoPermission?.denialMessage(accion, status) ?? undefined
-                    : undefined
-                  return (
-                    <DropdownMenuItem
-                      key={status}
-                      disabled={restricted}
-                      title={denyTitle}
-                      onClick={() => onMoveEstado?.(status)}
-                    >
-                      {COLUMN_LABELS[status]}
+              <DropdownMenuContent align="end" className="min-w-[200px]" onClick={stopMenuClick}>
+                {onClick ? (
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onClick()
+                    }}
+                  >
+                    Editar acción
+                  </DropdownMenuItem>
+                ) : null}
+                {onClick && onMoveEstado ? <div className="my-1 h-px bg-border" role="separator" /> : null}
+                {onMoveEstado
+                  ? COLUMN_ORDER.filter((s) => s !== accion.estado).map((status) => {
+                      const restricted = estadoPermission
+                        ? !estadoPermission.canChangeTo(accion, status)
+                        : false
+                      const denyTitle = restricted
+                        ? estadoPermission?.denialMessage(accion, status) ?? undefined
+                        : undefined
+                      return (
+                        <DropdownMenuItem
+                          key={status}
+                          disabled={restricted}
+                          title={denyTitle}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onMoveEstado(status)
+                          }}
+                        >
+                          Mover a {COLUMN_LABELS[status]}
+                        </DropdownMenuItem>
+                      )
+                    })
+                  : null}
+                {commentCount > 0 ? (
+                  <>
+                    <div className="my-1 h-px bg-border" role="separator" />
+                    <DropdownMenuItem disabled className="text-muted-foreground">
+                      {commentCount} comentario{commentCount !== 1 ? 's' : ''}
                     </DropdownMenuItem>
-                  )
-                })}
+                  </>
+                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
-          )}
-        </div>
-      )}
-      <div className="flex items-start gap-2 pr-14">
-        <span
-          className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', priorityStyle.dot)}
-          title={priorityStyle.label}
-        />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium leading-snug text-foreground line-clamp-2" title={accion.descripcion_accion}>
-            {accion.titulo_accion?.trim() || accion.descripcion_accion}
-          </p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            ID <AccionIdDisplay id={accion.id} className="inline align-baseline" />
-          </p>
-        </div>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-3">
-        <span className="text-xs text-muted-foreground truncate max-w-[100px]" title={responsableName}>
-          {responsableName}
-        </span>
-        <CountdownTimer
-          fecha={accion.fecha}
-          hora_limite={accion.hora_limite}
-          estado={accion.estado}
-          variant="compact"
-        />
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {commentCount > 0 && (
-          <span
-            className="inline-flex items-center gap-1 rounded bg-muted/80 px-1.5 py-0.5 text-xs text-muted-foreground"
-            title={`${commentCount} comentario${commentCount !== 1 ? 's' : ''}`}
-          >
-            <MessageSquare className="h-3 w-3" />
-            {commentCount}
-          </span>
-        )}
-        {accion.estado === 'Bloqueado' && (
-          <span
-            className="inline-flex items-center gap-0.5 rounded border border-destructive/30 bg-destructive/15 px-1.5 py-0.5 text-xs text-destructive"
-            title="Bloqueado"
-          >
-            <AlertCircle className="h-3 w-3" />
-          </span>
-        )}
-        {accion.tipo_accion === 'desbloqueo' ? (
-          <span
-            className={cn(
-              'inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-semibold',
-              TIPO_ACCION_BADGE[accion.tipo_accion]
-            )}
-            title={TIPO_ACCION_CONFIG[accion.tipo_accion].description}
-          >
-            {TIPO_ACCION_CONFIG[accion.tipo_accion].shortLabel}
-          </span>
+          </div>
         ) : null}
-        {accion.tipo_accion === 'desbloqueo' && accion.responsable_bloqueo ? (
-          <span
-            className="inline-flex max-w-[150px] items-center rounded bg-muted/80 px-1.5 py-0.5 text-xs text-muted-foreground"
-            title="La dependencia tiene responsable de desbloqueo asignado"
-          >
-            Desbloqueo asignado
-          </span>
-        ) : null}
-        <EvidenciaCargadaIndicator cargada={accion.evidencia_cargada} />
-        {checklistProgress && checklistProgress.total > 0 && (
-          <AccionChecklistProgressBadge
-            completados={checklistProgress.completed}
-            total={checklistProgress.total}
-          />
-        )}
-        {!accion.evidencia_cargada && (accion.estado === 'Hecho' || accion.estado === 'Verificado') && (
-          <span className="inline-flex items-center gap-0.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-600" title="Sin evidencia">
-            <FileCheck className="h-3 w-3" />
-          </span>
-        )}
       </div>
     </div>
   )
@@ -771,9 +783,44 @@ export function KanbanBoard({
 }: KanbanBoardProps) {
   const updateEstado = useUpdateAccionEstado()
   const [activeId, setActiveId] = useState<string | null>(null)
+  const autoSyncedByFechaRef = useRef<Set<string>>(new Set())
   const { data: currentUser } = useCurrentUser()
   const estadoPermission = useActionEstadoPermissions(currentUser ?? undefined)
   const { data: commentCounts = {} } = useCommentCounts(acciones.map((a) => a.id))
+
+  const autoEstadoTargets = useMemo(
+    () =>
+      acciones
+        .map((accion) => ({
+          accion,
+          target: getAutoEstadoPorFechaCompromiso(accion),
+        }))
+        .filter(
+          (item): item is { accion: AccionDiaria; target: ActionStatus } =>
+            item.target !== null && item.target !== item.accion.estado
+        ),
+    [acciones]
+  )
+
+  useEffect(() => {
+    if (isLoading || updateEstado.isPending || autoEstadoTargets.length === 0) return
+
+    for (const { accion, target } of autoEstadoTargets) {
+      const syncKey = `${accion.id}:${accion.fecha}:${target}`
+      if (autoSyncedByFechaRef.current.has(syncKey)) continue
+      if (estadoPermission.denialMessage(accion, target)) continue
+      autoSyncedByFechaRef.current.add(syncKey)
+      updateEstado.mutate(
+        { id: accion.id, estado: target },
+        {
+          onError: (e) => {
+            autoSyncedByFechaRef.current.delete(syncKey)
+            console.warn('No se pudo sincronizar el estado por fecha compromiso', e)
+          },
+        }
+      )
+    }
+  }, [autoEstadoTargets, estadoPermission, isLoading, updateEstado])
 
   const byStatus = useMemo(() => {
     const map: Record<ActionStatus, AccionDiaria[]> = {
@@ -786,8 +833,8 @@ export function KanbanBoard({
       Verificado: [],
     }
     for (const a of acciones) {
-      const status = isEnRetraso(a) ? 'Retraso' : a.estado
-      if (map[status]) map[status].push(a)
+      const column = getAccionKanbanColumn(a)
+      if (map[column]) map[column].push(a)
     }
     return map
   }, [acciones])
@@ -815,8 +862,7 @@ export function KanbanBoard({
   const isColumnDropDisabled = useCallback(
     (columnStatus: ActionStatus) => {
       if (!activeAccion) return false
-      const currentDisplay = isEnRetraso(activeAccion) ? 'Retraso' : activeAccion.estado
-      if (currentDisplay === columnStatus) return false
+      if (activeAccion.estado === columnStatus) return false
       return !estadoPermission.canChangeTo(activeAccion, columnStatus)
     },
     [activeAccion, estadoPermission]
@@ -836,8 +882,7 @@ export function KanbanBoard({
       if (!newStatus) return
       const accion = acciones.find((a) => a.id === active.id)
       if (!accion) return
-      const currentDisplay = isEnRetraso(accion) ? 'Retraso' : accion.estado
-      if (currentDisplay === newStatus) return
+      if (accion.estado === newStatus) return
       const denied = estadoPermission.denialMessage(accion, newStatus)
       if (denied) {
         toast.error(denied)

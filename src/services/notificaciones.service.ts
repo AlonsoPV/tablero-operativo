@@ -81,10 +81,17 @@ export const notificacionesService = {
           '[notificaciones] Realtime no disponible; se actualizará el listado de forma periódica.',
           err?.message ?? status
         )
-        void supabase.removeChannel(channel)
       }
     })
 
     return channel
+  },
+
+  async unsubscribe(channel: ReturnType<typeof supabase.channel>) {
+    try {
+      await supabase.removeChannel(channel)
+    } catch (err) {
+      console.warn('[notificaciones] No se pudo limpiar el canal realtime.', err)
+    }
   },
 }

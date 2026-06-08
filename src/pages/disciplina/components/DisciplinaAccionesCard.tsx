@@ -36,16 +36,14 @@ const ACCION_ESTADO_LABEL: Record<ActionStatus, string> = {
 function accionExecMetrics(list: AccionDiaria[]) {
   let enCurso = 0
   let cerradas = 0
-  let riesgo = 0
+  let bloqueadas = 0
   for (const a of list) {
     const done = a.estado === 'Hecho' || a.estado === 'Verificado'
+    if (a.estado === 'Bloqueado') bloqueadas++
     if (!done) enCurso++
-    else {
-      cerradas++
-      if (!a.evidencia_cargada) riesgo++
-    }
+    else cerradas++
   }
-  return { total: list.length, enCurso, cerradas, riesgo }
+  return { total: list.length, enCurso, cerradas, bloqueadas }
 }
 
 function sortForDisplay(list: AccionDiaria[]) {
@@ -117,7 +115,7 @@ function KpiChip({
 }: {
   label: string
   value: number
-  tone?: 'default' | 'amber' | 'emerald' | 'risk'
+  tone?: 'default' | 'amber' | 'emerald' | 'red'
 }) {
   return (
     <div
@@ -126,7 +124,7 @@ function KpiChip({
         tone === 'default' && 'border-border/60 bg-background/80',
         tone === 'amber' && 'border-amber-500/25 bg-amber-500/[0.07]',
         tone === 'emerald' && 'border-emerald-500/25 bg-emerald-500/[0.07]',
-        tone === 'risk' && 'border-amber-600/30 bg-amber-500/[0.1]'
+        tone === 'red' && 'border-red-500/30 bg-red-500/[0.08]'
       )}
     >
       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
@@ -135,7 +133,7 @@ function KpiChip({
           'mt-0.5 text-xl font-semibold tabular-nums leading-none tracking-tight sm:text-2xl',
           tone === 'amber' && 'text-amber-950 dark:text-amber-50',
           tone === 'emerald' && 'text-emerald-950 dark:text-emerald-50',
-          tone === 'risk' && 'text-amber-900 dark:text-amber-100',
+          tone === 'red' && 'text-red-900 dark:text-red-100',
           tone === 'default' && 'text-foreground'
         )}
       >
@@ -208,9 +206,9 @@ function GrupoMetricPills({ metrics }: { metrics: ReturnType<typeof accionExecMe
           {metrics.cerradas} cerrada{metrics.cerradas !== 1 ? 's' : ''}
         </span>
       ) : null}
-      {metrics.riesgo > 0 ? (
-        <span className="rounded-full bg-amber-600/15 px-2 py-0.5 text-[10px] font-medium text-amber-950 dark:text-amber-100">
-          {metrics.riesgo} sin evidencia
+      {metrics.bloqueadas > 0 ? (
+        <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-medium text-red-950 dark:text-red-100">
+          {metrics.bloqueadas} bloqueada{metrics.bloqueadas !== 1 ? 's' : ''}
         </span>
       ) : null}
     </div>
@@ -296,9 +294,10 @@ function GrupoAccionesLista({
 interface DisciplinaAccionesCardProps {
   fecha: string
   usuarioId: string | undefined
+  embedded?: boolean
 }
 
-export function DisciplinaAccionesCard({ fecha, usuarioId }: DisciplinaAccionesCardProps) {
+export function DisciplinaAccionesCard({ fecha, usuarioId, embedded = false }: DisciplinaAccionesCardProps) {
   const today = todayWallClockCDMX()
   const { data: acciones = [], isLoading, isError } = useAcciones(
     { fecha_creacion: fecha },
@@ -365,35 +364,44 @@ export function DisciplinaAccionesCard({ fecha, usuarioId }: DisciplinaAccionesC
   return (
     <div
       id="disciplina-acciones-card"
-      className="disciplina-acciones-card flex h-full flex-col overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm"
+      className={cn(
+        'disciplina-acciones-card flex h-full flex-col',
+        embedded
+          ? 'gap-3'
+          : 'overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm'
+      )}
     >
-      <div className="border-b border-border/50 bg-muted/20 px-3 py-3 sm:px-4 sm:py-4">
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-            Ejecución
-          </p>
-          <h3 className="mt-0.5 text-base font-semibold tracking-tight text-foreground sm:text-lg">
-            Acciones del día
-          </h3>
-          <p className="mt-0.5 text-xs capitalize text-muted-foreground sm:text-sm">{fechaLabel}</p>
+      {!embedded ? (
+        <div className="border-b border-border/50 bg-muted/20 px-3 py-3 sm:px-4 sm:py-4">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+              Ejecución
+            </p>
+            <h3 className="mt-0.5 text-base font-semibold tracking-tight text-foreground sm:text-lg">
+              Acciones del día
+            </h3>
+            <p className="mt-0.5 text-xs capitalize text-muted-foreground sm:text-sm">{fechaLabel}</p>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Button variant="outline" size="sm" className="h-9 w-full rounded-lg px-2 text-xs sm:text-sm" asChild>
+              <Link to={ROUTES.DASHBOARD}>
+                <LayoutDashboard className="mr-1 h-3.5 w-3.5 shrink-0" />
+                Tablero
+              </Link>
+            </Button>
+            <Button size="sm" className="h-9 w-full rounded-lg px-2 text-xs shadow-sm sm:text-sm" asChild>
+              <Link to={`${ROUTES.KANBAN}?fecha=${encodeURIComponent(fecha)}`}>
+                <Columns3 className="mr-1 h-3.5 w-3.5 shrink-0" />
+                Kanban
+              </Link>
+            </Button>
+          </div>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <Button variant="outline" size="sm" className="h-9 w-full rounded-lg px-2 text-xs sm:text-sm" asChild>
-            <Link to={ROUTES.DASHBOARD}>
-              <LayoutDashboard className="mr-1 h-3.5 w-3.5 shrink-0" />
-              Tablero
-            </Link>
-          </Button>
-          <Button size="sm" className="h-9 w-full rounded-lg px-2 text-xs shadow-sm sm:text-sm" asChild>
-            <Link to={`${ROUTES.KANBAN}?fecha=${encodeURIComponent(fecha)}`}>
-              <Columns3 className="mr-1 h-3.5 w-3.5 shrink-0" />
-              Kanban
-            </Link>
-          </Button>
-        </div>
-      </div>
+      ) : (
+        <p className="text-xs capitalize text-muted-foreground">{fechaLabel}</p>
+      )}
 
-      <div className="flex flex-1 flex-col gap-3 p-3 sm:gap-4 sm:p-4">
+      <div className={cn('flex flex-1 flex-col gap-3', !embedded && 'p-3 sm:gap-4 sm:p-4')}>
         {isError ? (
           <p className="text-sm text-destructive">No se pudieron cargar las acciones.</p>
         ) : isLoading ? (
@@ -409,35 +417,37 @@ export function DisciplinaAccionesCard({ fecha, usuarioId }: DisciplinaAccionesC
                 <KpiChip label="En curso" value={exec.enCurso} tone="amber" />
                 <KpiChip label="Cerradas" value={exec.cerradas} tone="emerald" />
                 <KpiChip
-                  label="Riesgo"
-                  value={exec.riesgo}
-                  tone={exec.riesgo > 0 ? 'risk' : 'default'}
+                  label="Bloqueadas"
+                  value={exec.bloqueadas}
+                  tone={exec.bloqueadas > 0 ? 'red' : 'default'}
                 />
               </div>
             </div>
 
-            {exec.riesgo > 0 ? (
+            {exec.bloqueadas > 0 ? (
               <div
                 role="status"
-                className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-xs text-amber-950 dark:text-amber-100 sm:px-3 sm:py-2.5 sm:text-sm"
+                className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-2 text-xs text-red-950 dark:text-red-100 sm:px-3 sm:py-2.5 sm:text-sm"
               >
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" aria-hidden />
                 <p>
                   <span className="font-semibold">
-                    {exec.riesgo} sin evidencia
+                    {exec.bloqueadas} bloqueada{exec.bloqueadas !== 1 ? 's' : ''}
                   </span>
-                  <span className="hidden sm:inline"> — adjunta respaldo en el Kanban.</span>
+                  <span className="hidden sm:inline"> — revisa el impedimento en el Kanban.</span>
                 </p>
               </div>
             ) : null}
 
-            <div className="flex flex-1 flex-col rounded-lg border border-border/50 bg-muted/15 p-2.5 sm:rounded-xl sm:p-3">
+            <div className="flex flex-1 flex-col rounded-lg border border-border/50 bg-muted/15 p-2 sm:rounded-xl sm:p-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-1">
                   <h4 className="truncate text-sm font-semibold text-foreground">Tus acciones</h4>
                   <TusAccionesVisiblesInfoHint />
                 </div>
-                <p className="shrink-0 text-[10px] text-muted-foreground sm:text-xs">Toca para abrir</p>
+                <p className="hidden shrink-0 text-[10px] text-muted-foreground min-[400px]:inline sm:text-xs">
+                  Toca para abrir
+                </p>
               </div>
 
               {loadingComments ? (

@@ -21,10 +21,11 @@ function invalidateKpiCatalogQueries(qc: QueryClient): void {
   qc.invalidateQueries({ queryKey: kpiQueryKeys.catalogKpis })
 }
 
-export function useKpis(filter: CatalogFilter = {}) {
+export function useKpis(filter: CatalogFilter = {}, options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: [...KEY, serializeKpiFilter(filter)],
     queryFn: () => catalogKpisService.list(filter),
+    enabled: options.enabled ?? true,
     staleTime: KPI_STALE_TIME_LIST_MS,
   })
 }

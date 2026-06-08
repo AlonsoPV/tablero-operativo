@@ -21,6 +21,7 @@ import {
 } from '../hooks/useAccionCheckpointMutations'
 import { AccionChecklistProgress } from './AccionChecklistProgress'
 import { cn } from '@/lib/utils'
+import { InfoHint } from '@/components/InfoHint'
 
 const MAX_LEN = 400
 const MIN_LEN = 3
@@ -172,7 +173,13 @@ export function AccionChecklistManage({
           <ListChecks className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1 space-y-1">
-          <h4 className="text-sm font-semibold leading-tight">Checklist de validación</h4>
+          <div className="flex items-center gap-1.5">
+            <h4 className="text-sm font-semibold leading-tight">Checklist de validación</h4>
+            <InfoHint
+              text={`Guarda al salir del campo (mín. ${MIN_LEN} caracteres). Flechas: reordenar · papelera: eliminar.`}
+              className="h-6 w-6"
+            />
+          </div>
           <p className="text-xs leading-relaxed text-muted-foreground">
             Marca cada ítem al cumplirse. Los textos ya validados no se editan (trazabilidad). Reordena o elimina solo
             ítems pendientes.
@@ -272,16 +279,11 @@ export function AccionChecklistManage({
                                   disabled={busy}
                                   maxLength={MAX_LEN}
                                   className="font-medium"
-                                  aria-describedby={`cp-hint-${c.id}`}
                                   onBlur={(e) => void saveTexto(c, e.target.value)}
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                                   }}
                                 />
-                                <p id={`cp-hint-${c.id}`} className="text-[11px] text-muted-foreground">
-                                  Guarda al salir del campo (mín. {MIN_LEN} caracteres). Flechas: reordenar · papelera:
-                                  eliminar.
-                                </p>
                               </>
                             )}
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">

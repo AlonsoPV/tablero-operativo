@@ -13,6 +13,7 @@ import {
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
   CircleDot,
   LifeBuoy,
   MessageSquare,
@@ -427,18 +428,54 @@ function FormSection({
   description,
   children,
   className,
+  collapsible,
+  expanded = true,
+  onToggle,
 }: {
   title: string
   description?: string
   children: ReactNode
   className?: string
+  collapsible?: boolean
+  expanded?: boolean
+  onToggle?: () => void
 }) {
+  const header = (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        {collapsible ? (
+          <ChevronDown
+            className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-180')}
+            aria-hidden
+          />
+        ) : null}
+      </div>
+      {description && (!collapsible || expanded) ? (
+        <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
+      ) : null}
+    </div>
+  )
+
+  if (collapsible) {
+    return (
+      <section className={cn('space-y-4', className)}>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex w-full rounded-md text-left transition-colors hover:bg-muted/30"
+          aria-expanded={expanded}
+        >
+          {header}
+        </button>
+        {expanded ? children : null}
+      </section>
+    )
+  }
+
   return (
     <section className={cn('space-y-4', className)}>
-      <div className="space-y-1">
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-        {description ? <p className="text-xs leading-relaxed text-muted-foreground">{description}</p> : null}
-      </div>
+      {header}
       {children}
     </section>
   )
@@ -483,9 +520,13 @@ function TicketDialog({
     resultado_esperado: '',
     resultado_actual: '',
   })
+  const [technicalDetailExpanded, setTechnicalDetailExpanded] = useState(false)
 
   useEffect(() => {
     if (!open) return
+    const pasos = ticket?.pasos_reproduccion ?? ''
+    const esperado = ticket?.resultado_esperado ?? ''
+    const actual = ticket?.resultado_actual ?? ''
     setForm({
       titulo: ticket?.titulo ?? '',
       descripcion: ticket?.descripcion ?? '',
@@ -494,10 +535,11 @@ function TicketDialog({
       prioridad: ticket?.prioridad ?? priorityOptions[1]?.value ?? 'media',
       impacto: ticket?.impacto ?? impactOptions[0]?.value ?? 'individual',
       status: ticket?.status ?? 'Nuevo',
-      pasos_reproduccion: ticket?.pasos_reproduccion ?? '',
-      resultado_esperado: ticket?.resultado_esperado ?? '',
-      resultado_actual: ticket?.resultado_actual ?? '',
+      pasos_reproduccion: pasos,
+      resultado_esperado: esperado,
+      resultado_actual: actual,
     })
+    setTechnicalDetailExpanded(Boolean(ticket && (pasos || esperado || actual)))
   }, [impactOptions, moduleOptions, open, priorityOptions, ticket, typeOptions])
 
   const setField = (key: keyof typeof form, value: string) => setForm((prev) => ({ ...prev, [key]: value }))
@@ -684,6 +726,9 @@ function TicketDialog({
                   : 'Opcional. Agrega pasos o resultados si aportan contexto extra.'
               }
               className="border-t border-border/60 pt-6"
+              collapsible
+              expanded={technicalDetailExpanded}
+              onToggle={() => setTechnicalDetailExpanded((prev) => !prev)}
             >
               <div className="grid gap-4">
                 <Field

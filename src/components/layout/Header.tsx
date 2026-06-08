@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Menu, User, LogOut, Settings, MapPinned } from 'lucide-react'
+import { Menu, User, LogOut, Settings, MapPinned, Trophy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -12,6 +12,7 @@ import { useAppStore } from '@/store'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { canAccessRouteByRole } from '@/features/auth/lib/permissions'
 import { NotificationHeaderButton } from '@/features/notifications'
+import { useActionGamificationScore } from '@/features/disciplina/hooks/useActionGamificationScore'
 import { hasPlanAccionAccess } from '@/features/plan-accion/lib/planAccionAccess'
 import { APP_NAME, ROUTES } from '@/constants'
 import { cn } from '@/lib/utils'
@@ -22,6 +23,7 @@ export function Header() {
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const resetOnLogout = useAppStore((s) => s.resetOnLogout)
   const { profile, logout } = useAuth()
+  const { metrics: gamificationMetrics, isLoading: gamificationLoading } = useActionGamificationScore(profile?.id)
   const showPlanAccion = hasPlanAccionAccess(profile)
   const showNotifications = canAccessRouteByRole(profile?.rol, ROUTES.NOTIFICACIONES)
 
@@ -73,6 +75,16 @@ export function Header() {
                   <span className="hidden max-w-[120px] truncate sm:inline">
                     {profile.nombre}
                   </span>
+                  <span
+                    className={cn(
+                      'hidden items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold tabular-nums sm:inline-flex',
+                      scoreChipClass(gamificationMetrics.totalPoints)
+                    )}
+                    title="Score de disciplina operativa"
+                  >
+                    <Trophy className="h-3 w-3" aria-hidden />
+                    {gamificationLoading ? '...' : `${formatSignedPoints(gamificationMetrics.totalPoints)} pts`}
+                  </span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
@@ -114,4 +126,16 @@ export function Header() {
       </div>
     </header>
   )
+}
+
+function formatSignedPoints(value: number) {
+  if (value > 0) return `+${value}`
+  return String(value)
+}
+
+function scoreChipClass(points: number) {
+  if (points >= 70) return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'
+  if (points > 0) return 'border-amber-500/30 bg-amber-500/10 text-amber-700'
+  if (points < 0) return 'border-destructive/30 bg-destructive/10 text-destructive'
+  return 'border-border bg-muted/40 text-muted-foreground'
 }

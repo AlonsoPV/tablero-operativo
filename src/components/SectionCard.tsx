@@ -55,7 +55,9 @@ export function SectionCardHeader({
           <h2 id={titleId} className="text-[15px] font-semibold leading-snug text-foreground sm:text-base">
             {title}
           </h2>
-          {subtitle ? <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p> : null}
+          {subtitle ? (
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground sm:text-sm">{subtitle}</p>
+          ) : null}
         </div>
       </div>
       {action ? (

@@ -8,11 +8,12 @@ import {
   academyGlobalProgressPercent,
   countAcademyModuleBuckets,
 } from '@/features/academy/utils/academyProgress'
+import { cn } from '@/lib/utils'
 
 /**
  * Bloque compacto de Academia en Disciplina: progreso visual + conteos; el detalle vive en /academia.
  */
-export function DisciplinaAcademyRegistro() {
+export function DisciplinaAcademyRegistro({ embedded = false }: { embedded?: boolean }) {
   const { completedCount, isLoading, isSaving, error, progress, isModuleUnlocked } = useAcademyProgress()
   const percent = academyGlobalProgressPercent(completedCount, ACADEMY_TOTAL_MODULES)
 
@@ -24,24 +25,33 @@ export function DisciplinaAcademyRegistro() {
   return (
     <div
       id="disciplina-academy-card"
-      className="disciplina-academy-card flex h-full flex-col overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm"
+      className={cn(
+        'disciplina-academy-card flex h-full flex-col',
+        embedded
+          ? 'gap-3'
+          : 'overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm'
+      )}
     >
-      <div className="border-b border-border/50 bg-muted/20 px-3 py-3 sm:px-4 sm:py-4">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 sm:h-9 sm:w-9">
-              <GraduationCap className="h-4 w-4 text-primary sm:h-5 sm:w-5" aria-hidden />
+      {!embedded ? (
+        <div className="border-b border-border/50 bg-muted/20 px-3 py-3 sm:px-4 sm:py-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 sm:h-9 sm:w-9">
+                <GraduationCap className="h-4 w-4 text-primary sm:h-5 sm:w-5" aria-hidden />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Formación</p>
+                <h3 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">Academia O2C</h3>
+              </div>
             </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Formación</p>
-              <h3 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">Academia O2C</h3>
-            </div>
+            {isSaving ? <span className="shrink-0 text-[10px] text-muted-foreground">Guardando…</span> : null}
           </div>
-          {isSaving ? <span className="shrink-0 text-[10px] text-muted-foreground">Guardando…</span> : null}
         </div>
-      </div>
+      ) : isSaving ? (
+        <p className="text-[10px] text-muted-foreground">Guardando progreso…</p>
+      ) : null}
 
-      <div className="flex flex-1 flex-col gap-3 p-3 sm:gap-4 sm:p-4">
+      <div className={cn('flex flex-1 flex-col gap-3', !embedded && 'p-3 sm:gap-4 sm:p-4')}>
         {error ? (
           <p className="text-sm text-destructive">{error}</p>
         ) : isLoading ? (

@@ -56,3 +56,13 @@ export function inferDescripcionModo(tri: {
   if (q.length > 0 || p.length > 0) return 'estructurada'
   return 'simple'
 }
+
+/** Texto unificado para el campo único de descripción en el formulario. */
+export function flattenDescripcionForForm(text: string): string {
+  const tri = parseDescripcionTriada(text)
+  const parts = [tri.descripcion_como, tri.descripcion_quiero, tri.descripcion_para_que]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part, index, list) => list.indexOf(part) === index)
+  return parts.join('\n\n')
+}

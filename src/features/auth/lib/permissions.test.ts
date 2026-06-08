@@ -3,6 +3,7 @@ import { ROUTES } from '@/constants'
 import {
   canAccessRouteByRole,
   canManageAcademyModulesByRole,
+  getDefaultRouteByRole,
   isDirectionByRole,
   usesOperationalDashboardByRole,
 } from './permissions'
@@ -49,9 +50,11 @@ describe('role route permissions', () => {
   it('treats extended operative catalog names as operative roles', () => {
     const role = 'Operativo O2C'
 
-    expect(canAccessRouteByRole(role, ROUTES.DASHBOARD)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.DASHBOARD)).toBe(false)
+    expect(canAccessRouteByRole(role, ROUTES.KANBAN)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_USERS)).toBe(false)
     expect(usesOperationalDashboardByRole(role)).toBe(true)
+    expect(getDefaultRouteByRole(role)).toBe(ROUTES.KANBAN)
   })
 
   it('keeps executive roles on the executive dashboard experience', () => {

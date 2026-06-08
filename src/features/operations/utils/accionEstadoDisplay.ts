@@ -1,5 +1,5 @@
 import type { AccionDiaria, ActionStatus } from '@/types'
-import { isEnRetraso } from './accionUtils'
+import { getAccionKanbanColumn } from './accionUtils'
 
 /** Etiquetas legibles de estado (mismo criterio que kanban y tablero de control). */
 export const ACCION_ESTADO_LABELS: Record<ActionStatus, string> = {
@@ -14,7 +14,7 @@ export const ACCION_ESTADO_LABELS: Record<ActionStatus, string> = {
 
 /** Estado visible: incluye «Retraso» calculado cuando aplica la fecha límite. */
 export function getAccionDisplayEstado(accion: AccionDiaria): ActionStatus {
-  return isEnRetraso(accion) ? 'Retraso' : accion.estado
+  return getAccionKanbanColumn(accion)
 }
 
 export function accionEstadoLabel(estado: ActionStatus): string {

@@ -119,7 +119,7 @@ function accionTitulo(accion: AccionDiaria): string {
 }
 
 function accionEstadoSortValue(accion: AccionDiaria): number {
-  const key = isEnRetraso(accion) ? 'Retraso' : accion.estado
+  const key = getAccionDisplayEstado(accion)
   return ESTADO_SORT_ORDER[key] ?? 99
 }
 
@@ -583,7 +583,7 @@ export function AccionesControlTable({
         </TableHeader>
         <TableBody>
           {accionesOrdenadas.map((accion) => {
-            const displayStatus = isEnRetraso(accion) ? 'Retraso' : accion.estado
+            const displayStatus = getAccionDisplayEstado(accion)
             const rowBorder = ESTADO_ROW_BORDER[displayStatus] ?? ''
             const prioridadClass = PRIORIDAD_BADGE[accion.prioridad] ?? PRIORIDAD_BADGE.P2_Media
             const checklistProg = checklistProgressByAccionId[accion.id]
@@ -609,11 +609,11 @@ export function AccionesControlTable({
                 <TableCell className="py-3 align-middle">
                   <Badge
                     variant={
-                      isEnRetraso(accion)
+                      displayStatus === 'Retraso'
                         ? 'destructive'
-                        : accion.estado === 'Bloqueado'
+                        : displayStatus === 'Bloqueado'
                           ? 'destructive'
-                          : accion.estado === 'Hecho' || accion.estado === 'Verificado'
+                          : displayStatus === 'Hecho' || displayStatus === 'Verificado'
                             ? 'default'
                             : 'secondary'
                     }
@@ -694,10 +694,10 @@ export function AccionesControlTable({
                         <FileCheck className="h-4 w-4" />
                       </span>
                     )}
-                    {!isEnRetraso(accion) &&
-                      accion.estado !== 'Hecho' &&
-                      accion.estado !== 'Verificado' &&
-                      accion.estado !== 'Bloqueado' && (
+                    {displayStatus !== 'Retraso' &&
+                      displayStatus !== 'Hecho' &&
+                      displayStatus !== 'Verificado' &&
+                      displayStatus !== 'Bloqueado' && (
                         <span title="Pendiente de cierre" className="text-muted-foreground">
                           <Clock className="h-4 w-4" />
                         </span>

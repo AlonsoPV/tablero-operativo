@@ -8,15 +8,12 @@ import { gapActionsLogService } from '@/services/gapActionsLog.service'
 import { listGapIdsForAccion } from '@/services/accionLinks.service'
 import { usuariosService } from '@/services/usuarios.service'
 import { assertAccionEstadoTransition } from '@/services/accionEstadoValidation.service'
+import {
+  getAutoEstadoPorFechaCompromiso,
+  isEnRetraso,
+} from '@/features/operations/utils/accionUtils'
 import type { AccionDiaria, ActionStatus } from '@/types'
 import type { TipoAccion } from '@/features/operations/utils/tipoAccionConfig'
-
-function isEnRetraso(a: AccionDiaria): boolean {
-  if (a.estado === 'Hecho' || a.estado === 'Verificado') return false
-  const hora = a.hora_limite?.slice(0, 5) ?? '23:59'
-  const limite = new Date(`${a.fecha}T${hora}:00`)
-  return limite.getTime() < Date.now()
-}
 
 const TABLE = 'acciones_diarias'
 
@@ -98,6 +95,32 @@ export interface AccionesFilter {
   search?: string
 }
 
+async function syncEstadosPorFechaCompromiso(list: AccionDiaria[]): Promise<AccionDiaria[]> {
+  const changes = list.flatMap((accion) => {
+    const next = getAutoEstadoPorFechaCompromiso(accion)
+    return next && next !== accion.estado ? [{ accion, next }] : []
+  })
+  if (changes.length === 0) return list
+
+  const updates = await Promise.all(
+    changes.map(({ accion, next }) =>
+      supabase.from(TABLE).update({ estado: next }).eq('id', accion.id)
+    )
+  )
+
+  const failed = updates.find((result) => result.error)
+  if (failed?.error) {
+    console.error('[acciones] syncEstadosPorFechaCompromiso:', failed.error)
+    return list
+  }
+
+  const nextById = new Map(changes.map(({ accion, next }) => [accion.id, next]))
+  return list.map((accion) => {
+    const next = nextById.get(accion.id)
+    return next ? { ...accion, estado: next } : accion
+  })
+}
+
 function normalizeAccionPayload(payload: Partial<AccionDiaria>): Partial<AccionDiaria> {
   const next: Partial<AccionDiaria> = { ...payload }
   if (next.tipo_accion == null) next.tipo_accion = 'operativa'
@@ -121,7 +144,7 @@ export const accionesService = {
       .eq('fecha', fecha)
       .order('hora_limite', { ascending: true })
     if (error) throw error
-    return (data ?? []) as AccionDiaria[]
+    return syncEstadosPorFechaCompromiso((data ?? []) as AccionDiaria[])
   },
 
   async list(filter: AccionesFilter = {}) {
@@ -186,7 +209,7 @@ export const accionesService = {
           (a.evidencia_esperada?.toLowerCase().includes(term) ?? false)
       )
     }
-    return list
+    return syncEstadosPorFechaCompromiso(list)
   },
 
   async getById(id: string) {
@@ -273,7 +296,12 @@ export const accionesService = {
       .select()
       .maybeSingle()
     if (error) throw error
-    const updated = (data ?? (prev ? { ...prev, ...cleanPayload } : { id, ...cleanPayload })) as AccionDiaria
+    if (!data) {
+      throw new Error(
+        'No se pudo actualizar la acción. Verifica que seas responsable, creador o administrador.'
+      )
+    }
+    const updated = data as AccionDiaria
 
     if (prev && nextEstado !== undefined) {
       await maybeInsertGapActionLog(prev, updated)

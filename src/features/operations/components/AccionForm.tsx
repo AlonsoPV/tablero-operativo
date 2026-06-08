@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Controller, useForm, type FieldErrors, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -27,8 +26,9 @@ import { useKpis } from '@/features/catalogs/hooks/useKpis'
 import { useDropdownOptionsByKey } from '@/features/catalogs/hooks/useDropdownOptions'
 import { useGaps } from '@/features/kpi/hooks/useGaps'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { isAnalystByRole } from '@/features/auth/lib/permissions'
+import { isAnalystByRole, isDirectionByRole } from '@/features/auth/lib/permissions'
 import { cn } from '@/lib/utils'
+import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { STORY_POINTS_OPTIONS } from '../utils/tipoAccionConfig'
 import { DEFAULT_PRIORITY_NOMBRE, priorityDisplayLabel } from '../utils/priorityLabels'
 import type { Priority } from '@/features/catalogs/types/catalogs.types'
@@ -166,18 +166,21 @@ export function AccionForm({
     isError: prioritiesError,
     refetch: retryPriorities,
   } = usePriorities({ activo: true })
+  const { data: currentUser } = useCurrentUser()
+  const isAnalyst = isAnalystByRole(currentUser?.rol)
+  const canViewO2cImpactFields = !isAnalyst && !isDirectionByRole(currentUser?.rol)
   const {
     data: gaps = [],
     isLoading: gapsLoading,
     isError: gapsError,
     refetch: retryGaps,
-  } = useGaps({ filters: { activo: true } })
+  } = useGaps({ filters: { activo: true }, enabled: canViewO2cImpactFields })
   const {
     data: catalogKpis = [],
     isLoading: kpisLoading,
     isError: kpisError,
     refetch: retryKpis,
-  } = useKpis({ activo: true })
+  } = useKpis({ activo: true }, { enabled: canViewO2cImpactFields })
   const {
     data: evidenciaOpciones = [],
     isLoading: evidenciaLoading,
@@ -185,18 +188,9 @@ export function AccionForm({
     isError: evidenciaError,
     refetch: retryEvidenciaCatalog,
   } = useDropdownOptionsByKey('evidencia_esperada')
-  const { data: currentUser } = useCurrentUser()
-  const isAnalyst = isAnalystByRole(currentUser?.rol)
   const isEditProtectedReadonly = isEdit || readonlyStrategicFields || (isEdit && isAnalyst)
-  const showStrategicImpactFields = !isAnalyst || isEdit
 
   const [evidenciaSelect, setEvidenciaSelect] = useState<string>('__none__')
-  const [descStructured, setDescStructured] = useState<boolean>(() => {
-    if (defaultValues?.descripcion_modo === 'estructurada') return true
-    const q = defaultValues?.descripcion_quiero ?? ''
-    const p = defaultValues?.descripcion_para_que ?? ''
-    return q.trim().length > 0 || p.trim().length > 0
-  })
 
   const [blocksOpen, setBlocksOpen] = useState({
     principal: true,
@@ -214,7 +208,7 @@ export function AccionForm({
       descripcion_quiero: '',
       descripcion_para_que: '',
       responsable: '',
-      fecha: new Date().toISOString().slice(0, 10),
+      fecha: todayWallClockCDMX(),
       hora_limite: '17:00',
       evidencia_esperada: '',
       prioridad: DEFAULT_PRIORITY_NOMBRE,
@@ -310,8 +304,8 @@ export function AccionForm({
   }, [prioritiesLoading, priorities.length, defaultPrioridadNombre, priorityOptions, form])
 
   useEffect(() => {
-    form.setValue('descripcion_modo', descStructured ? 'estructurada' : 'simple')
-  }, [descStructured, form])
+    form.setValue('descripcion_modo', 'simple')
+  }, [form])
 
   /** Por ahora todas las acciones nuevas/editadas en formulario son RUN (operativa). */
   useEffect(() => {
@@ -388,17 +382,6 @@ export function AccionForm({
   const readonlyKpiLabels = catalogKpiIds.map(
     (id) => kpiSearchItems.find((k) => k.id === id)?.label ?? id
   )
-  const readonlyDescription =
-    descStructured
-      ? [
-          form.watch('descripcion_como') ? `Como: ${form.watch('descripcion_como')}` : null,
-          form.watch('descripcion_quiero') ? `Quiero: ${form.watch('descripcion_quiero')}` : null,
-          form.watch('descripcion_para_que') ? `Para que: ${form.watch('descripcion_para_que')}` : null,
-        ]
-          .filter(Boolean)
-          .join('\n')
-      : (form.watch('descripcion_simple') ?? form.watch('descripcion_como') ?? '')
-
   return (
     <form
       id={fid}
@@ -556,8 +539,8 @@ export function AccionForm({
         editProtected
         collapsedSummary={
           [
-            gapIds.length ? `${gapIds.length} brecha(s)` : null,
-            catalogKpiIds.length ? `${catalogKpiIds.length} KPI` : null,
+            canViewO2cImpactFields && gapIds.length ? `${gapIds.length} brecha(s)` : null,
+            canViewO2cImpactFields && catalogKpiIds.length ? `${catalogKpiIds.length} KPI` : null,
           ]
             .filter(Boolean)
             .join(' · ') || undefined
@@ -565,8 +548,12 @@ export function AccionForm({
       >
         {isEditProtectedReadonly ? (
           <div className="grid gap-3 sm:grid-cols-2">
-            <ReadonlyList label="Brecha que atiende" values={readonlyGapLabels} />
-            <ReadonlyList label="Indicador impactado" values={readonlyKpiLabels} />
+            {canViewO2cImpactFields ? (
+              <>
+                <ReadonlyList label="Brecha que atiende" values={readonlyGapLabels} />
+                <ReadonlyList label="Indicador impactado" values={readonlyKpiLabels} />
+              </>
+            ) : null}
             <ReadonlyValue label="Story points" value={String(form.watch('story_points') ?? 0)} />
             <ReadonlyValue label="Área" value={form.watch('area')} />
           </div>
@@ -577,7 +564,7 @@ export function AccionForm({
           Todas las acciones se registran como operativa (RUN).
         */}
 
-        {showStrategicImpactFields && (
+        {canViewO2cImpactFields && (
           <>
             <AccionFormField label="Brecha que atiende" htmlFor={fieldId('gap_ids')}>
               {gapsLoading && <p className="text-xs text-muted-foreground">Cargando brechas…</p>}
@@ -703,14 +690,22 @@ export function AccionForm({
               label="Evidencia esperada"
               value={form.watch('evidencia_esperada')}
             />
-            <ReadonlyValue
-              label="Descripción"
-              value={
-                readonlyDescription ? (
-                  <span className="whitespace-pre-wrap">{readonlyDescription}</span>
-                ) : undefined
-              }
-            />
+            {isEdit ? (
+              <AccionFormField label="Descripción" htmlFor={fieldId('descripcion_simple')} required>
+                <textarea
+                  id={fieldId('descripcion_simple')}
+                  {...form.register('descripcion_simple')}
+                  placeholder="Describe la acción: qué implica, qué buscas lograr y para qué (mín. 15 caracteres)."
+                  rows={4}
+                  className={textareaBase}
+                />
+                {form.formState.errors.descripcion_simple && (
+                  <p className="text-xs text-destructive">{form.formState.errors.descripcion_simple.message}</p>
+                )}
+              </AccionFormField>
+            ) : (
+              <ReadonlyValue label="Descripción" value={form.watch('descripcion_simple')} />
+            )}
           </div>
         ) : (
         <>
@@ -759,87 +754,17 @@ export function AccionForm({
           )}
         </AccionFormField>
 
-        <AccionFormField
-          label="Descripción"
-          htmlFor={descStructured ? fieldId('descripcion_como') : fieldId('descripcion_simple')}
-        >
-          {!descStructured ? (
-            <>
-              <textarea
-                id={fieldId('descripcion_simple')}
-                {...form.register('descripcion_simple')}
-                placeholder="Qué implica la acción, en pocas líneas (mín. 15 caracteres)."
-                rows={3}
-                className={textareaBase}
-              />
-              {form.formState.errors.descripcion_simple && (
-                <p className="text-xs text-destructive">
-                  {form.formState.errors.descripcion_simple.message}
-                </p>
-              )}
-            </>
-          ) : (
-            <div className="space-y-3">
-              <AccionFormField label="¿Cómo?" htmlFor={fieldId('descripcion_como')} required>
-                <textarea
-                  id={fieldId('descripcion_como')}
-                  {...form.register('descripcion_como')}
-                  rows={2}
-                  className={textareaBase}
-                />
-              </AccionFormField>
-              <AccionFormField label="¿Qué quiero lograr?" htmlFor={fieldId('descripcion_quiero')} required>
-                <textarea
-                  id={fieldId('descripcion_quiero')}
-                  {...form.register('descripcion_quiero')}
-                  rows={2}
-                  className={textareaBase}
-                />
-              </AccionFormField>
-              <AccionFormField label="¿Para qué?" htmlFor={fieldId('descripcion_para_que')} required>
-                <textarea
-                  id={fieldId('descripcion_para_que')}
-                  {...form.register('descripcion_para_que')}
-                  rows={2}
-                  className={textareaBase}
-                />
-              </AccionFormField>
-              {(form.formState.errors.descripcion_como ||
-                form.formState.errors.descripcion_quiero ||
-                form.formState.errors.descripcion_para_que) && (
-                <p className="text-xs text-destructive">
-                  {form.formState.errors.descripcion_como?.message ??
-                    form.formState.errors.descripcion_quiero?.message ??
-                    form.formState.errors.descripcion_para_que?.message}
-                </p>
-              )}
-            </div>
+        <AccionFormField label="Descripción" htmlFor={fieldId('descripcion_simple')} required>
+          <textarea
+            id={fieldId('descripcion_simple')}
+            {...form.register('descripcion_simple')}
+            placeholder="Describe la acción: qué implica, qué buscas lograr y para qué (mín. 15 caracteres)."
+            rows={4}
+            className={textareaBase}
+          />
+          {form.formState.errors.descripcion_simple && (
+            <p className="text-xs text-destructive">{form.formState.errors.descripcion_simple.message}</p>
           )}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="mt-1 h-8 px-2 text-xs text-muted-foreground"
-            onClick={() => {
-              setDescStructured((v) => {
-                const next = !v
-                if (next) {
-                  const simple = (form.getValues('descripcion_simple') ?? '').trim()
-                  if (simple && !(form.getValues('descripcion_como') ?? '').trim()) {
-                    form.setValue('descripcion_como', simple)
-                  }
-                } else {
-                  const como = (form.getValues('descripcion_como') ?? '').trim()
-                  if (como && !(form.getValues('descripcion_simple') ?? '').trim()) {
-                    form.setValue('descripcion_simple', como)
-                  }
-                }
-                return next
-              })
-            }}
-          >
-            {descStructured ? 'Usar descripción simple' : 'Usar formato estructurado'}
-          </Button>
         </AccionFormField>
 
         {validationExtras ? <div className="space-y-4 border-t border-border/50 pt-4">{validationExtras}</div> : null}

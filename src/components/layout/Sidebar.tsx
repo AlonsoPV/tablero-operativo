@@ -43,13 +43,13 @@ const navGroups: NavGroup[] = [
     items: [
       { to: ROUTES.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard },
       { to: ROUTES.KANBAN, label: 'Kanban', icon: Columns3 },
-      { to: ROUTES.TICKETS, label: 'Tickets', icon: LifeBuoy },
       { to: ROUTES.SPRINTS, label: 'Sprint Center', icon: TimerReset },
       { to: ROUTES.ACADEMIA, label: 'Academia O2C', icon: GraduationCap },
       { to: ROUTES.DISCIPLINA, label: 'Disciplina', icon: Target },
       { to: ROUTES.CALENDARIO, label: 'Calendario', icon: Calendar },
       { to: ROUTES.REPORTES, label: 'Reportes', icon: FileBarChart },
       { to: ROUTES.MANUAL, label: 'Manual', icon: BookOpen },
+      { to: ROUTES.TICKETS, label: 'Tickets', icon: LifeBuoy },
     ],
   },
   {
