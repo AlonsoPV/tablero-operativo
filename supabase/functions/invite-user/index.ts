@@ -134,16 +134,20 @@ Deno.serve(async (req) => {
     )
   }
 
-  const { error: profileUpsertError } = await adminClient.from('usuarios').upsert(
-    {
-      user_id: invitedUserId,
-      nombre,
-      rol,
-      area: area || null,
-      activo: body?.activo ?? true,
-    },
-    { onConflict: 'user_id' }
-  )
+  const { data: profile, error: profileUpsertError } = await adminClient
+    .from('usuarios')
+    .upsert(
+      {
+        user_id: invitedUserId,
+        nombre,
+        rol,
+        area: area || null,
+        activo: body?.activo ?? true,
+      },
+      { onConflict: 'user_id' }
+    )
+    .select('id, user_id, nombre, rol, area, activo, created_at, updated_at')
+    .single()
 
   if (profileUpsertError) {
     return jsonResponse(
@@ -177,5 +181,6 @@ Deno.serve(async (req) => {
       'Usuario creado y confirmado. Puede iniciar sesion con la contraseña inicial configurada por el administrador.',
     email,
     user_id: invitedUserId,
+    profile: profile ? { ...profile, email } : null,
   })
 })

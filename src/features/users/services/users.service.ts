@@ -11,7 +11,7 @@ import type { UserProfile, CreateUserInput, UpdateUserInput, UsersFilter } from 
 
 const TABLE = 'usuarios'
 
-type InviteUserResponseBody = { ok?: boolean; message?: string }
+type InviteUserResponseBody = { ok?: boolean; message?: string; profile?: UserProfile | null }
 
 /** Mensajes del API (a veces en inglés) → texto claro para quien administra usuarios. */
 function mapInviteUserFacingMessage(raw: string): string {
@@ -65,27 +65,20 @@ export const usersAdminService = {
    * Paginación: por ahora devuelve todos; estructura lista para limit/offset después.
    */
   async list(filter: UsersFilter = {}): Promise<UserProfile[]> {
-    let q = supabase
-      .from(TABLE)
-      .select('id, user_id, nombre, rol, area, activo, created_at, updated_at')
-      .order('nombre', { ascending: true })
-
-    if (filter.rol != null && filter.rol !== '') {
-      q = q.eq('rol', filter.rol)
-    }
-    if (filter.area != null && filter.area !== '') {
-      q = q.eq('area', filter.area)
-    }
-    if (filter.activo !== undefined && filter.activo !== null) {
-      q = q.eq('activo', filter.activo)
-    }
-    const { data, error } = await q
+    const { data, error } = await supabase.rpc('settings_users_list')
     if (error) throw error
 
     let list = (data ?? []) as UserProfile[]
 
-    const emails = await Promise.all(list.map((user) => this.getAuthEmail(user.user_id)))
-    list = list.map((user, index) => ({ ...user, email: emails[index] }))
+    if (filter.rol != null && filter.rol !== '') {
+      list = list.filter((u) => u.rol === filter.rol)
+    }
+    if (filter.area != null && filter.area !== '') {
+      list = list.filter((u) => u.area === filter.area)
+    }
+    if (filter.activo !== undefined && filter.activo !== null) {
+      list = list.filter((u) => u.activo === filter.activo)
+    }
 
     if (filter.search?.trim()) {
       const term = filter.search.trim().toLowerCase()
@@ -157,7 +150,7 @@ export const usersAdminService = {
    * Envía una invitación por correo. La Edge Function crea el usuario en Auth
    * y el trigger de Supabase sincroniza el perfil en public.usuarios.
    */
-  async create(input: CreateUserInput): Promise<void> {
+  async create(input: CreateUserInput): Promise<UserProfile | null> {
     const payload = {
       email: input.email.trim().toLowerCase(),
       nombre: input.nombre.trim(),
@@ -176,5 +169,6 @@ export const usersAdminService = {
     if (data && data.ok === false && typeof data.message === 'string') {
       throw new Error(mapInviteUserFacingMessage(data.message))
     }
+    return data?.profile ?? null
   },
 }
