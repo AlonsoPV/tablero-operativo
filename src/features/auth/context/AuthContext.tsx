@@ -27,8 +27,7 @@ const SESSION_BOOTSTRAP_TIMEOUT_MS = 20000
 /** Límite de espera para cargar perfil tras tener sesión válida. */
 const PROFILE_BOOTSTRAP_TIMEOUT_MS = 15000
 /** Si el listener inicial no llega, dispara un fallback controlado de bootstrap. */
-const INITIAL_AUTH_EVENT_FALLBACK_MS = 1500
-
+const INITIAL_AUTH_EVENT_FALLBACK_MS = 250
 function devLog(message: string, payload?: unknown) {
   if (!__DEV__) return
   if (payload === undefined) {
@@ -282,19 +281,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return initialBootstrapPromiseRef.current
     }
 
-    let bootstrapPromise!: Promise<LoadAuthResult>
-    bootstrapPromise = (async () => {
+    const bootstrapPromise = (async () => {
       const runId = ++bootstrapRunIdRef.current
       const useListenerSession = sessionFromListener !== undefined
+      const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
 
       let session: Session | null = null
       let user: User | null = null
 
       const commitState = (nextState: AuthState, reason: string): LoadAuthResult => {
         const result = buildResult(nextState)
+        const elapsedMs = Math.round(
+          (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
+        )
 
         if (runId !== bootstrapRunIdRef.current) {
-          devWarn('stale bootstrap ignored', { runId, latestRunId: bootstrapRunIdRef.current, reason })
+          devWarn('stale bootstrap ignored', { runId, latestRunId: bootstrapRunIdRef.current, reason, elapsedMs })
           return result
         }
 
@@ -328,6 +330,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           isAuthenticated: nextState.isAuthenticated,
           isReady: nextState.isReady,
           errorType: nextState.error?.type ?? null,
+          elapsedMs,
         })
         return result
       }
@@ -430,6 +433,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         devLog('auth session resolved', { userId: user.id })
         commitState(buildProfileLoadingState(session, user), 'session_resolved')
 
+        const profileStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
         devLog('loading profile', { userId: user.id })
 
         let profile: Awaited<ReturnType<typeof usuariosService.getByAuthId>>
@@ -463,7 +467,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return commitState(buildInactiveState(session, user, profile), 'user_inactive')
         }
 
-        devLog('profile loaded', { userId: user.id, profileId: profile.id })
+        devLog('profile loaded', {
+          userId: user.id,
+          profileId: profile.id,
+          elapsedMs: Math.round(
+            (typeof performance !== 'undefined' ? performance.now() : Date.now()) - profileStartedAt
+          ),
+        })
         return commitState(buildAuthenticatedState(session, user, profile), 'authenticated')
       } catch (err) {
         if (isInvalidRefreshTokenError(err)) {
@@ -477,12 +487,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ),
           'unexpected_error'
         )
-      } finally {
-        if (initialBootstrapPromiseRef.current === bootstrapPromise) {
-          initialBootstrapPromiseRef.current = null
-        }
       }
     })()
+
+    void bootstrapPromise.finally(() => {
+      if (initialBootstrapPromiseRef.current === bootstrapPromise) {
+        initialBootstrapPromiseRef.current = null
+      }
+    })
 
     if (isInitialBootstrap) {
       initialBootstrapPromiseRef.current = bootstrapPromise

@@ -12,7 +12,7 @@ type Props = {
 export function NotificationHeaderButton({ userId }: Props) {
   const location = useLocation()
   useDueCalendarReminderNotifications(userId)
-  const { data: notifications = [] } = useNotifications(userId, { leido: false })
+  const { data: notifications = [] } = useNotifications(userId, { leido: false, subscribe: false })
   const unreadCount = notifications.length
   const isActive = location.pathname === ROUTES.NOTIFICACIONES
 

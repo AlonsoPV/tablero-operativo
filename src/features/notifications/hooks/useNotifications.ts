@@ -8,7 +8,7 @@ const KEY = ['notificaciones'] as const
 export function useNotifications(usuarioId: string | undefined, options?: { leido?: boolean; subscribe?: boolean }) {
   const qc = useQueryClient()
   useEffect(() => {
-    if (!usuarioId || options?.subscribe === false) return
+    if (!usuarioId || options?.subscribe !== true) return
     const sub = notificacionesService.subscribe(usuarioId, () => {
       qc.invalidateQueries({ queryKey: KEY })
     })
@@ -23,7 +23,7 @@ export function useNotifications(usuarioId: string | undefined, options?: { leid
     enabled: !!usuarioId,
     staleTime: 30_000,
     /** Respaldo si el WebSocket de Realtime falla (firewall, proyecto sin Realtime, etc.). */
-    refetchInterval: options?.subscribe === false ? false : 45_000,
+    refetchInterval: 45_000,
   })
 }
 

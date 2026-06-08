@@ -87,11 +87,8 @@ export const notificacionesService = {
     return channel
   },
 
-  async unsubscribe(channel: ReturnType<typeof supabase.channel>) {
-    try {
-      await supabase.removeChannel(channel)
-    } catch (err) {
-      console.warn('[notificaciones] No se pudo limpiar el canal realtime.', err)
-    }
+  unsubscribe() {
+    // Supabase Realtime puede recursar al cerrar canales en algunos ciclos de limpieza.
+    // Mantener no-op mientras notificaciones usa polling evita el crash de acceso.
   },
 }

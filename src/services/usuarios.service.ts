@@ -10,6 +10,7 @@ import type { Usuario } from '@/types'
 
 const TABLE = 'usuarios'
 const __DEV__ = import.meta.env.DEV
+const PROFILE_SELECT = 'id,user_id,nombre,rol,area,activo,onboarding_completed,created_at,updated_at'
 
 function devLog(message: string, payload?: unknown) {
   if (!__DEV__) return
@@ -26,7 +27,7 @@ export const usuariosService = {
     const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
     const { data, error } = await supabase
       .from(TABLE)
-      .select('*')
+      .select(PROFILE_SELECT)
       .eq('user_id', authUserId)
       .maybeSingle()
 
