@@ -94,7 +94,7 @@ export function ProfilePage() {
       id: user.id,
       input: { nombre: input.nombre, area: input.area },
     })
-    refetchAuth()
+    await refetchAuth()
   }
 
   if (isLoading) {

@@ -136,6 +136,29 @@ Deno.serve(async (req) => {
     )
   }
 
+  const { error: profileUpsertError } = await adminClient.from('usuarios').upsert(
+    {
+      user_id: invitedUserId,
+      nombre,
+      rol,
+      area: area || null,
+      activo: body?.activo ?? true,
+      onboarding_completed: body?.onboarding_completed ?? false,
+    },
+    { onConflict: 'user_id' }
+  )
+
+  if (profileUpsertError) {
+    return jsonResponse(
+      {
+        ok: false,
+        message:
+          profileUpsertError.message || 'Usuario creado, pero no se pudo registrar su perfil',
+      },
+      500
+    )
+  }
+
   const { error: roleInsertError } = await adminClient.from('user_roles').upsert(
     { user_id: invitedUserId, app_role: 'viewer' },
     { onConflict: 'user_id' }

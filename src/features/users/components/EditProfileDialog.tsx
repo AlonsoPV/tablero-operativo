@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Button } from '@/components/ui/button'
@@ -49,7 +49,9 @@ export function EditProfileDialog({
 }: EditProfileDialogProps) {
   const { data: areas = [], isLoading: loadingAreas } = useAreas({ activo: true })
   const [nombre, setNombre] = useState(user.nombre)
+  const [nombreTouched, setNombreTouched] = useState(false)
   const [area, setArea] = useState(user.area ?? NONE_AREA)
+  const [savingProfile, setSavingProfile] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
 
   const passwordForm = useForm<ChangePasswordFormValues>({
@@ -64,9 +66,37 @@ export function EditProfileDialog({
   useEffect(() => {
     if (!open) return
     setNombre(user.nombre)
+    setNombreTouched(false)
     setArea(user.area ?? NONE_AREA)
     passwordForm.reset()
   }, [open, user.nombre, user.area, passwordForm])
+
+  const currentAreaMissing = Boolean(
+    user.area && !areas.some((catalogArea) => catalogArea.nombre === user.area)
+  )
+
+  const areaOptions = useMemo(
+    () =>
+      currentAreaMissing && user.area
+        ? [
+            {
+              id: `current-${user.area}`,
+              nombre: user.area,
+              label: `${user.area} (actual, fuera del catalogo activo)`,
+            },
+            ...areas.map((catalogArea) => ({
+              id: catalogArea.id,
+              nombre: catalogArea.nombre,
+              label: catalogArea.nombre,
+            })),
+          ]
+        : areas.map((catalogArea) => ({
+            id: catalogArea.id,
+            nombre: catalogArea.nombre,
+            label: catalogArea.nombre,
+          })),
+    [areas, currentAreaMissing, user.area]
+  )
 
   const areaValue = area === NONE_AREA ? null : area
   const profileDirty =
@@ -82,6 +112,7 @@ export function EditProfileDialog({
 
   const canSaveProfile = profileDirty && nombreValid
   const canSave = canSaveProfile || wantsPasswordChange
+  const showNombreError = !nombreValid && (nombreTouched || profileDirty)
 
   const handleOpenChange = (next: boolean) => {
     if (!next && !isSavingProfile && !savingPassword) {
@@ -91,7 +122,8 @@ export function EditProfileDialog({
   }
 
   const handleSubmit = async () => {
-    if (!nombreValid) {
+    if (profileDirty && !nombreValid) {
+      setNombreTouched(true)
       toast.error('El nombre debe tener al menos 2 caracteres')
       return
     }
@@ -100,12 +132,15 @@ export function EditProfileDialog({
     let savedPassword = false
 
     if (canSaveProfile) {
+      setSavingProfile(true)
       try {
         await onSaveProfile({ nombre: nombre.trim(), area: areaValue })
         savedProfile = true
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'No pudimos guardar el perfil')
         return
+      } finally {
+        setSavingProfile(false)
       }
     }
 
@@ -120,11 +155,14 @@ export function EditProfileDialog({
         passwordForm.reset()
         savedPassword = true
       } catch (err) {
+        if (savedProfile) {
+          toast.success('Perfil actualizado')
+        }
         toast.error(err instanceof Error ? err.message : 'No pudimos cambiar la contraseña')
-        setSavingPassword(false)
         return
+      } finally {
+        setSavingPassword(false)
       }
-      setSavingPassword(false)
     }
 
     if (savedProfile && savedPassword) {
@@ -141,7 +179,7 @@ export function EditProfileDialog({
     handleOpenChange(false)
   }
 
-  const isBusy = isSavingProfile || savingPassword
+  const isBusy = isSavingProfile || savingProfile || savingPassword
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -165,10 +203,15 @@ export function EditProfileDialog({
                 id="edit-profile-nombre"
                 value={nombre}
                 onChange={(e) => setNombre(e.target.value)}
+                onBlur={() => setNombreTouched(true)}
                 placeholder="Tu nombre"
                 autoComplete="name"
                 disabled={isBusy}
+                aria-invalid={showNombreError}
               />
+              {showNombreError ? (
+                <p className="text-sm text-destructive">El nombre debe tener al menos 2 caracteres.</p>
+              ) : null}
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-profile-area">Área</Label>
@@ -178,14 +221,18 @@ export function EditProfileDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NONE_AREA}>Sin área</SelectItem>
-                  {areas.map((a) => (
+                  {areaOptions.map((a) => (
                     <SelectItem key={a.id} value={a.nombre}>
-                      {a.nombre}
+                      {a.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">Catálogo de áreas de la organización.</p>
+              <p className="text-xs text-muted-foreground">
+                {currentAreaMissing
+                  ? 'Tu area actual se conserva aunque no este activa en el catalogo.'
+                  : 'Catalogo de areas de la organizacion.'}
+              </p>
             </div>
           </section>
 
@@ -254,7 +301,7 @@ export function EditProfileDialog({
           <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={isBusy}>
             Cancelar
           </Button>
-          <Button type="button" onClick={() => void handleSubmit()} disabled={!canSave || isBusy || !nombreValid}>
+          <Button type="button" onClick={() => void handleSubmit()} disabled={!canSave || isBusy}>
             {isBusy ? 'Guardando…' : 'Guardar cambios'}
           </Button>
         </DialogFooter>

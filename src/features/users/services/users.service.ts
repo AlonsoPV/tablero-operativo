@@ -2,7 +2,7 @@
  * Servicio de administración de usuarios (tabla usuarios).
  * Gestiona perfiles; no maneja contraseñas (auth.users).
  *
- * Alta: `create` → Edge Function `invite-user` (service role en servidor) → `auth.admin.inviteUserByEmail`
+ * Alta: `create` → Edge Function `invite-user` (service role) → `auth.admin.createUser`
  * + trigger `handle_new_user` → fila en `public.usuarios`. Contraseñas solo en Supabase Auth.
  */
 

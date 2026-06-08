@@ -86,7 +86,7 @@ export function UsersPage() {
         {
           onSuccess: () => {
             toast.success(
-              `Invitación enviada a ${email}. Esa persona recibirá un correo para elegir contraseña y entrar.`
+              `Usuario creado y confirmado: ${email}. Puede iniciar sesion con la contrasena inicial configurada.`
             )
             setFormOpen(false)
             setEditingUser(null)

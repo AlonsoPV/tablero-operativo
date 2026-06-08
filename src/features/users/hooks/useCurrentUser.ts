@@ -16,8 +16,8 @@ export function useCurrentUser() {
   return useQuery({
     queryKey: [...QUERY_KEY, authUserId],
     queryFn: () => usuariosService.getByAuthId(authUserId!),
-    enabled: Boolean(authUserId && isAuthenticated && status === 'authenticated' && !currentProfile),
+    enabled: Boolean(authUserId && isAuthenticated && status === 'authenticated'),
     initialData: currentProfile ?? undefined,
-    staleTime: currentProfile ? Infinity : 60 * 1000,
+    staleTime: 60 * 1000,
   })
 }
