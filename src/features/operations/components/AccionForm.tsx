@@ -37,6 +37,7 @@ import { AccionFormBlock } from './form/AccionFormBlock'
 import { CatalogSearchMultiSelect } from './form/CatalogSearchMultiSelect'
 import { EvidenceOptionPicker } from './form/EvidenceOptionPicker'
 import { CatalogLoadError } from './form/CatalogLoadError'
+import { StoryPointsHelper } from './form/StoryPointsHelper'
 import {
   CalendarClock,
   FileCheck,
@@ -231,6 +232,7 @@ export function AccionForm({
 
   const watchedGapIds = form.watch('gap_ids')
   const watchedCatalogKpiIds = form.watch('catalog_kpi_ids')
+  const selectedStoryPoints = form.watch('story_points') ?? 0
   const gapIds = useMemo(() => watchedGapIds ?? [], [watchedGapIds])
   const catalogKpiIds = useMemo(() => watchedCatalogKpiIds ?? [], [watchedCatalogKpiIds])
   const prioridadSeleccionada = form.watch('prioridad')
@@ -554,7 +556,10 @@ export function AccionForm({
                 <ReadonlyList label="Indicador impactado" values={readonlyKpiLabels} />
               </>
             ) : null}
-            <ReadonlyValue label="Story points" value={String(form.watch('story_points') ?? 0)} />
+            <div className="space-y-2 sm:col-span-2">
+              <ReadonlyValue label="Story points" value={String(selectedStoryPoints)} />
+              <StoryPointsHelper points={selectedStoryPoints} />
+            </div>
             <ReadonlyValue label="Área" value={form.watch('area')} />
           </div>
         ) : (
@@ -612,7 +617,7 @@ export function AccionForm({
 
         <AccionFormField
           label="Story points"
-          hint="Escala Fibonacci; 0 si no aplica."
+          hint="Estima el esfuerzo relativo de la acción. Elige 0 si no aplica."
           hintAsIcon
         >
           <Controller
@@ -625,6 +630,7 @@ export function AccionForm({
                     key={pts}
                     type="button"
                     disabled={isEditProtectedReadonly}
+                    aria-pressed={(field.value ?? 0) === pts}
                     onClick={() => field.onChange(pts)}
                     className={cn(
                       'h-10 min-w-10 shrink-0 rounded-lg border px-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:min-w-9',
@@ -639,6 +645,7 @@ export function AccionForm({
               </div>
             )}
           />
+          <StoryPointsHelper points={selectedStoryPoints} />
           {form.formState.errors.story_points && (
             <p className="text-xs text-destructive">{form.formState.errors.story_points.message}</p>
           )}
