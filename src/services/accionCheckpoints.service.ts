@@ -13,6 +13,7 @@ export type AccionCheckpointInsert = {
   texto: string
   orden: number
   obligatorio?: boolean
+  created_by?: string | null
 }
 
 function normalizeCheckpointError(error: unknown): Error {
@@ -124,6 +125,7 @@ export const accionCheckpointsService = {
         texto: row.texto.trim(),
         orden: row.orden,
         obligatorio: row.obligatorio ?? true,
+        created_by: row.created_by ?? null,
         activo: true,
         completado: false,
       })
@@ -133,13 +135,18 @@ export const accionCheckpointsService = {
     return data as AccionCheckpoint
   },
 
-  async insertMany(accionId: string, rows: Omit<AccionCheckpointInsert, 'accion_id'>[]): Promise<void> {
+  async insertMany(
+    accionId: string,
+    rows: Omit<AccionCheckpointInsert, 'accion_id'>[],
+    createdByUsuarioId?: string | null
+  ): Promise<void> {
     if (rows.length === 0) return
     const payload = rows.map((r, i) => ({
       accion_id: accionId,
       texto: r.texto.trim(),
       orden: r.orden ?? i,
       obligatorio: r.obligatorio ?? true,
+      created_by: r.created_by ?? createdByUsuarioId ?? null,
       activo: true,
       completado: false,
     }))

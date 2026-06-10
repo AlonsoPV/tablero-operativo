@@ -47,6 +47,9 @@ export interface AccionChecklistManageProps {
   currentUsuarioId: string | null
   disabled?: boolean
   readOnly?: boolean
+  canEditStructure?: boolean
+  canAddPoint?: boolean
+  canToggle?: boolean
   /** Nombres para mostrar auditoría de `checked_by` (mismo mapa que responsables del diálogo). */
   responsableNames?: Record<string, string>
 }
@@ -56,6 +59,9 @@ export function AccionChecklistManage({
   currentUsuarioId,
   disabled,
   readOnly = false,
+  canEditStructure,
+  canAddPoint,
+  canToggle,
   responsableNames = {},
 }: AccionChecklistManageProps) {
   const { data: checkpoints = [], isLoading } = useAccionCheckpoints(accionId)
@@ -76,6 +82,9 @@ export function AccionChecklistManage({
   const pendientes = total - completados
 
   const maxOrden = sorted.length ? Math.max(...sorted.map((c) => c.orden)) : -1
+  const mayEditStructure = !readOnly && (canEditStructure ?? true)
+  const mayAddPoint = !readOnly && (canAddPoint ?? mayEditStructure)
+  const mayToggle = !readOnly && (canToggle ?? true)
 
   const addPoint = useCallback(async () => {
     const t = draft.trim()
@@ -95,13 +104,14 @@ export function AccionChecklistManage({
         texto: t,
         orden: maxOrden + 1,
         obligatorio: true,
+        created_by: currentUsuarioId,
       })
       setDraft('')
       toast.success('Punto agregado')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'No se pudo agregar el punto')
     }
-  }, [draft, accionId, maxOrden, insertCp, sorted])
+  }, [currentUsuarioId, draft, accionId, maxOrden, insertCp, sorted])
 
   const removePoint = async (c: AccionCheckpoint) => {
     if (c.completado) {
@@ -158,13 +168,12 @@ export function AccionChecklistManage({
     }
   }
 
-  const busy =
+  const structureBusy =
     disabled ||
-    readOnly ||
     insertCp.isPending ||
     deleteCp.isPending ||
-    updateCp.isPending ||
-    toggleCp.isPending
+    updateCp.isPending
+  const toggleBusy = disabled || toggleCp.isPending
 
   return (
     <Card className="border-border/60 bg-muted/5 shadow-none">
@@ -192,7 +201,13 @@ export function AccionChecklistManage({
         ) : (
           <>
             <AccionChecklistProgress completados={completados} total={total} />
-            {readOnly && (
+            {!mayEditStructure && (mayAddPoint || mayToggle) && (
+              <p className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-xs leading-snug text-muted-foreground">
+                Puedes agregar nuevos puntos y marcar validaciones. La edicion de textos, orden y eliminacion queda
+                reservada para quien creo la accion.
+              </p>
+            )}
+            {!mayEditStructure && !mayAddPoint && !mayToggle && (
               <p className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-xs leading-snug text-muted-foreground">
                 Solo la persona creadora de la acción puede editar el checklist.
               </p>
@@ -205,7 +220,7 @@ export function AccionChecklistManage({
               </p>
             )}
 
-            {!readOnly && (
+            {mayAddPoint && (
             <div className="rounded-lg border border-dashed border-border/70 bg-background/50 p-4 space-y-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                 <div className="min-w-0 flex-1 space-y-1.5">
@@ -218,7 +233,7 @@ export function AccionChecklistManage({
                     onChange={(e) => setDraft(e.target.value)}
                     placeholder="Describe qué debe validarse…"
                     maxLength={MAX_LEN}
-                    disabled={busy}
+                    disabled={structureBusy}
                     className="h-10"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
@@ -234,7 +249,7 @@ export function AccionChecklistManage({
                 <Button
                   type="button"
                   className="shrink-0 sm:min-w-[140px]"
-                  disabled={busy || draft.trim().length < MIN_LEN}
+                  disabled={structureBusy || draft.trim().length < MIN_LEN}
                   onClick={() => void addPoint()}
                 >
                   <Plus className="mr-2 h-4 w-4" />
@@ -263,20 +278,20 @@ export function AccionChecklistManage({
                           <input
                             type="checkbox"
                             checked={c.completado}
-                            disabled={busy}
+                            disabled={!mayToggle || toggleBusy}
                             onChange={(e) => void onToggle(c, e.target.checked)}
                             className="mt-1 h-4 w-4 shrink-0 rounded border-input text-primary focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
                             aria-label={c.completado ? 'Desmarcar validación' : 'Marcar como validado'}
                           />
                           <div className="min-w-0 flex-1 space-y-1.5">
-                            {c.completado ? (
+                            {c.completado || !mayEditStructure ? (
                               <p className="text-sm font-medium leading-snug text-foreground">{c.texto}</p>
                             ) : (
                               <>
                                 <Input
                                   key={`${c.id}-${c.updated_at}`}
                                   defaultValue={c.texto}
-                                  disabled={busy}
+                                  disabled={structureBusy}
                                   maxLength={MAX_LEN}
                                   className="font-medium"
                                   onBlur={(e) => void saveTexto(c, e.target.value)}
@@ -305,7 +320,7 @@ export function AccionChecklistManage({
                             </div>
                           </div>
                         </label>
-                        {!c.completado && !readOnly && (
+                        {!c.completado && mayEditStructure && (
                           <div className="flex shrink-0 items-center justify-end gap-0.5 border-t border-border/40 pt-2 sm:border-t-0 sm:pt-0 sm:pl-1">
                             <Button
                               type="button"
@@ -313,7 +328,7 @@ export function AccionChecklistManage({
                               size="icon"
                               className="h-9 w-9 text-muted-foreground hover:text-foreground"
                               aria-label="Subir en la lista"
-                              disabled={busy || index === 0}
+                              disabled={structureBusy || index === 0}
                               onClick={() => void swapOrden(c, -1)}
                             >
                               <ChevronUp className="h-4 w-4" />
@@ -324,7 +339,7 @@ export function AccionChecklistManage({
                               size="icon"
                               className="h-9 w-9 text-muted-foreground hover:text-foreground"
                               aria-label="Bajar en la lista"
-                              disabled={busy || index === sorted.length - 1}
+                              disabled={structureBusy || index === sorted.length - 1}
                               onClick={() => void swapOrden(c, 1)}
                             >
                               <ChevronDown className="h-4 w-4" />
@@ -335,7 +350,7 @@ export function AccionChecklistManage({
                               size="icon"
                               className="h-9 w-9 text-destructive hover:bg-destructive/10 hover:text-destructive"
                               aria-label="Eliminar punto pendiente"
-                              disabled={busy}
+                              disabled={structureBusy}
                               onClick={() => void removePoint(c)}
                             >
                               <Trash2 className="h-4 w-4" />

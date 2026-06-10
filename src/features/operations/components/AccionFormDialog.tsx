@@ -102,6 +102,9 @@ export function AccionFormDialog({
   const canDeleteAccion = isEdit && isSuperAdminByRole(currentUser?.rol)
   const isEditProtectedReadonly = isEdit
   const isActionCreator = !!accion?.created_by && accion.created_by === currentUser?.id
+  const isActionAssignee = !!accion?.responsable && accion.responsable === currentUser?.id
+  const canManageChecklistStructure = isActionCreator
+  const canContributeChecklist = isActionCreator || isActionAssignee
   const isMutating = createAccion.isPending || updateAccion.isPending || deleteAccion.isPending
   const canViewO2cImpactFields =
     !isAnalystByRole(currentUser?.rol) && !isDirectionByRole(currentUser?.rol)
@@ -427,7 +430,8 @@ export function AccionFormDialog({
                   texto: d.texto.trim(),
                   orden: i,
                   obligatorio: d.obligatorio,
-                }))
+                })),
+                currentUser?.id ?? null
               )
             )
           }
@@ -662,7 +666,10 @@ export function AccionFormDialog({
                 accionId={accion.id}
                 currentUsuarioId={currentUser?.id ?? null}
                 disabled={updateAccion.isPending}
-                readOnly={!isActionCreator}
+                readOnly={!canContributeChecklist && !canManageChecklistStructure}
+                canEditStructure={canManageChecklistStructure}
+                canAddPoint={canContributeChecklist}
+                canToggle={canContributeChecklist}
                 responsableNames={responsableNames}
               />
             </div>
