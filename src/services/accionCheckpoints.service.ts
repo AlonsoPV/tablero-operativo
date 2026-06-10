@@ -117,8 +117,8 @@ export const accionCheckpointsService = {
     return out
   },
 
-  async insert(row: AccionCheckpointInsert): Promise<AccionCheckpoint> {
-    const { data, error } = await supabase
+  async insert(row: AccionCheckpointInsert): Promise<void> {
+    const { error } = await supabase
       .from(TABLE)
       .insert({
         accion_id: row.accion_id,
@@ -129,10 +129,7 @@ export const accionCheckpointsService = {
         activo: true,
         completado: false,
       })
-      .select()
-      .single()
     if (error) throw normalizeCheckpointError(error)
-    return data as AccionCheckpoint
   },
 
   async insertMany(
@@ -163,15 +160,14 @@ export const accionCheckpointsService = {
   async update(
     id: string,
     patch: Partial<Pick<AccionCheckpoint, 'texto' | 'orden' | 'obligatorio'>>
-  ): Promise<AccionCheckpoint> {
+  ): Promise<void> {
     const body: Record<string, unknown> = {}
     if (patch.texto !== undefined) body.texto = String(patch.texto).trim()
     if (patch.orden !== undefined) body.orden = patch.orden
     if (patch.obligatorio !== undefined) body.obligatorio = patch.obligatorio
-    if (Object.keys(body).length === 0) return this.getById(id)
-    const { data, error } = await supabase.from(TABLE).update(body).eq('id', id).select().single()
+    if (Object.keys(body).length === 0) return
+    const { error } = await supabase.from(TABLE).update(body).eq('id', id)
     if (error) throw normalizeCheckpointError(error)
-    return data as AccionCheckpoint
   },
 
   async delete(id: string): Promise<void> {
@@ -183,18 +179,16 @@ export const accionCheckpointsService = {
     id: string,
     completado: boolean,
     checkedByUsuarioId: string | null
-  ): Promise<AccionCheckpoint> {
-    const { data, error } = await supabase
+  ): Promise<void> {
+    const checkedAt = completado ? new Date().toISOString() : null
+    const { error } = await supabase
       .from(TABLE)
       .update({
         completado,
-        checked_at: completado ? new Date().toISOString() : null,
+        checked_at: checkedAt,
         checked_by: completado ? checkedByUsuarioId : null,
       })
       .eq('id', id)
-      .select()
-      .single()
     if (error) throw normalizeCheckpointError(error)
-    return data as AccionCheckpoint
   },
 }

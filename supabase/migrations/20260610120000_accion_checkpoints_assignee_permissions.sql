@@ -12,6 +12,77 @@
 ALTER TABLE public.accion_checkpoints
   ADD COLUMN IF NOT EXISTS created_by uuid REFERENCES public.usuarios(id) ON DELETE SET NULL;
 
+CREATE OR REPLACE FUNCTION public.normalize_business_role(p_role text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT lower(
+    translate(
+      trim(coalesce(p_role, '')),
+      U&'\00E1\00E9\00ED\00F3\00FA\00FC\00F1',
+      'aeiouun'
+    )
+  );
+$$;
+
+COMMENT ON FUNCTION public.normalize_business_role(text) IS
+  'Normaliza roles de negocio para comparar sin acentos y sin espacios.';
+
+CREATE OR REPLACE FUNCTION public.has_business_role(p_role text)
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.usuarios u
+    WHERE u.user_id = auth.uid()
+      AND public.normalize_business_role(u.rol::text) = public.normalize_business_role(p_role)
+      AND u.activo = true
+  );
+$$;
+
+COMMENT ON FUNCTION public.has_business_role(text) IS
+  'Indica si el usuario autenticado tiene un rol de negocio activo en public.usuarios.';
+
+CREATE OR REPLACE FUNCTION public.is_business_admin()
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+  SELECT
+    public.has_business_role('DG')
+    OR public.has_business_role('Sistemas')
+    OR public.has_business_role('super_admin');
+$$;
+
+COMMENT ON FUNCTION public.is_business_admin() IS
+  'Indica si el usuario autenticado tiene rol de negocio con privilegios admin: DG, Sistemas o super_admin.';
+
+CREATE OR REPLACE FUNCTION public.is_accion_creator(p_accion_id uuid)
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.acciones_diarias a
+    WHERE a.id = p_accion_id
+      AND a.created_by IS NOT NULL
+      AND a.created_by = public.get_my_usuario_id()
+  );
+$$;
+
+COMMENT ON FUNCTION public.is_accion_creator(uuid) IS
+  'Indica si el usuario autenticado es la persona creadora de la accion.';
+
 UPDATE public.accion_checkpoints c
 SET created_by = a.created_by
 FROM public.acciones_diarias a
@@ -20,6 +91,56 @@ WHERE a.id = c.accion_id
 
 COMMENT ON COLUMN public.accion_checkpoints.created_by IS
   'usuarios.id que creo el punto del checklist; usado para permisos estructurales.';
+
+CREATE OR REPLACE FUNCTION public.can_contribute_accion_checklist(p_accion_id uuid)
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.acciones_diarias a
+    WHERE a.id = p_accion_id
+      AND (
+        a.responsable = public.get_my_usuario_id()
+        OR (a.created_by IS NOT NULL AND a.created_by = public.get_my_usuario_id())
+        OR public.is_app_admin()
+        OR public.is_business_admin()
+      )
+  );
+$$;
+
+COMMENT ON FUNCTION public.can_contribute_accion_checklist(uuid) IS
+  'Permite aportar al checklist: responsable, creador, admin app o admin de negocio. El trigger limita que puede cambiar cada rol.';
+
+DROP POLICY IF EXISTS accion_checkpoints_insert_creator ON public.accion_checkpoints;
+DROP POLICY IF EXISTS accion_checkpoints_update_creator ON public.accion_checkpoints;
+DROP POLICY IF EXISTS accion_checkpoints_delete_creator ON public.accion_checkpoints;
+DROP POLICY IF EXISTS accion_checkpoints_insert_manage_accion ON public.accion_checkpoints;
+DROP POLICY IF EXISTS accion_checkpoints_update_manage_accion ON public.accion_checkpoints;
+DROP POLICY IF EXISTS accion_checkpoints_delete_manage_accion ON public.accion_checkpoints;
+DROP POLICY IF EXISTS accion_checkpoints_insert_contributor ON public.accion_checkpoints;
+DROP POLICY IF EXISTS accion_checkpoints_update_contributor ON public.accion_checkpoints;
+DROP POLICY IF EXISTS accion_checkpoints_delete_creator_admin ON public.accion_checkpoints;
+
+CREATE POLICY accion_checkpoints_insert_contributor ON public.accion_checkpoints
+  FOR INSERT TO authenticated
+  WITH CHECK (public.can_contribute_accion_checklist(accion_id));
+
+CREATE POLICY accion_checkpoints_update_contributor ON public.accion_checkpoints
+  FOR UPDATE TO authenticated
+  USING (public.can_contribute_accion_checklist(accion_id))
+  WITH CHECK (public.can_contribute_accion_checklist(accion_id));
+
+CREATE POLICY accion_checkpoints_delete_creator_admin ON public.accion_checkpoints
+  FOR DELETE TO authenticated
+  USING (
+    public.is_app_admin()
+    OR public.is_business_admin()
+    OR public.is_accion_creator(accion_id)
+  );
 
 CREATE OR REPLACE FUNCTION public.accion_checkpoints_guard_assignee_permissions()
 RETURNS trigger

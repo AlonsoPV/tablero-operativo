@@ -24,8 +24,8 @@ export function useInsertAccionCheckpoint() {
   return useMutation({
     mutationFn: (input: Parameters<typeof accionCheckpointsService.insert>[0]) =>
       accionCheckpointsService.insert(input),
-    onSuccess: (row) => {
-      invalidateCheckpointQueries(qc, row.accion_id)
+    onSuccess: (_void, input) => {
+      invalidateCheckpointQueries(qc, input.accion_id)
     },
   })
 }
@@ -48,10 +48,11 @@ export function useUpdateAccionCheckpoint() {
       patch,
     }: {
       id: string
+      accionId: string
       patch: Partial<Pick<AccionCheckpoint, 'texto' | 'orden' | 'obligatorio'>>
     }) => accionCheckpointsService.update(id, patch),
-    onSuccess: (row) => {
-      invalidateCheckpointQueries(qc, row.accion_id)
+    onSuccess: (_void, vars) => {
+      invalidateCheckpointQueries(qc, vars.accionId)
     },
   })
 }
@@ -65,11 +66,12 @@ export function useToggleAccionCheckpoint() {
       checkedByUsuarioId,
     }: {
       id: string
+      accionId: string
       completado: boolean
       checkedByUsuarioId: string | null
     }) => accionCheckpointsService.setCompletado(id, completado, checkedByUsuarioId),
-    onSuccess: (row) => {
-      invalidateCheckpointQueries(qc, row.accion_id)
+    onSuccess: (_void, vars) => {
+      invalidateCheckpointQueries(qc, vars.accionId)
     },
   })
 }

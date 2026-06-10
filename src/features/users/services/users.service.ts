@@ -117,6 +117,10 @@ export const usersAdminService = {
    * Paginación: por ahora devuelve todos; estructura lista para limit/offset después.
    */
   async list(filter: UsersFilter = {}): Promise<UserProfile[]> {
+    if (filter.activo === true) {
+      return listVisibleUsersCatalog(filter)
+    }
+
     const { data, error } = await supabase.rpc('settings_users_list')
     if (error) {
       if (isUnauthorizedListError(error)) {

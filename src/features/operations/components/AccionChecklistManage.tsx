@@ -133,8 +133,8 @@ export function AccionChecklistManage({
     const other = sorted[j]
     try {
       await Promise.all([
-        updateCp.mutateAsync({ id: c.id, patch: { orden: other.orden } }),
-        updateCp.mutateAsync({ id: other.id, patch: { orden: c.orden } }),
+        updateCp.mutateAsync({ id: c.id, accionId, patch: { orden: other.orden } }),
+        updateCp.mutateAsync({ id: other.id, accionId, patch: { orden: c.orden } }),
       ])
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'No se pudo reordenar')
@@ -150,7 +150,7 @@ export function AccionChecklistManage({
     }
     if (t === c.texto.trim()) return
     try {
-      await updateCp.mutateAsync({ id: c.id, patch: { texto: t } })
+      await updateCp.mutateAsync({ id: c.id, accionId, patch: { texto: t } })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'No se pudo guardar')
     }
@@ -160,6 +160,7 @@ export function AccionChecklistManage({
     try {
       await toggleCp.mutateAsync({
         id: c.id,
+        accionId,
         completado: checked,
         checkedByUsuarioId: checked ? currentUsuarioId : null,
       })
