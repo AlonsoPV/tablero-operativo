@@ -27,12 +27,13 @@ import { ROUTES } from '@/constants'
 import { EvidenciaCargadaIndicator } from '@/features/operations'
 import { useAcciones } from '@/features/operations/hooks/useAcciones'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { addCalendarDays, dateOnlyCDMX, monthName } from '@/lib/dateUtils'
+import { dateOnlyCDMX, monthName } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import { accionComentariosService } from '@/services/accionComentarios.service'
+import { accionesService } from '@/services/acciones.service'
 import { calendarNotesService, type CalendarNote } from '@/services/calendarNotes.service'
 import { calendarRemindersService, type CalendarReminder } from '@/services/calendarReminders.service'
-import type { AccionComentario } from '@/types/accionComentario'
+import type { AccionComentarioVisibility } from '@/services/accionComentarios.service'
 import type { AccionDiaria, ActionStatus } from '@/types'
 import type { AccionesFilter } from '@/services/acciones.service'
 
@@ -115,37 +116,13 @@ function getCalendarDays(year: number, month: number): { date: string; isCurrent
   return result.slice(0, totalCells)
 }
 
-function expandAccionesPorDiasVisibles(
-  acciones: AccionDiaria[],
-  gridFirstDate: string,
-  gridLastDate: string
-): Record<string, AccionDiaria[]> {
-  const map: Record<string, AccionDiaria[]> = {}
-  for (const action of acciones) {
-    if (action.estado === 'Verificado') continue
-    const created = dateOnlyCDMX(action.created_at)
-    const from = created > gridFirstDate ? created : gridFirstDate
-    if (from > gridLastDate) continue
-    let day = from
-    while (day <= gridLastDate) {
-      if (!map[day]) map[day] = []
-      map[day].push(action)
-      day = addCalendarDays(day, 1)
-    }
-  }
-  Object.keys(map).forEach((key) => {
-    map[key].sort((a, b) => (a.hora_limite || '').localeCompare(b.hora_limite || ''))
-  })
-  return map
-}
-
-function isTaggedInComment(comment: AccionComentario, userId: string): boolean {
+function isTaggedInComment(comment: AccionComentarioVisibility, userId: string): boolean {
   return comment.asignado === userId || comment.etiquetas?.includes(userId)
 }
 
 function filterAccionesByCalendarVisibility(
   acciones: AccionDiaria[],
-  comments: AccionComentario[],
+  comments: AccionComentarioVisibility[],
   currentUserId: string | null | undefined
 ): AccionDiaria[] {
   if (!currentUserId) return []
@@ -230,17 +207,40 @@ export function CalendarView({
 
   const accionesFilter = useMemo<AccionesFilter>(
     () => ({
-      calendario_creadas_hasta: gridLastDate || undefined,
+      calendario_creadas_hasta: selectedDate || undefined,
       excluir_estados: filters.estado ? undefined : ['Verificado'],
       area: filters.area,
       responsable: filters.responsable,
       estado: filters.estado,
     }),
-    [filters.area, filters.estado, filters.responsable, gridLastDate]
+    [filters.area, filters.estado, filters.responsable, selectedDate]
   )
 
+  const { data: actionCountsByDate = {}, isLoading: actionCountsLoading } = useQuery({
+    queryKey: [
+      'calendar-action-counts',
+      currentUser?.id ?? '',
+      gridFirstDate,
+      gridLastDate,
+      filters.area ?? '',
+      filters.responsable ?? '',
+      filters.estado ?? '',
+    ],
+    queryFn: () =>
+      accionesService.calendarCountsByDay({
+        usuarioId: currentUser!.id,
+        from: gridFirstDate,
+        to: gridLastDate,
+        area: filters.area,
+        responsable: filters.responsable,
+        estado: filters.estado,
+      }),
+    enabled: Boolean(currentUser?.id && gridFirstDate && gridLastDate),
+    staleTime: 2 * 60_000,
+  })
+
   const { data: acciones = [], isLoading } = useAcciones(accionesFilter, {
-    enabled: Boolean(currentUser?.id && gridLastDate),
+    enabled: Boolean(currentUser?.id && selectedDate),
   })
 
   const actionIds = useMemo(() => acciones.map((accion) => accion.id), [acciones])
@@ -249,9 +249,9 @@ export function CalendarView({
     isLoading: commentsLoading,
   } = useQuery({
     queryKey: ['calendar-action-comments', currentUser?.id ?? '', actionIds],
-    queryFn: () => accionComentariosService.listByAccionIds(actionIds),
+    queryFn: () => accionComentariosService.listVisibilityByAccionIds(actionIds),
     enabled: Boolean(currentUser?.id && actionIds.length > 0),
-    staleTime: 30_000,
+    staleTime: 2 * 60_000,
   })
 
   const visibleAcciones = useMemo(
@@ -318,11 +318,6 @@ export function CalendarView({
     onError: (error) => toast.error(error instanceof Error ? error.message : 'No se pudo cerrar el recordatorio'),
   })
 
-  const actionsByDate = useMemo(() => {
-    if (!gridFirstDate || !gridLastDate) return {}
-    return expandAccionesPorDiasVisibles(visibleAcciones, gridFirstDate, gridLastDate)
-  }, [visibleAcciones, gridFirstDate, gridLastDate])
-
   const notesByDate = useMemo(() => {
     const map: Record<string, CalendarNote[]> = {}
     for (const note of notes) {
@@ -360,7 +355,7 @@ export function CalendarView({
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   }, [])
 
-  const selectedActions = selectedDate ? (actionsByDate[selectedDate] ?? []) : []
+  const selectedActions = selectedDate ? visibleAcciones : []
   const selectedNotes = selectedDate ? (notesByDate[selectedDate] ?? []) : []
   const selectedReminders = selectedDate ? (remindersByDate[selectedDate] ?? []) : []
   const showActions = shouldShowCalendarItem(filters.itemType, 'acciones')
@@ -386,7 +381,7 @@ export function CalendarView({
     () =>
       calendarDays
         .filter(({ date }) => {
-          const actionCount = actionsByDate[date]?.length ?? 0
+          const actionCount = actionCountsByDate[date] ?? 0
           const reminderCount = remindersByDate[date]?.length ?? 0
           const noteCount = notesByDate[date]?.length ?? 0
           return (
@@ -396,7 +391,7 @@ export function CalendarView({
           )
         })
         .map(({ date }) => date),
-    [actionsByDate, calendarDays, notesByDate, remindersByDate, showActions, showNotes, showReminders]
+    [actionCountsByDate, calendarDays, notesByDate, remindersByDate, showActions, showNotes, showReminders]
   )
 
   const openNoteDialog = useCallback(() => {
@@ -494,7 +489,7 @@ export function CalendarView({
         </div>
         <div className="grid grid-cols-7">
           {calendarDays.map(({ date, isCurrentMonth, day }) => {
-            const count = (actionsByDate[date] ?? []).length
+            const count = actionCountsByDate[date] ?? 0
             const noteCount = (notesByDate[date] ?? []).length
             const reminderCount = (remindersByDate[date] ?? []).length
             const hasVisibleItems =
@@ -695,7 +690,7 @@ export function CalendarView({
         </p>
       )}
 
-      {isLoading || commentsLoading ? (
+      {actionCountsLoading || isLoading || commentsLoading ? (
         <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-background/60">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>

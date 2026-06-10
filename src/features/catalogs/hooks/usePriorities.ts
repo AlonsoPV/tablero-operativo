@@ -4,11 +4,14 @@ import type { CatalogFilter } from '../types/catalogs.types'
 import type { CreatePriorityInput, UpdatePriorityInput } from '../types/catalogs.types'
 
 const KEY = ['catalogs', 'priorities'] as const
+const CATALOG_STALE_TIME = 10 * 60 * 1000
 
 export function usePriorities(filter: CatalogFilter = {}) {
   return useQuery({
     queryKey: [...KEY, filter],
     queryFn: () => prioritiesService.list(filter),
+    staleTime: CATALOG_STALE_TIME,
+    retry: 1,
   })
 }
 
@@ -16,7 +19,7 @@ export function useCreatePriority() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: CreatePriorityInput) => prioritiesService.create(input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' }),
   })
 }
 
@@ -25,7 +28,7 @@ export function useUpdatePriority() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdatePriorityInput }) =>
       prioritiesService.update(id, input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' }),
   })
 }
 
@@ -34,6 +37,6 @@ export function useTogglePriorityStatus() {
   return useMutation({
     mutationFn: ({ id, activo }: { id: string; activo: boolean }) =>
       prioritiesService.setActivo(id, activo),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' }),
   })
 }

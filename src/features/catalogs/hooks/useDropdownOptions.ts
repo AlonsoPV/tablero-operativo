@@ -5,6 +5,7 @@ import type { DropdownOption } from '../types/catalogs.types'
 import type { CreateDropdownOptionInput, UpdateDropdownOptionInput } from '../types/catalogs.types'
 
 const KEY = ['catalogs', 'dropdownOptions'] as const
+const CATALOG_STALE_TIME = 10 * 60 * 1000
 
 function normalizeCatalogKey(catalogKey: string | undefined | null): string {
   return catalogKey?.trim() ?? ''
@@ -29,7 +30,8 @@ export function useDropdownOptions(catalogId: string | undefined | null) {
     queryKey: [...KEY, catalogId],
     queryFn: () => dropdownOptionsService.listByCatalogId(catalogId!),
     enabled: !!catalogId,
-    refetchOnMount: 'always',
+    staleTime: CATALOG_STALE_TIME,
+    retry: 1,
   })
 }
 
@@ -39,13 +41,8 @@ export function useDropdownOptionsByKey(catalogKey: string | undefined | null) {
     queryKey: dropdownOptionsByCatalogKeyQueryKey(catalogKey),
     queryFn: () => fetchDropdownOptionsByCatalogKey(catalogKey),
     enabled: !!normalizeCatalogKey(catalogKey),
-    // Si el resultado previo fue vacío, fuerza reintento al montar.
-    refetchOnMount: (query) => {
-      const current = query.state.data as DropdownOption[] | undefined
-      return !current || current.length === 0 ? 'always' : false
-    },
-    staleTime: 5 * 60 * 1000,
-    retry: 2,
+    staleTime: CATALOG_STALE_TIME,
+    retry: 1,
   })
 }
 
@@ -53,7 +50,7 @@ export function useCreateDropdownOption() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: CreateDropdownOptionInput) => dropdownOptionsService.create(input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' }),
   })
 }
 
@@ -62,7 +59,7 @@ export function useUpdateDropdownOption() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateDropdownOptionInput }) =>
       dropdownOptionsService.update(id, input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' }),
   })
 }
 
@@ -71,6 +68,6 @@ export function useToggleDropdownOptionStatus() {
   return useMutation({
     mutationFn: ({ id, activo }: { id: string; activo: boolean }) =>
       dropdownOptionsService.setActivo(id, activo),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' }),
   })
 }

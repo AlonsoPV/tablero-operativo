@@ -40,12 +40,9 @@ export function KanbanPage() {
     await qc.prefetchQuery({
       queryKey: dropdownOptionsByCatalogKeyQueryKey('evidencia_esperada'),
       queryFn: () => fetchDropdownOptionsByCatalogKey('evidencia_esperada'),
+      staleTime: 10 * 60_000,
     })
   }, [qc])
-
-  useEffect(() => {
-    void prefetchEvidenceCatalog()
-  }, [prefetchEvidenceCatalog])
 
   const [filter, setFilter] = useState<AccionesFilter>(() => ({
     ...DEFAULT_FILTER,

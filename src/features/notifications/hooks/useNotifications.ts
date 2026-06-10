@@ -5,12 +5,15 @@ import { notificacionesService } from '@/services/notificaciones.service'
 
 const KEY = ['notificaciones'] as const
 
-export function useNotifications(usuarioId: string | undefined, options?: { leido?: boolean; subscribe?: boolean }) {
+export function useNotifications(
+  usuarioId: string | undefined,
+  options?: { leido?: boolean; subscribe?: boolean; poll?: boolean }
+) {
   const qc = useQueryClient()
   useEffect(() => {
     if (!usuarioId || options?.subscribe !== true) return
     const sub = notificacionesService.subscribe(usuarioId, () => {
-      qc.invalidateQueries({ queryKey: KEY })
+      qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' })
     })
     return () => {
       void notificacionesService.unsubscribe(sub)
@@ -23,7 +26,8 @@ export function useNotifications(usuarioId: string | undefined, options?: { leid
     enabled: !!usuarioId,
     staleTime: 30_000,
     /** Respaldo si el WebSocket de Realtime falla (firewall, proyecto sin Realtime, etc.). */
-    refetchInterval: 45_000,
+    refetchInterval: options?.poll ?? options?.subscribe ? 45_000 : false,
+    refetchIntervalInBackground: false,
   })
 }
 
@@ -31,7 +35,7 @@ export function useMarkNotificationRead() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: notificacionesService.markAsRead,
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' }),
   })
 }
 
@@ -39,7 +43,7 @@ export function useMarkAllNotificationsRead(usuarioId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => notificacionesService.markAllAsRead(usuarioId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' }),
   })
 }
 
@@ -50,7 +54,8 @@ export function useDueCalendarReminderNotifications(usuarioId: string | undefine
     queryFn: () => calendarRemindersService.listDuePending(usuarioId!, new Date().toISOString()),
     enabled: Boolean(usuarioId),
     refetchInterval: 60_000,
-    staleTime: 0,
+    refetchIntervalInBackground: false,
+    staleTime: 30_000,
   })
 
   useEffect(() => {
@@ -73,8 +78,8 @@ export function useDueCalendarReminderNotifications(usuarioId: string | undefine
         })
         await calendarRemindersService.markNotified(reminder.id)
       }
-      void qc.invalidateQueries({ queryKey: ['calendar-reminders'] })
-      void qc.invalidateQueries({ queryKey: KEY })
+      void qc.invalidateQueries({ queryKey: ['calendar-reminders'], refetchType: 'active' })
+      void qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' })
     }
     notifyDueReminders().catch((error) => {
       console.error('[calendar-reminders] due notification:', error)

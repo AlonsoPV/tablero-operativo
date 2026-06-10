@@ -3,6 +3,9 @@ import type { SupportTicket, SupportTicketComment, TicketStatus } from '@/types'
 
 const TICKETS_TABLE = 'support_tickets'
 const COMMENTS_TABLE = 'support_ticket_comments'
+const TICKET_SELECT =
+  'id,titulo,descripcion,modulo,tipo,prioridad,impacto,pasos_reproduccion,resultado_esperado,resultado_actual,status,created_by,updated_by,closed_at,created_at,updated_at'
+const TICKET_COMMENT_SELECT = 'id,ticket_id,contenido,created_by,created_at'
 
 export interface SupportTicketsFilter {
   status?: TicketStatus | 'todos'
@@ -41,30 +44,28 @@ function normalizeInput(input: Partial<SupportTicketInput>): Partial<SupportTick
   return next
 }
 
+function escapePostgrestLikeTerm(term: string): string {
+  return term.replace(/[%_]/g, (match) => `\\${match}`).replace(/[,()]/g, ' ')
+}
+
 export const supportTicketsService = {
   async list(filter: SupportTicketsFilter = {}): Promise<SupportTicket[]> {
-    let q = supabase.from(TICKETS_TABLE).select('*')
+    let q = supabase.from(TICKETS_TABLE).select(TICKET_SELECT)
     if (filter.status && filter.status !== 'todos') q = q.eq('status', filter.status)
     if (filter.tipo) q = q.eq('tipo', filter.tipo)
     if (filter.modulo) q = q.eq('modulo', filter.modulo)
+    if (filter.search?.trim()) {
+      const term = escapePostgrestLikeTerm(filter.search.trim())
+      q = q.or(`titulo.ilike.%${term}%,descripcion.ilike.%${term}%,modulo.ilike.%${term}%`)
+    }
     q = q.order('created_at', { ascending: false })
     const { data, error } = await q
     if (error) throw error
-    let rows = (data ?? []) as SupportTicket[]
-    if (filter.search?.trim()) {
-      const term = filter.search.trim().toLowerCase()
-      rows = rows.filter(
-        (ticket) =>
-          ticket.titulo.toLowerCase().includes(term) ||
-          ticket.descripcion.toLowerCase().includes(term) ||
-          ticket.modulo.toLowerCase().includes(term)
-      )
-    }
-    return rows
+    return (data ?? []) as SupportTicket[]
   },
 
   async getById(id: string): Promise<SupportTicket> {
-    const { data, error } = await supabase.from(TICKETS_TABLE).select('*').eq('id', id).maybeSingle()
+    const { data, error } = await supabase.from(TICKETS_TABLE).select(TICKET_SELECT).eq('id', id).maybeSingle()
     if (error) throw error
     if (!data) throw new Error('No se encontro el ticket o no tienes permiso para verlo.')
     return data as SupportTicket
@@ -72,7 +73,7 @@ export const supportTicketsService = {
 
   async create(input: SupportTicketInput): Promise<SupportTicket> {
     const payload = normalizeInput(input)
-    const { data, error } = await supabase.from(TICKETS_TABLE).insert(payload).select().maybeSingle()
+    const { data, error } = await supabase.from(TICKETS_TABLE).insert(payload).select(TICKET_SELECT).maybeSingle()
     if (error) throw error
     if (!data) throw new Error('El ticket se guardo, pero no se pudo leer con tu perfil.')
     return data as SupportTicket
@@ -90,7 +91,7 @@ export const supportTicketsService = {
       .from(TICKETS_TABLE)
       .update(payload)
       .eq('id', id)
-      .select()
+      .select(TICKET_SELECT)
       .maybeSingle()
     if (error) throw error
     if (!data) throw new Error('No se pudo actualizar el ticket.')
@@ -127,7 +128,7 @@ export const supportTicketCommentsService = {
   async listByTicket(ticketId: string): Promise<SupportTicketComment[]> {
     const { data, error } = await supabase
       .from(COMMENTS_TABLE)
-      .select('*')
+      .select(TICKET_COMMENT_SELECT)
       .eq('ticket_id', ticketId)
       .order('created_at', { ascending: true })
     if (error) throw error
@@ -146,7 +147,7 @@ export const supportTicketCommentsService = {
         contenido: input.contenido.trim(),
         created_by: input.created_by ?? null,
       })
-      .select()
+      .select(TICKET_COMMENT_SELECT)
       .maybeSingle()
     if (error) throw error
     if (!data) throw new Error('No se pudo publicar el comentario.')

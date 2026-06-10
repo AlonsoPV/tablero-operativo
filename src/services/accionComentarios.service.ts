@@ -6,6 +6,10 @@ import { supabase } from '@/lib/supabase/client'
 import type { AccionComentario } from '@/types/accionComentario'
 
 const TABLE = 'accion_comentarios'
+const COMENTARIO_SELECT = 'id,accion_id,contenido,created_by,asignado,etiquetas,adjuntos,created_at'
+const COMENTARIO_VISIBILITY_SELECT = 'accion_id,asignado,etiquetas'
+
+export type AccionComentarioVisibility = Pick<AccionComentario, 'accion_id' | 'asignado' | 'etiquetas'>
 
 export const accionComentariosService = {
   /** Cuenta comentarios por cada accion_id. Útil para badges en cards. */
@@ -28,7 +32,7 @@ export const accionComentariosService = {
   async listByAccion(accionId: string): Promise<AccionComentario[]> {
     const { data, error } = await supabase
       .from(TABLE)
-      .select('*')
+      .select(COMENTARIO_SELECT)
       .eq('accion_id', accionId)
       .order('created_at', { ascending: true })
     if (error) throw error
@@ -39,11 +43,21 @@ export const accionComentariosService = {
     if (accionIds.length === 0) return []
     const { data, error } = await supabase
       .from(TABLE)
-      .select('*')
+      .select(COMENTARIO_SELECT)
       .in('accion_id', accionIds)
       .order('created_at', { ascending: false })
     if (error) throw error
     return (data ?? []) as AccionComentario[]
+  },
+
+  async listVisibilityByAccionIds(accionIds: string[]): Promise<AccionComentarioVisibility[]> {
+    if (accionIds.length === 0) return []
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select(COMENTARIO_VISIBILITY_SELECT)
+      .in('accion_id', accionIds)
+    if (error) throw error
+    return (data ?? []) as AccionComentarioVisibility[]
   },
 
   async create(input: {
@@ -70,7 +84,7 @@ export const accionComentariosService = {
       .insert({
         ...fallback,
       })
-      .select()
+      .select(COMENTARIO_SELECT)
       .maybeSingle()
     if (error) throw error
     return (data ?? fallback) as AccionComentario
@@ -84,7 +98,7 @@ export const accionComentariosService = {
       .from(TABLE)
       .update(patch)
       .eq('id', id)
-      .select()
+      .select(COMENTARIO_SELECT)
       .maybeSingle()
     if (error) throw error
     return data as AccionComentario

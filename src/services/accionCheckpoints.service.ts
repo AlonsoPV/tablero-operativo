@@ -7,6 +7,8 @@ import { supabase } from '@/lib/supabase/client'
 import type { AccionCheckpoint } from '@/types'
 
 const TABLE = 'accion_checkpoints'
+const CHECKPOINT_SELECT =
+  'id,accion_id,texto,orden,obligatorio,activo,completado,checked_at,checked_by,created_at,updated_at'
 
 export type AccionCheckpointInsert = {
   accion_id: string
@@ -34,7 +36,7 @@ export const accionCheckpointsService = {
   async listByAccionId(accionId: string): Promise<AccionCheckpoint[]> {
     const { data, error } = await supabase
       .from(TABLE)
-      .select('*')
+      .select(CHECKPOINT_SELECT)
       .eq('accion_id', accionId)
       .eq('activo', true)
       .order('orden', { ascending: true })
@@ -148,7 +150,7 @@ export const accionCheckpointsService = {
   },
 
   async getById(id: string): Promise<AccionCheckpoint> {
-    const { data, error } = await supabase.from(TABLE).select('*').eq('id', id).single()
+    const { data, error } = await supabase.from(TABLE).select(CHECKPOINT_SELECT).eq('id', id).single()
     if (error) throw error
     return data as AccionCheckpoint
   },

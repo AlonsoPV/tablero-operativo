@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase/client'
 
 const TABLE = 'calendar_reminders'
+const CALENDAR_REMINDER_SELECT =
+  'id,user_id,titulo,descripcion,fecha_limite,notified_at,completed_at,completed_by,created_at,updated_at'
 
 export interface CalendarReminder {
   id: string
@@ -26,7 +28,7 @@ export const calendarRemindersService = {
   async listRecentByUser(userId: string, limit = 8): Promise<CalendarReminder[]> {
     const { data, error } = await supabase
       .from(TABLE)
-      .select('*')
+      .select(CALENDAR_REMINDER_SELECT)
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(limit)
@@ -37,7 +39,7 @@ export const calendarRemindersService = {
   async listByRange(userId: string, from: string, to: string): Promise<CalendarReminder[]> {
     const { data, error } = await supabase
       .from(TABLE)
-      .select('*')
+      .select(CALENDAR_REMINDER_SELECT)
       .eq('user_id', userId)
       .gte('fecha_limite', `${from}T00:00:00-06:00`)
       .lte('fecha_limite', `${to}T23:59:59-06:00`)
@@ -49,7 +51,7 @@ export const calendarRemindersService = {
   async listDuePending(userId: string, nowIso: string): Promise<CalendarReminder[]> {
     const { data, error } = await supabase
       .from(TABLE)
-      .select('*')
+      .select(CALENDAR_REMINDER_SELECT)
       .eq('user_id', userId)
       .is('notified_at', null)
       .is('completed_at', null)
@@ -69,7 +71,7 @@ export const calendarRemindersService = {
         descripcion: input.descripcion.trim(),
         fecha_limite: input.fecha_limite,
       })
-      .select()
+      .select(CALENDAR_REMINDER_SELECT)
       .single()
     if (error) throw error
     return data as CalendarReminder
@@ -93,7 +95,7 @@ export const calendarRemindersService = {
         notified_at: now,
       })
       .eq('id', id)
-      .select()
+      .select(CALENDAR_REMINDER_SELECT)
       .single()
     if (error) throw error
     return data as CalendarReminder

@@ -2,7 +2,7 @@
  * Dashboard ejecutivo: salud del portafolio, KPIs, cadena, prioridad, pulso por filtros y acciones del día.
  */
 
-import { useMemo, useState, useCallback, useEffect } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -71,12 +71,9 @@ export function DashboardPage() {
     await qc.prefetchQuery({
       queryKey: dropdownOptionsByCatalogKeyQueryKey('evidencia_esperada'),
       queryFn: () => fetchDropdownOptionsByCatalogKey('evidencia_esperada'),
+      staleTime: 10 * 60_000,
     })
   }, [qc])
-
-  useEffect(() => {
-    void prefetchEvidenceCatalog()
-  }, [prefetchEvidenceCatalog])
 
   const [filter, setFilter] = useState<AccionesFilter>(() => ({
     ...DEFAULT_FILTER,

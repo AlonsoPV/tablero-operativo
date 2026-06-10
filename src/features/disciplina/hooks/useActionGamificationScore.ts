@@ -9,14 +9,18 @@ import {
   getUserRelevantComments,
 } from '../utils/actionGamification'
 
-export function useActionGamificationScore(userId: string | undefined) {
+export function useActionGamificationScore(
+  userId: string | undefined,
+  options: { enabled?: boolean } = {}
+) {
+  const enabled = options.enabled ?? true
   const today = todayWallClockCDMX()
   const historyStart = useMemo(() => addCalendarDays(today, -90), [today])
   const {
     data: acciones = [],
     isLoading: loadingActions,
     isError: actionsError,
-  } = useAcciones({ fecha_min: historyStart }, { enabled: Boolean(userId) })
+  } = useAcciones({ fecha_min: historyStart }, { enabled: Boolean(userId && enabled) })
   const actionIds = useMemo(() => acciones.map((action) => action.id), [acciones])
   const {
     data: comentarios = [],
@@ -25,8 +29,8 @@ export function useActionGamificationScore(userId: string | undefined) {
   } = useQuery({
     queryKey: ['disciplina', 'gamification-comments', actionIds],
     queryFn: () => accionComentariosService.listByAccionIds(actionIds),
-    enabled: Boolean(userId && actionIds.length > 0),
-    staleTime: 30_000,
+    enabled: Boolean(userId && enabled && actionIds.length > 0),
+    staleTime: 5 * 60_000,
     retry: 1,
   })
   const personalActions = useMemo(

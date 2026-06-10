@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase/client'
 import type { Notificacion } from '@/types'
 
 const TABLE = 'notificaciones'
+const NOTIFICACION_SELECT = 'id,usuario_id,tipo,prioridad,leido,payload,created_at'
 
 export interface CreateNotificacionInput {
   usuario_id: string
@@ -36,7 +37,7 @@ export const notificacionesService = {
   async listByUsuario(usuarioId: string, options?: { leido?: boolean }) {
     let q = supabase
       .from(TABLE)
-      .select('*')
+      .select(NOTIFICACION_SELECT)
       .eq('usuario_id', usuarioId)
       .order('created_at', { ascending: false })
     if (options?.leido !== undefined) q = q.eq('leido', options.leido)

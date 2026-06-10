@@ -16,6 +16,45 @@ import type { AccionDiaria, ActionStatus } from '@/types'
 import type { TipoAccion } from '@/features/operations/utils/tipoAccionConfig'
 
 const TABLE = 'acciones_diarias'
+const ACCION_SELECT = [
+  'id',
+  'fecha',
+  'titulo_accion',
+  'descripcion_accion',
+  'responsable',
+  'created_by',
+  'updated_by',
+  'hora_limite',
+  'evidencia_esperada',
+  'evidencia_cargada',
+  'evidencia_adjunta',
+  'estado',
+  'kpi_afectado',
+  'gap_id',
+  'tipo_accion',
+  'story_points',
+  'catalog_kpi_id',
+  'okr_impactado',
+  'proceso',
+  'area',
+  'cliente_id',
+  'prioridad',
+  'causa_raiz',
+  'responsable_bloqueo',
+  'escalado',
+  'fecha_escalamiento',
+  'notas_escalamiento',
+  'repeticion',
+  'verificador_dato',
+  'verificador_gobierno',
+  'completed_at',
+  'completed_by',
+  'verified_at',
+  'verified_by',
+  'created_at',
+  'updated_at',
+  'sprint_id',
+].join(',')
 
 function isDoneEstado(s: ActionStatus): boolean {
   return s === 'Hecho' || s === 'Verificado'
@@ -95,6 +134,15 @@ export interface AccionesFilter {
   search?: string
 }
 
+export interface CalendarActionCountsInput {
+  usuarioId: string
+  from: string
+  to: string
+  area?: string
+  responsable?: string
+  estado?: ActionStatus
+}
+
 async function syncEstadosPorFechaCompromiso(list: AccionDiaria[]): Promise<AccionDiaria[]> {
   const changes = list.flatMap((accion) => {
     const next = getAutoEstadoPorFechaCompromiso(accion)
@@ -136,19 +184,23 @@ function normalizeAccionPayload(payload: Partial<AccionDiaria>): Partial<AccionD
   return next
 }
 
+function escapePostgrestLikeTerm(term: string): string {
+  return term.replace(/[%_]/g, (match) => `\\${match}`).replace(/[,()]/g, ' ')
+}
+
 export const accionesService = {
   async listByDate(fecha: string): Promise<AccionDiaria[]> {
     const { data, error } = await supabase
       .from(TABLE)
-      .select('*')
+      .select(ACCION_SELECT)
       .eq('fecha', fecha)
       .order('hora_limite', { ascending: true })
     if (error) throw error
-    return syncEstadosPorFechaCompromiso((data ?? []) as AccionDiaria[])
+    return syncEstadosPorFechaCompromiso((data ?? []) as unknown as AccionDiaria[])
   },
 
   async list(filter: AccionesFilter = {}) {
-    let q = supabase.from(TABLE).select('*')
+    let q = supabase.from(TABLE).select(ACCION_SELECT)
     // Acciones creadas en o antes de esta fecha (visibles desde el día de creación y todos los días siguientes).
     // Límite: medianoche UTC del día siguiente a fecha_creacion (la fecha se interpreta como día en UTC).
     if (filter.fecha_creacion) {
@@ -192,22 +244,18 @@ export const accionesService = {
       q = q.in('tipo_accion', tipos)
     }
     if (filter.sprint_id) q = q.eq('sprint_id', filter.sprint_id)
+    if (filter.search?.trim()) {
+      const term = escapePostgrestLikeTerm(filter.search.trim())
+      q = q.or(
+        `titulo_accion.ilike.%${term}%,descripcion_accion.ilike.%${term}%,evidencia_esperada.ilike.%${term}%`
+      )
+    }
     q = q.order('hora_limite', { ascending: true })
     const { data, error } = await q
     if (error) throw error
-    let list = (data ?? []) as AccionDiaria[]
+    let list = (data ?? []) as unknown as AccionDiaria[]
     if (onlyRetraso) {
       list = list.filter((a) => a.estado === 'Retraso' || isEnRetraso(a))
-    }
-    // Búsqueda por texto: título, descripción y evidencia esperada (insensible a mayúsculas, parcial).
-    if (filter.search?.trim()) {
-      const term = filter.search.trim().toLowerCase()
-      list = list.filter(
-        (a) =>
-          (a.titulo_accion?.toLowerCase().includes(term) ?? false) ||
-          a.descripcion_accion.toLowerCase().includes(term) ||
-          (a.evidencia_esperada?.toLowerCase().includes(term) ?? false)
-      )
     }
     return syncEstadosPorFechaCompromiso(list)
   },
@@ -215,14 +263,14 @@ export const accionesService = {
   async getById(id: string) {
     const { data, error } = await supabase
       .from(TABLE)
-      .select('*')
+      .select(ACCION_SELECT)
       .eq('id', id)
       .maybeSingle()
     if (error) throw error
     if (!data) {
       throw new Error('No se encontró la acción o no tienes permiso para verla.')
     }
-    return data as AccionDiaria
+    return data as unknown as AccionDiaria
   },
 
   /** Títulos y autores para enriquecer notificaciones (batch). */
@@ -249,7 +297,7 @@ export const accionesService = {
     const { data, error } = await supabase
       .from(TABLE)
       .insert(cleanPayload)
-      .select()
+      .select(ACCION_SELECT)
       .maybeSingle()
     if (error) throw error
     if (!data) {
@@ -257,7 +305,7 @@ export const accionesService = {
         'La acción se guardó, pero no pudimos leerla con tu perfil. Actualiza el listado o revisa permisos.'
       )
     }
-    return data as AccionDiaria
+    return data as unknown as AccionDiaria
   },
 
   async update(id: string, payload: Partial<AccionDiaria>) {
@@ -293,7 +341,7 @@ export const accionesService = {
       .from(TABLE)
       .update(cleanPayload)
       .eq('id', id)
-      .select()
+      .select(ACCION_SELECT)
       .maybeSingle()
     if (error) throw error
     if (!data) {
@@ -301,7 +349,7 @@ export const accionesService = {
         'No se pudo actualizar la acción. Verifica que seas responsable, creador o administrador.'
       )
     }
-    const updated = data as AccionDiaria
+    const updated = data as unknown as AccionDiaria
 
     if (prev && nextEstado !== undefined) {
       await maybeInsertGapActionLog(prev, updated)
@@ -312,6 +360,26 @@ export const accionesService = {
 
   async updateEstado(id: string, estado: ActionStatus, extra?: Partial<AccionDiaria>) {
     return this.update(id, { estado, ...extra })
+  },
+
+  async calendarCountsByDay(input: CalendarActionCountsInput): Promise<Record<string, number>> {
+    const { data, error } = await supabase.rpc('calendar_action_counts_by_day', {
+      p_usuario_id: input.usuarioId,
+      p_from: input.from,
+      p_to: input.to,
+      p_area: input.area || null,
+      p_responsable: input.responsable || null,
+      p_estado: input.estado || null,
+    })
+    if (error) throw error
+
+    return ((data ?? []) as Array<{ day: string; action_count: number }>).reduce<Record<string, number>>(
+      (acc, row) => {
+        acc[row.day] = row.action_count
+        return acc
+      },
+      {}
+    )
   },
 
   async delete(id: string) {

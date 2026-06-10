@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase/client'
 
 const TABLE = 'calendar_notes'
+const CALENDAR_NOTE_SELECT = 'id,user_id,fecha,titulo,texto,created_at,updated_at'
 
 export interface CalendarNote {
   id: string
@@ -16,7 +17,7 @@ export const calendarNotesService = {
   async listRecentByUser(userId: string, limit = 8): Promise<CalendarNote[]> {
     const { data, error } = await supabase
       .from(TABLE)
-      .select('*')
+      .select(CALENDAR_NOTE_SELECT)
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(limit)
@@ -27,7 +28,7 @@ export const calendarNotesService = {
   async listByRange(userId: string, from: string, to: string): Promise<CalendarNote[]> {
     const { data, error } = await supabase
       .from(TABLE)
-      .select('*')
+      .select(CALENDAR_NOTE_SELECT)
       .eq('user_id', userId)
       .gte('fecha', from)
       .lte('fecha', to)
@@ -40,7 +41,7 @@ export const calendarNotesService = {
   async listByDate(userId: string, fecha: string): Promise<CalendarNote[]> {
     const { data, error } = await supabase
       .from(TABLE)
-      .select('*')
+      .select(CALENDAR_NOTE_SELECT)
       .eq('user_id', userId)
       .eq('fecha', fecha)
       .order('created_at', { ascending: false })
@@ -57,7 +58,7 @@ export const calendarNotesService = {
         titulo: input.titulo.trim(),
         texto: input.texto.trim(),
       })
-      .select()
+      .select(CALENDAR_NOTE_SELECT)
       .single()
     if (error) throw error
     return data as CalendarNote

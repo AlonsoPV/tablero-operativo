@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Menu, User, LogOut, Settings, MapPinned, Trophy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -23,7 +24,10 @@ export function Header() {
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const resetOnLogout = useAppStore((s) => s.resetOnLogout)
   const { profile, logout } = useAuth()
-  const { metrics: gamificationMetrics, isLoading: gamificationLoading } = useActionGamificationScore(profile?.id)
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const { metrics: gamificationMetrics, isLoading: gamificationLoading } = useActionGamificationScore(profile?.id, {
+    enabled: profileMenuOpen,
+  })
   const showPlanAccion = hasPlanAccionAccess(profile)
   const showNotifications = canAccessRouteByRole(profile?.rol, ROUTES.NOTIFICACIONES)
 
@@ -66,7 +70,7 @@ export function Header() {
         ) : null}
         {profile ? (
           <div className="flex items-center gap-0.5 sm:gap-1">
-            <DropdownMenu>
+            <DropdownMenu open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="gap-2">
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
@@ -83,7 +87,9 @@ export function Header() {
                     title="Score de disciplina operativa"
                   >
                     <Trophy className="h-3 w-3" aria-hidden />
-                    {gamificationLoading ? '...' : `${formatSignedPoints(gamificationMetrics.totalPoints)} pts`}
+                    {!profileMenuOpen || gamificationLoading
+                      ? '...'
+                      : `${formatSignedPoints(gamificationMetrics.totalPoints)} pts`}
                   </span>
                 </Button>
               </DropdownMenuTrigger>

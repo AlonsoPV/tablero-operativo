@@ -54,6 +54,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Check,
+  MessageSquare,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -424,8 +425,25 @@ function KanbanCardInner({
           </div>
         </div>
 
-        {!isOverlay && (onClick || onMoveEstado) ? (
-          <div className="shrink-0 self-center" onPointerDown={stopDrag} onClick={stopMenuClick}>
+        <div
+          className={cn(
+            'flex shrink-0 flex-col items-end gap-1 self-start',
+            !isOverlay && (onClick || onMoveEstado) ? undefined : 'pointer-events-none'
+          )}
+          onPointerDown={stopDrag}
+          onClick={stopMenuClick}
+        >
+          {commentCount > 0 ? (
+            <span
+              className="inline-flex items-center gap-0.5 rounded-md bg-muted/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+              title={`${commentCount} comentario${commentCount !== 1 ? 's' : ''}`}
+              aria-label={`${commentCount} comentario${commentCount !== 1 ? 's' : ''}`}
+            >
+              <MessageSquare className="h-3 w-3" aria-hidden />
+              {commentCount}
+            </span>
+          ) : null}
+          {!isOverlay && (onClick || onMoveEstado) ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -483,8 +501,8 @@ function KanbanCardInner({
                 ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
     </div>
   )
