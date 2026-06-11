@@ -3,6 +3,7 @@ import { RouteErrorFallback } from '@/components/RouteErrorFallback'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { SettingsLayout } from '@/components/layout/SettingsLayout'
+import { PageLoadingFallback } from '@/components/PageLoadingFallback'
 import { LoginPage } from '@/features/auth/pages/LoginPage'
 import { ForgotPasswordPage } from '@/features/auth/pages/ForgotPasswordPage'
 import { ResetPasswordPage } from '@/features/auth/pages/ResetPasswordPage'
@@ -36,10 +37,12 @@ const router = createBrowserRouter([
   {
     path: '/',
     element: <ProtectedRoute />,
+    hydrateFallbackElement: <PageLoadingFallback />,
     children: [
       {
         path: '/',
         element: <AppLayout />,
+        hydrateFallbackElement: <PageLoadingFallback />,
         children: [
           { index: true, element: <HomeRedirect /> },
           {

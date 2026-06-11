@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Plus,
   Send,
+  SlidersHorizontal,
   StickyNote,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -54,6 +55,10 @@ export interface CalendarViewProps {
   onSelectAccion?: (accion: AccionDiaria) => void
   filters?: CalendarFilters
   initialSelectedDate?: string | null
+  filtersExpanded?: boolean
+  onToggleFilters?: () => void
+  hasActiveFilters?: boolean
+  filterBar?: ReactNode
 }
 
 function currentYearMonth(): { year: number; month: number } {
@@ -178,6 +183,10 @@ export function CalendarView({
   onSelectAccion,
   filters = {},
   initialSelectedDate = null,
+  filtersExpanded = false,
+  onToggleFilters,
+  hasActiveFilters = false,
+  filterBar,
 }: CalendarViewProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -410,37 +419,105 @@ export function CalendarView({
     <div id="calendar-view" className="calendar-view relative space-y-3 p-3 sm:space-y-4 sm:p-4 md:p-5">
       <div
         id="calendar-toolbar"
-        className="calendar-toolbar flex flex-col gap-2.5 rounded-xl border border-border/60 bg-muted/10 p-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:p-3"
+        className="calendar-toolbar flex min-w-0 flex-col gap-2 overflow-hidden rounded-xl border border-border/60 bg-muted/10 p-2.5 sm:flex-row sm:items-center sm:gap-3 sm:p-3"
       >
-        <div className="flex items-center justify-between gap-1 sm:justify-start sm:gap-2">
-          <Button variant="outline" size="icon" onClick={goPrev} aria-label="Mes anterior" className="h-9 w-9 shrink-0">
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <div className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-center sm:min-w-[10rem] sm:flex-none">
-            <h3 className="text-sm font-semibold capitalize leading-tight text-foreground sm:text-base">
-              {monthName(view.year, view.month)}
-            </h3>
-            <p className="text-[11px] text-muted-foreground">{view.year}</p>
+        <div
+          className="calendar-toolbar-nav flex shrink-0 justify-center sm:justify-start"
+          role="group"
+          aria-label="Navegación del mes"
+        >
+          <div className="inline-flex h-9 items-stretch overflow-hidden rounded-lg border border-border/60 bg-background shadow-sm sm:h-10">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={goPrev}
+              aria-label="Mes anterior"
+              className="h-full w-8 shrink-0 rounded-none border-r border-border/50 px-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground sm:w-9"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="calendar-toolbar-period flex min-w-[6.75rem] flex-col items-center justify-center bg-muted/20 px-3 sm:min-w-[7.75rem] sm:px-3.5">
+              <time
+                dateTime={`${view.year}-${String(view.month).padStart(2, '0')}`}
+                className="flex flex-col items-center leading-none"
+              >
+                <span className="truncate text-[13px] font-semibold capitalize tracking-tight text-foreground sm:text-sm">
+                  {monthName(view.year, view.month)}
+                </span>
+                <span className="mt-1 text-[10px] font-semibold tabular-nums tracking-wide text-muted-foreground sm:text-[11px]">
+                  {view.year}
+                </span>
+              </time>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={goNext}
+              aria-label="Mes siguiente"
+              className="h-full w-8 shrink-0 rounded-none border-l border-border/50 px-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground sm:w-9"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
           </div>
-          <Button variant="outline" size="icon" onClick={goNext} aria-label="Mes siguiente" className="h-9 w-9 shrink-0">
-            <ChevronRight className="h-4 w-4" />
-          </Button>
         </div>
-        <div className="grid grid-cols-3 gap-1.5 sm:flex sm:gap-2">
-          <Button variant="outline" size="sm" onClick={openNoteDialog} className="h-9 gap-1 px-2 text-xs sm:px-3 sm:text-sm">
-            <StickyNote className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+
+        <div className="calendar-toolbar-actions grid min-w-0 grid-cols-4 gap-1.5 sm:min-w-0 sm:flex-1 lg:flex lg:flex-none lg:items-center lg:gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={openNoteDialog}
+            className="h-8 min-w-0 gap-1 border-border/60 bg-background/80 px-1.5 text-[11px] sm:h-9 sm:px-2.5 sm:text-xs lg:px-3 lg:text-sm"
+          >
+            <StickyNote className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">Minuta</span>
           </Button>
-          <Button variant="outline" size="sm" onClick={openReminderDialog} className="h-9 gap-1 px-2 text-xs sm:px-3 sm:text-sm">
-            <AlarmClock className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
-            <span className="truncate">Record.</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={openReminderDialog}
+            className="h-8 min-w-0 gap-1 border-border/60 bg-background/80 px-1.5 text-[11px] sm:h-9 sm:px-2.5 sm:text-xs lg:px-3 lg:text-sm"
+          >
+            <AlarmClock className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate xl:hidden">Record.</span>
+            <span className="hidden truncate xl:inline">Recordatorio</span>
           </Button>
-          <Button variant="default" size="sm" onClick={goToday} className="h-9 gap-1 px-2 text-xs sm:px-3 sm:text-sm">
-            <CalendarIcon className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
-            Hoy
+          <Button
+            variant="default"
+            size="sm"
+            onClick={goToday}
+            className="h-8 min-w-0 gap-1 px-1.5 text-[11px] shadow-sm sm:h-9 sm:px-2.5 sm:text-xs lg:px-3 lg:text-sm"
+          >
+            <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">Hoy</span>
           </Button>
+          {onToggleFilters ? (
+            <Button
+              id="calendar-btn-filters"
+              type="button"
+              variant={filtersExpanded ? 'secondary' : 'outline'}
+              size="sm"
+              onClick={onToggleFilters}
+              aria-expanded={filtersExpanded}
+              className={cn(
+                'calendar-btn-filters relative h-8 min-w-0 gap-1 border-border/60 bg-background/80 px-1.5 text-[11px] sm:h-9 sm:px-2.5 sm:text-xs lg:px-3 lg:text-sm',
+                filtersExpanded && 'border-primary/40 bg-primary/5 text-primary',
+                hasActiveFilters && !filtersExpanded && 'border-primary/30 text-primary'
+              )}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">Filtros</span>
+              {hasActiveFilters ? (
+                <span
+                  className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary lg:right-1.5 lg:top-1.5"
+                  aria-label="Filtros activos"
+                />
+              ) : null}
+            </Button>
+          ) : null}
         </div>
       </div>
+
+      {filtersExpanded && filterBar ? filterBar : null}
 
       {hasTypeFilter ? (
         <div id="calendar-filtered-days" className="rounded-lg border border-border/60 bg-card p-2.5 sm:rounded-xl sm:p-3">

@@ -266,6 +266,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const bootstrapRunIdRef = useRef(0)
   const initialBootstrapPromiseRef = useRef<Promise<LoadAuthResult> | null>(null)
   const isMountedRef = useRef(false)
+  const authEventTimersRef = useRef<number[]>([])
   /** Tras un bootstrap exitoso (sesión + perfil listo). Sirve para ignorar SIGNED_IN duplicados (p. ej. refresh). */
   const lastFullyAuthenticatedUserIdRef = useRef<string | null>(null)
 
@@ -541,7 +542,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      await initializeAuth(event, session)
+      const timerId = window.setTimeout(() => {
+        authEventTimersRef.current = authEventTimersRef.current.filter((id) => id !== timerId)
+        void initializeAuth(event, session)
+      }, 0)
+      authEventTimersRef.current.push(timerId)
     })
 
     const fallbackId = window.setTimeout(() => {
@@ -558,6 +563,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isMountedRef.current = false
       bootstrapRunIdRef.current += 1
       initialBootstrapPromiseRef.current = null
+      for (const timerId of authEventTimersRef.current) {
+        window.clearTimeout(timerId)
+      }
+      authEventTimersRef.current = []
       window.clearTimeout(fallbackId)
       subscription.unsubscribe()
     }

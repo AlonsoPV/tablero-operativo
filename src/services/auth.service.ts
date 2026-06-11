@@ -10,6 +10,8 @@
 
 import { supabase } from '@/lib/supabase/client'
 
+let sessionPromise: ReturnType<typeof supabase.auth.getSession> | null = null
+
 const GENERIC_AUTH =
   'No pudimos iniciar sesión. Revisa correo y contraseña, o inténtalo de nuevo en un momento.'
 
@@ -96,7 +98,10 @@ export const authService = {
   },
 
   getSession() {
-    return supabase.auth.getSession()
+    sessionPromise ??= supabase.auth.getSession().finally(() => {
+      sessionPromise = null
+    })
+    return sessionPromise
   },
 
   async changePassword(currentPassword: string, newPassword: string) {

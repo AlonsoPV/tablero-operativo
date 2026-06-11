@@ -77,20 +77,23 @@ export function CalendarPage() {
           subtitle="Navega por mes y gestiona el día seleccionado."
         />
         <SectionCardBody className="p-0">
-          <CalendarFiltersBar
-            filters={filters}
-            onFiltersChange={setFilters}
-            areas={areas}
-            users={users}
-            expanded={filtersExpanded}
-            onToggleExpanded={() => setFiltersExpanded((v) => !v)}
-            hasActiveFilters={hasFilters}
-          />
           <CalendarView
             responsableNames={responsableNames}
             onSelectAccion={handleSelectAccion}
             filters={filters}
             initialSelectedDate={initialDate}
+            filtersExpanded={filtersExpanded}
+            onToggleFilters={() => setFiltersExpanded((v) => !v)}
+            hasActiveFilters={hasFilters}
+            filterBar={
+              <CalendarFiltersBar
+                filters={filters}
+                onFiltersChange={setFilters}
+                areas={areas}
+                users={users}
+                hasActiveFilters={hasFilters}
+              />
+            }
           />
         </SectionCardBody>
       </SectionCard>

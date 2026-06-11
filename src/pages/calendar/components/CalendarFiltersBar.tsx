@@ -1,4 +1,4 @@
-import { SlidersHorizontal, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import {
@@ -11,15 +11,12 @@ import {
 import type { Area } from '@/features/catalogs/types/catalogs.types'
 import { ACTION_STATUS, type ActionStatus } from '@/types'
 import type { CalendarFilters } from '@/features/calendar'
-import { cn } from '@/lib/utils'
 
 export interface CalendarFiltersBarProps {
   filters: CalendarFilters
   onFiltersChange: (next: CalendarFilters) => void
   areas: Area[]
   users: { id: string; nombre: string }[]
-  expanded: boolean
-  onToggleExpanded: () => void
   hasActiveFilters: boolean
 }
 
@@ -28,59 +25,30 @@ export function CalendarFiltersBar({
   onFiltersChange,
   areas,
   users,
-  expanded,
-  onToggleExpanded,
   hasActiveFilters,
 }: CalendarFiltersBarProps) {
   return (
-    <div id="calendar-filters" className="calendar-filters border-b border-border/60 bg-muted/10 px-3 py-3 sm:px-4 sm:py-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <SlidersHorizontal className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-foreground">Filtros</p>
-            <p className="hidden text-xs text-muted-foreground sm:block">Vista mensual</p>
-          </div>
-          {hasActiveFilters ? (
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-              Activos
-            </span>
-          ) : null}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {hasActiveFilters ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="hidden h-8 text-xs sm:inline-flex"
-              onClick={() => onFiltersChange({})}
-            >
-              <X className="h-3.5 w-3.5" aria-hidden />
-              Limpiar
-            </Button>
-          ) : null}
+    <div
+      id="calendar-filters"
+      className="calendar-filters rounded-xl border border-border/60 bg-muted/10 p-2.5 sm:p-3"
+    >
+      <div className="flex items-center justify-between gap-2 pb-2.5 sm:pb-3">
+        <p className="text-xs font-semibold text-foreground sm:text-sm">Filtros</p>
+        {hasActiveFilters ? (
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="h-8 text-xs md:hidden"
-            aria-expanded={expanded}
-            onClick={onToggleExpanded}
+            className="h-8 text-xs"
+            onClick={() => onFiltersChange({})}
           >
-            {expanded ? 'Ocultar' : 'Mostrar'}
+            <X className="h-3.5 w-3.5" aria-hidden />
+            Limpiar
           </Button>
-        </div>
+        ) : null}
       </div>
 
-      <div
-        className={cn(
-          'mt-0 grid transition-[grid-template-rows] duration-200 md:mt-3 md:grid-rows-[1fr]',
-          expanded ? 'mt-3 grid-rows-[1fr]' : 'grid-rows-[0fr] md:grid-rows-[1fr]'
-        )}
-      >
-        <div className="overflow-hidden">
-          <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4 lg:flex lg:flex-wrap lg:items-end lg:justify-end">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4 lg:flex lg:flex-wrap lg:items-end lg:justify-end">
             <div className="space-y-1">
               <Label className="text-[10px] sm:text-xs">Mostrar</Label>
               <Select
@@ -170,20 +138,6 @@ export function CalendarFiltersBar({
               </Select>
             </div>
 
-            {hasActiveFilters ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="col-span-2 h-9 w-full sm:col-span-1 md:hidden"
-                onClick={() => onFiltersChange({})}
-              >
-                <X className="h-4 w-4" aria-hidden />
-                Limpiar filtros
-              </Button>
-            ) : null}
-          </div>
-        </div>
       </div>
     </div>
   )
