@@ -11,6 +11,7 @@ import {
   Send,
   SlidersHorizontal,
   StickyNote,
+  Pencil,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -197,6 +198,7 @@ export function CalendarView({
   const [selectedDate, setSelectedDate] = useState<string | null>(initialSelectedDate)
   const [noteDialogOpen, setNoteDialogOpen] = useState(false)
   const [reminderDialogOpen, setReminderDialogOpen] = useState(false)
+  const [editingNote, setEditingNote] = useState<CalendarNote | null>(null)
   const [noteTitle, setNoteTitle] = useState('')
   const [noteText, setNoteText] = useState('')
   const [reminderTitle, setReminderTitle] = useState('')
@@ -280,17 +282,48 @@ export function CalendarView({
     staleTime: 30_000,
   })
 
+  const resetNoteDialog = useCallback(() => {
+    setEditingNote(null)
+    setNoteTitle('')
+    setNoteText('')
+    setNoteDialogOpen(false)
+  }, [])
+
   const createNote = useMutation({
     mutationFn: calendarNotesService.create,
     onSuccess: () => {
-      setNoteTitle('')
-      setNoteText('')
-      setNoteDialogOpen(false)
+      resetNoteDialog()
       void queryClient.invalidateQueries({ queryKey: ['calendar-notes'] })
       toast.success('Minuta creada')
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'No se pudo crear la minuta'),
   })
+
+  const updateNote = useMutation({
+    mutationFn: ({
+      id,
+      titulo,
+      texto,
+    }: {
+      id: string
+      titulo: string
+      texto: string
+    }) => calendarNotesService.update(id, { titulo, texto }),
+    onSuccess: () => {
+      resetNoteDialog()
+      void queryClient.invalidateQueries({ queryKey: ['calendar-notes'] })
+      toast.success('Minuta actualizada')
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'No se pudo actualizar la minuta'),
+  })
+
+  const handleNoteDialogOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open) resetNoteDialog()
+      else setNoteDialogOpen(true)
+    },
+    [resetNoteDialog]
+  )
 
   const remindersQueryKey = ['calendar-reminders', currentUser?.id ?? '', gridFirstDate, gridLastDate] as const
   const {
@@ -405,8 +438,20 @@ export function CalendarView({
 
   const openNoteDialog = useCallback(() => {
     if (!selectedDate) setSelectedDate(dateOnlyCDMX(new Date().toISOString()))
+    setEditingNote(null)
+    setNoteTitle('')
+    setNoteText('')
     setNoteDialogOpen(true)
   }, [selectedDate])
+
+  const openEditNoteDialog = useCallback((note: CalendarNote) => {
+    setEditingNote(note)
+    setNoteTitle(note.titulo)
+    setNoteText(note.texto)
+    setNoteDialogOpen(true)
+  }, [])
+
+  const noteSaving = createNote.isPending || updateNote.isPending
 
   const openReminderDialog = useCallback(() => {
     const nextDate = selectedDate ?? dateOnlyCDMX(new Date().toISOString())
@@ -703,6 +748,7 @@ export function CalendarView({
                 notes={selectedNotes}
                 isLoading={notesLoading}
                 isError={notesError}
+                onEdit={openEditNoteDialog}
                 compact
               />
             ) : null}
@@ -737,6 +783,7 @@ export function CalendarView({
                 notes={selectedNotes}
                 isLoading={notesLoading}
                 isError={notesError}
+                onEdit={openEditNoteDialog}
               />
             ) : null}
             {showReminders ? (
@@ -775,18 +822,27 @@ export function CalendarView({
 
       <QuickNoteDialog
         open={noteDialogOpen}
-        date={selectedDate}
+        mode={editingNote ? 'edit' : 'create'}
+        date={editingNote?.fecha ?? selectedDate}
         title={noteTitle}
         text={noteText}
-        disabled={!currentUser?.id || createNote.isPending}
-        isSaving={createNote.isPending}
-        onOpenChange={setNoteDialogOpen}
+        disabled={!currentUser?.id || noteSaving}
+        isSaving={noteSaving}
+        onOpenChange={handleNoteDialogOpenChange}
         onTitleChange={setNoteTitle}
         onTextChange={setNoteText}
         onSubmit={() => {
           if (!currentUser?.id) return
-          const targetDate = selectedDate ?? dateOnlyCDMX(new Date().toISOString())
           if (!noteTitle.trim() || !noteText.trim()) return
+          if (editingNote) {
+            updateNote.mutate({
+              id: editingNote.id,
+              titulo: noteTitle,
+              texto: noteText,
+            })
+            return
+          }
+          const targetDate = selectedDate ?? dateOnlyCDMX(new Date().toISOString())
           createNote.mutate({
             user_id: currentUser.id,
             fecha: targetDate,
@@ -865,12 +921,14 @@ function CalendarNotesPanel({
   notes,
   isLoading,
   isError,
+  onEdit,
   compact,
 }: {
   date: string
   notes: CalendarNote[]
   isLoading: boolean
   isError: boolean
+  onEdit?: (note: CalendarNote) => void
   compact?: boolean
 }) {
   return (
@@ -890,10 +948,26 @@ function CalendarNotesPanel({
         <ul className="max-h-[min(16rem,45vh)] space-y-1.5 overflow-y-auto overscroll-y-contain">
           {notes.map((note) => (
             <li key={note.id} className="rounded-md border border-border/60 bg-background px-2.5 py-2">
-              <p className="line-clamp-1 text-sm font-medium text-foreground">{note.titulo}</p>
-              <p className="mt-0.5 line-clamp-2 whitespace-pre-wrap text-xs text-muted-foreground">
-                {note.texto}
-              </p>
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="line-clamp-1 text-sm font-medium text-foreground">{note.titulo}</p>
+                  <p className="mt-0.5 line-clamp-2 whitespace-pre-wrap text-xs text-muted-foreground">
+                    {note.texto}
+                  </p>
+                </div>
+                {onEdit ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                    aria-label={`Editar minuta ${note.titulo}`}
+                    onClick={() => onEdit(note)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                ) : null}
+              </div>
             </li>
           ))}
         </ul>
@@ -1037,6 +1111,7 @@ function CalendarActionsPanel({
 
 function QuickNoteDialog({
   open,
+  mode,
   date,
   title,
   text,
@@ -1048,6 +1123,7 @@ function QuickNoteDialog({
   onSubmit,
 }: {
   open: boolean
+  mode: 'create' | 'edit'
   date: string | null
   title: string
   text: string
@@ -1058,13 +1134,21 @@ function QuickNoteDialog({
   onTextChange: (value: string) => void
   onSubmit: () => void
 }) {
+  const isEdit = mode === 'edit'
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[100dvh] w-[calc(100vw-1rem)] max-w-lg sm:max-h-[90vh]">
         <DialogHeader>
-          <DialogTitle>Crear minuta</DialogTitle>
+          <DialogTitle>{isEdit ? 'Editar minuta' : 'Crear minuta'}</DialogTitle>
           <DialogDescription>
-            {date ? `Se guardara en ${date}.` : 'Se guardara en el dia actual.'}
+            {date
+              ? isEdit
+                ? `Minuta del ${date}.`
+                : `Se guardara en ${date}.`
+              : isEdit
+                ? 'Edita el titulo y las notas de esta minuta.'
+                : 'Se guardara en el dia actual.'}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -1096,7 +1180,7 @@ function QuickNoteDialog({
           </Button>
           <Button type="button" className="h-10 w-full sm:h-9 sm:w-auto" onClick={onSubmit} disabled={disabled || !title.trim() || !text.trim()}>
             <Send className="h-4 w-4" aria-hidden />
-            {isSaving ? 'Guardando…' : 'Crear minuta'}
+            {isSaving ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Crear minuta'}
           </Button>
         </DialogFooter>
       </DialogContent>

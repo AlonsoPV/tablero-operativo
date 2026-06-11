@@ -63,4 +63,26 @@ export const calendarNotesService = {
     if (error) throw error
     return data as CalendarNote
   },
+
+  async update(
+    id: string,
+    patch: { titulo?: string; texto?: string }
+  ): Promise<CalendarNote> {
+    const body: Record<string, string> = {}
+    if (patch.titulo !== undefined) body.titulo = patch.titulo.trim()
+    if (patch.texto !== undefined) body.texto = patch.texto.trim()
+    if (Object.keys(body).length === 0) {
+      const { data, error } = await supabase.from(TABLE).select(CALENDAR_NOTE_SELECT).eq('id', id).single()
+      if (error) throw error
+      return data as CalendarNote
+    }
+    const { data, error } = await supabase
+      .from(TABLE)
+      .update(body)
+      .eq('id', id)
+      .select(CALENDAR_NOTE_SELECT)
+      .single()
+    if (error) throw error
+    return data as CalendarNote
+  },
 }

@@ -195,15 +195,14 @@ export function DisciplinaPage() {
                 titleId="disciplina-acciones-heading"
                 eyebrow="Disciplina"
                 title="Tu puntaje explicado"
-                subtitle="Qué suma, qué resta y qué conviene mejorar."
+                subtitle="Puntaje actual, balance y detalle por cada actividad."
                 icon={Target}
               />
-              <SectionCardBody className="space-y-3 p-3 sm:space-y-4 sm:p-4 md:p-6">
-                <ScoreCompactPanel metrics={personalMetrics} />
-                <ScoreDetailDisclosure
+              <SectionCardBody className="space-y-4 p-3 sm:space-y-5 sm:p-4 md:p-6">
+                <DisciplinaScoreExplained
+                  metrics={personalMetrics}
                   positiveRules={positiveRules}
                   consequenceRules={consequenceRules}
-                  metrics={personalMetrics}
                 />
               </SectionCardBody>
             </SectionCard>
@@ -245,216 +244,319 @@ function HeroMetric({
   )
 }
 
-function ScoreCompactPanel({ metrics }: { metrics: PersonalMetrics }) {
+function DisciplinaScoreExplained({
+  metrics,
+  positiveRules,
+  consequenceRules,
+}: {
+  metrics: PersonalMetrics
+  positiveRules: ActionGamificationRule[]
+  consequenceRules: ActionGamificationRule[]
+}) {
+  const activePositive = positiveRules.filter((rule) => rule.count > 0)
+  const activeNegative = consequenceRules.filter((rule) => rule.count > 0)
+  const inactivePositive = positiveRules.filter((rule) => rule.count === 0)
+  const inactiveNegative = consequenceRules.filter((rule) => rule.count === 0)
+
+  return (
+    <div className="space-y-5">
+      <ScoreHeroPanel metrics={metrics} />
+      <ScoreActivitySection
+        activePositive={activePositive}
+        activeNegative={activeNegative}
+        inactivePositive={inactivePositive}
+        inactiveNegative={inactiveNegative}
+      />
+      <section aria-labelledby="disciplina-score-next">
+        <ScoreSectionLabel step="3" title="Qué conviene mejorar" subtitle="Siguiente acción recomendada" />
+        <NextActionPanel metrics={metrics} />
+      </section>
+    </div>
+  )
+}
+
+function ScoreSectionLabel({
+  step,
+  title,
+  subtitle,
+}: {
+  step: string
+  title: string
+  subtitle?: string
+}) {
+  return (
+    <div className="mb-3 flex items-start gap-2.5">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border/70 bg-muted/40 text-[11px] font-bold text-muted-foreground">
+        {step}
+      </span>
+      <div className="min-w-0">
+        <h3 className="text-sm font-semibold text-foreground sm:text-base">{title}</h3>
+        {subtitle ? <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p> : null}
+      </div>
+    </div>
+  )
+}
+
+function ScoreHeroPanel({ metrics }: { metrics: PersonalMetrics }) {
   const netoTone = scoreToneToMetricTone(metrics.levelTone)
 
   return (
-    <div className="rounded-xl border border-border/70 bg-muted/10 p-3 sm:p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Puntaje del día</p>
-          <h3 className="mt-0.5 text-base font-semibold tracking-tight text-foreground sm:mt-1 sm:text-lg">
-            Resumen de tu disciplina
-          </h3>
+    <section aria-labelledby="disciplina-score-hero">
+      <ScoreSectionLabel
+        step="1"
+        title="Puntaje actual"
+        subtitle="Resultado neto del periodo evaluado"
+      />
+      <div className={cn('overflow-hidden rounded-xl border p-4 sm:p-5', toneSurface(netoTone))}>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Total acumulado
+            </p>
+            <p
+              className={cn(
+                'mt-1 text-4xl font-bold tabular-nums tracking-tight sm:text-5xl',
+                metrics.totalPoints >= 0
+                  ? 'text-emerald-700 dark:text-emerald-300'
+                  : 'text-destructive'
+              )}
+            >
+              {formatSignedPoints(metrics.totalPoints)}
+              <span className="ml-1 text-lg font-semibold text-muted-foreground sm:text-xl">pts</span>
+            </p>
+            <p className="mt-2 inline-flex rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-xs font-medium text-foreground">
+              Nivel: {metrics.level}
+            </p>
+          </div>
+          <div className="rounded-xl border border-border/60 bg-background/90 px-3 py-3 sm:min-w-[15rem] sm:px-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Cómo se calcula</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-semibold tabular-nums sm:text-base">
+              <span className="text-emerald-700 dark:text-emerald-300">+{metrics.earnedPoints}</span>
+              <span className="text-muted-foreground">−</span>
+              <span className="text-destructive">{Math.abs(metrics.penaltyPoints)}</span>
+              <span className="text-muted-foreground">=</span>
+              <span
+                className={cn(
+                  metrics.totalPoints >= 0
+                    ? 'text-emerald-700 dark:text-emerald-300'
+                    : 'text-destructive'
+                )}
+              >
+                {formatSignedPoints(metrics.totalPoints)}
+              </span>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+              <span>Puntos ganados</span>
+              <span className="text-right">Puntos perdidos</span>
+            </div>
+          </div>
         </div>
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-background sm:h-9 sm:w-9">
-          <Gauge className="h-3.5 w-3.5 text-muted-foreground sm:h-4 sm:w-4" aria-hidden />
-        </div>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-1.5 sm:mt-4 sm:grid-cols-3 sm:gap-2">
-        <ScoreAmountCard label="Puntos ganados" value={metrics.earnedPoints} tone="good" />
-        <ScoreAmountCard
-          label="Puntos perdidos"
-          value={metrics.penaltyPoints}
-          tone={metrics.penaltyPoints < 0 ? 'risk' : 'neutral'}
-        />
-        <ScoreAmountCard
-          label="Resultado total"
-          value={metrics.totalPoints}
-          tone={netoTone}
-          className="col-span-2 sm:col-span-1"
-          emphasized
-        />
-      </div>
-      <div className="mt-3 grid gap-2 sm:mt-4 sm:gap-3 lg:grid-cols-2">
-        <ScoreFactor icon={CheckCircle2} title="Te suma puntos" text={helpingCopy(metrics)} tone="good" />
-        <ScoreFactor
-          icon={AlertTriangle}
-          title="Te resta puntos"
-          text={affectingCopy(metrics)}
-          tone={metrics.penaltyPoints < 0 ? 'risk' : 'neutral'}
-        />
-      </div>
-    </div>
+    </section>
   )
 }
 
-function ScoreDetailDisclosure({
-  positiveRules,
-  consequenceRules,
-  metrics,
+function ScoreActivitySection({
+  activePositive,
+  activeNegative,
+  inactivePositive,
+  inactiveNegative,
 }: {
-  positiveRules: ActionGamificationRule[]
-  consequenceRules: ActionGamificationRule[]
-  metrics: PersonalMetrics
+  activePositive: ActionGamificationRule[]
+  activeNegative: ActionGamificationRule[]
+  inactivePositive: ActionGamificationRule[]
+  inactiveNegative: ActionGamificationRule[]
 }) {
-  const ruleCount = positiveRules.length + consequenceRules.length
+  const activeCount = activePositive.length + activeNegative.length
+  const activityRows = useMemo(
+    () =>
+      [
+        ...activePositive.map((rule) => ({ rule, variant: 'positive' as const })),
+        ...activeNegative.map((rule) => ({ rule, variant: 'negative' as const })),
+      ].sort((a, b) => Math.abs(b.rule.points) - Math.abs(a.rule.points)),
+    [activeNegative, activePositive]
+  )
 
   return (
-    <details className="group overflow-hidden rounded-xl border border-border/60 bg-background">
-      <summary className="flex min-h-11 cursor-pointer list-none touch-manipulation items-center justify-between gap-3 px-3 py-3 transition-colors hover:bg-muted/25 sm:px-4">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">Ver desglose</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {ruleCount > 0
-              ? `${ruleCount} conducta${ruleCount === 1 ? '' : 's'} registrada${ruleCount === 1 ? '' : 's'} en el periodo`
-              : 'Conductas que suman o restan puntos'}
+    <section aria-labelledby="disciplina-score-activity">
+      <ScoreSectionLabel
+        step="2"
+        title="Detalle por actividad"
+        subtitle={
+          activeCount > 0
+            ? `${activeCount} conducta${activeCount === 1 ? '' : 's'} que movieron tu puntaje`
+            : 'Aún no hay actividades registradas en el periodo'
+        }
+      />
+
+      {activeCount > 0 ? (
+        <div className="overflow-hidden rounded-xl border border-border/60 bg-background">
+          <div className="hidden border-b border-border/60 bg-muted/20 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:grid sm:grid-cols-[minmax(0,1fr)_5.5rem_4.5rem_4rem] sm:gap-3 sm:px-4">
+            <span>Actividad</span>
+            <span className="text-center">Veces</span>
+            <span className="text-center">Pts c/u</span>
+            <span className="text-right">Total</span>
+          </div>
+          <ul className="divide-y divide-border/50">
+            {activityRows.map(({ rule, variant }) => (
+              <ActivityScoreRow key={rule.key} rule={rule} variant={variant} />
+            ))}
+          </ul>
+          <div className="grid grid-cols-2 gap-2 border-t border-border/60 bg-muted/10 px-3 py-3 sm:grid-cols-3 sm:px-4">
+            <div className="text-center sm:text-left">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Ganados</p>
+              <p className="text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
+                +{activityRows.filter((row) => row.variant === 'positive').reduce((sum, row) => sum + row.rule.points, 0)}
+              </p>
+            </div>
+            <div className="text-center sm:text-left">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Perdidos</p>
+              <p className="text-sm font-bold tabular-nums text-destructive">
+                {formatSignedPoints(
+                  activityRows.filter((row) => row.variant === 'negative').reduce((sum, row) => sum + row.rule.points, 0)
+                )}
+              </p>
+            </div>
+            <div className="col-span-2 text-center sm:col-span-1 sm:text-right">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Subtotal actividades</p>
+              <p className="text-sm font-bold tabular-nums text-foreground">
+                {formatSignedPoints(activityRows.reduce((sum, row) => sum + row.rule.points, 0))}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-border/60 bg-muted/10 px-4 py-8 text-center">
+          <p className="text-sm font-medium text-foreground">Sin actividades con puntos todavía</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Cierra acciones, comenta o crea tareas para ver el desglose aquí.
           </p>
         </div>
+      )}
+
+      {inactivePositive.length > 0 || inactiveNegative.length > 0 ? (
+        <div className="mt-3">
+          <InactiveRulesPanel positive={inactivePositive} negative={inactiveNegative} />
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function ActivityScoreRow({
+  rule,
+  variant,
+}: {
+  rule: ActionGamificationRule
+  variant: 'positive' | 'negative'
+}) {
+  const Icon = ruleIcon(rule.key)
+  const pointsTone =
+    variant === 'negative' || rule.points < 0 ? 'text-destructive' : 'text-emerald-700 dark:text-emerald-300'
+
+  return (
+    <li className="px-3 py-3 sm:grid sm:grid-cols-[minmax(0,1fr)_5.5rem_4.5rem_4rem] sm:items-center sm:gap-3 sm:px-4 sm:py-3.5">
+      <div className="flex min-w-0 items-start gap-3">
+        <div
+          className={cn(
+            'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border',
+            variant === 'positive'
+              ? 'border-emerald-500/20 bg-emerald-500/10'
+              : 'border-destructive/20 bg-destructive/10'
+          )}
+        >
+          <Icon
+            className={cn(
+              'h-4 w-4',
+              variant === 'positive' ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive'
+            )}
+            aria-hidden
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-foreground">{rule.label}</p>
+          <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">{rule.helper}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground sm:hidden">
+            <span>
+              {rule.count} × {formatSignedPoints(rule.pointsPerUnit)} pts
+            </span>
+            <span className={cn('font-bold', pointsTone)}>{formatSignedPoints(rule.points)} pts</span>
+          </div>
+        </div>
+      </div>
+      <p className="mt-2 hidden text-center text-sm font-semibold tabular-nums text-foreground sm:mt-0 sm:block">{rule.count}</p>
+      <p className="hidden text-center text-sm font-medium tabular-nums text-muted-foreground sm:block">
+        {formatSignedPoints(rule.pointsPerUnit)}
+      </p>
+      <p className={cn('hidden text-right text-base font-bold tabular-nums sm:block sm:text-lg', pointsTone)}>
+        {formatSignedPoints(rule.points)}
+      </p>
+    </li>
+  )
+}
+
+function InactiveRulesPanel({
+  positive,
+  negative,
+}: {
+  positive: ActionGamificationRule[]
+  negative: ActionGamificationRule[]
+}) {
+  return (
+    <details className="group/inactive overflow-hidden rounded-xl border border-border/60 bg-background">
+      <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-left transition-colors hover:bg-muted/20 sm:px-4 [&::-webkit-details-marker]:hidden">
+        <div>
+          <p className="text-xs font-semibold text-foreground sm:text-sm">Cómo sumar o perder puntos</p>
+          <p className="text-[11px] text-muted-foreground">Conductas que aún no se registran en tu periodo</p>
+        </div>
         <ChevronDown
-          className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+          className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/inactive:rotate-180"
           aria-hidden
         />
       </summary>
-      <div className="space-y-4 border-t border-border/60 bg-muted/10 p-3 sm:p-4">
-        <div className="grid gap-3 sm:gap-4 lg:grid-cols-2">
-          <RuleGroup
-            variant="positive"
-            title="A tu favor"
-            rules={positiveRules}
-            emptyText="Aún no hay puntos a tu favor en este periodo."
-          />
-          <RuleGroup
-            variant="negative"
-            title="En contra"
-            rules={consequenceRules}
-            emptyText="Sin puntos en contra visibles por ahora."
-          />
-        </div>
-        <NextActionPanel metrics={metrics} />
+      <div className="space-y-3 border-t border-border/50 px-3 py-3 sm:px-4">
+        {positive.length > 0 ? (
+          <div>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+              Oportunidades a tu favor
+            </p>
+            <ul className="space-y-1.5">
+              {positive.map((rule) => (
+                <li
+                  key={rule.key}
+                  className="flex items-center justify-between gap-2 rounded-md border border-border/50 bg-muted/15 px-2.5 py-2 text-xs"
+                >
+                  <span className="min-w-0 text-foreground">{rule.label}</span>
+                  <span className="shrink-0 font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
+                    {formatSignedPoints(rule.pointsPerUnit)} pts c/u
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {negative.length > 0 ? (
+          <div>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-destructive">
+              Riesgos a evitar
+            </p>
+            <ul className="space-y-1.5">
+              {negative.map((rule) => (
+                <li
+                  key={rule.key}
+                  className="flex items-center justify-between gap-2 rounded-md border border-border/50 bg-muted/15 px-2.5 py-2 text-xs"
+                >
+                  <span className="min-w-0 text-foreground">{rule.label}</span>
+                  <span className="shrink-0 font-semibold tabular-nums text-destructive">
+                    {formatSignedPoints(rule.pointsPerUnit)} pts c/u
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
     </details>
-  )
-}
-
-function ScoreAmountCard({
-  label,
-  value,
-  tone,
-  className,
-  emphasized = false,
-}: {
-  label: string
-  value: number
-  tone: MetricTone
-  className?: string
-  emphasized?: boolean
-}) {
-  return (
-    <div
-      className={cn(
-        'rounded-lg border p-2.5 sm:p-3',
-        toneSurface(tone),
-        emphasized && 'ring-1 ring-border/70',
-        className
-      )}
-    >
-      <p className="text-[10px] font-medium leading-snug text-muted-foreground sm:text-[11px]">
-        {label}
-      </p>
-      <p
-        className={cn(
-          'mt-0.5 font-semibold tabular-nums text-foreground sm:mt-1',
-          emphasized ? 'text-2xl sm:text-2xl' : 'text-lg sm:text-2xl'
-        )}
-      >
-        {formatSignedPoints(value)}
-      </p>
-    </div>
-  )
-}
-
-function ScoreFactor({
-  icon: Icon,
-  title,
-  text,
-  tone,
-}: {
-  icon: typeof CheckCircle2
-  title: string
-  text: string
-  tone: MetricTone
-}) {
-  return (
-    <div className={cn('flex gap-2.5 rounded-lg border p-2.5 sm:gap-3 sm:p-3', toneSurface(tone))}>
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background sm:h-8 sm:w-8">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground sm:h-4 sm:w-4" aria-hidden />
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs font-semibold text-foreground sm:text-sm">{title}</p>
-        <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground sm:text-xs">{text}</p>
-      </div>
-    </div>
-  )
-}
-
-function RuleGroup({
-  title,
-  rules,
-  emptyText,
-  variant,
-}: {
-  title: string
-  rules: ActionGamificationRule[]
-  emptyText: string
-  variant: 'positive' | 'negative'
-}) {
-  const total = rules.reduce((sum, rule) => sum + rule.points, 0)
-  const HeaderIcon = variant === 'positive' ? CheckCircle2 : AlertTriangle
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-border/60 bg-background shadow-sm">
-      <div
-        className={cn(
-          'flex items-center gap-2.5 border-b px-3 py-2.5 sm:px-3.5',
-          variant === 'positive'
-            ? 'border-emerald-500/20 bg-emerald-500/[0.07]'
-            : 'border-destructive/20 bg-destructive/[0.06]'
-        )}
-      >
-        <HeaderIcon
-          className={cn(
-            'h-4 w-4 shrink-0',
-            variant === 'positive' ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'
-          )}
-          aria-hidden
-        />
-        <h3 className="min-w-0 flex-1 text-sm font-semibold text-foreground">{title}</h3>
-        {rules.length > 0 ? (
-          <span
-            className={cn(
-              'shrink-0 text-sm font-bold tabular-nums',
-              variant === 'positive' ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive'
-            )}
-          >
-            {formatSignedPoints(total)}
-          </span>
-        ) : (
-          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-            0
-          </span>
-        )}
-      </div>
-      {rules.length > 0 ? (
-        <ul className="divide-y divide-border/50">
-          {rules.map((rule) => (
-            <GamificationRuleRow key={rule.key} rule={rule} variant={variant} />
-          ))}
-        </ul>
-      ) : (
-        <p className="px-3 py-4 text-xs leading-relaxed text-muted-foreground sm:px-3.5">{emptyText}</p>
-      )}
-    </div>
   )
 }
 
@@ -478,47 +580,12 @@ function NextActionPanel({ metrics }: { metrics: PersonalMetrics }) {
             <Icon className="h-4 w-4 text-muted-foreground" aria-hidden />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Qué conviene mejorar
-            </p>
-            <h3 className="mt-1 text-sm font-semibold leading-snug text-foreground sm:text-base">{next.title}</h3>
+            <h4 className="text-sm font-semibold leading-snug text-foreground sm:text-base">{next.title}</h4>
             <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground sm:text-sm">{next.text}</p>
           </div>
         </div>
       </div>
     </div>
-  )
-}
-
-function GamificationRuleRow({
-  rule,
-  variant,
-}: {
-  rule: ActionGamificationRule
-  variant: 'positive' | 'negative'
-}) {
-  const Icon = ruleIcon(rule.key)
-
-  return (
-    <li className="flex items-center gap-3 px-3 py-2.5 sm:px-3.5 sm:py-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/30">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium leading-snug text-foreground">{rule.label}</p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
-          {rule.count} × {formatSignedPoints(rule.pointsPerUnit)} pts c/u
-        </p>
-      </div>
-      <span
-        className={cn(
-          'shrink-0 text-base font-bold tabular-nums sm:text-lg',
-          variant === 'negative' || rule.points < 0 ? 'text-destructive' : 'text-emerald-700 dark:text-emerald-300'
-        )}
-      >
-        {formatSignedPoints(rule.points)}
-      </span>
-    </li>
   )
 }
 
@@ -544,26 +611,6 @@ function heroAlertCopy(blocked: number, overdue: number) {
   if (blocked > 0) return `${blocked} accion bloqueada${blocked === 1 ? '' : 's'} requiere${blocked === 1 ? '' : 'n'} atencion.`
   if (overdue > 0) return `${overdue} accion${overdue === 1 ? '' : 'es'} en retraso requiere${overdue === 1 ? '' : 'n'} atencion.`
   return 'Sin bloqueos visibles. Entra a tus acciones y protege el cierre del dia.'
-}
-
-function helpingCopy(metrics: PersonalMetrics) {
-  const parts = [
-    metrics.onTimeClosed > 0 ? `${metrics.onTimeClosed} cerrada${metrics.onTimeClosed === 1 ? '' : 's'} a tiempo` : '',
-    metrics.academyModulesCompleted > 0
-      ? `${metrics.academyModulesCompleted} módulo${metrics.academyModulesCompleted === 1 ? '' : 's'} de Academia`
-      : '',
-    metrics.commentsMade > 0 ? `${metrics.commentsMade} comentario${metrics.commentsMade === 1 ? '' : 's'}` : '',
-    metrics.created > 0 ? `${metrics.created} creada${metrics.created === 1 ? '' : 's'}` : '',
-  ].filter(Boolean)
-  return parts.length > 0 ? parts.join(' · ') : 'Todavia no hay conductas sumando puntos en este periodo.'
-}
-
-function affectingCopy(metrics: PersonalMetrics) {
-  const parts = [
-    metrics.overdue > 0 ? `${metrics.overdue} en retraso` : '',
-    metrics.rejected > 0 ? `${metrics.rejected} rechazada${metrics.rejected === 1 ? '' : 's'}` : '',
-  ].filter(Boolean)
-  return parts.length > 0 ? parts.join(' · ') : 'Sin friccion negativa visible por ahora.'
 }
 
 function nextAction(metrics: PersonalMetrics): {
