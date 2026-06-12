@@ -92,6 +92,7 @@ export function DashboardActionsSection({
               onSelectAccion={onSelectAccion}
               responsableNames={responsableNames}
               checklistProgressByAccionId={checklistProgressByAccionId}
+              indicadoresMode="checklist"
               emptyMessage="No hay acciones registradas para esta fecha."
               emptyActionLabel="Crear acción"
               onEmptyAction={onNewAction}

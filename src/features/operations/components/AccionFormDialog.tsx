@@ -44,7 +44,7 @@ import type { AccionCreateInput, AccionFormInput } from '../schemas/accion.schem
 import { flattenDescripcionForForm } from '../utils/descripcionAccionTriada'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { Paperclip, FileText, Image, Trash2 } from 'lucide-react'
+import { Download, ExternalLink, Paperclip, FileText, Image, Trash2 } from 'lucide-react'
 import {
   AccionChecklistEditor,
   type LocalCheckpointDraft,
@@ -66,6 +66,11 @@ import {
 } from '@/services/accionLinks.service'
 
 import { todayWallClockCDMX } from '@/lib/dateUtils'
+import {
+  downloadLocalFile,
+  isPreviewableDocument,
+  openLocalFile,
+} from '@/lib/documentActions'
 
 /** Fecha de hoy en YYYY-MM-DD (calendario CDMX, no UTC). */
 function todayISO(): string {
@@ -636,7 +641,41 @@ export function AccionFormDialog({
                               ) : (
                                 <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                               )}
-                              <span className="min-w-0 flex-1 truncate text-sm font-medium">{f.name}</span>
+                              <button
+                                type="button"
+                                className="min-w-0 flex-1 truncate text-left text-sm font-medium text-primary hover:underline"
+                                onClick={() =>
+                                  isPreviewableDocument({ fileName: f.name, contentType: f.type })
+                                    ? openLocalFile(f)
+                                    : downloadLocalFile(f)
+                                }
+                              >
+                                {f.name}
+                              </button>
+                              {isPreviewableDocument({ fileName: f.name, contentType: f.type }) ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                                  onClick={() => openLocalFile(f)}
+                                  aria-label="Abrir archivo"
+                                  title="Abrir archivo"
+                                >
+                                  <ExternalLink className="h-4 w-4" />
+                                </Button>
+                              ) : null}
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                                onClick={() => downloadLocalFile(f)}
+                                aria-label="Descargar archivo"
+                                title="Descargar archivo"
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
                               <Button
                                 type="button"
                                 variant="ghost"

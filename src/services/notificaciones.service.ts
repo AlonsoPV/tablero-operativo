@@ -17,6 +17,19 @@ export interface CreateNotificacionInput {
   payload?: Record<string, unknown>
 }
 
+async function sendNotificationEmail(input: CreateNotificacionInput): Promise<void> {
+  const { error } = await supabase.functions.invoke('send-notification-email', {
+    body: {
+      usuario_id: input.usuario_id,
+      tipo: input.tipo,
+      prioridad: input.prioridad ?? 'Normal',
+      payload: input.payload ?? null,
+    },
+  })
+
+  if (error) throw error
+}
+
 export const notificacionesService = {
   /**
    * Inserta una notificación para otro usuario.
@@ -32,6 +45,15 @@ export const notificacionesService = {
       payload: input.payload ?? null,
     })
     if (error) throw error
+
+    try {
+      await sendNotificationEmail(input)
+    } catch (emailError) {
+      console.warn(
+        '[notificaciones] La notificacion se creo, pero no se pudo enviar el correo.',
+        emailError
+      )
+    }
   },
 
   async listByUsuario(usuarioId: string, options?: { leido?: boolean }) {

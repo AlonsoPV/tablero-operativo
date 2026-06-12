@@ -38,8 +38,15 @@ import {
   Send,
   Image as ImageIcon,
   Users,
+  Download,
+  ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import {
+  downloadDocumentFromUrl,
+  isPreviewableDocument,
+  openDocumentInNewTab,
+} from '@/lib/documentActions'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_COMMENT_CHARS = 2000
@@ -426,6 +433,17 @@ export function AccionComentarios({
 function AdjuntoLink({ storage_path, file_name }: ComentarioAdjunto) {
   const [url, setUrl] = useState<string | null>(null)
   const [err, setErr] = useState(false)
+  const previewable = isPreviewableDocument({ fileName: file_name })
+
+  const handleDownload = async () => {
+    if (!url) return
+    try {
+      await downloadDocumentFromUrl(url, file_name)
+    } catch {
+      toast.error('No se pudo descargar el archivo')
+    }
+  }
+
   useEffect(() => {
     getSignedUrlEvidencia(storage_path)
       .then(setUrl)
@@ -434,15 +452,30 @@ function AdjuntoLink({ storage_path, file_name }: ComentarioAdjunto) {
   if (err) return <span className="text-xs text-muted-foreground">{file_name}</span>
   if (!url) return <span className="animate-pulse text-xs text-muted-foreground">{file_name}…</span>
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-background px-2 py-1 text-xs font-medium text-primary hover:bg-muted/40 hover:underline"
-    >
+    <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/50 bg-background px-2 py-1 text-xs font-medium text-primary">
       <FileText className="h-3 w-3 shrink-0" />
       <span className="max-w-[12rem] truncate">{file_name}</span>
-    </a>
+      {previewable ? (
+        <button
+          type="button"
+          className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={() => openDocumentInNewTab(url)}
+          aria-label="Abrir archivo"
+          title="Abrir archivo"
+        >
+          <ExternalLink className="h-3 w-3" />
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+        onClick={() => void handleDownload()}
+        aria-label="Descargar archivo"
+        title="Descargar archivo"
+      >
+        <Download className="h-3 w-3" />
+      </button>
+    </span>
   )
 }
 

@@ -95,7 +95,7 @@ function NotificacionItem({
   const headline = tituloAccion || tituloTicket || tipoLabel
   const hasAccionContext = Boolean(tituloAccion || accionId)
   const hasTicketContext = Boolean(tituloTicket || ticketId)
-  const kanbanLink = accionId ? `/kanban?accion=${accionId}` : null
+  const kanbanLink = accionId ? `${ROUTES.KANBAN}?accion=${accionId}` : null
   const ticketLink = ticketId ? `${ROUTES.TICKETS}?ticket=${ticketId}` : null
 
   return (

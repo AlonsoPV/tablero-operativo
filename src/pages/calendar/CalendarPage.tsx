@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
 import { useAreas } from '@/features/catalogs/hooks/useAreas'
 import { CalendarView, type CalendarFilters } from '@/features/calendar'
-import { AccionFormDialog } from '@/features/operations'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import type { AccionDiaria } from '@/types'
 import { CalendarFiltersBar } from './components/CalendarFiltersBar'
+import { ROUTES } from '@/constants'
 
 function isCalendarItemType(value: string | null): value is NonNullable<CalendarFilters['itemType']> {
   return value === 'todos' || value === 'acciones' || value === 'recordatorios' || value === 'minutas'
@@ -17,6 +17,7 @@ function isDateParam(value: string | null): value is string {
 }
 
 export function CalendarPage() {
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const fechaParam = searchParams.get('fecha')
   const initialDate = isDateParam(fechaParam) ? fechaParam : null
@@ -30,8 +31,6 @@ export function CalendarPage() {
   const [filtersExpanded, setFiltersExpanded] = useState(
     () => Boolean(initialItemType) || Boolean(fechaParam)
   )
-  const [editingAccion, setEditingAccion] = useState<AccionDiaria | null>(null)
-  const [dialogOpen, setDialogOpen] = useState(false)
 
   const responsableNames = useMemo(() => {
     const map: Record<string, string> = {}
@@ -42,9 +41,8 @@ export function CalendarPage() {
   }, [users])
 
   const handleSelectAccion = useCallback((accion: AccionDiaria) => {
-    setEditingAccion(accion)
-    setDialogOpen(true)
-  }, [])
+    navigate(`${ROUTES.KANBAN}?accion=${accion.id}`)
+  }, [navigate])
 
   const hasFilters = Boolean(
     filters.area ||
@@ -97,16 +95,6 @@ export function CalendarPage() {
           />
         </SectionCardBody>
       </SectionCard>
-
-      <AccionFormDialog
-        dialogId="calendar-accion-dialog"
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        accion={editingAccion}
-        defaultFecha={initialDate ?? undefined}
-        onSuccess={() => setDialogOpen(false)}
-        responsableNames={responsableNames}
-      />
     </div>
   )
 }

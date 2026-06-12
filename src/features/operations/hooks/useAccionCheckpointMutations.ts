@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { kpiQueryKeys } from '@/features/kpi/kpiQueryKeys'
 import { accionCheckpointsService } from '@/services/accionCheckpoints.service'
 import type { AccionCheckpoint } from '@/types'
 import { ACCION_CHECKPOINTS_KEY, accionCheckpointsByAccionIdQueryKey } from './useAccionCheckpoints'
@@ -17,6 +18,10 @@ function invalidateCheckpointQueries(
     queryKey: [...ACCION_CHECKPOINTS_KEY, 'progress'],
     refetchType: 'active',
   })
+  qc.invalidateQueries({ queryKey: ['acciones'], refetchType: 'active' })
+  qc.invalidateQueries({ queryKey: kpiQueryKeys.gaps, refetchType: 'active' })
+  qc.invalidateQueries({ queryKey: kpiQueryKeys.gapAcciones, refetchType: 'active' })
+  qc.invalidateQueries({ queryKey: kpiQueryKeys.catalogKpiAccionImpact, refetchType: 'active' })
 }
 
 export function useInsertAccionCheckpoint() {

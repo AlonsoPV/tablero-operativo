@@ -9,6 +9,7 @@ import { getAcademyPdfDownloadUrl, uploadAcademyPdf } from '@/services/academySt
 import { useAcademyPdfUrl } from '../hooks/useAcademyPdfUrl'
 import type { LearningModule } from '../types/academy.types'
 import { moduleExerciseStepKey, moduleStepKey } from '../utils/academyProgress'
+import { downloadDocumentFromUrl, openDocumentInNewTab } from '@/lib/documentActions'
 
 function SectionList({ title, items }: { title: string; items: string[] }) {
   return (
@@ -97,16 +98,7 @@ export function AcademyModuleDetail({
         return
       }
 
-      const a = document.createElement('a')
-      a.href = downloadUrl
-      a.download = module.pdfName
-      a.rel = 'noopener'
-      if (downloadUrl.startsWith('http')) {
-        a.target = '_blank'
-      }
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
+      await downloadDocumentFromUrl(downloadUrl, module.pdfName)
     } catch {
       toast.error(`No se pudo descargar ${module.pdfName}.`)
     } finally {
@@ -158,15 +150,14 @@ export function AcademyModuleDetail({
               ) : pdfLoading ? (
                 <p className="text-xs text-muted-foreground">Vinculando PDF del módulo…</p>
               ) : pdfAvailable && pdfUrl ? (
-                <a
-                  href={pdfUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                <button
+                  type="button"
+                  onClick={() => openDocumentInNewTab(pdfUrl)}
+                  className="inline-flex items-center gap-1.5 text-left text-sm font-medium text-primary hover:underline"
                 >
                   Abrir {module.pdfName}
                   <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                </a>
+                </button>
               ) : (
                 <p className="text-xs text-muted-foreground">
                   PDF no encontrado en Storage. Verifica que el archivo esté en el bucket{' '}
@@ -190,11 +181,14 @@ export function AcademyModuleDetail({
             {isDownloading ? 'Descargando…' : 'Descargar PDF'}
           </Button>
           {pdfAvailable && pdfUrl ? (
-            <Button type="button" variant="secondary" size="sm" asChild>
-              <a href={pdfUrl} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="h-4 w-4" />
-                Ver PDF
-              </a>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => openDocumentInNewTab(pdfUrl)}
+            >
+              <ExternalLink className="h-4 w-4" />
+              Ver PDF
             </Button>
           ) : null}
           {canUploadPdf ? (

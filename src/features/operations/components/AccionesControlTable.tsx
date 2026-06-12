@@ -78,6 +78,7 @@ export type AccionControlSortKey =
   | 'indicadores'
 
 type SortDir = 'asc' | 'desc'
+type IndicadoresMode = 'full' | 'checklist'
 
 const DEFAULT_SORT: { key: AccionControlSortKey; dir: SortDir } = { key: 'fecha', dir: 'asc' }
 
@@ -126,11 +127,17 @@ function accionEstadoSortValue(accion: AccionDiaria): number {
 function indicadoresSortValue(
   accion: AccionDiaria,
   commentCounts: Record<string, number>,
-  checklistProgressByAccionId: Record<string, { total: number; completed: number }>
+  checklistProgressByAccionId: Record<string, { total: number; completed: number }>,
+  indicadoresMode: IndicadoresMode
 ): number {
+  const prog = checklistProgressByAccionId[accion.id]
+  if (indicadoresMode === 'checklist') {
+    if (!prog || prog.total <= 0) return -1
+    return Math.round((prog.completed / prog.total) * 100)
+  }
+
   let score = 0
   score += (commentCounts[accion.id] ?? 0) * 10
-  const prog = checklistProgressByAccionId[accion.id]
   if (prog && prog.total > 0) score += Math.round((prog.completed / prog.total) * 20)
   if (accion.evidencia_cargada) score += 5
   if (isEnRetraso(accion)) score += 50
@@ -145,7 +152,8 @@ function compareAccionesControl(
   sortDir: SortDir,
   responsableNames: Record<string, string>,
   commentCounts: Record<string, number>,
-  checklistProgressByAccionId: Record<string, { total: number; completed: number }>
+  checklistProgressByAccionId: Record<string, { total: number; completed: number }>,
+  indicadoresMode: IndicadoresMode
 ): number {
   let cmp = 0
   switch (sortKey) {
@@ -176,8 +184,8 @@ function compareAccionesControl(
       break
     case 'indicadores':
       cmp =
-        indicadoresSortValue(a, commentCounts, checklistProgressByAccionId) -
-        indicadoresSortValue(b, commentCounts, checklistProgressByAccionId)
+        indicadoresSortValue(a, commentCounts, checklistProgressByAccionId, indicadoresMode) -
+        indicadoresSortValue(b, commentCounts, checklistProgressByAccionId, indicadoresMode)
       break
   }
   return sortDir === 'asc' ? cmp : -cmp
@@ -189,10 +197,11 @@ function sortAccionesControl(
   sortDir: SortDir,
   responsableNames: Record<string, string>,
   commentCounts: Record<string, number>,
-  checklistProgressByAccionId: Record<string, { total: number; completed: number }>
+  checklistProgressByAccionId: Record<string, { total: number; completed: number }>,
+  indicadoresMode: IndicadoresMode
 ): AccionDiaria[] {
   return [...acciones].sort((a, b) =>
-    compareAccionesControl(a, b, sortKey, sortDir, responsableNames, commentCounts, checklistProgressByAccionId)
+    compareAccionesControl(a, b, sortKey, sortDir, responsableNames, commentCounts, checklistProgressByAccionId, indicadoresMode)
   )
 }
 
@@ -261,6 +270,7 @@ export interface AccionesControlTableProps {
   responsableNames?: Record<string, string>
   /** Progreso de checklist por acción (misma fuente que Kanban). */
   checklistProgressByAccionId?: Record<string, { total: number; completed: number }>
+  indicadoresMode?: IndicadoresMode
   /** Mensaje del empty state (opcional) */
   emptyMessage?: string
   /** Etiqueta del botón CTA en empty state (opcional) */
@@ -274,7 +284,24 @@ type AccionRowSharedProps = {
   commentCounts: Record<string, number>
   responsableNames: Record<string, string>
   checklistProgressByAccionId: Record<string, { total: number; completed: number }>
+  indicadoresMode: IndicadoresMode
   onSelectAccion?: (accion: AccionDiaria) => void
+}
+
+function ChecklistStatusBadge({
+  progress,
+}: {
+  progress?: { total: number; completed: number }
+}) {
+  if (progress && progress.total > 0) {
+    return <AccionChecklistProgressBadge completados={progress.completed} total={progress.total} />
+  }
+
+  return (
+    <span className="inline-flex rounded-md border border-border/60 bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:text-xs">
+      Sin checklist
+    </span>
+  )
 }
 
 function AccionControlMobileCard({
@@ -282,6 +309,7 @@ function AccionControlMobileCard({
   commentCounts,
   responsableNames,
   checklistProgressByAccionId,
+  indicadoresMode,
   onSelectAccion,
 }: AccionRowSharedProps) {
   const displayStatus = getAccionDisplayEstado(accion)
@@ -340,24 +368,30 @@ function AccionControlMobileCard({
           <span className="tabular-nums">{formatFechaLimite(accion.fecha)}</span>
         </span>
         <div className="flex flex-wrap items-center justify-end gap-1.5">
-          {comments > 0 && (
-            <span className="inline-flex items-center gap-0.5 rounded-md bg-muted/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              <MessageSquare className="h-3 w-3" />
-              {comments}
-            </span>
-          )}
-          {checklistProg && checklistProg.total > 0 && (
-            <AccionChecklistProgressBadge
-              completados={checklistProg.completed}
-              total={checklistProg.total}
-            />
-          )}
-          <EvidenciaCargadaIndicator cargada={accion.evidencia_cargada} />
-          {isEnRetraso(accion) && (
-            <AlertTriangle className="h-3.5 w-3.5 text-orange-600" aria-label="En retraso" />
-          )}
-          {accion.estado === 'Bloqueado' && (
-            <AlertCircle className="h-3.5 w-3.5 text-destructive" aria-label="Bloqueado" />
+          {indicadoresMode === 'checklist' ? (
+            <ChecklistStatusBadge progress={checklistProg} />
+          ) : (
+            <>
+              {comments > 0 && (
+                <span className="inline-flex items-center gap-0.5 rounded-md bg-muted/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  <MessageSquare className="h-3 w-3" />
+                  {comments}
+                </span>
+              )}
+              {checklistProg && checklistProg.total > 0 && (
+                <AccionChecklistProgressBadge
+                  completados={checklistProg.completed}
+                  total={checklistProg.total}
+                />
+              )}
+              <EvidenciaCargadaIndicator cargada={accion.evidencia_cargada} />
+              {isEnRetraso(accion) && (
+                <AlertTriangle className="h-3.5 w-3.5 text-orange-600" aria-label="En retraso" />
+              )}
+              {accion.estado === 'Bloqueado' && (
+                <AlertCircle className="h-3.5 w-3.5 text-destructive" aria-label="Bloqueado" />
+              )}
+            </>
           )}
         </div>
       </div>
@@ -370,12 +404,14 @@ function AccionesControlMobileList({
   commentCounts,
   responsableNames,
   checklistProgressByAccionId,
+  indicadoresMode,
   onSelectAccion,
 }: {
   acciones: AccionDiaria[]
   commentCounts: Record<string, number>
   responsableNames: Record<string, string>
   checklistProgressByAccionId: Record<string, { total: number; completed: number }>
+  indicadoresMode: IndicadoresMode
   onSelectAccion?: (accion: AccionDiaria) => void
 }) {
   return (
@@ -387,6 +423,7 @@ function AccionesControlMobileList({
             commentCounts={commentCounts}
             responsableNames={responsableNames}
             checklistProgressByAccionId={checklistProgressByAccionId}
+            indicadoresMode={indicadoresMode}
             onSelectAccion={onSelectAccion}
           />
         </li>
@@ -402,6 +439,7 @@ export function AccionesControlTable({
   onSelectAccion,
   responsableNames = {},
   checklistProgressByAccionId = {},
+  indicadoresMode = 'full',
   emptyMessage = 'No hay acciones para mostrar. Ajusta los filtros o crea una nueva.',
   emptyActionLabel,
   onEmptyAction,
@@ -426,9 +464,10 @@ export function AccionesControlTable({
         sortDir,
         responsableNames,
         commentCounts,
-        checklistProgressByAccionId
+        checklistProgressByAccionId,
+        indicadoresMode
       ),
-    [acciones, sortKey, sortDir, responsableNames, commentCounts, checklistProgressByAccionId]
+    [acciones, sortKey, sortDir, responsableNames, commentCounts, checklistProgressByAccionId, indicadoresMode]
   )
 
   if (isLoading) {
@@ -450,7 +489,9 @@ export function AccionesControlTable({
               <TableHead className="bg-muted/40 font-semibold w-[56px]">Pts</TableHead>
               <TableHead className="bg-muted/40 font-semibold w-[120px]">Fecha límite</TableHead>
               <TableHead className="bg-muted/40 font-semibold w-[90px]">Prioridad</TableHead>
-              <TableHead className="bg-muted/40 font-semibold w-[100px]">Indicadores</TableHead>
+              <TableHead className="bg-muted/40 font-semibold w-[100px]">
+                {indicadoresMode === 'checklist' ? 'Checklist' : 'Indicadores'}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -506,6 +547,7 @@ export function AccionesControlTable({
           commentCounts={commentCounts}
           responsableNames={responsableNames}
           checklistProgressByAccionId={checklistProgressByAccionId}
+          indicadoresMode={indicadoresMode}
           onSelectAccion={onSelectAccion}
         />
       </div>
@@ -573,7 +615,7 @@ export function AccionesControlTable({
             />
             <AccionSortHeader
               columnKey="indicadores"
-              label="Indicadores"
+              label={indicadoresMode === 'checklist' ? 'Checklist' : 'Indicadores'}
               sortKey={sortKey}
               sortDir={sortDir}
               onToggle={handleSortToggle}
@@ -642,7 +684,17 @@ export function AccionesControlTable({
                   </span>
                 </TableCell>
                 <TableCell className="py-3 align-middle">
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  <div
+                    className={cn(
+                      'flex flex-wrap items-center gap-1.5',
+                      indicadoresMode === 'checklist' && '[&>*:not(.checklist-only-status)]:hidden'
+                    )}
+                  >
+                    {indicadoresMode === 'checklist' ? (
+                      <span className="checklist-only-status">
+                        <ChecklistStatusBadge progress={checklistProg} />
+                      </span>
+                    ) : null}
                     {(commentCounts[accion.id] ?? 0) > 0 && (
                       <span
                         title={`${commentCounts[accion.id]} comentario${commentCounts[accion.id] !== 1 ? 's' : ''}`}

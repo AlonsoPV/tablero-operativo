@@ -15,8 +15,13 @@ import {
 } from '@/services/accionEvidencias.service'
 import { accionesService } from '@/services/acciones.service'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { Paperclip, FileText, Image, Trash2, Loader2 } from 'lucide-react'
+import { Paperclip, FileText, Image, Trash2, Loader2, Download, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
+import {
+  downloadDocumentFromUrl,
+  isPreviewableDocument,
+  openDocumentInNewTab,
+} from '@/lib/documentActions'
 
 const EVIDENCIAS_KEY = ['accion_evidencias'] as const
 
@@ -104,9 +109,18 @@ export function AccionEvidenciasSection({
   const handleOpenUrl = async (path: string) => {
     try {
       const url = await accionEvidenciasService.getSignedUrl(path)
-      window.open(url, '_blank')
+      openDocumentInNewTab(url)
     } catch {
       toast.error('No se pudo abrir el archivo')
+    }
+  }
+
+  const handleDownloadUrl = async (path: string, fileName: string) => {
+    try {
+      const url = await accionEvidenciasService.getSignedUrl(path)
+      await downloadDocumentFromUrl(url, fileName)
+    } catch {
+      toast.error('No se pudo descargar el archivo')
     }
   }
 
@@ -169,7 +183,13 @@ export function AccionEvidenciasSection({
           <p className="text-xs text-muted-foreground">Cargando…</p>
         ) : list.length > 0 ? (
           <ul className="space-y-2">
-            {list.map((ev) => (
+            {list.map((ev) => {
+              const fileName = ev.file_name ?? ev.storage_path
+              const previewable = isPreviewableDocument({
+                fileName,
+                contentType: ev.content_type,
+              })
+              return (
               <li
                 key={ev.id}
                 className="flex items-center gap-3 rounded-lg border border-border/50 bg-background px-3 py-2"
@@ -181,11 +201,39 @@ export function AccionEvidenciasSection({
                 )}
                 <button
                   type="button"
-                  onClick={() => handleOpenUrl(ev.storage_path)}
+                  onClick={() =>
+                    previewable
+                      ? handleOpenUrl(ev.storage_path)
+                      : handleDownloadUrl(ev.storage_path, fileName)
+                  }
                   className="min-w-0 flex-1 truncate text-left text-sm font-medium text-primary hover:underline"
                 >
-                  {ev.file_name ?? ev.storage_path}
+                  {fileName}
                 </button>
+                {previewable ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                    onClick={() => handleOpenUrl(ev.storage_path)}
+                    aria-label="Abrir archivo"
+                    title="Abrir archivo"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => handleDownloadUrl(ev.storage_path, fileName)}
+                  aria-label="Descargar archivo"
+                  title="Descargar archivo"
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
                 {!readOnly && (
                   <Button
                     type="button"
@@ -200,7 +248,8 @@ export function AccionEvidenciasSection({
                   </Button>
                 )}
               </li>
-            ))}
+              )
+            })}
           </ul>
         ) : (
           <p className="text-xs text-muted-foreground">Sin archivos aún</p>

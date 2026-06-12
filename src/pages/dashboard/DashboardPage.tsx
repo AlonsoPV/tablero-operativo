@@ -4,7 +4,7 @@
 
 import { useMemo, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   useAcciones,
   useCommentCounts,
@@ -35,12 +35,14 @@ import { DashboardScoreAndRoadmapSection } from './components/DashboardScoreAndR
 import { DashboardHeader } from './components/DashboardHeader'
 import { DashboardKpiCards } from './components/DashboardKpiCards'
 import { DashboardActionsSection } from './components/DashboardActionsSection'
+import { DashboardUserActionsSummarySection } from './components/DashboardUserActionsSummarySection'
 import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
 import { InfoHint } from '@/components/InfoHint'
 import { Button } from '@/components/ui/button'
 import { Activity, ChevronRight, Target } from 'lucide-react'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { ROUTES } from '@/constants'
+import { accionComentariosService } from '@/services/accionComentarios.service'
 
 const DEFAULT_FILTER: AccionesFilter = {}
 
@@ -93,6 +95,13 @@ export function DashboardPage() {
   const accionIds = useMemo(() => acciones.map((a) => a.id), [acciones])
   const { data: commentCounts = {} } = useCommentCounts(accionIds)
   const { data: checklistProgressByAccionId = {} } = useChecklistProgressByAccionIds(accionIds)
+  const { data: accionComentarios = [], isLoading: comentariosLoading } = useQuery({
+    queryKey: ['dashboard', 'accion-comentarios', accionIds],
+    queryFn: () => accionComentariosService.listByAccionIds(accionIds),
+    enabled: accionIds.length > 0,
+    staleTime: 5 * 60_000,
+    retry: 1,
+  })
   const { data: users = [] } = useUsers({ activo: true })
 
   const metricas = useMemo(() => metricasFromAcciones(acciones), [acciones])
@@ -438,6 +447,16 @@ export function DashboardPage() {
             />
           )}
         </div>
+
+        {!accionesError ? (
+          <DashboardUserActionsSummarySection
+            users={users}
+            acciones={acciones}
+            comentarios={accionComentarios}
+            today={today}
+            isLoading={isLoading || comentariosLoading}
+          />
+        ) : null}
 
         {!usesOperationalDashboard ? (
         <section
