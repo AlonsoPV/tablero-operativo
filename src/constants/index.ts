@@ -1,4 +1,4 @@
-export const APP_NAME = 'Tablero Operativo'
+export const APP_NAME = 'SCRUMBAN'
 
 /** Rutas según módulos de lovable-spec §5 */
 export const ROUTES = {

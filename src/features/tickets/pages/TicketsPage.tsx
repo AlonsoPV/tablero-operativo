@@ -102,6 +102,14 @@ function userInitials(name: string) {
   return name.slice(0, 2).toUpperCase() || '?'
 }
 
+function resolveCreatorName(
+  createdBy: string | null | undefined,
+  creatorNames: Record<string, string>
+) {
+  if (!createdBy) return 'Usuario desconocido'
+  return creatorNames[createdBy] ?? 'Usuario'
+}
+
 type NotifyInput = {
   ticket: SupportTicket
   tipo: string
@@ -146,6 +154,7 @@ function TicketCard({
   canDrag,
   moduleLabel,
   typeLabel,
+  creatorName,
 }: {
   ticket: SupportTicket
   commentCount: number
@@ -153,6 +162,7 @@ function TicketCard({
   canDrag: boolean
   moduleLabel: string
   typeLabel: string
+  creatorName: string
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: ticket.id,
@@ -166,6 +176,7 @@ function TicketCard({
         commentCount={commentCount}
         moduleLabel={moduleLabel}
         typeLabel={typeLabel}
+        creatorName={creatorName}
         isDragging={isDragging}
         dragHandleProps={{ attributes, listeners }}
         onOpen={() => onOpen(ticket)}
@@ -179,6 +190,7 @@ function TicketCardInner({
   commentCount,
   moduleLabel,
   typeLabel,
+  creatorName,
   isDragging,
   isOverlay,
   dragHandleProps,
@@ -188,6 +200,7 @@ function TicketCardInner({
   commentCount: number
   moduleLabel: string
   typeLabel: string
+  creatorName: string
   isDragging?: boolean
   isOverlay?: boolean
   dragHandleProps?: { attributes: object; listeners?: object }
@@ -210,6 +223,9 @@ function TicketCardInner({
         <div className="min-w-0">
           <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{ticket.titulo}</p>
           <p className="mt-0.5 text-[11px] text-muted-foreground">ID {shortId(ticket.id)}</p>
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground" title={`Creado por ${creatorName}`}>
+            Creado por {creatorName}
+          </p>
         </div>
         <Button
           type="button"
@@ -261,6 +277,7 @@ function TicketsColumn({
   canManage,
   moduleOptions,
   typeOptions,
+  creatorNames,
 }: {
   status: TicketStatus
   tickets: SupportTicket[]
@@ -270,6 +287,7 @@ function TicketsColumn({
   canManage: boolean
   moduleOptions: { label: string; value: string }[]
   typeOptions: { label: string; value: string }[]
+  creatorNames: Record<string, string>
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status })
   const meta = STATUS_META[status]
@@ -316,6 +334,7 @@ function TicketsColumn({
               canDrag={canManage}
               moduleLabel={optionLabel(moduleOptions, ticket.modulo)}
               typeLabel={optionLabel(typeOptions, ticket.tipo)}
+              creatorName={resolveCreatorName(ticket.created_by, creatorNames)}
             />
           ))
         )}
@@ -332,6 +351,7 @@ function TicketsBoard({
   canManage,
   moduleOptions,
   typeOptions,
+  creatorNames,
 }: {
   tickets: SupportTicket[]
   counts: Record<string, number>
@@ -340,6 +360,7 @@ function TicketsBoard({
   canManage: boolean
   moduleOptions: { label: string; value: string }[]
   typeOptions: { label: string; value: string }[]
+  creatorNames: Record<string, string>
 }) {
   const { data: currentUser } = useCurrentUser()
   const { data: users = [] } = useUsers({ activo: true })
@@ -402,6 +423,7 @@ function TicketsBoard({
             canManage={canManage}
             moduleOptions={moduleOptions}
             typeOptions={typeOptions}
+            creatorNames={creatorNames}
           />
         ))}
       </div>
@@ -412,6 +434,7 @@ function TicketsBoard({
             commentCount={counts[activeTicket.id] ?? 0}
             moduleLabel={optionLabel(moduleOptions, activeTicket.modulo)}
             typeLabel={optionLabel(typeOptions, activeTicket.tipo)}
+            creatorName={resolveCreatorName(activeTicket.created_by, creatorNames)}
             isOverlay
           />
         ) : null}
@@ -490,6 +513,7 @@ function TicketDialog({
   typeOptions,
   priorityOptions,
   impactOptions,
+  creatorNames,
 }: {
   open: boolean
   ticket: SupportTicket | null
@@ -499,6 +523,7 @@ function TicketDialog({
   typeOptions: { label: string; value: string }[]
   priorityOptions: { label: string; value: string }[]
   impactOptions: { label: string; value: string }[]
+  creatorNames: Record<string, string>
 }) {
   const { data: currentUser } = useCurrentUser()
   const { data: users = [] } = useUsers({ activo: true })
@@ -601,11 +626,19 @@ function TicketDialog({
           <DialogDescription className="text-left">
             {isEdit && ticket ? (
               <>
-                ID {shortId(ticket.id)} · Creado {formatDateTimeCDMX(ticket.created_at)}
+                ID {shortId(ticket.id)} · Creado por {resolveCreatorName(ticket.created_by, creatorNames)} ·{' '}
+                {formatDateTimeCDMX(ticket.created_at)}
                 {!canEdit ? ' · Solo lectura (edita super admin)' : null}
               </>
             ) : (
-              'Describe tu solicitud con claridad: cuanto mas contexto, mas rapido podremos atenderla.'
+              <>
+                Describe tu solicitud con claridad: cuanto mas contexto, mas rapido podremos atenderla.
+                {currentUser?.nombre ? (
+                  <span className="mt-1 block text-muted-foreground">
+                    Se registrara a nombre de {currentUser.nombre}.
+                  </span>
+                ) : null}
+              </>
             )}
           </DialogDescription>
         </DialogHeader>
@@ -615,6 +648,14 @@ function TicketDialog({
               title="Que necesitas"
               description="Resume el problema o la mejora en pocas palabras y explica el contexto."
             >
+              {isEdit && ticket ? (
+                <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-sm">
+                  <span className="text-muted-foreground">Creado por </span>
+                  <span className="font-medium text-foreground">
+                    {resolveCreatorName(ticket.created_by, creatorNames)}
+                  </span>
+                </div>
+              ) : null}
               <div className="grid gap-4">
                 <Field
                   label="Titulo"
@@ -962,6 +1003,13 @@ export function TicketsPage() {
   const [status, setStatus] = useState<TicketStatus | 'todos'>('todos')
   const { data: moduleOptionsRaw = [] } = useDropdownOptionsByKey('ticket_modulos')
   const { data: currentUser } = useCurrentUser()
+  const { data: users = [] } = useUsers({ activo: true })
+  const creatorNames = useMemo(() => {
+    const map: Record<string, string> = {}
+    if (currentUser?.id) map[currentUser.id] = currentUser.nombre
+    for (const user of users) map[user.id] = user.nombre
+    return map
+  }, [currentUser?.id, currentUser?.nombre, users])
   const { data: typeOptionsRaw = [] } = useDropdownOptionsByKey('ticket_tipos')
   const { data: priorityOptionsRaw = [] } = useDropdownOptionsByKey('ticket_prioridades')
   const { data: impactOptionsRaw = [] } = useDropdownOptionsByKey('ticket_impactos')
@@ -1058,6 +1106,7 @@ export function TicketsPage() {
           canManage={canManage}
           moduleOptions={moduleOptions}
           typeOptions={typeOptions}
+          creatorNames={creatorNames}
         />
       )}
 
@@ -1073,6 +1122,7 @@ export function TicketsPage() {
         typeOptions={typeOptions.length ? typeOptions : [{ label: 'Mejora', value: 'mejora' }, { label: 'Error', value: 'error' }, { label: 'Cambio', value: 'cambio' }]}
         priorityOptions={priorityOptions.length ? priorityOptions : [{ label: 'Baja', value: 'baja' }, { label: 'Media', value: 'media' }, { label: 'Alta', value: 'alta' }, { label: 'Urgente', value: 'urgente' }]}
         impactOptions={impactOptions.length ? impactOptions : [{ label: 'Individual', value: 'individual' }, { label: 'Equipo', value: 'equipo' }, { label: 'Operacion', value: 'operacion' }]}
+        creatorNames={creatorNames}
       />
     </div>
   )
