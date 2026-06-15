@@ -30,7 +30,7 @@ import { isAnalystByRole, isDirectionByRole } from '@/features/auth/lib/permissi
 import { cn } from '@/lib/utils'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { STORY_POINTS_OPTIONS } from '../utils/tipoAccionConfig'
-import { DEFAULT_PRIORITY_NOMBRE, priorityDisplayLabel } from '../utils/priorityLabels'
+import { DEFAULT_PRIORITY_NOMBRE } from '../utils/priorityLabels'
 import type { Priority } from '@/features/catalogs/types/catalogs.types'
 import { AccionFormField } from './AccionFormSection'
 import { AccionFormBlock } from './form/AccionFormBlock'
@@ -163,8 +163,6 @@ export function AccionForm({
   const {
     data: priorities = [],
     isLoading: prioritiesLoading,
-    isError: prioritiesError,
-    refetch: retryPriorities,
   } = usePriorities({ activo: true })
   const { data: currentUser } = useCurrentUser()
   const isAnalyst = isAnalystByRole(currentUser?.rol)
@@ -409,9 +407,27 @@ export function AccionForm({
           <div className="grid gap-3 sm:grid-cols-2">
             <ReadonlyValue label="Título de la acción" value={form.watch('titulo_accion')} />
             <ReadonlyValue label="Responsable de ejecutar" value={readonlyResponsableNombre} />
-            <ReadonlyValue label="Fecha compromiso" value={form.watch('fecha')} />
-            <ReadonlyValue label="Hora límite" value={form.watch('hora_limite')} />
-            <ReadonlyValue label="Prioridad" value={priorityDisplayLabel(form.watch('prioridad') ?? '')} />
+            <ReadonlyValue
+              label="Fecha y hora límite"
+              value={[form.watch('fecha'), form.watch('hora_limite')].filter(Boolean).join(' · ')}
+            />
+            <div className="sm:col-span-2">
+              {isEdit ? (
+                <AccionFormField label="Descripción" htmlFor={fieldId('descripcion_simple')} required>
+                  <AccionDescripcionTextarea
+                    id={fieldId('descripcion_simple')}
+                    register={form.register('descripcion_simple')}
+                    value={form.watch('descripcion_simple') ?? ''}
+                    placeholder="Describe la acción: qué implica, qué buscas lograr y para qué (mín. 15 caracteres)."
+                  />
+                  {form.formState.errors.descripcion_simple && (
+                    <p className="text-xs text-destructive">{form.formState.errors.descripcion_simple.message}</p>
+                  )}
+                </AccionFormField>
+              ) : (
+                <ReadonlyValue label="Descripción" value={form.watch('descripcion_simple')} />
+              )}
+            </div>
           </div>
         ) : (
         <fieldset className="space-y-4">
@@ -432,6 +448,18 @@ export function AccionForm({
           </p>
           {form.formState.errors.titulo_accion && (
             <p className="text-xs text-destructive">{form.formState.errors.titulo_accion.message}</p>
+          )}
+        </AccionFormField>
+
+        <AccionFormField label="Descripción" htmlFor={fieldId('descripcion_simple')} required>
+          <AccionDescripcionTextarea
+            id={fieldId('descripcion_simple')}
+            register={form.register('descripcion_simple')}
+            value={form.watch('descripcion_simple') ?? ''}
+            placeholder="Describe la acción: qué implica, qué buscas lograr y para qué (mín. 15 caracteres)."
+          />
+          {form.formState.errors.descripcion_simple && (
+            <p className="text-xs text-destructive">{form.formState.errors.descripcion_simple.message}</p>
           )}
         </AccionFormField>
 
@@ -469,13 +497,13 @@ export function AccionForm({
           </Select>
         </AccionFormField>
 
-        <div className="grid gap-3 min-[380px]:grid-cols-2 min-[380px]:gap-4">
-          <AccionFormField
-            label="Fecha compromiso"
-            htmlFor={fieldId('fecha')}
-            required
-            error={form.formState.errors.fecha?.message}
-          >
+        <AccionFormField
+          label="Fecha y hora límite"
+          htmlFor={fieldId('fecha')}
+          required
+          error={form.formState.errors.fecha?.message ?? form.formState.errors.hora_limite?.message}
+        >
+          <div className="grid gap-2 min-[380px]:grid-cols-[minmax(0,1fr)_8.5rem]">
             <Input
               id={fieldId('fecha')}
               type="date"
@@ -484,13 +512,6 @@ export function AccionForm({
               disabled={isEditProtectedReadonly}
               className={`${inputBase} h-10`}
             />
-          </AccionFormField>
-          <AccionFormField
-            label="Hora límite"
-            htmlFor={fieldId('hora_limite')}
-            required
-            error={form.formState.errors.hora_limite?.message}
-          >
             <Input
               id={fieldId('hora_limite')}
               type="time"
@@ -499,33 +520,7 @@ export function AccionForm({
               disabled={isEditProtectedReadonly}
               className={`${inputBase} h-10`}
             />
-          </AccionFormField>
-        </div>
-
-        <AccionFormField label="Prioridad" htmlFor={fieldId('prioridad')} hintAsIcon hint="Según catálogo de prioridades.">
-          {prioritiesLoading && <p className="text-xs text-muted-foreground">Cargando prioridades…</p>}
-          {prioritiesError && (
-            <CatalogLoadError
-              message="No se pudo cargar el catálogo de prioridades."
-              onRetry={() => void retryPriorities()}
-            />
-          )}
-          <Select
-            value={prioridadSeleccionada ?? defaultPrioridadNombre}
-            onValueChange={(v) => form.setValue('prioridad', v, { shouldValidate: true })}
-            disabled={isEditProtectedReadonly || prioritiesLoading || priorityOptions.length === 0}
-          >
-            <SelectTrigger id={fieldId('prioridad')} className={`${inputBase} h-10`}>
-              <SelectValue placeholder="Selecciona prioridad" />
-            </SelectTrigger>
-            <SelectContent>
-              {priorityOptions.map((p) => (
-                <SelectItem key={p.id} value={p.nombre}>
-                  {priorityDisplayLabel(p.nombre)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          </div>
         </AccionFormField>
         </fieldset>
         )}
@@ -686,34 +681,17 @@ export function AccionForm({
         blockId={`${fid}-block-validacion`}
         step={3}
         title="Evidencia y validación"
-        subtitle="Qué comprobará el cierre y cómo se describe el trabajo."
+        subtitle="Qué comprobará el cierre."
         icon={FileCheck}
         expanded={blocksOpen.validacion}
         onToggle={() => setBlocksOpen((b) => ({ ...b, validacion: !b.validacion }))}
         editProtected
       >
         {isEditProtectedReadonly ? (
-          <div className="grid gap-3">
-            <ReadonlyValue
-              label="Evidencia esperada"
-              value={form.watch('evidencia_esperada')}
-            />
-            {isEdit ? (
-              <AccionFormField label="Descripción" htmlFor={fieldId('descripcion_simple')} required>
-                <AccionDescripcionTextarea
-                  id={fieldId('descripcion_simple')}
-                  register={form.register('descripcion_simple')}
-                  value={form.watch('descripcion_simple') ?? ''}
-                  placeholder="Describe la acción: qué implica, qué buscas lograr y para qué (mín. 15 caracteres)."
-                />
-                {form.formState.errors.descripcion_simple && (
-                  <p className="text-xs text-destructive">{form.formState.errors.descripcion_simple.message}</p>
-                )}
-              </AccionFormField>
-            ) : (
-              <ReadonlyValue label="Descripción" value={form.watch('descripcion_simple')} />
-            )}
-          </div>
+          <ReadonlyValue
+            label="Evidencia esperada"
+            value={form.watch('evidencia_esperada')}
+          />
         ) : (
         <>
         {(evidenciaLoading || evidenciaFetching) && (
@@ -758,18 +736,6 @@ export function AccionForm({
               className={`${inputBase} mt-2 h-10`}
               {...form.register('evidencia_esperada')}
             />
-          )}
-        </AccionFormField>
-
-        <AccionFormField label="Descripción" htmlFor={fieldId('descripcion_simple')} required>
-          <AccionDescripcionTextarea
-            id={fieldId('descripcion_simple')}
-            register={form.register('descripcion_simple')}
-            value={form.watch('descripcion_simple') ?? ''}
-            placeholder="Describe la acción: qué implica, qué buscas lograr y para qué (mín. 15 caracteres)."
-          />
-          {form.formState.errors.descripcion_simple && (
-            <p className="text-xs text-destructive">{form.formState.errors.descripcion_simple.message}</p>
           )}
         </AccionFormField>
 

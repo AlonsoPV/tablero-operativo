@@ -1,8 +1,16 @@
-import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { canAccessRouteByRole, canManageAcademyModulesByRole, isAnalystByRole } from '@/features/auth/lib/permissions'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Users,
   FolderOpen,
@@ -15,6 +23,7 @@ import {
   UserCircle,
   AlertTriangle,
   GraduationCap,
+  type LucideIcon,
 } from 'lucide-react'
 
 const SETTINGS_LINKS = [
@@ -25,7 +34,7 @@ const SETTINGS_LINKS = [
 ] as const
 
 const CATALOG_LINKS = [
-  { to: ROUTES.SETTINGS_CATALOGS, label: 'Inicio', icon: FolderOpen },
+  { to: ROUTES.SETTINGS_CATALOGS, label: 'Inicio catálogos', icon: FolderOpen },
   { to: ROUTES.SETTINGS_CATALOGS_ROLES, label: 'Roles', icon: Shield },
   { to: ROUTES.SETTINGS_CATALOGS_AREAS, label: 'Áreas', icon: MapPin },
   { to: ROUTES.SETTINGS_CATALOGS_STATUSES, label: 'Estatus', icon: Flag },
@@ -35,62 +44,135 @@ const CATALOG_LINKS = [
   { to: ROUTES.SETTINGS_CATALOGS_GAPS, label: 'Brechas O2C', icon: AlertTriangle },
 ] as const
 
+type NavLink = { to: string; label: string; icon: LucideIcon }
+
+function resolveSettingsValue(pathname: string, links: readonly NavLink[]): string {
+  if (pathname.startsWith('/settings/catalogs')) {
+    return ROUTES.SETTINGS_CATALOGS
+  }
+  const match = links.find(
+    (link) =>
+      link.to !== ROUTES.SETTINGS_CATALOGS &&
+      (pathname === link.to || pathname.startsWith(`${link.to}/`))
+  )
+  return match?.to ?? links[0]?.to ?? ROUTES.SETTINGS_PROFILE
+}
+
+function resolveCatalogValue(pathname: string, links: readonly NavLink[]): string | undefined {
+  if (!pathname.startsWith('/settings/catalogs')) return undefined
+
+  const exact = links.find((link) => pathname === link.to)
+  if (exact) return exact.to
+
+  if (
+    pathname.startsWith(`${ROUTES.SETTINGS_CATALOGS_DROPDOWNS}/`) &&
+    pathname !== ROUTES.SETTINGS_CATALOGS_DROPDOWNS
+  ) {
+    return ROUTES.SETTINGS_CATALOGS_DROPDOWNS
+  }
+
+  const nested = links.find(
+    (link) =>
+      link.to !== ROUTES.SETTINGS_CATALOGS &&
+      (pathname.startsWith(`${link.to}/`) || pathname === link.to)
+  )
+  if (nested) return nested.to
+
+  return ROUTES.SETTINGS_CATALOGS
+}
+
+function NavSelect({
+  id,
+  label,
+  value,
+  placeholder,
+  links,
+  onNavigate,
+  className,
+}: {
+  id: string
+  label: string
+  value?: string
+  placeholder?: string
+  links: readonly NavLink[]
+  onNavigate: (to: string) => void
+  className?: string
+}) {
+  return (
+    <div className={cn('min-w-0 space-y-1.5', className)}>
+      <Label htmlFor={id} className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </Label>
+      <Select value={value} onValueChange={onNavigate}>
+        <SelectTrigger id={id} className="h-10 bg-background/80 text-left shadow-sm">
+          <SelectValue placeholder={placeholder ?? 'Seleccionar…'} />
+        </SelectTrigger>
+        <SelectContent position="popper" className="max-h-[min(20rem,70dvh)]">
+          {links.map(({ to, label: itemLabel, icon: Icon }) => (
+            <SelectItem key={to} value={to}>
+              <span className="flex items-center gap-2">
+                <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span>{itemLabel}</span>
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
 export function SettingsLayout() {
   const location = useLocation()
+  const navigate = useNavigate()
   const { profile } = useAuth()
+
   const visibleSettingsLinks = SETTINGS_LINKS.filter(
     (link) =>
       canAccessRouteByRole(profile?.rol, link.to) &&
       (!('superAdminOnly' in link) || canManageAcademyModulesByRole(profile?.rol))
   )
   const visibleCatalogLinks = CATALOG_LINKS.filter((link) => canAccessRouteByRole(profile?.rol, link.to))
-  const isCatalogs = location.pathname.startsWith('/settings/catalogs')
+  const showCatalogNav = visibleCatalogLinks.length > 0
 
   if (isAnalystByRole(profile?.rol) && location.pathname !== ROUTES.SETTINGS_PROFILE) {
     return <Navigate to={ROUTES.SETTINGS_PROFILE} replace />
   }
 
+  const settingsValue = resolveSettingsValue(location.pathname, visibleSettingsLinks)
+  const catalogValue = resolveCatalogValue(location.pathname, visibleCatalogLinks)
+
   return (
-    <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
-      <nav className="shrink-0 space-y-1 lg:w-52">
-        <p className="mb-2 text-xs font-medium text-muted-foreground">Configuración</p>
-        {visibleSettingsLinks.map(({ to, label, icon: Icon }) => (
-          <Link
-            key={to}
-            to={to}
-            className={cn(
-              'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-              location.pathname === to || location.pathname.startsWith(to + '/')
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-            )}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </Link>
-        ))}
-        {isCatalogs && visibleCatalogLinks.length > 0 && (
-          <>
-            <p className="mt-4 mb-2 text-xs font-medium text-muted-foreground">Catálogos</p>
-            {visibleCatalogLinks.map(({ to, label, icon: Icon }) => (
-              <Link
-                key={to}
-                to={to}
-                className={cn(
-                  'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                  location.pathname === to || (to !== ROUTES.SETTINGS_CATALOGS && location.pathname.startsWith(to + '/'))
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {label}
-              </Link>
-            ))}
-          </>
-        )}
-      </nav>
-      <main className="min-w-0 flex-1">
+    <div className="min-w-0 space-y-4 lg:flex lg:flex-row lg:items-start lg:gap-6 lg:space-y-0 xl:gap-8">
+      <aside className="min-w-0 shrink-0 lg:w-56 xl:w-60">
+        <div
+          className={cn(
+            'sticky top-0 z-30 space-y-3 rounded-xl border border-border/60 bg-card/95 p-3 shadow-sm backdrop-blur-sm',
+            'supports-[backdrop-filter]:bg-card/90'
+          )}
+        >
+          <NavSelect
+            id="settings-nav-configuracion"
+            label="Configuración"
+            value={settingsValue}
+            links={visibleSettingsLinks}
+            onNavigate={(to) => navigate(to)}
+          />
+
+          {showCatalogNav ? (
+            <NavSelect
+              id="settings-nav-catalogos"
+              label="Catálogos"
+              value={catalogValue}
+              placeholder="Ir a un catálogo…"
+              links={visibleCatalogLinks}
+              onNavigate={(to) => navigate(to)}
+            />
+          ) : null}
+        </div>
+      </aside>
+
+      <main className="min-w-0 flex-1 pb-2 lg:pb-4">
         <Outlet />
       </main>
     </div>

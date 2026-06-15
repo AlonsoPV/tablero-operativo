@@ -7,6 +7,8 @@ import {
   accionEstadoLabel,
   getAccionDisplayEstado,
 } from '../utils/accionEstadoDisplay'
+import { AccionPriorityBadge } from './AccionPriorityBadge'
+import { usePriorityColorMap } from '../hooks/usePriorityColorMap'
 
 type AccionDialogHeaderMetaProps = {
   accion: AccionDiaria
@@ -17,14 +19,16 @@ type AccionDialogHeaderMetaProps = {
 export function AccionDialogHeaderMeta({ accion, className }: AccionDialogHeaderMetaProps) {
   const displayEstado = getAccionDisplayEstado(accion)
   const estadoLabel = accionEstadoLabel(displayEstado)
+  const priorityColorMap = usePriorityColorMap()
+  const prioridad = accion.prioridad?.trim()
 
   return (
     <div
       className={cn(
-        'inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md border border-border/50 bg-muted/20 px-2 py-1',
+        'inline-flex max-w-full min-w-0 flex-wrap items-center gap-1.5 rounded-md border border-border/50 bg-muted/20 px-2 py-1',
         className
       )}
-      aria-label={`Acción ${accionIdPublico(accion.id)}, estado ${estadoLabel}`}
+      aria-label={`Acción ${accionIdPublico(accion.id)}, estado ${estadoLabel}${prioridad ? `, prioridad ${prioridad}` : ''}`}
     >
       <AccionIdDisplay
         id={accion.id}
@@ -40,6 +44,17 @@ export function AccionDialogHeaderMeta({ accion, className }: AccionDialogHeader
       >
         {estadoLabel}
       </span>
+      {prioridad ? (
+        <>
+          <span className="h-3 w-px shrink-0 bg-border/80" aria-hidden />
+          <AccionPriorityBadge
+            prioridad={prioridad}
+            catalogColor={priorityColorMap.get(prioridad)}
+            compact
+            className="max-w-[9rem]"
+          />
+        </>
+      ) : null}
     </div>
   )
 }

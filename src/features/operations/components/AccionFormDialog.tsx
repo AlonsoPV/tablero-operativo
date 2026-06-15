@@ -616,6 +616,10 @@ export function AccionFormDialog({
   }
 
   const formBaseId = `${dialogId ?? 'accion-form-dialog'}-form`
+  const showEmailButton = isEdit && !!accion
+  const footerButtonCount = 2 + (showEmailButton ? 1 : 0) + (canDeleteAccion ? 1 : 0)
+  const footerActionsGridClass =
+    footerButtonCount === 3 ? 'grid-cols-3' : footerButtonCount >= 4 ? 'grid-cols-2' : 'grid-cols-2'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -644,7 +648,7 @@ export function AccionFormDialog({
           id={`${formBaseId}-dialog-header`}
           className="accion-form-dialog-header shrink-0 border-b border-border/60 bg-card px-3 py-2.5 pr-11 sm:px-4 sm:py-3 sm:pr-12"
         >
-          <div className="flex min-w-0 items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 flex-1 pr-1">
               <h2 className="text-sm font-semibold leading-tight tracking-tight sm:text-base" aria-hidden>
                 {isEdit ? 'Editar acción' : 'Nueva acción'}
@@ -656,7 +660,7 @@ export function AccionFormDialog({
               ) : null}
             </div>
             {isEdit && accion ? (
-              <AccionDialogHeaderMeta accion={accion} className="shrink-0" />
+              <AccionDialogHeaderMeta accion={accion} className="w-fit sm:max-w-[60%] sm:shrink-0" />
             ) : null}
           </div>
         </div>
@@ -678,9 +682,6 @@ export function AccionFormDialog({
               !isEdit ? (
                 <>
                   <div id={`${formBaseId}-checklist-draft`}>
-                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Puntos a validar (opcional)
-                    </p>
                     <AccionChecklistEditor
                       items={checklistDrafts}
                       onChange={setChecklistDrafts}
@@ -861,61 +862,54 @@ export function AccionFormDialog({
             </div>
           ) : null}
 
-          {canDeleteAccion ? (
-            <div className="w-full">
+          <div
+            id={`${formBaseId}-dialog-footer-actions`}
+            className={cn(
+              'accion-form-dialog-footer-actions grid w-full gap-2',
+              footerActionsGridClass
+            )}
+          >
+            {canDeleteAccion ? (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button
                     type="button"
                     variant="destructive"
                     id={`${formBaseId}-delete`}
-                    className="accion-form-dialog-delete h-9 w-full gap-2 text-xs sm:text-sm"
+                    className="accion-form-dialog-delete h-10 w-full gap-1.5 px-2 text-xs sm:h-9 sm:text-sm"
                     disabled={isMutating}
                   >
                     <Trash2 className="h-4 w-4 shrink-0" />
-                    Eliminar acción
+                    <span className="truncate">Eliminar</span>
                   </Button>
                 </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Eliminar accion</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Esta accion y sus datos relacionados se eliminaran. Esta operacion no se
-                        puede deshacer.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel disabled={deleteAccion.isPending}>
-                        Cancelar
-                      </AlertDialogCancel>
-                      <AlertDialogAction
-                        className="bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90"
-                        disabled={deleteAccion.isPending}
-                        onClick={handleDeleteAccion}
-                      >
-                        {deleteAccion.isPending ? 'Eliminando...' : 'Eliminar'}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Eliminar accion</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Esta accion y sus datos relacionados se eliminaran. Esta operacion no se puede
+                      deshacer.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={deleteAccion.isPending}>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90"
+                      disabled={deleteAccion.isPending}
+                      onClick={handleDeleteAccion}
+                    >
+                      {deleteAccion.isPending ? 'Eliminando...' : 'Eliminar'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
               </AlertDialog>
-            </div>
-          ) : null}
-
-          <div
-            id={`${formBaseId}-dialog-footer-actions`}
-            className={cn(
-              'accion-form-dialog-footer-actions grid w-full gap-2 sm:items-center',
-              isEdit && accion
-                ? 'grid-cols-1 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]'
-                : 'grid-cols-2'
-            )}
-          >
-            {isEdit && accion ? (
+            ) : null}
+            {showEmailButton ? (
               <Button
                 type="button"
                 variant="outline"
                 id={`${formBaseId}-send-email`}
-                className="accion-form-dialog-send-email h-10 w-full gap-2 px-2 text-sm sm:h-9"
+                className="accion-form-dialog-send-email h-10 w-full gap-1.5 px-2 text-xs sm:h-9 sm:text-sm"
                 onClick={handleSendActionEmail}
                 disabled={manualEmailPending || isMutating || !accion.responsable}
                 title={
@@ -925,14 +919,14 @@ export function AccionFormDialog({
                 }
               >
                 <Mail className="h-4 w-4 shrink-0" />
-                {manualEmailPending ? 'Enviando...' : 'Enviar correo'}
+                <span className="truncate">{manualEmailPending ? 'Enviando…' : 'Correo'}</span>
               </Button>
             ) : null}
             <Button
               type="button"
               variant="outline"
               id={`${formBaseId}-cancel`}
-              className="accion-form-dialog-cancel h-10 w-full px-2 text-sm sm:h-9"
+              className="accion-form-dialog-cancel h-10 w-full px-2 text-xs sm:h-9 sm:text-sm"
               onClick={() => onOpenChange(false)}
               disabled={isMutating || manualEmailPending}
             >
@@ -943,7 +937,7 @@ export function AccionFormDialog({
               form={formBaseId}
               id={`${formBaseId}-submit`}
               variant="default"
-              className="accion-form-dialog-submit h-10 w-full px-2 text-sm sm:h-9"
+              className="accion-form-dialog-submit h-10 w-full px-2 text-xs sm:h-9 sm:text-sm"
               disabled={isMutating || manualEmailPending}
             >
               {createAccion.isPending || updateAccion.isPending ? (

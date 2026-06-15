@@ -1,0 +1,148 @@
+﻿src/features/academy/services/academyModules.service.ts(37,98): error TS1005: ',' expected.
+src/features/academy/services/academyModules.service.ts(37,100): error TS1134: Variable declaration expected.
+src/features/calendar/components/CalendarView.tsx(455,75): error TS1005: ',' expected.
+src/features/calendar/components/CalendarView.tsx(456,83): error TS1005: ',' expected.
+src/features/catalogs/pages/KpisPage.tsx(322,71): error TS1005: '}' expected.
+src/features/catalogs/pages/KpisPage.tsx(322,76): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/features/catalogs/pages/KpisPage.tsx(340,94): error TS1005: '}' expected.
+src/features/catalogs/pages/KpisPage.tsx(340,99): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/features/disciplina/utils/index.ts(289,109): error TS1005: ';' expected.
+src/features/disciplina/utils/index.ts(289,153): error TS1005: ';' expected.
+src/features/disciplina/utils/index.ts(481,3): error TS1005: ':' expected.
+src/features/disciplina/utils/index.ts(482,95): error TS1005: ',' expected.
+src/features/disciplina/utils/index.ts(482,97): error TS1134: Variable declaration expected.
+src/features/distance/components/SavedRoutesTable.tsx(65,5): error TS1005: ':' expected.
+src/features/distance/components/SavedRoutesTable.tsx(65,115): error TS1005: ')' expected.
+src/features/distance/components/SavedRoutesTable.tsx(65,117): error TS1389: 'null' is not allowed as a variable declaration name.
+src/features/distance/components/SavedRoutesTable.tsx(65,121): error TS1005: ';' expected.
+src/features/distance/components/SavedRoutesTable.tsx(70,5): error TS1005: ':' expected.
+src/features/distance/services/distance.service.ts(157,7): error TS1005: ':' expected.
+src/features/distance/services/distance.service.ts(157,57): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(157,64): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(157,116): error TS1005: ';' expected.
+src/features/distance/services/distance.service.ts(163,6): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(169,9): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(169,22): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(182,35): error TS1005: '=>' expected.
+src/features/distance/services/distance.service.ts(210,9): error TS1005: ';' expected.
+src/features/distance/services/distance.service.ts(210,26): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(210,54): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(210,81): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(210,105): error TS1005: ';' expected.
+src/features/distance/services/distance.service.ts(211,10): error TS1005: ':' expected.
+src/features/distance/services/distance.service.ts(212,5): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(212,11): error TS1005: ':' expected.
+src/features/distance/services/distance.service.ts(221,9): error TS1005: ';' expected.
+src/features/distance/services/distance.service.ts(221,19): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(223,5): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(224,5): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(225,5): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(226,5): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(227,5): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(228,5): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(229,5): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(230,5): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(231,5): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(232,5): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(233,5): error TS1005: ';' expected.
+src/features/distance/services/distance.service.ts(234,10): error TS1005: ':' expected.
+src/features/distance/services/distance.service.ts(235,5): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(235,11): error TS1005: ':' expected.
+src/features/distance/services/distance.service.ts(241,9): error TS1005: ';' expected.
+src/features/distance/services/distance.service.ts(241,15): error TS1005: ';' expected.
+src/features/distance/services/distance.service.ts(241,42): error TS1011: An element access expression should take an argument.
+src/features/distance/services/distance.service.ts(242,11): error TS1005: ':' expected.
+src/features/distance/services/distance.service.ts(246,5): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(246,16): error TS1005: '{' expected.
+src/features/distance/services/distance.service.ts(246,22): error TS1005: ':' expected.
+src/features/distance/services/distance.service.ts(247,5): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(247,18): error TS1005: ',' expected.
+src/features/distance/services/distance.service.ts(247,23): error TS1005: ';' expected.
+src/features/distance/services/distance.service.ts(247,25): error TS1434: Unexpected keyword or identifier.
+src/features/distance/services/distance.service.ts(247,45): error TS1011: An element access expression should take an argument.
+src/features/distance/services/distance.service.ts(248,3): error TS1128: Declaration or statement expected.
+src/features/distance/services/distance.service.ts(248,4): error TS1128: Declaration or statement expected.
+src/features/distance/services/distance.service.ts(249,1): error TS1128: Declaration or statement expected.
+src/features/distance/services/savedRoutes.service.ts(175,5): error TS1005: ':' expected.
+src/features/distance/services/savedRoutes.service.ts(175,55): error TS1005: ',' expected.
+src/features/distance/services/savedRoutes.service.ts(175,62): error TS1005: ',' expected.
+src/features/distance/services/savedRoutes.service.ts(175,70): error TS1005: ',' expected.
+src/features/distance/services/savedRoutes.service.ts(175,114): error TS1005: ';' expected.
+src/features/kpi/components/CatalogKpiSemaforoGrid.tsx(154,75): error TS1005: ',' expected.
+src/features/kpi/components/CatalogKpiSemaforoGrid.tsx(291,9): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/features/kpi/components/CatalogKpiSemaforoGrid.tsx(291,11): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/features/kpi/components/KpiCard.tsx(361,3): error TS1005: ':' expected.
+src/features/kpi/components/KpiCard.tsx(361,99): error TS1005: ',' expected.
+src/features/kpi/components/KpiCard.tsx(361,101): error TS1389: 'null' is not allowed as a variable declaration name.
+src/features/kpi/hooks/useCatalogKpiMetricsList.ts(31,3): error TS1005: ':' expected.
+src/features/kpi/hooks/useGapKpiLinks.ts(44,73): error TS1005: ',' expected.
+src/features/kpi/hooks/useGapKpiLinks.ts(44,75): error TS1134: Variable declaration expected.
+src/features/kpi/hooks/useGlobalScoreEvolution.ts(59,3): error TS1005: ':' expected.
+src/features/kpi/pages/GapsDashboardPage.tsx(197,7): error TS1005: ':' expected.
+src/features/kpi/pages/KpisDashboardPage.tsx(201,11): error TS1005: ':' expected.
+src/features/kpi/pages/KpisDashboardPage.tsx(207,11): error TS1005: ':' expected.
+src/features/kpi/utils/impactMatrixRows.ts(69,67): error TS1005: ',' expected.
+src/features/kpi/utils/impactMatrixRows.ts(69,69): error TS1134: Variable declaration expected.
+src/features/kpi/utils/impactMatrixRows.ts(162,3): error TS1005: ':' expected.
+src/features/kpi/utils/kpiCalculations.ts(257,3): error TS1005: ':' expected.
+src/features/kpi/utils/kpiCalculations.ts(262,3): error TS1005: ':' expected.
+src/features/kpi/utils/kpiCalculations.ts(262,46): error TS1005: ',' expected.
+src/features/kpi/utils/kpiCalculations.ts(612,3): error TS1005: ':' expected.
+src/features/metrics/hooks/useKpiSemaforo.ts(56,5): error TS1005: ':' expected.
+src/features/operations/components/AccionesControlTable.tsx(315,3): error TS1005: ':' expected.
+src/features/operations/components/AccionesFilterBar.tsx(52,5): error TS1128: Declaration or statement expected.
+src/features/operations/components/AccionesFilterBar.tsx(75,5): error TS2657: JSX expressions must have one parent element.
+src/features/operations/components/AccionesFilterBar.tsx(112,15): error TS1005: '}' expected.
+src/features/operations/components/AccionesFilterBar.tsx(113,11): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/features/operations/components/AccionesFilterBar.tsx(120,9): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/features/operations/components/AccionesFilterBar.tsx(131,11): error TS17002: Expected corresponding JSX closing tag for 'div'.
+src/features/operations/components/AccionesFilterBar.tsx(204,7): error TS1005: ')' expected.
+src/features/operations/components/AccionesFilterBar.tsx(210,5): error TS1128: Declaration or statement expected.
+src/features/operations/components/AccionesFilterBar.tsx(211,3): error TS1109: Expression expected.
+src/features/operations/components/AccionForm.tsx(382,3): error TS1005: ':' expected.
+src/features/operations/components/AccionFormDialog.tsx(395,62): error TS1005: ',' expected.
+src/features/operations/components/AccionFormDialog.tsx(395,64): error TS1134: Variable declaration expected.
+src/features/operations/components/AccionFormDialog.tsx(396,76): error TS1005: ',' expected.
+src/features/operations/components/AccionFormDialog.tsx(396,78): error TS1134: Variable declaration expected.
+src/features/operations/components/KanbanBoard.tsx(478,25): error TS1128: Declaration or statement expected.
+src/features/operations/components/KanbanBoard.tsx(479,23): error TS1005: '}' expected.
+src/features/operations/components/KanbanBoard.tsx(492,21): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/features/operations/components/KanbanBoard.tsx(493,25): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/features/operations/components/KanbanToolbar.tsx(129,5): error TS1128: Declaration or statement expected.
+src/features/operations/components/KanbanToolbar.tsx(132,5): error TS1128: Declaration or statement expected.
+src/features/operations/components/KanbanToolbar.tsx(134,3): error TS1005: ':' expected.
+src/features/operations/hooks/useAcciones.ts(14,7): error TS1128: Declaration or statement expected.
+src/features/operations/hooks/useAcciones.ts(20,7): error TS1128: Declaration or statement expected.
+src/features/operations/hooks/useAcciones.ts(28,7): error TS1128: Declaration or statement expected.
+src/features/operations/pages/SprintCenterPage.tsx(152,112): error TS1005: '}' expected.
+src/features/operations/pages/SprintCenterPage.tsx(152,123): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/features/operations/pages/SprintCenterPage.tsx(152,126): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/features/operations/pages/SprintCenterPage.tsx(153,112): error TS1005: '}' expected.
+src/features/operations/pages/SprintCenterPage.tsx(153,123): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/features/operations/pages/SprintCenterPage.tsx(153,126): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/features/operations/utils/priorityColors.ts(19,1): error TS1005: ':' expected.
+src/features/plan-accion/pages/PlanAccionPage.tsx(140,13): error TS1005: '}' expected.
+src/features/plan-accion/pages/PlanAccionPage.tsx(140,19): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/features/strategy/pages/StrategyPage.tsx(856,60): error TS1005: ',' expected.
+src/features/strategy/pages/StrategyPage.tsx(915,19): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/features/strategy/pages/StrategyPage.tsx(915,21): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/features/users/pages/ProfilePage.tsx(131,3): error TS1005: ':' expected.
+src/features/users/schemas/user.schema.ts(24,54): error TS1005: ')' expected.
+src/features/users/schemas/user.schema.ts(24,79): error TS1005: ',' expected.
+src/features/users/schemas/user.schema.ts(27,20): error TS1005: ',' expected.
+src/features/users/schemas/user.schema.ts(27,21): error TS1109: Expression expected.
+src/features/users/schemas/user.schema.ts(28,1): error TS1109: Expression expected.
+src/features/users/schemas/user.schema.ts(28,2): error TS1128: Declaration or statement expected.
+src/services/academyStorage.service.ts(116,3): error TS1005: ':' expected.
+npx.cmd : npm notice
+At line:2 char:8
++ $out = npx.cmd tsc -b --pretty false 2>&1 | Out-String; Set-Content - ...
++        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm notice:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm notice New minor version of npm available! 11.6.2 -> 11.17.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.17.0
+npm notice To update run: npm install -g npm@11.17.0
+npm notice
+

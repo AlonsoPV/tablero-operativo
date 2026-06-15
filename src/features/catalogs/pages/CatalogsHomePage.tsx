@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { useId, useState } from 'react'
 import {
   Users,
   Shield,
@@ -9,10 +10,13 @@ import {
   type LucideIcon,
   RefreshCw,
   AlertTriangle,
+  Info,
+  ArrowUpRight,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { ROUTES } from '@/constants'
 import { cn } from '@/lib/utils'
+import { SettingsPageShell } from '@/components/layout/SettingsPageShell'
+import { SettingsPageHeader } from '@/components/layout/SettingsPageHeader'
 
 type CatalogEntry = {
   title: string
@@ -122,42 +126,103 @@ const GROUPS: CatalogGroup[] = [
   },
 ]
 
+function CatalogItemInfo({
+  description,
+  open,
+  onOpenChange,
+  panelId,
+}: {
+  description: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  panelId: string
+}) {
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-controls={panelId}
+      aria-label={`Información: ${description}`}
+      title={open ? 'Ocultar descripción' : 'Ver descripción'}
+      onClick={() => onOpenChange(!open)}
+      className={cn(
+        'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors sm:hidden',
+        'hover:bg-muted hover:text-foreground',
+        open && 'bg-muted text-foreground'
+      )}
+    >
+      <Info className="h-4 w-4" aria-hidden />
+    </button>
+  )
+}
+
 function CatalogRow({ item }: { item: CatalogEntry }) {
   const Icon = item.icon
+  const [infoOpen, setInfoOpen] = useState(false)
+  const panelId = useId()
+
   return (
-    <div className="flex flex-col gap-3 border-b border-border/55 px-4 py-3.5 last:border-b-0 sm:flex-row sm:items-center sm:gap-4 sm:py-3">
-      <div className="flex min-w-0 flex-1 items-start gap-3">
-        <div
-          className={cn(
-            'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ring-black/5 dark:ring-white/10',
-            item.iconClass
-          )}
-        >
-          <Icon className="h-5 w-5" aria-hidden />
-        </div>
-        <div className="min-w-0 space-y-0.5">
-          <p className="text-sm font-semibold text-foreground">{item.title}</p>
-          <p className="text-xs leading-relaxed text-muted-foreground sm:text-sm">{item.description}</p>
-        </div>
+    <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-border/55 px-3 py-3 last:border-b-0 sm:items-start sm:gap-x-4 sm:px-4 sm:py-3">
+      <div
+        className={cn(
+          'row-start-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ring-black/5 dark:ring-white/10',
+          item.iconClass
+        )}
+      >
+        <Icon className="h-5 w-5" aria-hidden />
       </div>
-      <Button variant="outline" size="sm" className="h-9 w-full shrink-0 sm:w-auto sm:min-w-[9.5rem]" asChild>
-        <Link to={item.href}>{item.cta}</Link>
-      </Button>
+
+      <div className="row-start-1 min-w-0 space-y-0.5 self-center sm:self-start sm:pt-0.5">
+        <div className="flex min-w-0 items-center gap-1">
+          <p className="truncate text-sm font-semibold leading-snug text-foreground">{item.title}</p>
+          <CatalogItemInfo
+            description={item.description}
+            open={infoOpen}
+            onOpenChange={setInfoOpen}
+            panelId={panelId}
+          />
+        </div>
+        <p className="hidden text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere] sm:block sm:text-sm">
+          {item.description}
+        </p>
+      </div>
+
+      <Link
+        to={item.href}
+        aria-label={item.cta}
+        title={item.cta}
+        className={cn(
+          'row-start-1 inline-flex h-10 w-10 shrink-0 items-center justify-center self-center rounded-xl',
+          'border border-border/60 bg-muted/25 text-muted-foreground transition-colors',
+          'hover:border-primary/30 hover:bg-primary/10 hover:text-primary',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+        )}
+      >
+        <ArrowUpRight className="h-5 w-5" aria-hidden />
+      </Link>
+
+      {infoOpen ? (
+        <div
+          id={panelId}
+          role="region"
+          aria-label="Descripción del catálogo"
+          className="col-span-3 rounded-lg border border-border/60 bg-muted/25 px-3 py-2.5 sm:hidden"
+        >
+          <p className="text-xs leading-relaxed text-foreground [overflow-wrap:anywhere]">{item.description}</p>
+        </div>
+      ) : null}
     </div>
   )
 }
 
 export function CatalogsHomePage() {
   return (
-    <div className="mx-auto max-w-4xl space-y-10 lg:max-w-5xl">
-      <header className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Configuración</p>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">Catálogos del sistema</h1>
-        <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-          Listas maestras y parámetros agrupados por lógica de negocio. Menos ruido, más contexto: elige un bloque y
-          abre solo lo que necesitas.
-        </p>
-      </header>
+    <SettingsPageShell width="wide" className="space-y-8 sm:space-y-10">
+      <SettingsPageHeader
+        eyebrow="Catálogos"
+        title="Catálogos del sistema"
+        description="Listas maestras y parámetros agrupados por lógica de negocio. Elige un bloque y abre solo lo que necesitas."
+      />
 
       <div className="space-y-10">
         {GROUPS.map((group) => (
@@ -186,6 +251,6 @@ export function CatalogsHomePage() {
           </section>
         ))}
       </div>
-    </div>
+    </SettingsPageShell>
   )
 }
