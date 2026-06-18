@@ -27,6 +27,7 @@ export const prioritiesService = {
     const { data, error } = await supabase.from(TABLE).insert({
       nombre: input.nombre.trim(),
       descripcion: input.descripcion?.trim() ?? null,
+      color: input.color ?? null,
       orden: input.orden ?? 0,
       activo: input.activo ?? true,
     }).select().single()
@@ -42,19 +43,24 @@ export const prioritiesService = {
     const { data, error } = await supabase.from(TABLE).update(payload).eq('id', id).select().single()
     if (error) throw error
 
+    const newNombre = typeof input.nombre === 'string' ? input.nombre.trim() : null
     const { error: syncError } = await supabase.rpc('sync_acciones_prioridad_for_priority', {
       p_priority_id: id,
     })
-    if (syncError) {
-      const newNombre = typeof input.nombre === 'string' ? input.nombre.trim() : null
-      if (existing && newNombre && newNombre !== existing.nombre) {
+    if (syncError && syncError.code !== 'PGRST202') throw syncError
+
+    if (existing && newNombre && newNombre !== existing.nombre) {
+      const { error: repairError } = await supabase.rpc('repair_acciones_prioridad_rename', {
+        p_old_nombre: existing.nombre,
+        p_priority_id: id,
+      })
+      if (repairError) {
+        if (repairError.code !== 'PGRST202') throw repairError
         const { error: fallbackError } = await supabase
           .from('acciones_diarias')
           .update({ prioridad: newNombre })
-          .eq('prioridad', existing.nombre)
+          .or(`prioridad_id.eq.${id},prioridad.eq.${existing.nombre}`)
         if (fallbackError) throw fallbackError
-      } else if (syncError.code !== 'PGRST202') {
-        throw syncError
       }
     }
 

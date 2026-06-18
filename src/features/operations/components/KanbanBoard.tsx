@@ -26,7 +26,9 @@ import {
 } from '@dnd-kit/core'
 import { cn } from '@/lib/utils'
 import type { AccionDiaria, ActionStatus } from '@/types'
-import { priorityDisplayLabel } from '../utils/priorityLabels'
+import type { Priority } from '@/features/catalogs/types/catalogs.types'
+import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
+import { useStatuses } from '@/features/catalogs/hooks/useStatuses'
 import { useUpdateAccionEstado } from '../hooks/useAccionMutations'
 import { useCommentCounts } from '../hooks/useCommentCounts'
 import { useActionEstadoPermissions } from '../hooks/useActionEstadoPermissions'
@@ -64,6 +66,16 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
+import { AccionPriorityBadge } from './AccionPriorityBadge'
+import { findPriorityForAccion } from '../utils/resolveAccionPrioridad'
+import {
+  hexToRgba,
+  orderedActionStatuses,
+  statusCatalogByKey,
+  statusCatalogColor,
+  statusCatalogDescription,
+  statusCatalogLabel,
+} from '../utils/statusCatalog'
 const COLUMN_ORDER: ActionStatus[] = [
   'Pendiente',
   'Hoy',
@@ -144,19 +156,6 @@ const COLUMN_STYLES: Record<ActionStatus, { border: string; bg: string; icon: st
 }
 
 
-const PRIORITY_DOT_CLASSES: Record<string, string> = {
-  P1_Critica: 'bg-red-500',
-  P2_Media: 'bg-amber-500',
-  P3_Baja: 'bg-slate-400',
-}
-
-function priorityStyleFor(nombre: string) {
-  return {
-    dot: PRIORITY_DOT_CLASSES[nombre] ?? 'bg-slate-400',
-    label: priorityDisplayLabel(nombre),
-  }
-}
-
 function kanbanCardStatusLabel(accion: AccionDiaria, overdue: boolean): string {
   if (overdue) return 'Vencido'
   return accionEstadoLabel(getAccionDisplayEstado(accion))
@@ -221,20 +220,32 @@ const PRIORITY_SORT_RANK: Record<string, number> = {
   P3_Baja: 2,
 }
 
+type StatusCatalogMap = ReturnType<typeof statusCatalogByKey>
+
 function deliveryTimestampMs(a: AccionDiaria): number {
   const time = a.hora_limite?.length === 5 ? `${a.hora_limite}:00` : a.hora_limite ?? '00:00:00'
   const ms = Date.parse(`${a.fecha}T${time}`)
   return Number.isFinite(ms) ? ms : 0
 }
 
-function sortAccionesByColumnPreference(actions: AccionDiaria[], sortBy: ColumnSortBy): AccionDiaria[] {
+function sortAccionesByColumnPreference(
+  actions: AccionDiaria[],
+  sortBy: ColumnSortBy,
+  priorities: Priority[]
+): AccionDiaria[] {
   const list = [...actions]
   if (sortBy === 'fecha_entrega') {
     list.sort((a, b) => deliveryTimestampMs(a) - deliveryTimestampMs(b))
   } else {
     list.sort(
-      (a, b) =>
-        (PRIORITY_SORT_RANK[a.prioridad] ?? 99) - (PRIORITY_SORT_RANK[b.prioridad] ?? 99)
+      (a, b) => {
+        const pa = findPriorityForAccion(a, priorities)
+        const pb = findPriorityForAccion(b, priorities)
+        return (
+          (pa?.orden ?? PRIORITY_SORT_RANK[a.prioridad] ?? 99) -
+          (pb?.orden ?? PRIORITY_SORT_RANK[b.prioridad] ?? 99)
+        )
+      }
     )
   }
   return list
@@ -369,6 +380,8 @@ function KanbanCardInner({
   onMoveEstado,
   checklistProgress,
   estadoPermission,
+  priority,
+  statusByKey,
 }: {
   accion: AccionDiaria
   responsableName: string
@@ -380,9 +393,11 @@ function KanbanCardInner({
   onMoveEstado?: (estado: ActionStatus) => void
   checklistProgress?: { total: number; completed: number }
   estadoPermission?: ReturnType<typeof useActionEstadoPermissions>
+  priority?: Priority
+  statusByKey: StatusCatalogMap
 }) {
-  const priorityStyle = priorityStyleFor(accion.prioridad)
   const overdue = isEnRetraso(accion)
+  const priorityName = priority?.nombre ?? accion.prioridad
 
   const stopDrag = (e: PointerEvent) => e.stopPropagation()
   const stopMenuClick = (e: MouseEvent) => e.stopPropagation()
@@ -406,10 +421,11 @@ function KanbanCardInner({
       <div className="flex items-start gap-1.5">
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2 pr-1">
-            <span
-              className={cn('mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full', priorityStyle.dot)}
-              title={priorityStyle.label}
-              aria-hidden
+            <AccionPriorityBadge
+              prioridad={priorityName}
+              catalogColor={priority?.color}
+              compact
+              className="mt-0.5 max-w-[6.5rem] shrink-0"
             />
             <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground" title={title}>
               {title}
@@ -486,7 +502,7 @@ function KanbanCardInner({
                             onMoveEstado(status)
                           }}
                         >
-                          Mover a {COLUMN_LABELS[status]}
+                          Mover a {statusCatalogLabel(status, statusByKey) || COLUMN_LABELS[status]}
                         </DropdownMenuItem>
                       )
                     })
@@ -516,6 +532,8 @@ function KanbanCard({
   onMoveEstado,
   checklistProgress,
   estadoPermission,
+  priority,
+  statusByKey,
 }: {
   accion: AccionDiaria
   responsableName: string
@@ -524,6 +542,8 @@ function KanbanCard({
   onMoveEstado?: (accion: AccionDiaria, estado: ActionStatus) => void
   checklistProgress?: { total: number; completed: number }
   estadoPermission?: ReturnType<typeof useActionEstadoPermissions>
+  priority?: Priority
+  statusByKey: StatusCatalogMap
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: accion.id,
@@ -543,14 +563,24 @@ function KanbanCard({
         }
         checklistProgress={checklistProgress}
         estadoPermission={estadoPermission}
+        priority={priority}
+        statusByKey={statusByKey}
       />
     </div>
   )
 }
 
-function KanbanColumnEmpty({ status, onNewAction }: { status: ActionStatus; onNewAction?: () => void }) {
+function KanbanColumnEmpty({
+  status,
+  onNewAction,
+  statusByKey,
+}: {
+  status: ActionStatus
+  onNewAction?: () => void
+  statusByKey: StatusCatalogMap
+}) {
   const Icon = COLUMN_ICONS[status]
-  const label = COLUMN_LABELS[status]
+  const label = statusCatalogLabel(status, statusByKey) || COLUMN_LABELS[status]
   const style = COLUMN_STYLES[status]
   return (
     <div className="flex min-h-[180px] flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-muted/10 px-4 py-8 text-center">
@@ -585,6 +615,8 @@ function KanbanColumn({
   /** Tarjeta activa no puede entrar a esta columna (Hecho/Verificado); solo UI — la validación final es al soltar. */
   dropForbidden = false,
   estadoPermission,
+  priorities,
+  statusByKey,
 }: {
   status: ActionStatus
   actions: AccionDiaria[]
@@ -596,13 +628,15 @@ function KanbanColumn({
   checklistProgressByAccionId?: Record<string, { total: number; completed: number }>
   dropForbidden?: boolean
   estadoPermission?: ReturnType<typeof useActionEstadoPermissions>
+  priorities: Priority[]
+  statusByKey: StatusCatalogMap
 }) {
   const [expanded, setExpanded] = useState(false)
   const [sortBy, setSortBy] = useState<ColumnSortBy>('fecha_entrega')
 
   const sortedActions = useMemo(
-    () => sortAccionesByColumnPreference(actions, sortBy),
-    [actions, sortBy]
+    () => sortAccionesByColumnPreference(actions, sortBy, priorities),
+    [actions, priorities, sortBy]
   )
 
   const hasOverflow = sortedActions.length > COLUMN_PREVIEW_LIMIT
@@ -616,7 +650,9 @@ function KanbanColumn({
   const { setNodeRef, isOver } = useDroppable({ id: status })
   const style = COLUMN_STYLES[status]
   const Icon = COLUMN_ICONS[status]
-  const label = COLUMN_LABELS[status]
+  const label = statusCatalogLabel(status, statusByKey)
+  const description = statusCatalogDescription(status, statusByKey, COLUMN_DESCRIPTIONS[status])
+  const catalogColor = statusCatalogColor(status, statusByKey)
 
   return (
     <div
@@ -624,17 +660,21 @@ function KanbanColumn({
       data-status={status}
       className={cn(
         'kanban-column flex w-[min(300px,calc(100vw-1.25rem))] shrink-0 snap-start flex-col rounded-2xl border border-border/50 border-l-4 transition-all duration-200 sm:w-[300px] sm:min-w-[280px] sm:max-w-[300px]',
-        style.border,
+        !catalogColor && style.border,
         style.bg,
         isOver &&
           (dropForbidden
             ? 'ring-2 ring-destructive/35 ring-offset-2 ring-offset-background'
             : 'ring-2 ring-primary/20 ring-offset-2 ring-offset-background')
       )}
+      style={{
+        borderLeftColor: catalogColor ?? undefined,
+        backgroundColor: hexToRgba(catalogColor, 0.06),
+      }}
     >
       <div className="kanban-column-header flex items-center justify-between gap-2 px-4 py-3">
         <div className="flex items-center gap-2 min-w-0">
-          <Icon className={cn('h-4 w-4 shrink-0', style.icon)} />
+          <Icon className={cn('h-4 w-4 shrink-0', !catalogColor && style.icon)} />
           <h3 className="truncate text-sm font-semibold text-foreground">
             {label}
           </h3>
@@ -647,7 +687,7 @@ function KanbanColumn({
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background'
               )}
               title="Ver descripción del estado"
-              aria-label={`Descripción: ${COLUMN_DESCRIPTIONS[status]}`}
+              aria-label={`Descripción: ${description}`}
             >
               <Info className="h-3.5 w-3.5" />
             </button>
@@ -657,11 +697,12 @@ function KanbanColumn({
                 'pointer-events-none absolute left-0 top-full z-50 mt-1.5 max-w-[260px] rounded-lg border border-border/80 bg-popover px-3 py-2.5 text-sm text-popover-foreground shadow-lg',
                 'opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100',
                 'border-l-4',
-                style.border
+                !catalogColor && style.border
               )}
+              style={{ borderLeftColor: catalogColor ?? undefined }}
             >
               <p className="leading-snug text-muted-foreground">
-                {COLUMN_DESCRIPTIONS[status]}
+                {description}
               </p>
             </div>
           </div>
@@ -710,7 +751,7 @@ function KanbanColumn({
       </div>
       <div className="kanban-column-cards flex min-h-[200px] flex-1 flex-col gap-3 overflow-y-auto px-3 pb-4 pt-0 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:rounded [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-border">
         {actions.length === 0 ? (
-          <KanbanColumnEmpty status={status} onNewAction={onNewAction} />
+          <KanbanColumnEmpty status={status} onNewAction={onNewAction} statusByKey={statusByKey} />
         ) : (
           <>
             {visibleActions.map((accion) => (
@@ -723,6 +764,8 @@ function KanbanColumn({
                 onMoveEstado={onMoveEstado}
                 checklistProgress={checklistProgressByAccionId[accion.id]}
                 estadoPermission={estadoPermission}
+                priority={findPriorityForAccion(accion, priorities)}
+                statusByKey={statusByKey}
               />
             ))}
             {hasOverflow ? (
@@ -803,6 +846,10 @@ export function KanbanBoard({
   const [activeId, setActiveId] = useState<string | null>(null)
   const autoSyncedByFechaRef = useRef<Set<string>>(new Set())
   const { data: currentUser } = useCurrentUser()
+  const { data: priorities = [] } = usePriorities()
+  const { data: statuses = [] } = useStatuses()
+  const statusByKey = useMemo(() => statusCatalogByKey(statuses), [statuses])
+  const columnOrder = useMemo(() => orderedActionStatuses(statuses, COLUMN_ORDER), [statuses])
   const estadoPermission = useActionEstadoPermissions(currentUser ?? undefined)
   const { data: commentCounts = {} } = useCommentCounts(acciones.map((a) => a.id))
 
@@ -858,13 +905,13 @@ export function KanbanBoard({
   }, [acciones])
 
   const columnsToShow = useMemo(() => {
-    if (filterEstado && COLUMN_ORDER.includes(filterEstado)) return [filterEstado]
+    if (filterEstado && columnOrder.includes(filterEstado)) return [filterEstado]
     if (narrowToOccupiedColumns) {
-      const occupied = COLUMN_ORDER.filter((s) => (byStatus[s]?.length ?? 0) > 0)
-      return occupied.length > 0 ? occupied : COLUMN_ORDER
+      const occupied = columnOrder.filter((s) => (byStatus[s]?.length ?? 0) > 0)
+      return occupied.length > 0 ? occupied : columnOrder
     }
-    return COLUMN_ORDER
-  }, [filterEstado, narrowToOccupiedColumns, byStatus])
+    return columnOrder
+  }, [filterEstado, narrowToOccupiedColumns, byStatus, columnOrder])
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -896,7 +943,7 @@ export function KanbanBoard({
       const { active, over } = event
       if (!over) return
       // over.id es el id del droppable (columna) = status; active.id es el id de la acción
-      const newStatus = COLUMN_ORDER.find((s) => s === over.id) as ActionStatus | undefined
+      const newStatus = columnOrder.find((s) => s === over.id) as ActionStatus | undefined
       if (!newStatus) return
       const accion = acciones.find((a) => a.id === active.id)
       if (!accion) return
@@ -914,7 +961,7 @@ export function KanbanBoard({
         }
       )
     },
-    [acciones, updateEstado, estadoPermission]
+    [acciones, updateEstado, estadoPermission, columnOrder]
   )
 
   const handleMoveEstado = useCallback(
@@ -959,6 +1006,8 @@ export function KanbanBoard({
             checklistProgressByAccionId={checklistProgressByAccionId}
             dropForbidden={isColumnDropDisabled(status)}
             estadoPermission={estadoPermission}
+            priorities={priorities}
+            statusByKey={statusByKey}
           />
         ))}
       </KanbanBoardScrollArea>
@@ -969,6 +1018,8 @@ export function KanbanBoard({
               accion={activeAccion}
               responsableName={responsableNames[activeAccion.responsable] ?? activeAccion.responsable ?? '—'}
               commentCount={commentCounts[activeAccion.id] ?? 0}
+              priority={findPriorityForAccion(activeAccion, priorities)}
+              statusByKey={statusByKey}
               isOverlay
               checklistProgress={checklistProgressByAccionId[activeAccion.id]}
             />

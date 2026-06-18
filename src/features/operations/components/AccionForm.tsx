@@ -26,7 +26,7 @@ import { useKpis } from '@/features/catalogs/hooks/useKpis'
 import { useDropdownOptionsByKey } from '@/features/catalogs/hooks/useDropdownOptions'
 import { useGaps } from '@/features/kpi/hooks/useGaps'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { isAnalystByRole, isDirectionByRole } from '@/features/auth/lib/permissions'
+import { isAnalystByRole, isDirectionByRole, isOperativeByRole } from '@/features/auth/lib/permissions'
 import { cn } from '@/lib/utils'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { STORY_POINTS_OPTIONS } from '../utils/tipoAccionConfig'
@@ -171,7 +171,8 @@ export function AccionForm({
   } = usePriorities()
   const { data: currentUser } = useCurrentUser()
   const isAnalyst = isAnalystByRole(currentUser?.rol)
-  const canViewO2cImpactFields = !isAnalyst && !isDirectionByRole(currentUser?.rol)
+  const canViewO2cImpactFields =
+    !isAnalyst && !isDirectionByRole(currentUser?.rol) && !isOperativeByRole(currentUser?.rol)
   const {
     data: gaps = [],
     isLoading: gapsLoading,
@@ -579,8 +580,12 @@ export function AccionForm({
       <AccionFormBlock
         blockId={`${fid}-block-impacto`}
         step={2}
-        title="Impacto estratégico"
-        subtitle="Brechas, indicadores y estimación."
+        title={canViewO2cImpactFields ? 'Impacto estratégico' : 'Planeación operativa'}
+        subtitle={
+          canViewO2cImpactFields
+            ? 'Brechas, indicadores y estimación.'
+            : 'Estimación y clasificación de la acción.'
+        }
         icon={Target}
         expanded={blocksOpen.impacto}
         onToggle={() => setBlocksOpen((b) => ({ ...b, impacto: !b.impacto }))}

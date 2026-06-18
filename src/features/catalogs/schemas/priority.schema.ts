@@ -9,6 +9,7 @@ import {
 export const priorityFormSchema = z.object({
   nombre: nombreField,
   descripcion: descripcionField,
+  color: z.enum(['verde', 'amarillo', 'rojo']).nullable().optional(),
   orden: ordenField,
   activo: activoField,
 })

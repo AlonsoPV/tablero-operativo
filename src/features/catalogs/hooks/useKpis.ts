@@ -1,10 +1,11 @@
 import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
-import { KPI_STALE_TIME_LIST_MS, kpiQueryKeys } from '@/features/kpi/kpiQueryKeys'
+import { KPI_STALE_TIME_LIST_MS } from '@/features/kpi/kpiQueryKeys'
 import { catalogKpisService } from '../services/kpis.service'
+import { catalogQueryKeys, invalidateKpiCatalogDependents } from '../queryKeys'
 import type { CatalogFilter } from '../types/catalogs.types'
 import type { CreateKpiInput, UpdateKpiInput } from '../types/catalogs.types'
 
-const KEY = ['catalogs', 'kpis'] as const
+const KEY = catalogQueryKeys.kpis
 
 function serializeKpiFilter(filter: CatalogFilter): string {
   return JSON.stringify({
@@ -17,8 +18,8 @@ function serializeKpiFilter(filter: CatalogFilter): string {
 }
 
 function invalidateKpiCatalogQueries(qc: QueryClient): void {
-  qc.invalidateQueries({ queryKey: KEY })
-  qc.invalidateQueries({ queryKey: kpiQueryKeys.catalogKpis })
+  qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' })
+  invalidateKpiCatalogDependents(qc)
 }
 
 export function useKpis(filter: CatalogFilter = {}, options: { enabled?: boolean } = {}) {

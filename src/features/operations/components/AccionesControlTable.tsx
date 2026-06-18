@@ -20,7 +20,6 @@ import { isEnRetraso } from '../utils/accionUtils'
 import { accionStoryPoints } from '@/features/kpi/utils/gapProgress'
 import {
   accionEstadoBadgeClass,
-  accionEstadoLabel,
   getAccionDisplayEstado,
 } from '../utils/accionEstadoDisplay'
 import {
@@ -39,7 +38,12 @@ import { AccionIdDisplay } from './AccionIdDisplay'
 import { EvidenciaCargadaIndicator } from './EvidenciaCargadaIndicator'
 import { AccionChecklistProgressBadge } from './AccionChecklistProgress'
 import { TIPO_ACCION_CONFIG, type TipoAccion } from '../utils/tipoAccionConfig'
-import { priorityDisplayLabel } from '../utils/priorityLabels'
+import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
+import { useStatuses } from '@/features/catalogs/hooks/useStatuses'
+import type { Priority } from '@/features/catalogs/types/catalogs.types'
+import { AccionPriorityBadge } from './AccionPriorityBadge'
+import { findPriorityForAccion } from '../utils/resolveAccionPrioridad'
+import { statusCatalogByKey, statusCatalogLabel } from '../utils/statusCatalog'
 
 const ESTADO_LABELS: Record<string, string> = {
   Pendiente: 'Pendiente',
@@ -91,12 +95,6 @@ const ESTADO_ROW_BORDER: Record<string, string> = {
   Retraso: 'border-l-4 border-l-orange-500',
   Hecho: 'border-l-4 border-l-emerald-400',
   Verificado: 'border-l-4 border-l-violet-400',
-}
-
-const PRIORIDAD_BADGE: Record<string, string> = {
-  P1_Critica: 'bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30',
-  P2_Media: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30',
-  P3_Baja: 'bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30',
 }
 
 function formatFechaLimite(fecha: string): string {
@@ -153,7 +151,8 @@ function compareAccionesControl(
   responsableNames: Record<string, string>,
   commentCounts: Record<string, number>,
   checklistProgressByAccionId: Record<string, { total: number; completed: number }>,
-  indicadoresMode: IndicadoresMode
+  indicadoresMode: IndicadoresMode,
+  priorities: Priority[]
 ): number {
   let cmp = 0
   switch (sortKey) {
@@ -179,8 +178,15 @@ function compareAccionesControl(
       cmp = a.fecha.localeCompare(b.fecha) || (a.hora_limite ?? '').localeCompare(b.hora_limite ?? '')
       break
     case 'prioridad':
-      cmp =
-        (PRIORIDAD_SORT_ORDER[a.prioridad] ?? 99) - (PRIORIDAD_SORT_ORDER[b.prioridad] ?? 99)
+      cmp = (
+        findPriorityForAccion(a, priorities)?.orden ??
+        PRIORIDAD_SORT_ORDER[a.prioridad] ??
+        99
+      ) - (
+        findPriorityForAccion(b, priorities)?.orden ??
+        PRIORIDAD_SORT_ORDER[b.prioridad] ??
+        99
+      )
       break
     case 'indicadores':
       cmp =
@@ -198,12 +204,15 @@ function sortAccionesControl(
   responsableNames: Record<string, string>,
   commentCounts: Record<string, number>,
   checklistProgressByAccionId: Record<string, { total: number; completed: number }>,
-  indicadoresMode: IndicadoresMode
+  indicadoresMode: IndicadoresMode,
+  priorities: Priority[]
 ): AccionDiaria[] {
   return [...acciones].sort((a, b) =>
-    compareAccionesControl(a, b, sortKey, sortDir, responsableNames, commentCounts, checklistProgressByAccionId, indicadoresMode)
+    compareAccionesControl(a, b, sortKey, sortDir, responsableNames, commentCounts, checklistProgressByAccionId, indicadoresMode, priorities)
   )
 }
+
+type StatusCatalogMap = ReturnType<typeof statusCatalogByKey>
 
 function AccionSortHeader({
   columnKey,
@@ -285,6 +294,8 @@ type AccionRowSharedProps = {
   responsableNames: Record<string, string>
   checklistProgressByAccionId: Record<string, { total: number; completed: number }>
   indicadoresMode: IndicadoresMode
+  priorities: Priority[]
+  statusByKey: StatusCatalogMap
   onSelectAccion?: (accion: AccionDiaria) => void
 }
 
@@ -310,12 +321,14 @@ function AccionControlMobileCard({
   responsableNames,
   checklistProgressByAccionId,
   indicadoresMode,
+  priorities,
+  statusByKey,
   onSelectAccion,
 }: AccionRowSharedProps) {
   const displayStatus = getAccionDisplayEstado(accion)
-  const estadoLabel = accionEstadoLabel(displayStatus)
+  const estadoLabel = statusCatalogLabel(displayStatus, statusByKey)
   const rowBorder = ESTADO_ROW_BORDER[displayStatus] ?? 'border-l-4 border-l-border'
-  const prioridadClass = PRIORIDAD_BADGE[accion.prioridad] ?? PRIORIDAD_BADGE.P2_Media
+  const priority = findPriorityForAccion(accion, priorities)
   const checklistProg = checklistProgressByAccionId[accion.id]
   const comments = commentCounts[accion.id] ?? 0
   const titulo = accion.titulo_accion?.trim() || accion.descripcion_accion
@@ -353,14 +366,12 @@ function AccionControlMobileCard({
           ·
         </span>
         <span className="font-semibold tabular-nums text-foreground">{formatStoryPoints(accion)} pts</span>
-        <span
-          className={cn(
-            'rounded border px-1.5 py-0.5 text-[10px] font-medium',
-            prioridadClass
-          )}
-        >
-          {priorityDisplayLabel(accion.prioridad)}
-        </span>
+        <AccionPriorityBadge
+          prioridad={priority?.nombre ?? accion.prioridad}
+          catalogColor={priority?.color}
+          compact
+          className="max-w-[8rem]"
+        />
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground">
@@ -405,6 +416,8 @@ function AccionesControlMobileList({
   responsableNames,
   checklistProgressByAccionId,
   indicadoresMode,
+  priorities,
+  statusByKey,
   onSelectAccion,
 }: {
   acciones: AccionDiaria[]
@@ -412,6 +425,8 @@ function AccionesControlMobileList({
   responsableNames: Record<string, string>
   checklistProgressByAccionId: Record<string, { total: number; completed: number }>
   indicadoresMode: IndicadoresMode
+  priorities: Priority[]
+  statusByKey: StatusCatalogMap
   onSelectAccion?: (accion: AccionDiaria) => void
 }) {
   return (
@@ -424,6 +439,8 @@ function AccionesControlMobileList({
             responsableNames={responsableNames}
             checklistProgressByAccionId={checklistProgressByAccionId}
             indicadoresMode={indicadoresMode}
+            priorities={priorities}
+            statusByKey={statusByKey}
             onSelectAccion={onSelectAccion}
           />
         </li>
@@ -446,6 +463,9 @@ export function AccionesControlTable({
 }: AccionesControlTableProps) {
   const [sortKey, setSortKey] = useState<AccionControlSortKey>(DEFAULT_SORT.key)
   const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_SORT.dir)
+  const { data: priorities = [] } = usePriorities()
+  const { data: statuses = [] } = useStatuses()
+  const statusByKey = useMemo(() => statusCatalogByKey(statuses), [statuses])
 
   const handleSortToggle = (key: AccionControlSortKey) => {
     if (sortKey === key) {
@@ -465,9 +485,10 @@ export function AccionesControlTable({
         responsableNames,
         commentCounts,
         checklistProgressByAccionId,
-        indicadoresMode
+        indicadoresMode,
+        priorities
       ),
-    [acciones, sortKey, sortDir, responsableNames, commentCounts, checklistProgressByAccionId, indicadoresMode]
+    [acciones, sortKey, sortDir, responsableNames, commentCounts, checklistProgressByAccionId, indicadoresMode, priorities]
   )
 
   if (isLoading) {
@@ -548,6 +569,8 @@ export function AccionesControlTable({
           responsableNames={responsableNames}
           checklistProgressByAccionId={checklistProgressByAccionId}
           indicadoresMode={indicadoresMode}
+          priorities={priorities}
+          statusByKey={statusByKey}
           onSelectAccion={onSelectAccion}
         />
       </div>
@@ -627,7 +650,7 @@ export function AccionesControlTable({
           {accionesOrdenadas.map((accion) => {
             const displayStatus = getAccionDisplayEstado(accion)
             const rowBorder = ESTADO_ROW_BORDER[displayStatus] ?? ''
-            const prioridadClass = PRIORIDAD_BADGE[accion.prioridad] ?? PRIORIDAD_BADGE.P2_Media
+            const priority = findPriorityForAccion(accion, priorities)
             const checklistProg = checklistProgressByAccionId[accion.id]
             return (
               <TableRow
@@ -661,7 +684,7 @@ export function AccionesControlTable({
                     }
                     className="font-medium"
                   >
-                    {ESTADO_LABELS[displayStatus] ?? accion.estado}
+                    {statusCatalogLabel(displayStatus, statusByKey) || ESTADO_LABELS[displayStatus] || accion.estado}
                   </Badge>
                 </TableCell>
                 <TableCell className="py-3 text-muted-foreground text-sm align-middle">
@@ -674,14 +697,12 @@ export function AccionesControlTable({
                   {formatFechaLimite(accion.fecha)}
                 </TableCell>
                 <TableCell className="py-3 align-middle">
-                  <span
-                    className={cn(
-                      'inline-flex rounded-md border px-2 py-0.5 text-xs font-medium',
-                      prioridadClass
-                    )}
-                  >
-                    {priorityDisplayLabel(accion.prioridad)}
-                  </span>
+                  <AccionPriorityBadge
+                    prioridad={priority?.nombre ?? accion.prioridad}
+                    catalogColor={priority?.color}
+                    compact
+                    className="max-w-[8rem]"
+                  />
                 </TableCell>
                 <TableCell className="py-3 align-middle">
                   <div

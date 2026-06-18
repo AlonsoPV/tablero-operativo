@@ -7,11 +7,13 @@ import { destinationsService } from '../services/destinations.service'
 import type { DistanceDestinationFilter } from '../services/destinations.service'
 
 const KEY = ['distance', 'destinations'] as const
+const DISTANCE_CATALOG_STALE_TIME = 5 * 60 * 1000
 
 export function useDestinations(activoOnlyOrFilter: boolean | DistanceDestinationFilter = true) {
   return useQuery({
     queryKey: [...KEY, activoOnlyOrFilter],
     queryFn: () => destinationsService.list(activoOnlyOrFilter),
+    staleTime: DISTANCE_CATALOG_STALE_TIME,
   })
 }
 
@@ -20,7 +22,7 @@ export function useCreateDestination() {
   return useMutation({
     mutationFn: (input: { nombre: string; ubicacion: string; activo?: boolean }) =>
       destinationsService.create(input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' }),
   })
 }
 
@@ -34,7 +36,7 @@ export function useUpdateDestination() {
       id: string
       input: { nombre?: string; ubicacion?: string; activo?: boolean }
     }) => destinationsService.update(id, input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' }),
   })
 }
 
@@ -43,6 +45,6 @@ export function useToggleDestinationStatus() {
   return useMutation({
     mutationFn: ({ id, activo }: { id: string; activo: boolean }) =>
       destinationsService.setActivo(id, activo),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' }),
   })
 }

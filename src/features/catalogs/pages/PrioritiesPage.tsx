@@ -19,6 +19,7 @@ import { CatalogTableLayout } from '../components/CatalogTableLayout'
 import { CatalogRowActions } from '../components/CatalogRowActions'
 import { ConfirmActivateDialog } from '../components/ConfirmActivateDialog'
 import { PriorityForm } from '../components/PriorityForm'
+import { AccionPriorityBadge } from '@/features/operations/components/AccionPriorityBadge'
 import { usePriorities, useCreatePriority, useUpdatePriority, useTogglePriorityStatus } from '../hooks/usePriorities'
 import type { Priority } from '../types/catalogs.types'
 import type { CatalogFilter } from '../types/catalogs.types'
@@ -26,6 +27,10 @@ import type { PriorityFormValues } from '../schemas/priority.schema'
 import { toast } from 'sonner'
 
 const DEFAULT_FILTER: CatalogFilter = {}
+function normalizePriorityColor(color: Priority['color']): PriorityFormValues['color'] {
+  if (color === 'verde' || color === 'amarillo' || color === 'rojo') return color
+  return null
+}
 
 export function PrioritiesPage() {
   const [filter, setFilter] = useState<CatalogFilter>(DEFAULT_FILTER)
@@ -121,6 +126,7 @@ export function PrioritiesPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Nombre</TableHead>
+              <TableHead>Color</TableHead>
               <TableHead>Descripción</TableHead>
               <TableHead>Orden</TableHead>
               <TableHead>Estatus</TableHead>
@@ -131,6 +137,9 @@ export function PrioritiesPage() {
             {items.map((row) => (
               <TableRow key={row.id}>
                 <TableCell className="font-medium">{row.nombre}</TableCell>
+                <TableCell>
+                  <AccionPriorityBadge prioridad={row.nombre} catalogColor={row.color} compact />
+                </TableCell>
                 <TableCell className="text-muted-foreground">
                   {row.descripcion ?? '—'}
                 </TableCell>
@@ -163,6 +172,7 @@ export function PrioritiesPage() {
                 ? {
                     nombre: editing.nombre,
                     descripcion: editing.descripcion ?? undefined,
+                    color: normalizePriorityColor(editing.color),
                     orden: editing.orden,
                     activo: editing.activo,
                   }

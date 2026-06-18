@@ -26,7 +26,12 @@ import { AccionEvidenciasSection } from './AccionEvidenciasSection'
 import { AccionComentarios } from './AccionComentarios'
 import { useCreateAccion, useDeleteAccion, useUpdateAccion, useAccion } from '../hooks'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { isAnalystByRole, isDirectionByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
+import {
+  isAnalystByRole,
+  isDirectionByRole,
+  isOperativeByRole,
+  isSuperAdminByRole,
+} from '@/features/auth/lib/permissions'
 import { usersAdminService } from '@/features/users/services/users.service'
 import { usersQueryKey } from '@/features/users/hooks/useUsers'
 import { notificacionesService, sendNotificationEmail } from '@/services/notificaciones.service'
@@ -123,7 +128,7 @@ export function AccionFormDialog({
   const canAttemptChecklistContribution = !!currentUser?.id && !isAnalyst
   const isMutating = createAccion.isPending || updateAccion.isPending || deleteAccion.isPending
   const canViewO2cImpactFields =
-    !isAnalyst && !isDirectionByRole(currentUser?.rol)
+    !isAnalyst && !isDirectionByRole(currentUser?.rol) && !isOperativeByRole(currentUser?.rol)
 
   const o2cLinksQuery = useQuery({
     queryKey: ['accion-o2c-links', accion?.id] as const,

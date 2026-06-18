@@ -20,14 +20,11 @@ import { ACTION_STATUS } from '@/types'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import { useAreas } from '@/features/catalogs/hooks/useAreas'
 import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
+import { useStatuses } from '@/features/catalogs/hooks/useStatuses'
 import { Search, X } from 'lucide-react'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { priorityDisplayLabel } from '../utils/priorityLabels'
-
-const ESTADO_OPTIONS = [
-  { value: 'all', label: 'Todos' },
-  ...ACTION_STATUS.map((s) => ({ value: s, label: s })),
-]
+import { statusCatalogByKey, statusCatalogLabel } from '../utils/statusCatalog'
 
 export interface AccionesFilterBarProps {
   filter: AccionesFilter
@@ -43,19 +40,28 @@ export function AccionesFilterBar({
   const { data: users = [] } = useUsers({ activo: true })
   const { data: areas = [] } = useAreas({ activo: true })
   const { data: priorities = [] } = usePriorities({ activo: true })
+  const { data: statuses = [] } = useStatuses()
+  const statusByKey = useMemo(() => statusCatalogByKey(statuses), [statuses])
+  const estadoOptions = useMemo(
+    () => [
+      { value: 'all', label: 'Todos' },
+      ...ACTION_STATUS.map((s) => ({ value: s, label: statusCatalogLabel(s, statusByKey) })),
+    ],
+    [statusByKey]
+  )
   const todayYmd = todayWallClockCDMX()
   const fechaEffective = filter.fecha_creacion ?? todayYmd
   const fechaDiffersFromToday =
     filter.fecha_creacion != null && filter.fecha_creacion !== todayYmd
-  const prioridadValue = Array.isArray(filter.prioridad)
-    ? (filter.prioridad[0] ?? 'all')
-    : (filter.prioridad ?? 'all')
+  const prioridadValue = Array.isArray(filter.prioridad_id)
+    ? (filter.prioridad_id[0] ?? 'all')
+    : (filter.prioridad_id ?? (Array.isArray(filter.prioridad) ? (filter.prioridad[0] ?? 'all') : (filter.prioridad ?? 'all')))
   const prioridadOptions = useMemo(() => {
     const options = [
       { value: 'all', label: 'Todas' },
       ...[...priorities]
         .sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre))
-        .map((p) => ({ value: p.nombre, label: priorityDisplayLabel(p.nombre) })),
+        .map((p) => ({ value: p.id, label: priorityDisplayLabel(p.nombre) })),
     ]
     if (prioridadValue !== 'all' && !options.some((o) => o.value === prioridadValue)) {
       options.push({ value: prioridadValue, label: priorityDisplayLabel(prioridadValue) })
@@ -68,6 +74,7 @@ export function AccionesFilterBar({
     fechaDiffersFromToday ||
     filter.estado != null ||
     filter.prioridad != null ||
+    filter.prioridad_id != null ||
     (filter.area != null && filter.area !== '') ||
     filter.responsable != null
 
@@ -122,7 +129,7 @@ export function AccionesFilterBar({
             <SelectValue placeholder="Todos" />
           </SelectTrigger>
           <SelectContent>
-            {ESTADO_OPTIONS.map((o) => (
+            {estadoOptions.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
               </SelectItem>
@@ -137,7 +144,8 @@ export function AccionesFilterBar({
           onValueChange={(v) =>
             onFilterChange({
               ...filter,
-              prioridad: v === 'all' ? undefined : v,
+              prioridad_id: v === 'all' ? undefined : v,
+              prioridad: v === 'all' ? undefined : priorities.find((p) => p.id === v)?.nombre,
             })
           }
         >

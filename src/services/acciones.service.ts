@@ -74,7 +74,8 @@ function accionSelectColumns(): string {
 
 function stripPrioridadIdIfUnavailable<T extends Partial<AccionDiaria>>(payload: T): T {
   if (prioridadIdColumnAvailable !== false) return payload
-  const { prioridad_id: _omit, ...rest } = payload as T & { prioridad_id?: string | null }
+  const rest = { ...payload }
+  delete rest.prioridad_id
   return rest as T
 }
 
@@ -160,6 +161,7 @@ export interface AccionesFilter {
   /** Estados a excluir (ej. Verificado para calendario: mostrar solo activas). */
   excluir_estados?: ActionStatus[]
   prioridad?: string | string[]
+  prioridad_id?: string | string[]
   area?: string
   responsable?: string
   /** Usuario que creó la acción (usuarios.id). Independiente de `responsable`. */
@@ -249,7 +251,10 @@ function buildAccionesListQuery(filter: AccionesFilter = {}) {
   if (filter.excluir_estados?.length) {
     q = q.not('estado', 'in', `(${filter.excluir_estados.map((e) => `"${e}"`).join(',')})`)
   }
-  if (filter.prioridad) {
+  if (filter.prioridad_id && prioridadIdColumnAvailable !== false) {
+    const prioridadIds = Array.isArray(filter.prioridad_id) ? filter.prioridad_id : [filter.prioridad_id]
+    q = q.in('prioridad_id', prioridadIds)
+  } else if (filter.prioridad) {
     const prioridades = Array.isArray(filter.prioridad) ? filter.prioridad : [filter.prioridad]
     q = q.in('prioridad', prioridades)
   }

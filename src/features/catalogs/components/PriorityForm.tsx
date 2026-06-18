@@ -3,13 +3,31 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { priorityFormSchema, type PriorityFormValues } from '../schemas/priority.schema'
+import {
+  priorityColorClasses,
+  priorityDotClasses,
+  type PriorityColor,
+} from '@/features/operations/utils/priorityColors'
 
 interface PriorityFormProps {
   defaultValues?: Partial<PriorityFormValues> | null
   onSubmit: (values: PriorityFormValues) => void
   onCancel: () => void
   isSubmitting?: boolean
+}
+
+const COLOR_OPTIONS: PriorityColor[] = ['rojo', 'amarillo', 'verde']
+
+function colorLabel(color: PriorityColor): string {
+  return color[0].toUpperCase() + color.slice(1)
 }
 
 export function PriorityForm({
@@ -20,8 +38,15 @@ export function PriorityForm({
 }: PriorityFormProps) {
   const form = useForm<PriorityFormValues>({
     resolver: zodResolver(priorityFormSchema),
-    defaultValues: defaultValues ?? { nombre: '', descripcion: undefined, orden: 0, activo: true },
+    defaultValues: defaultValues ?? {
+      nombre: '',
+      descripcion: undefined,
+      color: 'amarillo',
+      orden: 0,
+      activo: true,
+    },
   })
+  const colorValue = (form.watch('color') ?? 'amarillo') as PriorityColor
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -32,24 +57,60 @@ export function PriorityForm({
           <p className="text-sm text-destructive">{form.formState.errors.nombre.message}</p>
         )}
       </div>
+
       <div className="space-y-2">
-        <Label htmlFor="descripcion">Descripción</Label>
+        <Label htmlFor="descripcion">Descripcion</Label>
         <Input id="descripcion" {...form.register('descripcion')} placeholder="Opcional" />
       </div>
-      <div className="space-y-2 w-32">
-        <Label htmlFor="orden">Orden</Label>
-        <Input id="orden" type="number" {...form.register('orden')} min={0} />
-        {form.formState.errors.orden && (
-          <p className="text-sm text-destructive">{form.formState.errors.orden.message}</p>
-        )}
+
+      <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem]">
+        <div className="space-y-2">
+          <Label htmlFor="color">Color</Label>
+          <Select
+            value={colorValue}
+            onValueChange={(value) =>
+              form.setValue('color', value as PriorityColor, { shouldDirty: true, shouldValidate: true })
+            }
+          >
+            <SelectTrigger id="color">
+              <SelectValue placeholder="Seleccionar color" />
+            </SelectTrigger>
+            <SelectContent>
+              {COLOR_OPTIONS.map((color) => (
+                <SelectItem key={color} value={color}>
+                  <span className="inline-flex items-center gap-2">
+                    <span className={`h-2.5 w-2.5 rounded-full ${priorityDotClasses(color)}`} aria-hidden />
+                    <span className={`rounded-md border px-2 py-0.5 text-xs font-semibold ${priorityColorClasses(color)}`}>
+                      {colorLabel(color)}
+                    </span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="orden">Orden</Label>
+          <Input id="orden" type="number" {...form.register('orden')} min={0} />
+          {form.formState.errors.orden && (
+            <p className="text-sm text-destructive">{form.formState.errors.orden.message}</p>
+          )}
+        </div>
       </div>
-      <label className="flex items-center gap-2 cursor-pointer">
+
+      <label className="flex cursor-pointer items-center gap-2">
         <input type="checkbox" {...form.register('activo')} className="h-4 w-4 rounded border-input" />
         <span className="text-sm font-medium">Activo</span>
       </label>
+
       <div className="flex justify-end gap-2 pt-2">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>Cancelar</Button>
-        <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Guardando...' : 'Guardar'}</Button>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
+          Cancelar
+        </Button>
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? 'Guardando...' : 'Guardar'}
+        </Button>
       </div>
     </form>
   )

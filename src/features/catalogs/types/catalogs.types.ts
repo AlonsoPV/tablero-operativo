@@ -65,6 +65,7 @@ export interface UpdateAreaInput {
 // ---- Statuses ----
 export interface Status {
   id: string
+  estado_key?: string | null
   nombre: string
   descripcion: string | null
   color: string | null

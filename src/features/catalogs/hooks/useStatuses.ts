@@ -1,9 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { statusesService } from '../services/statuses.service'
+import { catalogQueryKeys, invalidateActionCatalogDependents, invalidateCatalogQueries } from '../queryKeys'
 import type { CatalogFilter } from '../types/catalogs.types'
 import type { CreateStatusInput, UpdateStatusInput } from '../types/catalogs.types'
 
-const KEY = ['catalogs', 'statuses'] as const
+const KEY = catalogQueryKeys.statuses
 const CATALOG_STALE_TIME = 10 * 60 * 1000
 
 export function useStatuses(filter: CatalogFilter = {}) {
@@ -19,7 +20,10 @@ export function useCreateStatus() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: CreateStatusInput) => statusesService.create(input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' }),
+    onSuccess: () => {
+      invalidateCatalogQueries(qc, KEY)
+      invalidateActionCatalogDependents(qc)
+    },
   })
 }
 
@@ -28,7 +32,10 @@ export function useUpdateStatus() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateStatusInput }) =>
       statusesService.update(id, input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' }),
+    onSuccess: () => {
+      invalidateCatalogQueries(qc, KEY)
+      invalidateActionCatalogDependents(qc)
+    },
   })
 }
 
@@ -37,6 +44,9 @@ export function useToggleStatusStatus() {
   return useMutation({
     mutationFn: ({ id, activo }: { id: string; activo: boolean }) =>
       statusesService.setActivo(id, activo),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' }),
+    onSuccess: () => {
+      invalidateCatalogQueries(qc, KEY)
+      invalidateActionCatalogDependents(qc)
+    },
   })
 }

@@ -20,6 +20,12 @@ function filterQueryKey(filter: AccionesFilter): unknown[] {
       : Array.isArray(filter.prioridad)
         ? filter.prioridad.join(',')
         : filter.prioridad
+  const prioridadId =
+    filter.prioridad_id == null
+      ? ''
+      : Array.isArray(filter.prioridad_id)
+        ? filter.prioridad_id.join(',')
+        : filter.prioridad_id
   const excluir =
     filter.excluir_estados?.length ? filter.excluir_estados.join(',') : ''
   const tipoAccion =
@@ -37,6 +43,7 @@ function filterQueryKey(filter: AccionesFilter): unknown[] {
     estado,
     excluir,
     prioridad,
+    prioridadId,
     filter.area ?? '',
     filter.responsable ?? '',
     filter.created_by ?? '',

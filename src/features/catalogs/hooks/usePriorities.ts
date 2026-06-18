@@ -1,9 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { prioritiesService } from '../services/priorities.service'
+import { catalogQueryKeys, invalidateActionCatalogDependents, invalidateCatalogQueries } from '../queryKeys'
 import type { CatalogFilter } from '../types/catalogs.types'
 import type { CreatePriorityInput, UpdatePriorityInput } from '../types/catalogs.types'
 
-const KEY = ['catalogs', 'priorities'] as const
+const KEY = catalogQueryKeys.priorities
 const CATALOG_STALE_TIME = 10 * 60 * 1000
 
 export const prioritiesQueryKey = (filter: CatalogFilter = {}) => [...KEY, filter] as const
@@ -26,8 +27,8 @@ export function useCreatePriority() {
   return useMutation({
     mutationFn: (input: CreatePriorityInput) => prioritiesService.create(input),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' })
-      qc.invalidateQueries({ queryKey: ['acciones'], refetchType: 'active' })
+      invalidateCatalogQueries(qc, KEY)
+      invalidateActionCatalogDependents(qc)
     },
   })
 }
@@ -38,8 +39,8 @@ export function useUpdatePriority() {
     mutationFn: ({ id, input }: { id: string; input: UpdatePriorityInput }) =>
       prioritiesService.update(id, input),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' })
-      qc.invalidateQueries({ queryKey: ['acciones'], refetchType: 'active' })
+      invalidateCatalogQueries(qc, KEY)
+      invalidateActionCatalogDependents(qc)
     },
   })
 }
@@ -50,8 +51,8 @@ export function useTogglePriorityStatus() {
     mutationFn: ({ id, activo }: { id: string; activo: boolean }) =>
       prioritiesService.setActivo(id, activo),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' })
-      qc.invalidateQueries({ queryKey: ['acciones'], refetchType: 'active' })
+      invalidateCatalogQueries(qc, KEY)
+      invalidateActionCatalogDependents(qc)
     },
   })
 }
