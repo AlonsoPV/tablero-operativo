@@ -20,6 +20,13 @@ function isUnauthorizedListError(error: unknown): boolean {
   return e.code === '42501' || message.includes('no autorizado') || message.includes('permission denied')
 }
 
+function isMissingRpcError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const e = error as { code?: string; message?: string }
+  const message = e.message?.toLowerCase() ?? ''
+  return e.code === 'PGRST202' || message.includes('could not find the function')
+}
+
 function applyUserFilters(list: UserProfile[], filter: UsersFilter): UserProfile[] {
   let next = list
 
@@ -123,7 +130,7 @@ export const usersAdminService = {
 
     const { data, error } = await supabase.rpc('settings_users_list')
     if (error) {
-      if (isUnauthorizedListError(error)) {
+      if (isUnauthorizedListError(error) || isMissingRpcError(error)) {
         return listVisibleUsersCatalog(filter)
       }
       throw error
