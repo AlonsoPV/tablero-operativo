@@ -47,7 +47,8 @@ export function UserDetailPage() {
 
   const { data: currentUser } = useCurrentUser()
   const { data: user, isLoading, isError, error } = useUser(id)
-  const { data: email } = useUserAuthEmail(user?.user_id)
+  const { data: authEmail } = useUserAuthEmail(user?.email ? null : user?.user_id)
+  const email = user?.email ?? authEmail ?? null
   const updateUser = useUpdateUser()
   const toggleStatus = useToggleUserStatus()
   const canAdminTelegram = isSuperAdminByRole(currentUser?.rol)

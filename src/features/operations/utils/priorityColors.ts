@@ -18,6 +18,11 @@ export function priorityColorFor(nombre: string, color?: string | null): Priorit
   return normalizePriorityColor(color) ?? inferPriorityColor(nombre)
 }
 
+/** Valor inicial del formulario de catálogo: respeta BD o infiere por nombre. */
+export function priorityColorForForm(nombre: string, color?: string | null): PriorityColor {
+  return normalizePriorityColor(color) ?? (nombre.trim() ? inferPriorityColor(nombre) : 'amarillo')
+}
+
 export function priorityColorClasses(color: PriorityColor, selected = false): string {
   const classes: Record<PriorityColor, string> = {
     verde: selected

@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Button } from '@/components/ui/button'
@@ -13,6 +14,7 @@ import {
 import { priorityFormSchema, type PriorityFormValues } from '../schemas/priority.schema'
 import {
   priorityColorClasses,
+  priorityColorForForm,
   priorityDotClasses,
   type PriorityColor,
 } from '@/features/operations/utils/priorityColors'
@@ -36,17 +38,27 @@ export function PriorityForm({
   onCancel,
   isSubmitting = false,
 }: PriorityFormProps) {
+  const resolvedDefaults = useMemo((): PriorityFormValues => {
+    const nombre = defaultValues?.nombre ?? ''
+    return {
+      nombre,
+      descripcion: defaultValues?.descripcion,
+      color: priorityColorForForm(nombre, defaultValues?.color),
+      orden: defaultValues?.orden ?? 0,
+      activo: defaultValues?.activo ?? true,
+    }
+  }, [defaultValues])
+
   const form = useForm<PriorityFormValues>({
     resolver: zodResolver(priorityFormSchema),
-    defaultValues: defaultValues ?? {
-      nombre: '',
-      descripcion: undefined,
-      color: 'amarillo',
-      orden: 0,
-      activo: true,
-    },
+    defaultValues: resolvedDefaults,
   })
-  const colorValue = (form.watch('color') ?? 'amarillo') as PriorityColor
+
+  useEffect(() => {
+    form.reset(resolvedDefaults)
+  }, [form, resolvedDefaults])
+
+  const colorValue = form.watch('color')
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -72,8 +84,13 @@ export function PriorityForm({
               form.setValue('color', value as PriorityColor, { shouldDirty: true, shouldValidate: true })
             }
           >
-            <SelectTrigger id="color">
-              <SelectValue placeholder="Seleccionar color" />
+            <SelectTrigger id="color" className={priorityColorClasses(colorValue, true)}>
+              <SelectValue placeholder="Seleccionar color">
+                <span className="inline-flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${priorityDotClasses(colorValue)}`} aria-hidden />
+                  <span>{colorLabel(colorValue)}</span>
+                </span>
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {COLOR_OPTIONS.map((color) => (

@@ -27,7 +27,7 @@ export const prioritiesService = {
     const { data, error } = await supabase.from(TABLE).insert({
       nombre: input.nombre.trim(),
       descripcion: input.descripcion?.trim() ?? null,
-      color: input.color ?? null,
+      color: input.color,
       orden: input.orden ?? 0,
       activo: input.activo ?? true,
     }).select().single()

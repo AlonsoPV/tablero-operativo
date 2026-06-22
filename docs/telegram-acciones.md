@@ -3,7 +3,7 @@
 ## Alcance
 
 - **Fase 1:** enviar una accion completa al Telegram vinculado del responsable.
-- **Fase 2:** marcar checklist desde botones, recibir documentos/fotos y cerrar la accion solo si el checklist esta completo y existe evidencia cuando aplica.
+- **Fase 2:** marcar checklist desde botones, recibir documentos/fotos y cerrar la accion cuando el checklist este completo.
 
 ## Secrets de Supabase
 
@@ -87,7 +87,7 @@ El cierre esta centralizado en `try_set_accion_hecho(accion_id, usuario_id)`:
 
 - valida permiso del actor,
 - exige todos los checkpoints activos completos,
-- exige evidencia si `evidencia_esperada` no esta marcada como opcional/no aplica,
+- no exige evidencia para cerrar; la evidencia queda como dato de seguimiento,
 - actualiza `estado`, `completed_at`, `completed_by` y `updated_by` en la misma transaccion.
 
 Los archivos recibidos por Telegram se guardan en el bucket `evidencias` y se registran en `accion_evidencias`.

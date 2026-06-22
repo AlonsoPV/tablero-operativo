@@ -140,6 +140,19 @@ export const usersAdminService = {
   },
 
   async getById(id: string): Promise<UserProfile | null> {
+    const { data: rpcData, error: rpcError } = await supabase.rpc('settings_users_get', {
+      p_id: id,
+    })
+
+    if (!rpcError && rpcData != null) {
+      const row = (Array.isArray(rpcData) ? rpcData[0] : rpcData) as UserProfile | undefined
+      if (row) return row
+    }
+
+    if (rpcError && !isMissingRpcError(rpcError) && !isUnauthorizedListError(rpcError)) {
+      throw rpcError
+    }
+
     const { data, error } = await supabase
       .from(TABLE)
       .select('*')

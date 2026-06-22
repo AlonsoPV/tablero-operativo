@@ -293,8 +293,8 @@ async function handleCallback(
       await answerCallbackQuery(callback.id, error.message)
       return
     }
-    const needsEvidence = Boolean((result as { needs_evidence?: boolean } | null)?.needs_evidence)
-    await answerCallbackQuery(callback.id, needsEvidence ? 'Checklist completo. Falta evidencia.' : 'Checklist actualizado.')
+    const closed = (result as { estado?: string } | null)?.estado === 'Hecho'
+    await answerCallbackQuery(callback.id, closed ? 'Checklist completo. Accion marcada como Hecha.' : 'Checklist actualizado.')
     return
   }
 

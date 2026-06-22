@@ -34,6 +34,28 @@ import { useGap } from '@/features/kpi/hooks/useGaps'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { isAnalystByRole } from '@/features/auth/lib/permissions'
 
+function normalizeKanbanFilter(filter: AccionesFilter): AccionesFilter {
+  const normalized: AccionesFilter = {}
+
+  if (filter.search?.trim()) normalized.search = filter.search
+  if (filter.fecha_creacion) normalized.fecha_creacion = filter.fecha_creacion
+  if (filter.fecha) normalized.fecha = filter.fecha
+  if (filter.fecha_min) normalized.fecha_min = filter.fecha_min
+  if (filter.fecha_max) normalized.fecha_max = filter.fecha_max
+  if (filter.calendario_creadas_hasta) normalized.calendario_creadas_hasta = filter.calendario_creadas_hasta
+  if (filter.estado != null) normalized.estado = filter.estado
+  if (filter.excluir_estados?.length) normalized.excluir_estados = filter.excluir_estados
+  if (filter.prioridad != null) normalized.prioridad = filter.prioridad
+  if (filter.prioridad_id != null) normalized.prioridad_id = filter.prioridad_id
+  if (filter.area != null && filter.area !== '') normalized.area = filter.area
+  if (filter.responsable != null && filter.responsable !== '') normalized.responsable = filter.responsable
+  if (filter.created_by != null && filter.created_by !== '') normalized.created_by = filter.created_by
+  if (filter.tipo_accion != null) normalized.tipo_accion = filter.tipo_accion
+  if (filter.sprint_id != null && filter.sprint_id !== '') normalized.sprint_id = filter.sprint_id
+
+  return normalized
+}
+
 export function KanbanPage() {
   const qc = useQueryClient()
   const today = todayWallClockCDMX()
@@ -88,15 +110,6 @@ export function KanbanPage() {
   const fechaFromUrl = searchParams.get('fecha')
   const { data: accionFromUrl } = useAccion(accionIdFromUrl)
 
-  const [filtersCleared, setFiltersCleared] = useState(false)
-
-  useEffect(() => {
-    if (!currentUser?.id || filtersCleared) return
-    setFilter((prev) =>
-      prev.responsable === undefined ? { ...prev, responsable: currentUser.id } : prev
-    )
-  }, [currentUser?.id, filtersCleared])
-
   useEffect(() => {
     if (fechaFromUrl && /^\d{4}-\d{2}-\d{2}$/.test(fechaFromUrl)) {
       setFilter((f) => ({ ...f, fecha_min: fechaFromUrl, fecha_max: fechaFromUrl }))
@@ -123,16 +136,14 @@ export function KanbanPage() {
   }, [accionFromUrl, accionIdFromUrl, setSearchParams])
 
   const handleFilterChange = useCallback((next: AccionesFilter | Partial<AccionesFilter>) => {
-    setFiltersCleared(false)
     setFilter((prev) => {
-      const merged = { ...prev, ...next }
+      const merged = normalizeKanbanFilter({ ...prev, ...next })
       if (isAnalyst && currentUser?.id) merged.responsable = currentUser.id
       return merged
     })
   }, [currentUser?.id, isAnalyst])
 
   const handleClearFilters = useCallback(() => {
-    setFiltersCleared(true)
     setFilter(isAnalyst && currentUser?.id ? { responsable: currentUser.id } : {})
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
