@@ -192,7 +192,7 @@ export function AccionForm({
     isError: evidenciaError,
     refetch: retryEvidenciaCatalog,
   } = useDropdownOptionsByKey('evidencia_esperada')
-  const isEditProtectedReadonly = isEdit || readonlyStrategicFields || (isEdit && isAnalyst)
+  const isEditProtectedReadonly = readonlyStrategicFields || (isEdit && isAnalyst)
 
   const [evidenciaSelect, setEvidenciaSelect] = useState<string>('__none__')
 
@@ -418,7 +418,7 @@ export function AccionForm({
         expanded={blocksOpen.principal}
         onToggle={() => setBlocksOpen((b) => ({ ...b, principal: !b.principal }))}
         collapsedSummary={principalSummary}
-        editProtected
+        editProtected={isEditProtectedReadonly}
       >
         {isEditProtectedReadonly ? (
           <div className="grid gap-3 sm:grid-cols-2">
@@ -589,7 +589,7 @@ export function AccionForm({
         icon={Target}
         expanded={blocksOpen.impacto}
         onToggle={() => setBlocksOpen((b) => ({ ...b, impacto: !b.impacto }))}
-        editProtected
+        editProtected={isEditProtectedReadonly}
         collapsedSummary={
           [
             canViewO2cImpactFields && gapIds.length ? `${gapIds.length} brecha(s)` : null,
@@ -740,7 +740,7 @@ export function AccionForm({
         icon={FileCheck}
         expanded={blocksOpen.validacion}
         onToggle={() => setBlocksOpen((b) => ({ ...b, validacion: !b.validacion }))}
-        editProtected
+        editProtected={isEditProtectedReadonly}
       >
         {isEditProtectedReadonly ? (
           <ReadonlyValue

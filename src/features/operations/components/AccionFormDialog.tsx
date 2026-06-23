@@ -119,11 +119,13 @@ export function AccionFormDialog({
   const accionFreshQuery = useAccion(accion?.id, { enabled: open && !!accion?.id })
   const accionLive = accionFreshQuery.data ?? accion ?? null
   const { data: priorities = [] } = usePriorities()
-  const canDeleteAccion = isEdit && isSuperAdminByRole(currentUser?.rol)
-  const isEditProtectedReadonly = isEdit
   const isAnalyst = isAnalystByRole(currentUser?.rol)
+  const isSuperAdmin = isSuperAdminByRole(currentUser?.rol)
   const isActionCreator = !!accionLive?.created_by && accionLive.created_by === currentUser?.id
-  const canManageChecklistStructure = isActionCreator
+  const canFullyEditAction = !isEdit || isActionCreator || isSuperAdmin
+  const canDeleteAccion = isEdit && isSuperAdmin
+  const isEditProtectedReadonly = isEdit && !canFullyEditAction
+  const canManageChecklistStructure = isActionCreator || isSuperAdmin
   // La autorizacion final del checklist vive en Supabase. El cliente solo evita
   // bloquear el click por caches o ids locales desfasados tras cambios de usuario.
   const canAttemptChecklistContribution = !!currentUser?.id && !isAnalyst
@@ -681,7 +683,7 @@ export function AccionFormDialog({
 
   const formBaseId = `${dialogId ?? 'accion-form-dialog'}-form`
   const showEmailButton = isEdit && !!accion
-  const showTelegramButton = isEdit && !!accion && isSuperAdminByRole(currentUser?.rol)
+  const showTelegramButton = isEdit && !!accion && isSuperAdmin
   const isManualNotificationPending = manualEmailPending || manualTelegramPending
   const footerButtonCount =
     2 + (showEmailButton ? 1 : 0) + (showTelegramButton ? 1 : 0) + (canDeleteAccion ? 1 : 0)
@@ -900,7 +902,7 @@ export function AccionFormDialog({
               id={`${formBaseId}-evidencias-section`}
               className="accion-form-dialog-evidencias border-t border-border/60 pt-4 sm:pt-5"
             >
-              <AccionEvidenciasSection accionId={accion.id} readOnly={!isActionCreator} />
+              <AccionEvidenciasSection accionId={accion.id} readOnly={!canFullyEditAction} />
             </div>
             <div id={`${formBaseId}-comentarios`} className="accion-form-dialog-comentarios">
               <AccionComentarios
