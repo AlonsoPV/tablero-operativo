@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Menu, User, LogOut, Settings, MapPinned, Trophy } from 'lucide-react'
+import { Menu, User, LogOut, Settings, MapPinned, Trophy, Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -24,6 +24,8 @@ export function Header() {
   const navigate = useNavigate()
   const location = useLocation()
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
+  const theme = useAppStore((s) => s.theme)
+  const toggleTheme = useAppStore((s) => s.toggleTheme)
   const resetOnLogout = useAppStore((s) => s.resetOnLogout)
   const { profile, logout } = useAuth()
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
@@ -54,6 +56,21 @@ export function Header() {
         <h1 className="text-lg font-semibold truncate">{APP_NAME}</h1>
       </div>
       <div className="flex min-w-0 shrink items-center gap-1 sm:gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 shrink-0"
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+          aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+        >
+          {theme === 'dark' ? (
+            <Sun className="h-4 w-4" aria-hidden />
+          ) : (
+            <Moon className="h-4 w-4" aria-hidden />
+          )}
+        </Button>
         {showPlanAccion ? (
           <Button
             variant={location.pathname === ROUTES.PLAN_ACCION ? 'secondary' : 'ghost'}

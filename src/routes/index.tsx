@@ -8,13 +8,10 @@ import { LoginPage } from '@/features/auth/pages/LoginPage'
 import { ForgotPasswordPage } from '@/features/auth/pages/ForgotPasswordPage'
 import { ResetPasswordPage } from '@/features/auth/pages/ResetPasswordPage'
 import { ROUTES } from '@/constants'
-import { useAuth } from '@/features/auth/hooks/useAuth'
-import { getDefaultRouteByRole } from '@/features/auth/lib/permissions'
 import { importWithReload } from '@/lib/importWithReload'
 
 function HomeRedirect() {
-  const { profile } = useAuth()
-  return <Navigate to={getDefaultRouteByRole(profile?.rol)} replace />
+  return <Navigate to={ROUTES.KANBAN} replace />
 }
 
 const router = createBrowserRouter([
@@ -274,7 +271,7 @@ const router = createBrowserRouter([
       },
     ],
   },
-  { path: '*', element: <Navigate to={ROUTES.DASHBOARD} replace /> },
+  { path: '*', element: <Navigate to={ROUTES.KANBAN} replace /> },
     ],
   },
 ])

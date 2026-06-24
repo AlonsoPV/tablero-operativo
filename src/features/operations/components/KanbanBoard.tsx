@@ -251,27 +251,126 @@ function sortAccionesByColumnPreference(
   return list
 }
 
-/** Estilos compartidos del carril horizontal (tablero y skeleton). */
+/** Oculta la scrollbar nativa; el desplazamiento se indica con la barra inferior. */
 const KANBAN_H_SCROLL_CLASSES =
-  '[&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:rounded [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/80 hover:[&::-webkit-scrollbar-thumb]:bg-border'
+  '[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden'
+
+const KANBAN_SCROLL_SIDE_PADDING = 40
+/** Reduce la sensibilidad del trackpad / rueda horizontal. */
+const KANBAN_WHEEL_DAMPING = 0.38
+
+type KanbanStatusNavItem = {
+  status: ActionStatus
+  label: string
+  count: number
+  color?: string | null
+}
+
+function getKanbanColumns(el: HTMLDivElement) {
+  return Array.from(el.querySelectorAll<HTMLElement>(':scope > .kanban-column'))
+}
+
+function getKanbanActiveColumnStatus(el: HTMLDivElement): ActionStatus | null {
+  const columns = getKanbanColumns(el)
+  if (columns.length === 0) return null
+
+  const viewportCenter = el.scrollLeft + el.clientWidth / 2
+  let bestColumn = columns[0]
+  let bestDistance = Number.POSITIVE_INFINITY
+
+  for (const column of columns) {
+    const center = column.offsetLeft + column.offsetWidth / 2
+    const distance = Math.abs(center - viewportCenter)
+    if (distance < bestDistance) {
+      bestColumn = column
+      bestDistance = distance
+    }
+  }
+
+  return (bestColumn.dataset.status as ActionStatus | undefined) ?? null
+}
+
+function scrollKanbanToColumn(el: HTMLDivElement, status: ActionStatus) {
+  const column = getKanbanColumns(el).find((item) => item.dataset.status === status)
+  if (!column) return
+
+  el.scrollTo({
+    left: Math.max(0, column.offsetLeft - KANBAN_SCROLL_SIDE_PADDING),
+    behavior: 'smooth',
+  })
+}
+
+function scrollKanbanToAdjacentColumn(el: HTMLDivElement, dir: -1 | 1) {
+  const columns = getKanbanColumns(el)
+  if (columns.length === 0) return
+
+  const anchor = el.scrollLeft + KANBAN_SCROLL_SIDE_PADDING + 6
+  let activeIdx = 0
+  for (let i = 0; i < columns.length; i++) {
+    if (columns[i].offsetLeft <= anchor) activeIdx = i
+  }
+
+  const nextIdx = Math.min(columns.length - 1, Math.max(0, activeIdx + dir))
+  if (nextIdx === activeIdx) return
+
+  el.scrollTo({
+    left: Math.max(0, columns[nextIdx].offsetLeft - KANBAN_SCROLL_SIDE_PADDING),
+    behavior: 'smooth',
+  })
+}
+
+function stepKanbanScrollOnTrack(
+  el: HTMLDivElement,
+  track: HTMLDivElement,
+  clientX: number,
+  thumbLeftPct: number,
+  thumbWidthPct: number
+) {
+  const rect = track.getBoundingClientRect()
+  const clickX = clientX - rect.left
+  const thumbCenter =
+    (thumbLeftPct / 100) * rect.width + ((thumbWidthPct / 100) * rect.width) / 2
+
+  if (clickX < thumbCenter - 14) {
+    scrollKanbanToAdjacentColumn(el, -1)
+    return
+  }
+  if (clickX > thumbCenter + 14) {
+    scrollKanbanToAdjacentColumn(el, 1)
+  }
+}
 
 function KanbanBoardScrollArea({
   id,
   columnCount,
+  navItems,
   children,
 }: {
   id: string
   columnCount: number
+  navItems: KanbanStatusNavItem[]
   children: ReactNode
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const trackRef = useRef<HTMLDivElement>(null)
+  const navRef = useRef<HTMLDivElement>(null)
+  const dragStartRef = useRef<{ clientX: number; scrollLeft: number } | null>(null)
   const [edges, setEdges] = useState({ left: false, right: false })
+  const [activeStatus, setActiveStatus] = useState<ActionStatus | null>(navItems[0]?.status ?? null)
+  const [isDraggingThumb, setIsDraggingThumb] = useState(false)
+  const [scrollMetrics, setScrollMetrics] = useState({
+    scrollLeft: 0,
+    scrollWidth: 0,
+    clientWidth: 0,
+  })
 
   const refreshEdges = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
     const { scrollLeft, scrollWidth, clientWidth } = el
     const maxScroll = Math.max(0, scrollWidth - clientWidth)
+    setScrollMetrics({ scrollLeft, scrollWidth, clientWidth })
+    setActiveStatus(getKanbanActiveColumnStatus(el))
     if (maxScroll <= 0) {
       setEdges({ left: false, right: false })
       return
@@ -283,6 +382,24 @@ function KanbanBoardScrollArea({
   }, [])
 
   useEffect(() => {
+    setActiveStatus((current) => {
+      if (current && navItems.some((item) => item.status === current)) return current
+      return navItems[0]?.status ?? null
+    })
+  }, [navItems])
+
+  useEffect(() => {
+    const el = navRef.current
+    if (!el || !activeStatus) return
+    const active = el.querySelector<HTMLElement>(`[data-status-nav="${activeStatus}"]`)
+    if (!active) return
+    const frame = window.requestAnimationFrame(() => {
+      active.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeStatus])
+
+  useEffect(() => {
     const el = scrollRef.current
     if (!el) return
     refreshEdges()
@@ -292,31 +409,179 @@ function KanbanBoardScrollArea({
     ro.observe(el)
     el.addEventListener('scroll', refreshEdges, { passive: true })
     window.addEventListener('resize', refreshEdges)
+
+    const onWheel = (e: WheelEvent) => {
+      const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth)
+      if (maxScroll <= 0) return
+
+      const absX = Math.abs(e.deltaX)
+      const absY = Math.abs(e.deltaY)
+      const horizontalIntent = absX > absY || e.shiftKey
+      if (!horizontalIntent) return
+
+      const rawDelta = e.shiftKey && absX < absY ? e.deltaY : e.deltaX
+      if (Math.abs(rawDelta) < 0.5) return
+
+      const atLeft = el.scrollLeft <= 0 && rawDelta < 0
+      const atRight = el.scrollLeft >= maxScroll - 1 && rawDelta > 0
+      if (atLeft || atRight) return
+
+      e.preventDefault()
+      el.scrollBy({ left: rawDelta * KANBAN_WHEEL_DAMPING })
+    }
+
+    el.addEventListener('wheel', onWheel, { passive: false })
     return () => {
       ro.disconnect()
       el.removeEventListener('scroll', refreshEdges)
       window.removeEventListener('resize', refreshEdges)
+      el.removeEventListener('wheel', onWheel)
     }
   }, [refreshEdges, columnCount])
 
   const scrollByDir = useCallback((dir: -1 | 1) => {
     const el = scrollRef.current
     if (!el) return
-    const delta = Math.min(Math.floor(el.clientWidth * 0.72), 360)
-    el.scrollBy({ left: dir * delta, behavior: 'smooth' })
+    scrollKanbanToAdjacentColumn(el, dir)
+  }, [])
+
+  const scrollToStatus = useCallback((status: ActionStatus) => {
+    const el = scrollRef.current
+    if (!el) return
+    setActiveStatus(status)
+    scrollKanbanToColumn(el, status)
   }, [])
 
   const showNav = columnCount > 1
+  const maxScroll = Math.max(0, scrollMetrics.scrollWidth - scrollMetrics.clientWidth)
+  const canScrollHorizontally = showNav && maxScroll > 0
+  const thumbWidthPct =
+    scrollMetrics.scrollWidth > 0
+      ? Math.min(100, (scrollMetrics.clientWidth / scrollMetrics.scrollWidth) * 100)
+      : 100
+  const thumbLeftPct =
+    maxScroll > 0 ? (scrollMetrics.scrollLeft / maxScroll) * (100 - thumbWidthPct) : 0
+
+  const jumpScrollOnTrack = useCallback(
+    (clientX: number) => {
+      const el = scrollRef.current
+      const track = trackRef.current
+      if (!el || !track) return
+      stepKanbanScrollOnTrack(el, track, clientX, thumbLeftPct, thumbWidthPct)
+    },
+    [thumbLeftPct, thumbWidthPct]
+  )
+
+  const dragThumb = useCallback((clientX: number) => {
+    const el = scrollRef.current
+    const track = trackRef.current
+    const start = dragStartRef.current
+    if (!el || !track || !start) return
+    const rect = track.getBoundingClientRect()
+    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth)
+    const movableWidth = rect.width * (1 - thumbWidthPct / 100)
+    if (maxScroll <= 0 || movableWidth <= 0) return
+
+    const deltaPx = clientX - start.clientX
+    el.scrollLeft = Math.min(maxScroll, Math.max(0, start.scrollLeft + (deltaPx / movableWidth) * maxScroll))
+  }, [thumbWidthPct])
+
+  const handleThumbPointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    const el = scrollRef.current
+    if (!el) return
+    event.preventDefault()
+    event.stopPropagation()
+    dragStartRef.current = { clientX: event.clientX, scrollLeft: el.scrollLeft }
+    setIsDraggingThumb(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isDraggingThumb) return
+
+    const handleMove = (event: globalThis.PointerEvent) => {
+      dragThumb(event.clientX)
+    }
+    const handleUp = () => {
+      dragStartRef.current = null
+      setIsDraggingThumb(false)
+    }
+
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', handleUp, { once: true })
+    window.addEventListener('pointercancel', handleUp, { once: true })
+    return () => {
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', handleUp)
+      window.removeEventListener('pointercancel', handleUp)
+    }
+  }, [dragThumb, isDraggingThumb])
 
   return (
     <div className="relative min-w-0">
+      {showNav ? (
+        <div className="mb-2 rounded-xl border border-border/60 bg-card/80 p-1.5 shadow-sm">
+          <div
+            ref={navRef}
+            className={cn(
+              'flex gap-1.5 overflow-x-auto overscroll-x-contain scroll-smooth',
+              'snap-x snap-proximity touch-pan-x',
+              KANBAN_H_SCROLL_CLASSES
+            )}
+            role="tablist"
+            aria-label="Estatus del tablero"
+          >
+            {navItems.map((item) => {
+              const active = activeStatus === item.status
+              const Icon = COLUMN_ICONS[item.status]
+              return (
+                <button
+                  key={item.status}
+                  type="button"
+                  data-status-nav={item.status}
+                  role="tab"
+                  aria-selected={active}
+                  aria-controls={id}
+                  onClick={() => scrollToStatus(item.status)}
+                  className={cn(
+                    'group flex h-9 min-w-fit snap-start items-center gap-2 rounded-lg border px-2.5 text-xs font-semibold transition-colors',
+                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background',
+                    active
+                      ? 'border-primary/45 bg-primary/10 text-primary shadow-sm'
+                      : 'border-transparent bg-transparent text-muted-foreground hover:border-border/70 hover:bg-muted/50 hover:text-foreground'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'flex h-5 w-5 shrink-0 items-center justify-center rounded-md',
+                      active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground group-hover:text-foreground'
+                    )}
+                    style={item.color && !active ? { color: item.color } : undefined}
+                    aria-hidden
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="max-w-[8rem] truncate">{item.label}</span>
+                  <span
+                    className={cn(
+                      'min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] tabular-nums',
+                      active ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground'
+                    )}
+                  >
+                    {item.count}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
       {/* Botones fuera del carril de scroll (capa superior solo en el margen); el padding del carril evita que las columnas queden debajo. */}
       {showNav && edges.left ? (
         <Button
           type="button"
           variant="secondary"
           size="icon"
-          className="pointer-events-auto absolute left-1 top-1/2 z-30 h-8 w-8 -translate-y-1/2 rounded-full border border-border/50 bg-background shadow-md hover:bg-background"
+          className="pointer-events-auto absolute left-0 top-[calc(50%-0.75rem)] z-30 h-9 w-9 -translate-y-1/2 rounded-full border border-primary/25 bg-background/95 text-primary shadow-lg backdrop-blur-sm hover:border-primary/40 hover:bg-background"
           onClick={() => scrollByDir(-1)}
           aria-label="Desplazar columnas hacia la izquierda"
         >
@@ -328,7 +593,7 @@ function KanbanBoardScrollArea({
           type="button"
           variant="secondary"
           size="icon"
-          className="pointer-events-auto absolute right-1 top-1/2 z-30 h-8 w-8 -translate-y-1/2 rounded-full border border-border/50 bg-background shadow-md hover:bg-background"
+          className="pointer-events-auto absolute right-0 top-[calc(50%-0.75rem)] z-30 h-9 w-9 -translate-y-1/2 rounded-full border border-primary/25 bg-background/95 text-primary shadow-lg backdrop-blur-sm hover:border-primary/40 hover:bg-background"
           onClick={() => scrollByDir(1)}
           aria-label="Desplazar columnas hacia la derecha"
         >
@@ -339,15 +604,48 @@ function KanbanBoardScrollArea({
         ref={scrollRef}
         id={id}
         className={cn(
-          'kanban-board flex gap-4 overflow-x-auto overscroll-x-contain pb-4 pt-1 sm:gap-5',
+          'kanban-board flex gap-4 overflow-x-auto overscroll-x-contain pb-2 pt-1 sm:gap-5',
           /* Reserva fija para que el contenido (columnas) nunca quede bajo los botones ni se recorte con efecto de velo */
           showNav ? 'scroll-pl-10 scroll-pr-10 px-10' : 'px-0.5',
-          'scroll-smooth snap-x snap-mandatory touch-pan-x',
+          'snap-x snap-proximity touch-pan-x',
           KANBAN_H_SCROLL_CLASSES
         )}
       >
         {children}
       </div>
+      {canScrollHorizontally ? (
+        <div
+          className={cn('mt-1 px-0.5', showNav && 'px-10')}
+        >
+          <div
+            ref={trackRef}
+            className={cn(
+              'group relative h-4 cursor-pointer rounded-full border border-border/70 bg-muted/90 p-0.5 shadow-inner',
+              isDraggingThumb && 'cursor-grabbing'
+            )}
+            onClick={(e) => jumpScrollOnTrack(e.clientX)}
+            aria-label="Barra de desplazamiento de estatus"
+            role="scrollbar"
+            aria-orientation="horizontal"
+            aria-valuemin={0}
+            aria-valuemax={maxScroll}
+            aria-valuenow={scrollMetrics.scrollLeft}
+          >
+            <div
+              className={cn(
+                'absolute top-0.5 h-3 min-w-[3rem] rounded-full bg-primary shadow-md ring-1 ring-primary/30 transition-colors group-hover:bg-primary/90',
+                isDraggingThumb ? 'cursor-grabbing bg-primary/90' : 'cursor-grab'
+              )}
+              onPointerDown={handleThumbPointerDown}
+              onClick={(event) => event.stopPropagation()}
+              style={{
+                width: `calc(${thumbWidthPct}% - 0.25rem)`,
+                left: `${thumbLeftPct}%`,
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -804,7 +1102,7 @@ function KanbanBoardSkeleton({ columns = COLUMN_ORDER }: { columns?: ActionStatu
       id="kanban-board"
       className={cn(
         'kanban-board kanban-board-skeleton relative min-w-0 flex gap-4 overflow-x-auto overscroll-x-contain px-0.5 pb-4 sm:gap-5',
-        'scroll-smooth snap-x snap-mandatory touch-pan-x',
+        'snap-x snap-proximity touch-pan-x',
         KANBAN_H_SCROLL_CLASSES
       )}
     >
@@ -913,6 +1211,17 @@ export function KanbanBoard({
     return columnOrder
   }, [filterEstado, narrowToOccupiedColumns, byStatus, columnOrder])
 
+  const statusNavItems = useMemo<KanbanStatusNavItem[]>(
+    () =>
+      columnsToShow.map((status) => ({
+        status,
+        label: statusCatalogLabel(status, statusByKey) || COLUMN_LABELS[status],
+        count: byStatus[status]?.length ?? 0,
+        color: statusCatalogColor(status, statusByKey),
+      })),
+    [byStatus, columnsToShow, statusByKey]
+  )
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 8 },
@@ -992,7 +1301,11 @@ export function KanbanBoard({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <KanbanBoardScrollArea id="kanban-board" columnCount={columnsToShow.length}>
+      <KanbanBoardScrollArea
+        id="kanban-board"
+        columnCount={columnsToShow.length}
+        navItems={statusNavItems}
+      >
         {columnsToShow.map((status) => (
           <KanbanColumn
             key={status}

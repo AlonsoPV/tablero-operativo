@@ -40,6 +40,7 @@ export {
 export { useActionEstadoPermissions } from './hooks/useActionEstadoPermissions'
 export { KanbanHeader } from './components/KanbanHeader'
 export { KanbanNextDeadline } from './components/KanbanNextDeadline'
+export { EnviardianManifestoBanner } from './components/EnviardianManifestoBanner'
 export {
   KanbanToolbar,
   createKanbanDefaultFilter,

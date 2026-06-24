@@ -149,7 +149,7 @@ export function canAccessRouteByRole(rol: string | null | undefined, pathname: s
 export function getDefaultRouteByRole(rol: string | null | undefined): string {
   if (isAnalystByRole(rol)) return ROUTES.KANBAN
   if (isOperativeByRole(rol)) return ROUTES.KANBAN
-  return ROUTES.DASHBOARD
+  return ROUTES.KANBAN
 }
 
 /**

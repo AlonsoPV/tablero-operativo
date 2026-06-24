@@ -6,11 +6,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { AlertCircle, LayoutDashboard, ShieldCheck } from 'lucide-react'
+import { AlertCircle, LayoutDashboard } from 'lucide-react'
 import { APP_NAME, ROUTES } from '@/constants'
 import { authService } from '@/services/auth.service'
 import { useAuth } from '../hooks/useAuth'
 import { LoginForm } from '../components/LoginForm'
+import { LoginManifesto } from '../components/LoginManifesto'
 import { AuthLoader } from '../components/AuthLoader'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -131,24 +132,7 @@ export function LoginPage() {
             </span>
             <span className="text-lg font-semibold tracking-tight">{APP_NAME}</span>
           </div>
-          <div className="relative max-w-md space-y-6">
-            <p className="text-2xl font-semibold leading-snug tracking-tight text-primary-foreground sm:text-3xl">
-              Operación clara, decisiones rápidas.
-            </p>
-            <p className="text-sm leading-relaxed text-primary-foreground/85">
-              Tablero, KPIs, Kanban y disciplina en un solo lugar. Accede con tu cuenta corporativa.
-            </p>
-            <ul className="flex flex-col gap-3 text-sm text-primary-foreground/90">
-              <li className="flex items-center gap-2.5">
-                <ShieldCheck className="h-4 w-4 shrink-0 opacity-90" aria-hidden />
-                Acceso seguro y sesión protegida
-              </li>
-              <li className="flex items-center gap-2.5">
-                <LayoutDashboard className="h-4 w-4 shrink-0 opacity-90" aria-hidden />
-                Misma experiencia en equipo y en campo
-              </li>
-            </ul>
-          </div>
+          <LoginManifesto variant="panel" />
           <p className="relative text-xs text-primary-foreground/55">© {new Date().getFullYear()} · Uso interno</p>
         </aside>
 
@@ -162,6 +146,8 @@ export function LoginPage() {
             </span>
             <span className="text-base font-semibold tracking-tight text-foreground">{APP_NAME}</span>
           </div>
+
+          <LoginManifesto variant="compact" className="mb-6 w-full max-w-md lg:hidden" />
 
           <Card className="w-full max-w-md border-border/60 bg-card/95 shadow-xl shadow-black/5 backdrop-blur-sm dark:shadow-black/20">
             <CardHeader className="space-y-1.5 pb-2 text-center sm:text-left">

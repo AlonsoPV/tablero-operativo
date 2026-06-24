@@ -18,6 +18,7 @@ import {
   AccionesControlTable,
   AccionFormDialog,
   KanbanNextDeadline,
+  EnviardianManifestoBanner,
 } from '@/features/operations'
 import type { KanbanViewMode } from '@/features/operations'
 import { useUsers } from '@/features/users/hooks/useUsers'
@@ -222,6 +223,8 @@ export function KanbanPage() {
       id="kanban-page"
       className="kanban-page mx-auto flex w-full max-w-7xl flex-col space-y-6 overflow-x-hidden px-3 py-5 sm:space-y-8 sm:px-6 sm:py-6"
     >
+      <EnviardianManifestoBanner />
+
       <KanbanHeader
         filtersExpanded={filtersExpanded}
         onToggleFilters={isAnalyst ? undefined : () => setFiltersExpanded((v) => !v)}
