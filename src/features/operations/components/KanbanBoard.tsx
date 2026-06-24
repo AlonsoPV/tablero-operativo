@@ -274,20 +274,13 @@ function getKanbanActiveColumnStatus(el: HTMLDivElement): ActionStatus | null {
   const columns = getKanbanColumns(el)
   if (columns.length === 0) return null
 
-  const viewportCenter = el.scrollLeft + el.clientWidth / 2
-  let bestColumn = columns[0]
-  let bestDistance = Number.POSITIVE_INFINITY
-
+  const anchor = el.scrollLeft + KANBAN_SCROLL_SIDE_PADDING + 6
+  let activeColumn = columns[0]
   for (const column of columns) {
-    const center = column.offsetLeft + column.offsetWidth / 2
-    const distance = Math.abs(center - viewportCenter)
-    if (distance < bestDistance) {
-      bestColumn = column
-      bestDistance = distance
-    }
+    if (column.offsetLeft <= anchor) activeColumn = column
   }
 
-  return (bestColumn.dataset.status as ActionStatus | undefined) ?? null
+  return (activeColumn.dataset.status as ActionStatus | undefined) ?? null
 }
 
 function scrollKanbanToColumn(el: HTMLDivElement, status: ActionStatus) {
@@ -527,7 +520,6 @@ function KanbanBoardScrollArea({
               'snap-x snap-proximity touch-pan-x',
               KANBAN_H_SCROLL_CLASSES
             )}
-            role="tablist"
             aria-label="Estatus del tablero"
           >
             {navItems.map((item) => {
@@ -538,9 +530,8 @@ function KanbanBoardScrollArea({
                   key={item.status}
                   type="button"
                   data-status-nav={item.status}
-                  role="tab"
-                  aria-selected={active}
-                  aria-controls={id}
+                  aria-current={active ? 'true' : undefined}
+                  aria-label={`Ir a estatus ${item.label}`}
                   onClick={() => scrollToStatus(item.status)}
                   className={cn(
                     'group flex h-9 min-w-fit snap-start items-center gap-2 rounded-lg border px-2.5 text-xs font-semibold transition-colors',
