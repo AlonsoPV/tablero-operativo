@@ -124,6 +124,10 @@ export function canManageAcademyModulesByRole(rol: string | null | undefined): b
   return isSuperAdminByRole(rol) || isDirectionByRole(rol)
 }
 
+export function canManageActionsByRole(rol: string | null | undefined): boolean {
+  return isSuperAdminByRole(rol) || isDirectionByRole(rol)
+}
+
 export function canAccessRouteByRole(rol: string | null | undefined, pathname: string): boolean {
   if (isAnalystByRole(rol)) {
     return STRICT_ANALYST_ALLOWED_ROUTES.some((route) => routeMatches(pathname, route))

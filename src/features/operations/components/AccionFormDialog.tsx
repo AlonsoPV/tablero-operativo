@@ -27,6 +27,7 @@ import { AccionComentarios } from './AccionComentarios'
 import { useCreateAccion, useDeleteAccion, useUpdateAccion, useAccion } from '../hooks'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import {
+  canManageActionsByRole,
   isAnalystByRole,
   isDirectionByRole,
   isOperativeByRole,
@@ -35,7 +36,6 @@ import {
 import { usersAdminService } from '@/features/users/services/users.service'
 import { usersQueryKey } from '@/features/users/hooks/useUsers'
 import { notificacionesService, sendNotificationEmail } from '@/services/notificaciones.service'
-import { telegramIntegrationService } from '@/services/telegramIntegration.service'
 import { EVIDENCIA_ACCEPTED_FORMATS_LABEL, EVIDENCIA_REJECTED_MESSAGE } from '@/lib/evidenciaFileTypes'
 import {
   accionEvidenciasService,
@@ -50,7 +50,7 @@ import type { AccionCreateInput, AccionFormInput } from '../schemas/accion.schem
 import { flattenDescripcionForForm } from '../utils/descripcionAccionTriada'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { Download, ExternalLink, Paperclip, FileText, Image, Mail, Send, Trash2 } from 'lucide-react'
+import { Download, ExternalLink, Paperclip, FileText, Image, Mail, Trash2 } from 'lucide-react'
 import {
   AccionChecklistEditor,
   type LocalCheckpointDraft,
@@ -121,11 +121,12 @@ export function AccionFormDialog({
   const { data: priorities = [] } = usePriorities()
   const isAnalyst = isAnalystByRole(currentUser?.rol)
   const isSuperAdmin = isSuperAdminByRole(currentUser?.rol)
+  const canManageActions = canManageActionsByRole(currentUser?.rol)
   const isActionCreator = !!accionLive?.created_by && accionLive.created_by === currentUser?.id
-  const canFullyEditAction = !isEdit || isActionCreator || isSuperAdmin
+  const canFullyEditAction = !isEdit || isActionCreator || canManageActions
   const canDeleteAccion = isEdit && isSuperAdmin
   const isEditProtectedReadonly = isEdit && !canFullyEditAction
-  const canManageChecklistStructure = isActionCreator || isSuperAdmin
+  const canManageChecklistStructure = isActionCreator || canManageActions
   // La autorizacion final del checklist vive en Supabase. El cliente solo evita
   // bloquear el click por caches o ids locales desfasados tras cambios de usuario.
   const canAttemptChecklistContribution = !!currentUser?.id && !isAnalyst
@@ -157,7 +158,6 @@ export function AccionFormDialog({
   /** Resumen de validación bajo los botones del pie (RHF/Zod y reglas del diálogo). */
   const [submitFooterErrors, setSubmitFooterErrors] = useState<string[] | null>(null)
   const [manualEmailPending, setManualEmailPending] = useState(false)
-  const [manualTelegramPending, setManualTelegramPending] = useState(false)
   const [livePrioridad, setLivePrioridad] = useState<string | undefined>()
 
   useEffect(() => {
@@ -246,7 +246,7 @@ export function AccionFormDialog({
     return {
       titulo: input.titulo ?? 'Te asignaron como responsable',
       titulo_accion: input.tituloAccion.trim() || undefined,
-      descripcion_accion: flattenDescripcionForForm(input.descripcionAccion ?? '').trim().slice(0, 900) || undefined,
+      descripcion_accion: flattenDescripcionForForm(input.descripcionAccion ?? '').trim().slice(0, 500) || undefined,
       responsable_id: input.responsableId ?? null,
       responsable_nombre: responsableNombre || undefined,
       fecha_compromiso: fechaCompromiso || undefined,
@@ -345,32 +345,6 @@ export function AccionFormDialog({
       toast.error(err instanceof Error ? err.message : 'No se pudo enviar el correo')
     } finally {
       setManualEmailPending(false)
-    }
-  }
-
-  async function handleSendActionTelegram() {
-    if (!accion?.id || !accion.responsable) {
-      toast.error('La accion necesita un responsable para enviar Telegram.')
-      return
-    }
-    if (!isSuperAdminByRole(currentUser?.rol)) {
-      toast.error('Solo super_admin puede enviar acciones por Telegram.')
-      return
-    }
-
-    setManualTelegramPending(true)
-    try {
-      const result = await telegramIntegrationService.sendAction(accion.id, accion.responsable)
-      if (result.warning) {
-        toast.warning(result.warning)
-      } else {
-        toast.success('Telegram enviado al responsable')
-      }
-    } catch (err) {
-      console.error('Error al enviar Telegram de accion:', err)
-      toast.error(err instanceof Error ? err.message : 'No se pudo enviar Telegram')
-    } finally {
-      setManualTelegramPending(false)
     }
   }
 
@@ -683,10 +657,9 @@ export function AccionFormDialog({
 
   const formBaseId = `${dialogId ?? 'accion-form-dialog'}-form`
   const showEmailButton = isEdit && !!accion
-  const showTelegramButton = isEdit && !!accion && isSuperAdmin
-  const isManualNotificationPending = manualEmailPending || manualTelegramPending
+  const isManualNotificationPending = manualEmailPending
   const footerButtonCount =
-    2 + (showEmailButton ? 1 : 0) + (showTelegramButton ? 1 : 0) + (canDeleteAccion ? 1 : 0)
+    2 + (showEmailButton ? 1 : 0) + (canDeleteAccion ? 1 : 0)
   const footerActionsGridClass =
     footerButtonCount === 3 ? 'grid-cols-3' : footerButtonCount >= 4 ? 'grid-cols-2' : 'grid-cols-2'
 
@@ -999,24 +972,6 @@ export function AccionFormDialog({
               >
                 <Mail className="h-4 w-4 shrink-0" />
                 <span className="truncate">{manualEmailPending ? 'Enviando…' : 'Correo'}</span>
-              </Button>
-            ) : null}
-            {showTelegramButton ? (
-              <Button
-                type="button"
-                variant="outline"
-                id={`${formBaseId}-send-telegram`}
-                className="accion-form-dialog-send-telegram h-10 w-full gap-1.5 px-2 text-xs sm:h-9 sm:text-sm"
-                onClick={handleSendActionTelegram}
-                disabled={isManualNotificationPending || isMutating || !accion.responsable}
-                title={
-                  accion.responsable
-                    ? `Enviar Telegram a ${responsableNames[accion.responsable] ?? 'responsable asignado'}`
-                    : 'Asigna un responsable para enviar Telegram'
-                }
-              >
-                <Send className="h-4 w-4 shrink-0" />
-                <span className="truncate">{manualTelegramPending ? 'Enviando...' : 'Telegram'}</span>
               </Button>
             ) : null}
             <Button

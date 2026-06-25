@@ -9,7 +9,7 @@ import {
 } from '@/services/accionCloseValidation.service'
 import { usuariosService } from '@/services/usuarios.service'
 import { supabase } from '@/lib/supabase/client'
-import { isAdminByRole } from '@/features/auth/lib/permissions'
+import { canManageActionsByRole } from '@/features/auth/lib/permissions'
 import {
   MSJ_PERMISO_HECHO,
   MSJ_PERMISO_VERIFICADO,
@@ -66,7 +66,7 @@ export async function assertAccionEstadoTransition(
 
   const { usuario } = await resolveCurrentUsuarioForEstado()
   const meId = usuario?.id ?? null
-  const bypass = usuario != null && isAdminByRole(usuario.rol)
+  const bypass = usuario != null && canManageActionsByRole(usuario.rol)
 
   assertHechoVerificadoPermissions(prev, nextEstado, meId, bypass)
 

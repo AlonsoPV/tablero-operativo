@@ -12,7 +12,7 @@ export const MSJ_PERMISO_HECHO =
 
 /** Mensaje si no puede pasar a Verificado. */
 export const MSJ_PERMISO_VERIFICADO =
-  'Solo la persona que creó esta acción puede marcarla como Verificada.'
+  'Solo quien asigno la accion, Direccion o super_admin pueden marcarla como Verificada.'
 
 /** Mensaje si no es responsable, creador ni admin de negocio (alineado con RLS de UPDATE). */
 export const MSJ_PERMISO_CAMBIAR_ESTADO =

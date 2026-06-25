@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { isAdminByRole, isAnalystByRole } from '@/features/auth/lib/permissions'
+import { canManageActionsByRole, isAnalystByRole } from '@/features/auth/lib/permissions'
 import type { AccionDiaria } from '@/types'
 import type { ActionStatus } from '@/types'
 import {
@@ -14,7 +14,7 @@ import {
 export function useActionEstadoPermissions(
   currentUser: { id: string; rol: string } | null | undefined
 ) {
-  const bypassEstadoRoles = currentUser ? isAdminByRole(currentUser.rol) : false
+  const bypassEstadoRoles = currentUser ? canManageActionsByRole(currentUser.rol) : false
   const readOnly = currentUser ? isAnalystByRole(currentUser.rol) : false
   const uid = currentUser?.id
 

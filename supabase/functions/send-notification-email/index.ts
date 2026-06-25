@@ -438,12 +438,13 @@ Deno.serve(async (req) => {
 
     return jsonResponse({ ok: true, provider: result.provider, email_id: result.id })
   } catch (error) {
-    return jsonResponse(
-      {
-        ok: false,
-        message: error instanceof Error ? error.message : 'No se pudo enviar correo de notificacion',
-      },
-      502
-    )
+    const message = error instanceof Error ? error.message : 'No se pudo enviar correo de notificacion'
+    console.error('[send-notification-email] email provider failed:', message)
+    return jsonResponse({
+      ok: false,
+      skipped: true,
+      reason: 'email_provider_failed',
+      message,
+    })
   }
 })

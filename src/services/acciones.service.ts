@@ -426,8 +426,10 @@ export const accionesService = {
         if (preCloseError) throw preCloseError
       }
 
+      const currentUsuarioId = await resolveCurrentUsuarioId()
       const { error: closeError } = await supabase.rpc('try_set_accion_hecho', {
         p_accion_id: id,
+        p_usuario_id: currentUsuarioId,
       })
       if (closeError) throw closeError
 

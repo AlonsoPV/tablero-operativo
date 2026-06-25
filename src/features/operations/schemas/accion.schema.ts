@@ -10,6 +10,7 @@ import { formatDescripcionTriada } from '../utils/descripcionAccionTriada'
 import { STORY_POINTS_OPTIONS } from '../utils/tipoAccionConfig'
 
 const TIPO_ACCION_ENUM = z.enum(['operativa', 'sprint', 'estrategica', 'desbloqueo'])
+const DESCRIPCION_MAX = 500
 
 const tituloAccionSchema = z
   .string()
@@ -47,6 +48,23 @@ const horaSchema = z
   )
 
 const DESCRIPCION_SIMPLE_MIN = 15
+
+function buildDescripcionAccion(input: {
+  descripcion_modo: 'simple' | 'estructurada'
+  descripcion_simple?: string
+  descripcion_como?: string
+  descripcion_quiero?: string
+  descripcion_para_que?: string
+}): string {
+  if (input.descripcion_modo === 'estructurada') {
+    return formatDescripcionTriada(
+      input.descripcion_como ?? '',
+      input.descripcion_quiero ?? '',
+      input.descripcion_para_que ?? ''
+    )
+  }
+  return (input.descripcion_simple ?? '').trim()
+}
 
 const accionInputShape = z.object({
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha YYYY-MM-DD').optional(),
@@ -126,6 +144,15 @@ const accionInputShape = z.object({
       })
     }
   }
+
+  const descripcionAccion = buildDescripcionAccion(value)
+  if (descripcionAccion.length > DESCRIPCION_MAX) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [value.descripcion_modo === 'estructurada' ? 'descripcion_para_que' : 'descripcion_simple'],
+      message: `La descripcion completa no puede exceder ${DESCRIPCION_MAX} caracteres.`,
+    })
+  }
 })
 
 export const accionCreateSchema = accionInputShape.transform(
@@ -141,20 +168,15 @@ export const accionCreateSchema = accionInputShape.transform(
   }) => {
     const gids = gap_ids ?? []
     const kids = catalog_kpi_ids ?? []
-    let como: string
-    let quiero: string
-    let para: string
-    if (descripcion_modo === 'estructurada') {
-      como = (descripcion_como ?? '').trim()
-      quiero = (descripcion_quiero ?? '').trim()
-      para = (descripcion_para_que ?? '').trim()
-    } else {
-      const s = (descripcion_simple ?? '').trim()
-      como = quiero = para = s
-    }
     return {
       ...rest,
-      descripcion_accion: formatDescripcionTriada(como, quiero, para),
+      descripcion_accion: buildDescripcionAccion({
+        descripcion_modo,
+        descripcion_simple,
+        descripcion_como,
+        descripcion_quiero,
+        descripcion_para_que,
+      }),
       gap_ids: gids,
       catalog_kpi_ids: kids,
       gap_id: gids[0] ?? null,
@@ -176,7 +198,7 @@ export const accionUpdateSchema = z
     descripcion_accion: z
       .string()
       .min(15, 'Mínimo 15 caracteres')
-      .max(1300, 'Máximo 1300 caracteres')
+      .max(DESCRIPCION_MAX, `Maximo ${DESCRIPCION_MAX} caracteres`)
       .optional(),
     responsable: z.string().uuid().optional(),
     hora_limite: horaSchema.optional(),
