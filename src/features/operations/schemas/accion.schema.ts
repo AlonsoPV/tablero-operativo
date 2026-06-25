@@ -10,7 +10,7 @@ import { formatDescripcionTriada } from '../utils/descripcionAccionTriada'
 import { STORY_POINTS_OPTIONS } from '../utils/tipoAccionConfig'
 
 const TIPO_ACCION_ENUM = z.enum(['operativa', 'sprint', 'estrategica', 'desbloqueo'])
-const DESCRIPCION_MAX = 500
+const DESCRIPCION_MAX = 2000
 
 const tituloAccionSchema = z
   .string()

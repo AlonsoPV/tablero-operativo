@@ -246,7 +246,7 @@ export function AccionFormDialog({
     return {
       titulo: input.titulo ?? 'Te asignaron como responsable',
       titulo_accion: input.tituloAccion.trim() || undefined,
-      descripcion_accion: flattenDescripcionForForm(input.descripcionAccion ?? '').trim().slice(0, 500) || undefined,
+      descripcion_accion: flattenDescripcionForForm(input.descripcionAccion ?? '').trim().slice(0, 2000) || undefined,
       responsable_id: input.responsableId ?? null,
       responsable_nombre: responsableNombre || undefined,
       fecha_compromiso: fechaCompromiso || undefined,

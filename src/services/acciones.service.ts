@@ -352,31 +352,29 @@ export const accionesService = {
       throw new Error('El rol Analista solo puede visualizar sus acciones y no puede crear nuevas acciones.')
     }
     const cleanPayload = stripPrioridadIdIfUnavailable(normalizeAccionPayload(payload))
+    const actionId = cleanPayload.id ?? globalThis.crypto.randomUUID()
+    cleanPayload.id = actionId
     const futureError = validateFutureDateTimeCDMX(
       cleanPayload.fecha,
       cleanPayload.hora_limite,
       'La fecha y hora limite de la accion'
     )
     if (futureError) throw new Error(futureError)
-    let { data, error } = await supabase
+    let { error } = await supabase
       .from(TABLE)
       .insert(cleanPayload)
-      .select(accionSelectColumns())
-      .maybeSingle()
     if (markPrioridadIdUnavailable(error)) {
-      ;({ data, error } = await supabase
+      ;({ error } = await supabase
         .from(TABLE)
-        .insert(stripPrioridadIdIfUnavailable(cleanPayload))
-        .select(accionSelectColumns())
-        .maybeSingle())
+        .insert(stripPrioridadIdIfUnavailable(cleanPayload)))
     }
     if (error) throw error
-    if (!data) {
-      throw new Error(
-        'La acción se guardó, pero no pudimos leerla con tu perfil. Actualiza el listado o revisa permisos.'
-      )
+    try {
+      return await this.getById(actionId)
+    } catch (readError) {
+      console.warn('[acciones] create: inserted but read-back failed:', readError)
+      return cleanPayload as AccionDiaria
     }
-    return data as unknown as AccionDiaria
   },
 
   async update(id: string, payload: Partial<AccionDiaria>) {
