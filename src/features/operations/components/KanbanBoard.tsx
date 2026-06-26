@@ -212,7 +212,7 @@ function KanbanCardMeta({
 /** Acciones visibles por columna antes de expandir (el resto queda colapsado). */
 const COLUMN_PREVIEW_LIMIT = 3
 
-type ColumnSortBy = 'fecha_entrega' | 'prioridad'
+type ColumnSortBy = 'edicion' | 'fecha_entrega' | 'prioridad'
 
 const PRIORITY_SORT_RANK: Record<string, number> = {
   P1_Critica: 0,
@@ -228,13 +228,20 @@ function deliveryTimestampMs(a: AccionDiaria): number {
   return Number.isFinite(ms) ? ms : 0
 }
 
+function updatedTimestampMs(a: AccionDiaria): number {
+  const ms = Date.parse(a.updated_at ?? a.created_at ?? '')
+  return Number.isFinite(ms) ? ms : 0
+}
+
 function sortAccionesByColumnPreference(
   actions: AccionDiaria[],
   sortBy: ColumnSortBy,
   priorities: Priority[]
 ): AccionDiaria[] {
   const list = [...actions]
-  if (sortBy === 'fecha_entrega') {
+  if (sortBy === 'edicion') {
+    list.sort((a, b) => updatedTimestampMs(b) - updatedTimestampMs(a))
+  } else if (sortBy === 'fecha_entrega') {
     list.sort((a, b) => deliveryTimestampMs(a) - deliveryTimestampMs(b))
   } else {
     list.sort(
@@ -921,7 +928,7 @@ function KanbanColumn({
   statusByKey: StatusCatalogMap
 }) {
   const [expanded, setExpanded] = useState(false)
-  const [sortBy, setSortBy] = useState<ColumnSortBy>('fecha_entrega')
+  const [sortBy, setSortBy] = useState<ColumnSortBy>('edicion')
 
   const sortedActions = useMemo(
     () => sortAccionesByColumnPreference(actions, sortBy, priorities),
@@ -1012,6 +1019,15 @@ function KanbanColumn({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[220px]">
+                <DropdownMenuItem
+                  className="gap-2"
+                  onClick={() => setSortBy('edicion')}
+                >
+                  <span className="flex-1">Edición reciente</span>
+                  {sortBy === 'edicion' ? (
+                    <Check className="h-4 w-4 shrink-0 opacity-80" />
+                  ) : null}
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   className="gap-2"
                   onClick={() => setSortBy('fecha_entrega')}

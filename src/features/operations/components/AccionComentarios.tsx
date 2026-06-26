@@ -12,7 +12,11 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Badge } from '@/components/ui/badge'
 import { SectionCard, SectionCardHeader, SectionCardBody } from '@/components/SectionCard'
-import { useAccionComentarios, useCreateAccionComentario } from '../hooks/useAccionComentarios'
+import {
+  useAccionComentarios,
+  useCreateAccionComentario,
+  useUpdateAccionComentario,
+} from '../hooks/useAccionComentarios'
 import { notificacionesService } from '@/services/notificaciones.service'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
@@ -40,6 +44,8 @@ import {
   Users,
   Download,
   ExternalLink,
+  Pencil,
+  Check,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -258,7 +264,13 @@ export function AccionComentarios({
           ) : (
             <ul className="space-y-2">
               {comments.map((c) => (
-                <ComentarioItem key={c.id} comment={c} userNames={userNames} />
+                <ComentarioItem
+                  key={c.id}
+                  comment={c}
+                  userNames={userNames}
+                  accionId={accionId}
+                  currentUserId={currentUser?.id ?? null}
+                />
               ))}
             </ul>
           )}
@@ -482,10 +494,17 @@ function AdjuntoLink({ storage_path, file_name }: ComentarioAdjunto) {
 function ComentarioItem({
   comment,
   userNames,
+  accionId,
+  currentUserId,
 }: {
   comment: AccionComentario
   userNames: Record<string, string>
+  accionId: string
+  currentUserId: string | null
 }) {
+  const updateComment = useUpdateAccionComentario(accionId)
+  const [isEditing, setIsEditing] = useState(false)
+  const [draft, setDraft] = useState(comment.contenido)
   const adjuntos = comment.adjuntos ?? []
   const rawTags = comment.etiquetas ?? []
   const { userIds, textTags } = resolveEtiquetasUsuarios(rawTags, userNames)
@@ -499,6 +518,50 @@ function ComentarioItem({
     ? userNames[comment.created_by] ?? 'Usuario'
     : 'Usuario'
   const authorInitials = userInitials(authorLabel)
+  const canEdit = Boolean(currentUserId)
+  const draftTrim = draft.trim()
+  const canSave =
+    canEdit &&
+    draftTrim.length > 0 &&
+    draft.length <= MAX_COMMENT_CHARS &&
+    draftTrim !== comment.contenido.trim() &&
+    !updateComment.isPending
+
+  useEffect(() => {
+    if (!isEditing) setDraft(comment.contenido)
+  }, [comment.contenido, isEditing])
+
+  const cancelEdit = () => {
+    setDraft(comment.contenido)
+    setIsEditing(false)
+  }
+
+  const saveEdit = () => {
+    if (!canSave) return
+    updateComment.mutate(
+      { id: comment.id, patch: { contenido: draftTrim } },
+      {
+        onSuccess: () => {
+          toast.success('Comentario actualizado')
+          setIsEditing(false)
+        },
+        onError: (err) =>
+          toast.error(err instanceof Error ? err.message : 'No se pudo actualizar el comentario'),
+      }
+    )
+  }
+
+  const onEditKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      cancelEdit()
+      return
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && canSave) {
+      e.preventDefault()
+      saveEdit()
+    }
+  }
 
   return (
     <li className="flex gap-3 rounded-xl border border-border/50 bg-background/80 p-3 text-sm shadow-sm">
@@ -509,19 +572,80 @@ function ComentarioItem({
         {authorInitials}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span className="font-medium text-foreground">{authorLabel}</span>
-          <time
-            className="text-[11px] text-muted-foreground"
-            dateTime={comment.created_at}
-            title={comment.created_at}
-          >
-            {formatDateTimeCDMX(comment.created_at)}
-          </time>
+        <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="font-medium text-foreground">{authorLabel}</span>
+            <time
+              className="text-[11px] text-muted-foreground"
+              dateTime={comment.created_at}
+              title={comment.created_at}
+            >
+              {formatDateTimeCDMX(comment.created_at)}
+            </time>
+          </div>
+          {canEdit && !isEditing ? (
+            <button
+              type="button"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={() => setIsEditing(true)}
+              aria-label="Editar comentario"
+              title="Editar comentario"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
         </div>
-        <p className="mt-1.5 whitespace-pre-wrap leading-relaxed text-foreground/95">
-          {comment.contenido}
-        </p>
+        {isEditing ? (
+          <div className="mt-2 space-y-2">
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value.slice(0, MAX_COMMENT_CHARS))}
+              onKeyDown={onEditKeyDown}
+              rows={3}
+              disabled={updateComment.isPending}
+              className={cn(
+                'min-h-[5rem] w-full resize-y rounded-lg border border-border/60 bg-background px-3 py-2 text-sm leading-relaxed text-foreground',
+                'focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:opacity-60'
+              )}
+              aria-label="Contenido del comentario"
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span
+                className={cn(
+                  'text-[11px] tabular-nums text-muted-foreground',
+                  draft.length > MAX_COMMENT_CHARS * 0.9 && 'text-amber-600'
+                )}
+              >
+                {draft.length}/{MAX_COMMENT_CHARS}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={cancelEdit}
+                  disabled={updateComment.isPending}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={saveEdit}
+                  disabled={!canSave}
+                >
+                  <Check className="h-4 w-4" />
+                  {updateComment.isPending ? 'Guardando...' : 'Guardar'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-1.5 whitespace-pre-wrap leading-relaxed text-foreground/95">
+            {comment.contenido}
+          </p>
+        )}
         {adjuntos.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {adjuntos.map((a, i) => (

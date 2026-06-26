@@ -32,7 +32,7 @@ export function useCreateAccionComentario(accionId: string) {
 export function useUpdateAccionComentario(accionId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: { asignado?: string | null; etiquetas?: string[] } }) =>
+    mutationFn: ({ id, patch }: { id: string; patch: { contenido?: string; asignado?: string | null; etiquetas?: string[] } }) =>
       accionComentariosService.update(id, patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [...COMENTARIOS_KEY, accionId] })

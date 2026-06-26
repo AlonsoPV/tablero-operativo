@@ -92,7 +92,7 @@ export const accionComentariosService = {
 
   async update(
     id: string,
-    patch: { asignado?: string | null; etiquetas?: string[] }
+    patch: { contenido?: string; asignado?: string | null; etiquetas?: string[] }
   ): Promise<AccionComentario> {
     const { data, error } = await supabase
       .from(TABLE)

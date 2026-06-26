@@ -43,12 +43,12 @@ import {
 } from 'lucide-react'
 
 const TIPO_LABELS: Record<string, string> = {
-  comentario: 'Comentario',
-  comentario_asignado: 'Te etiquetaron en un comentario',
-  responsable: 'Te asignaron como responsable',
-  estado: 'Cambio de estado',
-  evidencia: 'Evidencia cargada',
-  bloqueo: 'Bloqueo',
+  comentario: 'Comentario en acción',
+  comentario_asignado: 'Comentario con etiqueta',
+  responsable: 'Acción asignada',
+  estado: 'Acción con cambio de estado',
+  evidencia: 'Acción con evidencia',
+  bloqueo: 'Acción bloqueada',
   recordatorio_calendario: 'Recordatorio',
   ticket_creado: 'Ticket creado',
   ticket_actualizado: 'Ticket actualizado',
@@ -72,6 +72,29 @@ function getTipoLabel(tipo: string): string {
   return TIPO_LABELS[tipo] ?? tipo
 }
 
+function getContextLabel(tipo: string, hasAccionContext: boolean, hasTicketContext: boolean): string {
+  if (tipo === 'comentario' || tipo === 'comentario_asignado') return 'Comentario'
+  if (tipo === 'ticket_comentario') return 'Comentario en ticket'
+  if (hasTicketContext || tipo.startsWith('ticket_')) return 'Ticket'
+  if (hasAccionContext || ['responsable', 'estado', 'evidencia', 'bloqueo'].includes(tipo)) return 'Acción'
+  if (tipo === 'recordatorio_calendario') return 'Recordatorio'
+  return 'Notificación'
+}
+
+function getSummaryDetail({
+  comentarioPreview,
+  eventoLabel,
+  tipoLabel,
+}: {
+  comentarioPreview: string | null
+  eventoLabel: string | null
+  tipoLabel: string
+}): string | null {
+  if (comentarioPreview) return comentarioPreview
+  if (eventoLabel) return eventoLabel
+  return tipoLabel || null
+}
+
 function NotificacionItem({
   n,
   accionMeta,
@@ -92,9 +115,11 @@ function NotificacionItem({
   const creadorNombre = resolveCreadorNombre(payload, accionMeta)
   const eventoLabel = notificacionEventoLabel(n.tipo, payload)
   const comentarioPreview = resolveComentarioPreview(n.tipo, payload.mensaje)
-  const headline = tituloAccion || tituloTicket || tipoLabel
   const hasAccionContext = Boolean(tituloAccion || accionId)
   const hasTicketContext = Boolean(tituloTicket || ticketId)
+  const contextLabel = getContextLabel(n.tipo, hasAccionContext, hasTicketContext)
+  const headline = tituloAccion || tituloTicket || tipoLabel
+  const summaryDetail = getSummaryDetail({ comentarioPreview, eventoLabel, tipoLabel })
   const kanbanLink = accionId ? `${ROUTES.KANBAN}?accion=${accionId}` : null
   const ticketLink = ticketId ? `${ROUTES.TICKETS}?ticket=${ticketId}` : null
 
@@ -120,9 +145,30 @@ function NotificacionItem({
           '[&::-webkit-details-marker]:hidden'
         )}
       >
-        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold leading-snug text-foreground sm:text-[0.9375rem]">
-          {headline}
-        </h3>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span
+              className={cn(
+                'inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[11px] font-semibold leading-5',
+                n.tipo === 'comentario' || n.tipo === 'comentario_asignado' || n.tipo === 'ticket_comentario'
+                  ? 'bg-sky-500/10 text-sky-700 dark:text-sky-300'
+                  : hasAccionContext || contextLabel === 'Acción'
+                    ? 'bg-primary/10 text-primary'
+                    : 'bg-muted text-muted-foreground'
+              )}
+            >
+              {contextLabel}
+            </span>
+            <h3 className="min-w-0 flex-1 truncate text-sm font-semibold leading-snug text-foreground sm:text-[0.9375rem]">
+              {headline}
+            </h3>
+          </div>
+          {summaryDetail ? (
+            <p className="mt-1 truncate text-xs leading-snug text-muted-foreground">
+              {summaryDetail}
+            </p>
+          ) : null}
+        </div>
 
         {kanbanLink ? (
           <Link
