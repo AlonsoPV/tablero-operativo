@@ -264,12 +264,10 @@ function buildEmail(input: { name: string; counts: Counts; actions: ActionRow[];
     `- ${input.counts.overdue} acciones atrasadas`,
     `- ${input.counts.due_today} acciones vencen hoy`,
     `- ${input.counts.blocked} acciones bloqueadas`,
-    `- ${input.counts.missing_evidence} acciones sin evidencia cargada`,
     '',
     'Prioridad sugerida:',
     '1. Atiende primero las acciones criticas atrasadas.',
     '2. Actualiza el estatus de acciones en curso.',
-    '3. Registra evidencia en acciones completadas.',
     '',
     'Que cerrar primero:',
     actionList,
@@ -279,7 +277,7 @@ function buildEmail(input: { name: string; counts: Counts; actions: ActionRow[];
   const items = input.actions.length
     ? `<ol>${input.actions.map((action) => `<li>${html(action.titulo_accion || 'Accion sin titulo')} <span style="color:#64748b">(${html(action.fecha)})</span></li>`).join('')}</ol>`
     : '<p style="color:#64748b">No hay acciones abiertas para priorizar.</p>'
-  const body = `<!doctype html><html lang="es"><body style="margin:0;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a"><div style="max-width:640px;margin:0 auto;padding:28px 18px"><div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:24px"><p style="margin:0 0 10px;color:#64748b;font-size:13px">SCRUMBAN</p><h1 style="margin:0 0 14px;font-size:22px">${html(subject)}</h1><p>Hola ${html(input.name)},</p><p>Este es tu resumen de acciones para hoy:</p><ul><li>${input.counts.critical_open} acciones criticas por cerrar</li><li>${input.counts.overdue} acciones atrasadas</li><li>${input.counts.due_today} acciones vencen hoy</li><li>${input.counts.blocked} acciones bloqueadas</li><li>${input.counts.missing_evidence} acciones sin evidencia cargada</li></ul><h2 style="font-size:16px">Prioridad sugerida</h2><ol><li>Atiende primero las acciones criticas atrasadas.</li><li>Actualiza el estatus de acciones en curso.</li><li>Registra evidencia en acciones completadas.</li></ol><h2 style="font-size:16px">Que cerrar primero</h2>${items}<p style="margin-top:24px"><a href="${html(input.url)}" style="display:inline-block;background:#0f172a;color:#fff;text-decoration:none;border-radius:8px;padding:11px 16px;font-weight:700">Ver mi dia operativo</a></p></div></div></body></html>`
+  const body = `<!doctype html><html lang="es"><body style="margin:0;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a"><div style="max-width:640px;margin:0 auto;padding:28px 18px"><div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:24px"><p style="margin:0 0 10px;color:#64748b;font-size:13px">SCRUMBAN</p><h1 style="margin:0 0 14px;font-size:22px">${html(subject)}</h1><p>Hola ${html(input.name)},</p><p>Este es tu resumen de acciones para hoy:</p><ul><li>${input.counts.critical_open} acciones criticas por cerrar</li><li>${input.counts.overdue} acciones atrasadas</li><li>${input.counts.due_today} acciones vencen hoy</li><li>${input.counts.blocked} acciones bloqueadas</li></ul><h2 style="font-size:16px">Prioridad sugerida</h2><ol><li>Atiende primero las acciones criticas atrasadas.</li><li>Actualiza el estatus de acciones en curso.</li></ol><h2 style="font-size:16px">Que cerrar primero</h2>${items}<p style="margin-top:24px"><a href="${html(input.url)}" style="display:inline-block;background:#0f172a;color:#fff;text-decoration:none;border-radius:8px;padding:11px 16px;font-weight:700">Ver mi dia operativo</a></p></div></div></body></html>`
   return { subject, text, html: body }
 }
 
