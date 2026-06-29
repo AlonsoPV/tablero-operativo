@@ -10,26 +10,39 @@ import type { SupportTicket, TicketStatus } from '@/types'
 const KEY = ['supportTickets'] as const
 const COMMENTS_KEY = ['supportTicketComments'] as const
 
+function ticketsFilterKey(filter: SupportTicketsFilter = {}): unknown[] {
+  return [
+    filter.status ?? 'todos',
+    filter.tipo ?? '',
+    filter.modulo ?? '',
+    filter.search?.trim() ?? '',
+  ]
+}
+
 export function useTickets(filter: SupportTicketsFilter = {}) {
   return useQuery({
-    queryKey: [...KEY, filter],
+    queryKey: [...KEY, ...ticketsFilterKey(filter)],
     queryFn: () => supportTicketsService.list(filter),
+    staleTime: 30_000,
   })
 }
 
 export function useTicket(id: string | null | undefined) {
   return useQuery({
-    queryKey: [...KEY, id],
+    queryKey: [...KEY, 'detail', id],
     queryFn: () => supportTicketsService.getById(id!),
     enabled: Boolean(id),
+    retry: false,
   })
 }
 
 export function useTicketCommentCounts(ticketIds: string[]) {
+  const sortedIds = [...ticketIds].sort().join(',')
   return useQuery({
-    queryKey: [...COMMENTS_KEY, 'counts', ticketIds],
+    queryKey: [...COMMENTS_KEY, 'counts', sortedIds],
     queryFn: () => supportTicketCommentsService.countByTicketIds(ticketIds),
     enabled: ticketIds.length > 0,
+    staleTime: 30_000,
   })
 }
 
@@ -41,16 +54,19 @@ export function useTicketComments(ticketId: string | null | undefined) {
   })
 }
 
-function invalidateTickets(qc: ReturnType<typeof useQueryClient>) {
+function invalidateTicketLists(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' })
-  qc.invalidateQueries({ queryKey: COMMENTS_KEY, refetchType: 'active' })
+}
+
+function invalidateCommentCounts(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: [...COMMENTS_KEY, 'counts'], refetchType: 'active' })
 }
 
 export function useCreateTicket() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: SupportTicketInput) => supportTicketsService.create(input),
-    onSuccess: () => invalidateTickets(qc),
+    onSuccess: () => invalidateTicketLists(qc),
   })
 }
 
@@ -60,8 +76,8 @@ export function useUpdateTicket() {
     mutationFn: ({ id, input }: { id: string; input: Partial<SupportTicketInput> }) =>
       supportTicketsService.update(id, input),
     onSuccess: (ticket) => {
-      qc.setQueryData<SupportTicket>([...KEY, ticket.id], ticket)
-      invalidateTickets(qc)
+      qc.setQueryData<SupportTicket>([...KEY, 'detail', ticket.id], ticket)
+      invalidateTicketLists(qc)
     },
   })
 }
@@ -72,8 +88,8 @@ export function useUpdateTicketStatus() {
     mutationFn: ({ id, status, updatedBy }: { id: string; status: TicketStatus; updatedBy?: string | null }) =>
       supportTicketsService.updateStatus(id, status, updatedBy),
     onSuccess: (ticket) => {
-      qc.setQueryData<SupportTicket>([...KEY, ticket.id], ticket)
-      invalidateTickets(qc)
+      qc.setQueryData<SupportTicket>([...KEY, 'detail', ticket.id], ticket)
+      invalidateTicketLists(qc)
     },
   })
 }
@@ -82,7 +98,11 @@ export function useDeleteTicket() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => supportTicketsService.delete(id),
-    onSuccess: () => invalidateTickets(qc),
+    onSuccess: (_result, id) => {
+      qc.removeQueries({ queryKey: [...KEY, 'detail', id] })
+      invalidateTicketLists(qc)
+      invalidateCommentCounts(qc)
+    },
   })
 }
 
@@ -93,7 +113,7 @@ export function useCreateTicketComment(ticketId: string) {
       supportTicketCommentsService.create(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [...COMMENTS_KEY, ticketId] })
-      qc.invalidateQueries({ queryKey: [...COMMENTS_KEY, 'counts'] })
+      invalidateCommentCounts(qc)
     },
   })
 }

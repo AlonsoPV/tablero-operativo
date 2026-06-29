@@ -36,6 +36,7 @@ const DIRECTION_ALLOWED_ROUTES = [
   ...ANALYST_ALLOWED_ROUTES,
   ROUTES.SETTINGS_USERS,
   ROUTES.SETTINGS_USERS_DETAIL,
+  ROUTES.SETTINGS_REMINDERS,
   ROUTES.SETTINGS_CATALOGS,
   ROUTES.SETTINGS_CATALOGS_ROLES,
   ROUTES.SETTINGS_CATALOGS_AREAS,
@@ -118,6 +119,10 @@ export function usesOperationalDashboardByRole(rol: string | null | undefined): 
 
 export function isSuperAdminByRole(rol: string | null | undefined): boolean {
   return normalizeRole(rol) === normalizeRole(SUPER_ADMIN_ROLE)
+}
+
+export function canManageSupportTicketsByRole(rol: string | null | undefined): boolean {
+  return isSuperAdminByRole(rol)
 }
 
 export function canManageAcademyModulesByRole(rol: string | null | undefined): boolean {

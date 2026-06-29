@@ -23,11 +23,13 @@ import {
   UserCircle,
   AlertTriangle,
   GraduationCap,
+  BellRing,
   type LucideIcon,
 } from 'lucide-react'
 
 const SETTINGS_LINKS = [
   { to: ROUTES.SETTINGS_PROFILE, label: 'Mi perfil', icon: UserCircle },
+  { to: ROUTES.SETTINGS_REMINDERS, label: 'Recordatorios automáticos', icon: BellRing },
   { to: ROUTES.SETTINGS_USERS, label: 'Usuarios', icon: Users },
   { to: ROUTES.SETTINGS_ACADEMY_MODULES, label: 'Academia', icon: GraduationCap, superAdminOnly: true },
   { to: ROUTES.SETTINGS_CATALOGS, label: 'Catálogos', icon: FolderOpen },

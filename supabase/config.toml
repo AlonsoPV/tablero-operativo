@@ -35,3 +35,6 @@ verify_jwt = false
 [functions.send-notification-email]
 verify_jwt = false
 
+[functions.daily-action-summary]
+verify_jwt = false
+

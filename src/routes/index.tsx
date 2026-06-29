@@ -188,6 +188,14 @@ const router = createBrowserRouter([
                 },
               },
               {
+                path: 'reminders',
+                lazy: async () => {
+                  const { DailyActionSummarySettingsPage } =
+                    await importWithReload(() => import('@/features/settings/pages/DailyActionSummarySettingsPage'))
+                  return { Component: DailyActionSummarySettingsPage }
+                },
+              },
+              {
                 path: 'users/:id',
                 lazy: async () => {
                   const { UserDetailPage } = await importWithReload(() => import('@/features/users/pages/UserDetailPage'))

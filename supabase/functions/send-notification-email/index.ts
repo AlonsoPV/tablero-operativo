@@ -116,7 +116,7 @@ function actionUrl(payload: Record<string, unknown> | null | undefined): string 
     if (date) return `${appBaseUrl()}/calendario?fecha=${encodeURIComponent(date)}&tipo=recordatorios`
   }
   const ticketId = textFromPayload(payload, 'ticket_id')
-  if (ticketId) return `${appBaseUrl()}/tickets`
+  if (ticketId) return `${appBaseUrl()}/tickets?ticket=${encodeURIComponent(ticketId)}`
   return `${appBaseUrl()}/notificaciones`
 }
 
@@ -421,20 +421,27 @@ Deno.serve(async (req) => {
   const html = buildEmailHtml({ recipientName, tipo, prioridad, payload, url })
   const text = buildEmailText({ recipientName, tipo, prioridad, payload, url })
 
+  const sendEmail = (to: string) =>
+    hasGoogleMailSecrets()
+      ? sendWithGoogleMail({ to, subject, html, text })
+      : sendWithResend({ to, subject, html, text })
+
   try {
-    const result = hasGoogleMailSecrets()
-      ? await sendWithGoogleMail({
-          to: email,
-          subject,
-          html,
-          text,
-        })
-      : await sendWithResend({
-          to: email,
-          subject,
-          html,
-          text,
-        })
+    const result = await sendEmail(email)
+
+    const ticketsAdminEmail = optionalEnv('TICKETS_ADMIN_EMAIL').trim().toLowerCase()
+    const isTicketNotification = tipo.startsWith('ticket_')
+    if (
+      isTicketNotification &&
+      ticketsAdminEmail &&
+      ticketsAdminEmail !== email.toLowerCase()
+    ) {
+      try {
+        await sendEmail(ticketsAdminEmail)
+      } catch (copyError) {
+        console.error('[send-notification-email] ticket admin copy failed:', copyError)
+      }
+    }
 
     return jsonResponse({ ok: true, provider: result.provider, email_id: result.id })
   } catch (error) {

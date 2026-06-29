@@ -3,6 +3,7 @@ import { ROUTES } from '@/constants'
 import {
   canAccessRouteByRole,
   canManageAcademyModulesByRole,
+  canManageSupportTicketsByRole,
   getDefaultRouteByRole,
   isDirectionByRole,
   usesOperationalDashboardByRole,
@@ -75,5 +76,11 @@ describe('role route permissions', () => {
     expect(usesOperationalDashboardByRole('DG')).toBe(false)
     expect(usesOperationalDashboardByRole('Sistemas')).toBe(false)
     expect(usesOperationalDashboardByRole('super_admin')).toBe(false)
+  })
+
+  it('allows only super_admin catalog role to manage support tickets in UI', () => {
+    expect(canManageSupportTicketsByRole('super_admin')).toBe(true)
+    expect(canManageSupportTicketsByRole('Direccion')).toBe(false)
+    expect(canManageSupportTicketsByRole('Operativo')).toBe(false)
   })
 })

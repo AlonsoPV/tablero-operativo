@@ -1,16 +1,26 @@
 /**
- * Catálogo canónico: cada módulo base (1–8) debe usar exactamente este archivo PDF.
- * Fuente única para evitar desalineación entre módulo y documento.
+ * Catálogo canónico: cada módulo base (1–8) → archivo en bucket `academia`.
+ * Nombres alineados con los PDFs subidos en Supabase Storage (raíz del bucket).
  */
 export const ACADEMY_BASE_MODULE_PDF_NAMES: Record<number, string> = {
-  1: 'Modulo_1_Diagnostico.pdf',
-  2: 'Modulo_2_Vision_Proceso_Objetivo.pdf',
-  3: 'Modulo_3_Analisis_Brechas.pdf',
-  4: 'Modulo_4_KPIs_OKRs.pdf',
-  5: 'Modulo_5_RACI_Lean.pdf',
-  6: 'Modulo_6_Metodologia_Agil.pdf',
-  7: 'Modulo_7_User_Stories_Backlog.pdf',
-  8: 'Modulo_8_Roadmap_Ejecucion.pdf',
+  1: 'Modulo_1_Diagnostico_del_Proceso_Actual.pdf',
+  2: 'Modulo_2_Vision_del_Proceso_Objetivo.pdf',
+  3: 'Modulo_3_Analisis_de_Brechas.pdf',
+  4: 'Modulo_4_KPIs_y_OKRs_Estrategicos.pdf',
+  5: 'Modulo_5_Matriz_RACI_y_Estructura_Lean.pdf',
+  6: 'Modulo_6_Metodologia_Agil_Aplicada.pdf',
+  7: 'Modulo_7_User_Stories_y_Backlog (1).pdf',
+  8: 'Modulo_8_Roadmap_y_Ejecucion.pdf',
+}
+
+/** Ruta en Storage (bucket `academia`) para módulos base — PDFs en la raíz. */
+export function getAcademyBaseModuleStoragePath(moduleId: number): string {
+  return getAcademyBaseModulePdfName(moduleId)
+}
+
+/** Carpeta por módulo para contenido adicional (módulos custom id ≥ 9). */
+export function getAcademyModuleFolderPrefix(moduleId: number): string {
+  return `modulos/${moduleId}`
 }
 
 export const ACADEMY_BASE_MODULE_IDS = Object.keys(ACADEMY_BASE_MODULE_PDF_NAMES)

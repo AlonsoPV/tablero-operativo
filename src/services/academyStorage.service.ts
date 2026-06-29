@@ -6,6 +6,8 @@
 import { supabase } from '@/lib/supabase/client'
 import {
   getAcademyBaseModulePdfName,
+  getAcademyBaseModuleStoragePath,
+  getAcademyModuleFolderPrefix,
   isAcademyBaseModule,
   parseAcademyModuleIdFromPdfName,
 } from '@/features/academy/data/academyPdfCatalog'
@@ -41,10 +43,14 @@ function resolveEffectivePdfName(pdfName: string, moduleId: number): string {
 function buildPathCandidates(pdfName: string, moduleId: number): string[] {
   const modulePrefix = `Modulo_${moduleId}`
   const canonicalPdfName = resolveEffectivePdfName(pdfName, moduleId)
+  const moduleFolder = getAcademyModuleFolderPrefix(moduleId)
 
   return [
+    ...(isAcademyBaseModule(moduleId) ? [getAcademyBaseModuleStoragePath(moduleId)] : []),
     canonicalPdfName,
     pdfName,
+    `${moduleFolder}/${canonicalPdfName}`,
+    `${moduleFolder}/${pdfName}`,
     `modulos/${canonicalPdfName}`,
     `modulos/${pdfName}`,
     `pdfs/${canonicalPdfName}`,
@@ -150,6 +156,21 @@ async function resolveAcademyPdfStoragePath(pdfName: string, moduleId: number): 
     return cached
   }
 
+  if (isAcademyBaseModule(moduleId)) {
+    const canonicalPath = getAcademyBaseModuleStoragePath(moduleId)
+    if (await probeStoragePath(canonicalPath)) {
+      pathCache.set(key, canonicalPath)
+      return canonicalPath
+    }
+  }
+
+  const moduleFolderPaths = await listAcademyPdfPaths(getAcademyModuleFolderPrefix(moduleId))
+  const folderMatch = moduleFolderPaths.find((p) => matchesModulePdfPath(p, pdfName, moduleId))
+  if (folderMatch) {
+    pathCache.set(key, folderMatch)
+    return folderMatch
+  }
+
   const listed = await listAcademyPdfPaths()
   const match = listed.find((p) => matchesModulePdfPath(p, pdfName, moduleId))
 
@@ -198,7 +219,11 @@ export async function uploadAcademyPdf(
     throw new Error('Solo se permiten archivos PDF (máx. 50 MB).')
   }
 
-  const storagePath = resolveEffectivePdfName(pdfName, moduleId)
+  const storagePath = isAcademyBaseModule(moduleId)
+    ? getAcademyBaseModuleStoragePath(moduleId)
+    : pdfName.includes('/')
+      ? pdfName
+      : `${getAcademyModuleFolderPrefix(moduleId)}/${resolveEffectivePdfName(pdfName, moduleId)}`
   const { error } = await supabase.storage.from(ACADEMY_STORAGE_BUCKET).upload(storagePath, file, {
     contentType: 'application/pdf',
     upsert: true,

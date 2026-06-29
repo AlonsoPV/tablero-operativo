@@ -88,6 +88,15 @@ export const usuariosService = {
     return data as Usuario
   },
 
+  /** Perfil interno por correo de auth (RPC; admin de tickets). */
+  async getIdByAuthEmail(email: string): Promise<string | null> {
+    const normalized = email.trim().toLowerCase()
+    if (!normalized) return null
+    const { data, error } = await supabase.rpc('usuario_id_by_auth_email', { p_email: normalized })
+    if (error) throw error
+    return typeof data === 'string' ? data : null
+  },
+
   /** Lista de usuarios (sujeto a RLS; admins pueden ver todos). TODO: uso en dropdowns. */
   async list() {
     const { data, error } = await supabase

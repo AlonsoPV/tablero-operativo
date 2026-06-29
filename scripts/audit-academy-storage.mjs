@@ -45,14 +45,14 @@ if (!url || !serviceKey) {
 }
 
 const CATALOG = {
-  1: 'Modulo_1_Diagnostico.pdf',
-  2: 'Modulo_2_Vision_Proceso_Objetivo.pdf',
-  3: 'Modulo_3_Analisis_Brechas.pdf',
-  4: 'Modulo_4_KPIs_OKRs.pdf',
-  5: 'Modulo_5_RACI_Lean.pdf',
-  6: 'Modulo_6_Metodologia_Agil.pdf',
-  7: 'Modulo_7_User_Stories_Backlog.pdf',
-  8: 'Modulo_8_Roadmap_Ejecucion.pdf',
+  1: 'Modulo_1_Diagnostico_del_Proceso_Actual.pdf',
+  2: 'Modulo_2_Vision_del_Proceso_Objetivo.pdf',
+  3: 'Modulo_3_Analisis_de_Brechas.pdf',
+  4: 'Modulo_4_KPIs_y_OKRs_Estrategicos.pdf',
+  5: 'Modulo_5_Matriz_RACI_y_Estructura_Lean.pdf',
+  6: 'Modulo_6_Metodologia_Agil_Aplicada.pdf',
+  7: 'Modulo_7_User_Stories_y_Backlog (1).pdf',
+  8: 'Modulo_8_Roadmap_y_Ejecucion.pdf',
 }
 
 const supabase = createClient(url, serviceKey)

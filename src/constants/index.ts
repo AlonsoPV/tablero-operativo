@@ -31,6 +31,7 @@ export const ROUTES = {
   PLAN_ACCION: '/plan-accion',
   SETTINGS: '/settings',
   SETTINGS_PROFILE: '/settings/profile',
+  SETTINGS_REMINDERS: '/settings/reminders',
   SETTINGS_USERS: '/settings/users',
   SETTINGS_USERS_DETAIL: '/settings/users/:id',
   SETTINGS_CATALOGS: '/settings/catalogs',

@@ -111,14 +111,29 @@ export const supportTicketsService = {
 export const supportTicketCommentsService = {
   async countByTicketIds(ticketIds: string[]): Promise<Record<string, number>> {
     if (ticketIds.length === 0) return {}
-    const { data, error } = await supabase
+
+    const counts: Record<string, number> = {}
+    for (const id of ticketIds) counts[id] = 0
+
+    const { data, error } = await supabase.rpc('support_ticket_comment_counts', {
+      p_ticket_ids: ticketIds,
+    })
+
+    if (!error) {
+      for (const row of (data ?? []) as Array<{ ticket_id: string; comment_count: number }>) {
+        counts[row.ticket_id] = row.comment_count
+      }
+      return counts
+    }
+
+    // Fallback si la RPC aun no esta desplegada en Supabase.
+    const { data: rows, error: fallbackError } = await supabase
       .from(COMMENTS_TABLE)
       .select('ticket_id')
       .in('ticket_id', ticketIds)
-    if (error) throw error
-    const counts: Record<string, number> = {}
-    for (const id of ticketIds) counts[id] = 0
-    for (const row of data ?? []) {
+    if (fallbackError) throw fallbackError
+
+    for (const row of rows ?? []) {
       const id = (row as { ticket_id: string }).ticket_id
       counts[id] = (counts[id] ?? 0) + 1
     }

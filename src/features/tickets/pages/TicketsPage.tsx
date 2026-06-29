@@ -35,9 +35,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
 import { cn } from '@/lib/utils'
 import { formatDateTimeCDMX } from '@/lib/dateUtils'
+import { TICKETS_ADMIN_EMAIL } from '@/constants/tickets'
 import { notificacionesService } from '@/services/notificaciones.service'
+import { usuariosService } from '@/services/usuarios.service'
 import { useDropdownOptionsByKey } from '@/features/catalogs/hooks/useDropdownOptions'
-import { isSuperAdminByRole } from '@/features/auth/lib/permissions'
+import { isSuperAdminByRole, canManageSupportTicketsByRole } from '@/features/auth/lib/permissions'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import {
@@ -137,6 +139,12 @@ async function notifyTicketStakeholders({ ticket, tipo, titulo, mensaje, actorId
   const recipients = new Set<string>()
   for (const user of users) {
     if (isSuperAdminByRole(user.rol) && user.id !== actorId) recipients.add(user.id)
+  }
+  try {
+    const adminId = await usuariosService.getIdByAuthEmail(TICKETS_ADMIN_EMAIL)
+    if (adminId && adminId !== actorId) recipients.add(adminId)
+  } catch {
+    // RPC opcional hasta aplicar migración; super admins del listado siguen recibiendo avisos.
   }
   if (ticket.created_by && ticket.created_by !== actorId) recipients.add(ticket.created_by)
 
@@ -365,6 +373,8 @@ function TicketsBoard({
   moduleOptions,
   typeOptions,
   creatorNames,
+  users,
+  visibleStatuses = STATUS_ORDER,
 }: {
   tickets: SupportTicket[]
   counts: Record<string, number>
@@ -374,9 +384,10 @@ function TicketsBoard({
   moduleOptions: { label: string; value: string }[]
   typeOptions: { label: string; value: string }[]
   creatorNames: Record<string, string>
+  users: { id: string; nombre: string; rol: string }[]
+  visibleStatuses?: TicketStatus[]
 }) {
   const { data: currentUser } = useCurrentUser()
-  const { data: users = [] } = useUsers({ activo: true })
   const updateStatus = useUpdateTicketStatus()
   const [activeId, setActiveId] = useState<string | null>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
@@ -425,7 +436,7 @@ function TicketsBoard({
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="flex snap-x gap-4 overflow-x-auto overscroll-x-contain pb-4 pt-1 sm:gap-5">
-        {STATUS_ORDER.map((status) => (
+        {visibleStatuses.map((status) => (
           <TicketsColumn
             key={status}
             status={status}
@@ -527,6 +538,7 @@ function TicketDialog({
   priorityOptions,
   impactOptions,
   creatorNames,
+  users,
 }: {
   open: boolean
   ticket: SupportTicket | null
@@ -537,15 +549,15 @@ function TicketDialog({
   priorityOptions: { label: string; value: string }[]
   impactOptions: { label: string; value: string }[]
   creatorNames: Record<string, string>
+  users: { id: string; nombre: string; rol: string }[]
 }) {
   const { data: currentUser } = useCurrentUser()
-  const { data: users = [] } = useUsers({ activo: true })
   const createTicket = useCreateTicket()
   const updateTicket = useUpdateTicket()
   const deleteTicket = useDeleteTicket()
   const isEdit = Boolean(ticket)
-  const canDelete = isSuperAdminByRole(currentUser?.rol)
-  const canEdit = !isEdit || isSuperAdminByRole(currentUser?.rol)
+  const canDelete = canManageSupportTicketsByRole(currentUser?.rol)
+  const canEdit = !isEdit || canManageSupportTicketsByRole(currentUser?.rol)
   const [form, setForm] = useState({
     titulo: '',
     descripcion: '',
@@ -1013,6 +1025,7 @@ export function TicketsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTicket, setEditingTicket] = useState<SupportTicket | null>(null)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [status, setStatus] = useState<TicketStatus | 'todos'>('todos')
   const { data: moduleOptionsRaw = [] } = useDropdownOptionsByKey('ticket_modulos')
   const { data: currentUser } = useCurrentUser()
@@ -1030,13 +1043,32 @@ export function TicketsPage() {
   const typeOptions = typeOptionsRaw.filter((option) => option.activo)
   const priorityOptions = priorityOptionsRaw.filter((option) => option.activo)
   const impactOptions = impactOptionsRaw.filter((option) => option.activo)
-  const { data: tickets = [], isLoading, isError, error, refetch } = useTickets({ search, status })
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => window.clearTimeout(timer)
+  }, [search])
+
+  const { data: tickets = [], isLoading, isError, error, refetch } = useTickets({ search: debouncedSearch, status })
   const hasActiveFilters = search.trim() !== '' || status !== 'todos'
+  const visibleStatuses = useMemo(
+    () => (status === 'todos' ? STATUS_ORDER : [status]),
+    [status]
+  )
   const ticketIdFromUrl = searchParams.get('ticket')
-  const { data: ticketFromUrl } = useTicket(ticketIdFromUrl)
+  const {
+    data: ticketFromUrl,
+    isError: ticketFromUrlError,
+    isFetched: ticketFromUrlFetched,
+    error: ticketFromUrlLoadError,
+  } = useTicket(ticketIdFromUrl)
   const ticketIds = useMemo(() => tickets.map((ticket) => ticket.id), [tickets])
   const { data: counts = {} } = useTicketCommentCounts(ticketIds)
-  const canManage = isSuperAdminByRole(currentUser?.rol)
+  const canManage = canManageSupportTicketsByRole(currentUser?.rol)
+  const notifyUsers = useMemo(
+    () => users.map((user) => ({ id: user.id, nombre: user.nombre, rol: user.rol })),
+    [users]
+  )
 
   const openNew = useCallback(() => {
     setEditingTicket(null)
@@ -1052,7 +1084,24 @@ export function TicketsPage() {
   }, [])
 
   useEffect(() => {
-    if (!ticketFromUrl || !ticketIdFromUrl) return
+    if (!ticketIdFromUrl || !ticketFromUrlFetched) return
+
+    if (ticketFromUrlError) {
+      toast.error(
+        ticketFromUrlLoadError instanceof Error
+          ? ticketFromUrlLoadError.message
+          : 'No se pudo abrir el ticket solicitado.'
+      )
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('ticket')
+        return next
+      }, { replace: true })
+      return
+    }
+
+    if (!ticketFromUrl) return
+
     setEditingTicket(ticketFromUrl)
     setDialogOpen(true)
     setSearchParams((prev) => {
@@ -1060,7 +1109,14 @@ export function TicketsPage() {
       next.delete('ticket')
       return next
     }, { replace: true })
-  }, [setSearchParams, ticketFromUrl, ticketIdFromUrl])
+  }, [
+    setSearchParams,
+    ticketFromUrl,
+    ticketFromUrlError,
+    ticketFromUrlFetched,
+    ticketFromUrlLoadError,
+    ticketIdFromUrl,
+  ])
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col space-y-6 overflow-x-hidden px-3 py-5 sm:px-6 sm:py-6">
@@ -1152,7 +1208,7 @@ export function TicketsPage() {
         </div>
       ) : isLoading ? (
         <div className="flex gap-4 overflow-hidden">
-          {STATUS_ORDER.map((item) => (
+          {visibleStatuses.map((item) => (
             <div key={item} className="h-80 w-[300px] shrink-0 animate-pulse rounded-2xl bg-muted/50" />
           ))}
         </div>
@@ -1166,6 +1222,8 @@ export function TicketsPage() {
           moduleOptions={moduleOptions}
           typeOptions={typeOptions}
           creatorNames={creatorNames}
+          users={notifyUsers}
+          visibleStatuses={visibleStatuses}
         />
       )}
 
@@ -1182,6 +1240,7 @@ export function TicketsPage() {
         priorityOptions={priorityOptions.length ? priorityOptions : [{ label: 'Baja', value: 'baja' }, { label: 'Media', value: 'media' }, { label: 'Alta', value: 'alta' }, { label: 'Urgente', value: 'urgente' }]}
         impactOptions={impactOptions.length ? impactOptions : [{ label: 'Individual', value: 'individual' }, { label: 'Equipo', value: 'equipo' }, { label: 'Operacion', value: 'operacion' }]}
         creatorNames={creatorNames}
+        users={notifyUsers}
       />
     </div>
   )
