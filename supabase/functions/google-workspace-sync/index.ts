@@ -62,6 +62,17 @@ function optionalEnv(name: string, fallback: string): string {
   return Deno.env.get(name)?.trim() || fallback
 }
 
+function googleErrorMessage(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : fallback
+  if (message === 'The provided client secret is invalid.') {
+    return 'El client secret de Google no es valido. Actualiza GOOGLE_CLIENT_SECRET y genera un refresh token con ese mismo cliente OAuth.'
+  }
+  if (message === 'Token has been expired or revoked.') {
+    return 'El refresh token de Google expiro o fue revocado. Genera un nuevo GOOGLE_REFRESH_TOKEN con el mismo cliente OAuth.'
+  }
+  return message
+}
+
 function sanitizeText(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value.trim() : fallback
 }
@@ -438,9 +449,10 @@ Deno.serve(async (req) => {
 
     return jsonResponse({ ok: false, message: 'Target de Google no permitido' }, 400)
   } catch (error) {
-    return jsonResponse(
-      { ok: false, message: error instanceof Error ? error.message : 'No se pudo sincronizar con Google' },
-      500
-    )
+    return jsonResponse({
+      ok: false,
+      reason: 'google_sync_failed',
+      message: googleErrorMessage(error, 'No se pudo sincronizar con Google'),
+    })
   }
 })

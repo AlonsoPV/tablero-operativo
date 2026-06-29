@@ -21,6 +21,17 @@ function optionalEnv(name: string, fallback: string): string {
   return Deno.env.get(name)?.trim() || fallback
 }
 
+function googleErrorMessage(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : fallback
+  if (message === 'The provided client secret is invalid.') {
+    return 'El client secret de Google no es valido. Actualiza GOOGLE_CLIENT_SECRET y genera un refresh token con ese mismo cliente OAuth.'
+  }
+  if (message === 'Token has been expired or revoked.') {
+    return 'El refresh token de Google expiro o fue revocado. Genera un nuevo GOOGLE_REFRESH_TOKEN con el mismo cliente OAuth.'
+  }
+  return message
+}
+
 async function googleAccessToken(): Promise<string> {
   const response = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -152,12 +163,10 @@ Deno.serve(async (req) => {
       message: warnings[0],
     })
   } catch (error) {
-    return jsonResponse(
-      {
-        ok: false,
-        message: error instanceof Error ? error.message : 'No se pudo sincronizar el cierre con Google',
-      },
-      500
-    )
+    return jsonResponse({
+      ok: false,
+      reason: 'google_sync_failed',
+      message: googleErrorMessage(error, 'No se pudo sincronizar el cierre con Google'),
+    })
   }
 })
