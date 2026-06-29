@@ -82,7 +82,7 @@ function InfoTile({
 }
 
 export function ProfilePage() {
-  const { refetch: refetchAuth, user: authUser } = useAuth()
+  const { user: authUser } = useAuth()
   const { data: user, isLoading, isError, error: profileError } = useCurrentUser()
   const updateUser = useUpdateUser()
   const [editOpen, setEditOpen] = useState(false)
@@ -93,7 +93,6 @@ export function ProfilePage() {
       id: user.id,
       input: { nombre: input.nombre, area: input.area },
     })
-    await refetchAuth()
   }
 
   if (isLoading) {

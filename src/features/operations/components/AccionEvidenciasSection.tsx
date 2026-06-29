@@ -82,7 +82,7 @@ export function AccionEvidenciasSection({
 
   const handleFile = (file: File) => {
     if (readOnly) {
-      toast.error('Solo la persona creadora de la acción puede editar la evidencia.')
+      toast.error('Solo quien crea la accion, super admin o direccion puede editar la evidencia.')
       return
     }
     if (!isAcceptedFile(file)) {
@@ -146,7 +146,7 @@ export function AccionEvidenciasSection({
         />
         {readOnly && (
           <p className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-xs leading-snug text-muted-foreground">
-            Solo la persona creadora de la acción puede editar la evidencia.
+            Solo quien crea la accion, super admin o direccion puede editar la evidencia.
           </p>
         )}
         {!readOnly && (

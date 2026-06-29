@@ -442,6 +442,7 @@ export function DashboardPage() {
             acciones={acciones}
             comentarios={accionComentarios}
             today={today}
+            areaFilter={filter.area}
             isLoading={isLoading || comentariosLoading}
           />
         ) : null}
