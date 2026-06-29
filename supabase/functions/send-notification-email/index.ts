@@ -323,43 +323,6 @@ async function sendWithGoogleMail(input: {
   return { provider: 'gmail', id: result?.id ?? null }
 }
 
-async function sendWithResend(input: {
-  to: string
-  subject: string
-  html: string
-  text: string
-}): Promise<{ provider: 'resend'; id: string | null }> {
-  const resendApiKey = optionalEnv('RESEND_API_KEY')
-  const from = optionalEnv('NOTIFICATION_EMAIL_FROM')
-  if (!resendApiKey || !from) {
-    throw new Error('Faltan secretos de correo')
-  }
-
-  const emailResponse = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${resendApiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from,
-      to: [input.to],
-      subject: input.subject,
-      html: input.html,
-      text: input.text,
-      reply_to: optionalEnv('NOTIFICATION_EMAIL_REPLY_TO') || undefined,
-    }),
-  })
-
-  if (!emailResponse.ok) {
-    const details = await emailResponse.text().catch(() => '')
-    throw new Error(`No se pudo enviar correo de notificacion: ${details}`)
-  }
-
-  const result = await emailResponse.json().catch(() => ({}))
-  return { provider: 'resend', id: result?.id ?? null }
-}
-
 Deno.serve(async (req) => {
   const preflight = handleCorsPreflight(req)
   if (preflight) return preflight
@@ -421,10 +384,10 @@ Deno.serve(async (req) => {
   const html = buildEmailHtml({ recipientName, tipo, prioridad, payload, url })
   const text = buildEmailText({ recipientName, tipo, prioridad, payload, url })
 
-  const sendEmail = (to: string) =>
-    hasGoogleMailSecrets()
-      ? sendWithGoogleMail({ to, subject, html, text })
-      : sendWithResend({ to, subject, html, text })
+  const sendEmail = (to: string) => {
+    if (!hasGoogleMailSecrets()) throw new Error('Faltan secretos de Gmail')
+    return sendWithGoogleMail({ to, subject, html, text })
+  }
 
   try {
     const result = await sendEmail(email)

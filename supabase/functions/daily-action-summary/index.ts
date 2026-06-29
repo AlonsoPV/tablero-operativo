@@ -62,7 +62,6 @@ const normalizeEmail = (value: unknown) => {
 }
 const hasGoogleMailSecrets = () =>
   Boolean(optionalEnv('GOOGLE_CLIENT_ID') && optionalEnv('GOOGLE_CLIENT_SECRET') && optionalEnv('GOOGLE_REFRESH_TOKEN'))
-const hasResendSecrets = () => Boolean(optionalEnv('RESEND_API_KEY') && optionalEnv('NOTIFICATION_EMAIL_FROM'))
 
 function localParts(now: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -250,27 +249,6 @@ async function sendWithGoogleMail(input: { to: string; subject: string; html: st
   return { provider: 'gmail', id: result?.id ?? null }
 }
 
-async function sendWithResend(input: { to: string; subject: string; html: string; text: string }) {
-  const apiKey = optionalEnv('RESEND_API_KEY')
-  const from = optionalEnv('NOTIFICATION_EMAIL_FROM')
-  if (!apiKey || !from) throw new Error('Faltan secretos de correo')
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from,
-      to: [input.to],
-      subject: input.subject,
-      html: input.html,
-      text: input.text,
-      reply_to: optionalEnv('NOTIFICATION_EMAIL_REPLY_TO') || undefined,
-    }),
-  })
-  if (!response.ok) throw new Error(await response.text().catch(() => 'No se pudo enviar correo por Resend'))
-  const result = await response.json().catch(() => ({}))
-  return { provider: 'resend', id: result?.id ?? null }
-}
-
 function buildEmail(input: { name: string; counts: Counts; actions: ActionRow[]; url: string; isTest: boolean }) {
   const subject = `${input.isTest ? '[Prueba] ' : ''}Resumen diario de acciones pendientes`
   const actionList = input.actions.length
@@ -306,26 +284,8 @@ function buildEmail(input: { name: string; counts: Counts; actions: ActionRow[];
 }
 
 async function sendEmail(to: string, subject: string, bodyHtml: string, text: string) {
-  let googleError = ''
-  if (hasGoogleMailSecrets()) {
-    try {
-      return await sendWithGoogleMail({ to, subject, html: bodyHtml, text })
-    } catch (error) {
-      googleError = error instanceof Error ? error.message : 'No se pudo enviar correo por Gmail'
-      if (!hasResendSecrets()) throw new Error(googleError)
-    }
-  }
-
-  if (hasResendSecrets()) {
-    try {
-      return await sendWithResend({ to, subject, html: bodyHtml, text })
-    } catch (error) {
-      const resendError = error instanceof Error ? error.message : 'No se pudo enviar correo por Resend'
-      throw new Error(googleError ? `Gmail fallo: ${googleError}. Resend fallo: ${resendError}` : resendError)
-    }
-  }
-
-  throw new Error('Faltan secretos de correo')
+  if (!hasGoogleMailSecrets()) throw new Error('Faltan secretos de Gmail')
+  return sendWithGoogleMail({ to, subject, html: bodyHtml, text })
 }
 
 Deno.serve(async (req) => {
