@@ -15,6 +15,7 @@ describe('evidenciaFileTypes', () => {
     expect(isAcceptedEvidenciaFile(makeFile('doc.pdf', 'application/pdf'))).toBe(true)
     expect(isAcceptedEvidenciaFile(makeFile('foto.png', 'image/png'))).toBe(true)
     expect(isAcceptedEvidenciaFile(makeFile('foto.jpg', 'image/jpeg'))).toBe(true)
+    expect(isAcceptedEvidenciaFile(makeFile('foto.webp', 'image/webp'))).toBe(true)
     expect(isAcceptedEvidenciaFile(makeFile('datos.csv', 'text/csv'))).toBe(true)
     expect(
       isAcceptedEvidenciaFile(
@@ -42,6 +43,7 @@ describe('evidenciaFileTypes', () => {
 
   it('normaliza content-type por extensión para Storage', () => {
     expect(resolveEvidenciaContentType(makeFile('datos.csv', 'text/plain'))).toBe('text/csv')
+    expect(resolveEvidenciaContentType(makeFile('foto.webp', 'application/octet-stream'))).toBe('image/webp')
     expect(resolveEvidenciaContentType(makeFile('reporte.xlsx', ''))).toBe(
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
@@ -50,7 +52,9 @@ describe('evidenciaFileTypes', () => {
   it('incluye csv y excel en accept del input', () => {
     const accept = getEvidenciaAcceptedAccept()
     expect(accept).toContain('.csv')
+    expect(accept).toContain('.webp')
     expect(accept).toContain('.xlsx')
+    expect(accept).toContain('image/webp')
     expect(accept).toContain('text/csv')
   })
 })

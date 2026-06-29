@@ -4,14 +4,14 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ROUTES } from '@/constants'
+import { APP_BASE_URL, ROUTES } from '@/constants'
 import { supabase } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
@@ -31,7 +31,6 @@ const MAX_WAIT_MS = 60_000
 const POLL_MS = 400
 
 export function ResetPasswordPage() {
-  const navigate = useNavigate()
   const [phase, setPhase] = useState<RecoveryPhase>('checking')
 
   const form = useForm<ResetPasswordFormValues>({
@@ -87,7 +86,7 @@ export function ResetPasswordPage() {
       if (error) throw error
       toast.success('Contraseña guardada. Inicia sesión con la nueva.')
       await supabase.auth.signOut()
-      navigate(ROUTES.LOGIN, { replace: true })
+      window.location.assign(APP_BASE_URL)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No pudimos guardar la contraseña. Inténtalo de nuevo.')
     }

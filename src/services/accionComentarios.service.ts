@@ -3,11 +3,12 @@
  */
 
 import { supabase } from '@/lib/supabase/client'
-import type { AccionComentario } from '@/types/accionComentario'
+import type { AccionComentario, ComentarioAdjunto } from '@/types/accionComentario'
 
 const TABLE = 'accion_comentarios'
 const COMENTARIO_SELECT = 'id,accion_id,contenido,created_by,asignado,etiquetas,adjuntos,created_at'
 const COMENTARIO_VISIBILITY_SELECT = 'accion_id,asignado,etiquetas'
+const BUCKET = 'evidencias'
 
 export type AccionComentarioVisibility = Pick<AccionComentario, 'accion_id' | 'asignado' | 'etiquetas'>
 
@@ -102,5 +103,26 @@ export const accionComentariosService = {
       .maybeSingle()
     if (error) throw error
     return data as AccionComentario
+  },
+
+  async delete(id: string): Promise<void> {
+    const { data: row, error: readError } = await supabase
+      .from(TABLE)
+      .select('adjuntos')
+      .eq('id', id)
+      .maybeSingle()
+    if (readError) throw readError
+
+    const adjuntos = ((row as { adjuntos?: ComentarioAdjunto[] } | null)?.adjuntos ?? [])
+      .map((adjunto) => adjunto.storage_path)
+      .filter(Boolean)
+
+    if (adjuntos.length > 0) {
+      const { error: storageError } = await supabase.storage.from(BUCKET).remove(adjuntos)
+      if (storageError) throw storageError
+    }
+
+    const { error } = await supabase.from(TABLE).delete().eq('id', id)
+    if (error) throw error
   },
 }

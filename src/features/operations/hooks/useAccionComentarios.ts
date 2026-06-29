@@ -39,3 +39,18 @@ export function useUpdateAccionComentario(accionId: string) {
     },
   })
 }
+
+export function useDeleteAccionComentario(accionId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => accionComentariosService.delete(id),
+    onSuccess: (_data, deletedId) => {
+      qc.setQueryData<AccionComentario[]>([...COMENTARIOS_KEY, accionId], (prev) =>
+        (prev ?? []).filter((comment) => comment.id !== deletedId)
+      )
+      qc.invalidateQueries({ queryKey: [...COMENTARIOS_KEY, accionId] })
+      qc.invalidateQueries({ queryKey: ['acciones'] })
+      qc.invalidateQueries({ queryKey: ['accion', 'comment-counts'] })
+    },
+  })
+}

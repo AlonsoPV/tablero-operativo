@@ -15,6 +15,7 @@ import { SectionCard, SectionCardHeader, SectionCardBody } from '@/components/Se
 import {
   useAccionComentarios,
   useCreateAccionComentario,
+  useDeleteAccionComentario,
   useUpdateAccionComentario,
 } from '../hooks/useAccionComentarios'
 import { notificacionesService } from '@/services/notificaciones.service'
@@ -46,6 +47,7 @@ import {
   ExternalLink,
   Pencil,
   Check,
+  Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -503,6 +505,7 @@ function ComentarioItem({
   currentUserId: string | null
 }) {
   const updateComment = useUpdateAccionComentario(accionId)
+  const deleteComment = useDeleteAccionComentario(accionId)
   const [isEditing, setIsEditing] = useState(false)
   const [draft, setDraft] = useState(comment.contenido)
   const adjuntos = comment.adjuntos ?? []
@@ -519,6 +522,7 @@ function ComentarioItem({
     : 'Usuario'
   const authorInitials = userInitials(authorLabel)
   const canEdit = Boolean(currentUserId)
+  const canDelete = Boolean(currentUserId)
   const draftTrim = draft.trim()
   const canSave =
     canEdit &&
@@ -526,6 +530,8 @@ function ComentarioItem({
     draft.length <= MAX_COMMENT_CHARS &&
     draftTrim !== comment.contenido.trim() &&
     !updateComment.isPending
+
+  const isDeleting = deleteComment.isPending
 
   useEffect(() => {
     if (!isEditing) setDraft(comment.contenido)
@@ -549,6 +555,17 @@ function ComentarioItem({
           toast.error(err instanceof Error ? err.message : 'No se pudo actualizar el comentario'),
       }
     )
+  }
+
+  const deleteItem = () => {
+    if (!canDelete || isDeleting) return
+    const confirmed = window.confirm('¿Eliminar este comentario?')
+    if (!confirmed) return
+    deleteComment.mutate(comment.id, {
+      onSuccess: () => toast.success('Comentario eliminado'),
+      onError: (err) =>
+        toast.error(err instanceof Error ? err.message : 'No se pudo eliminar el comentario'),
+    })
   }
 
   const onEditKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -583,16 +600,33 @@ function ComentarioItem({
               {formatDateTimeCDMX(comment.created_at)}
             </time>
           </div>
-          {canEdit && !isEditing ? (
-            <button
-              type="button"
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => setIsEditing(true)}
-              aria-label="Editar comentario"
-              title="Editar comentario"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
+          {(canEdit || canDelete) && !isEditing ? (
+            <div className="flex shrink-0 items-center gap-1">
+              {canEdit ? (
+                <button
+                  type="button"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={() => setIsEditing(true)}
+                  disabled={isDeleting}
+                  aria-label="Editar comentario"
+                  title="Editar comentario"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+              {canDelete ? (
+                <button
+                  type="button"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-60"
+                  onClick={deleteItem}
+                  disabled={isDeleting}
+                  aria-label="Eliminar comentario"
+                  title="Eliminar comentario"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
         {isEditing ? (

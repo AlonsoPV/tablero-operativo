@@ -2,7 +2,7 @@ import { getFileExtension } from './evidenciaFileTypes'
 
 const PREVIEWABLE_MIME_PREFIXES = ['image/']
 const PREVIEWABLE_MIME_TYPES = new Set(['application/pdf'])
-const PREVIEWABLE_EXTENSIONS = new Set(['pdf', 'png', 'jpg', 'jpeg'])
+const PREVIEWABLE_EXTENSIONS = new Set(['pdf', 'png', 'jpg', 'jpeg', 'webp'])
 
 export function isPreviewableDocument(input: {
   fileName?: string | null

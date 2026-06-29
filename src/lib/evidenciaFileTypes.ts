@@ -5,6 +5,7 @@ export const EVIDENCIA_ACCEPTED_MIME_TYPES = [
   'image/png',
   'image/jpeg',
   'image/jpg',
+  'image/webp',
   'text/csv',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-excel',
@@ -15,6 +16,7 @@ const EXTENSION_TO_MIME: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
+  webp: 'image/webp',
   csv: 'text/csv',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   xls: 'application/vnd.ms-excel',
@@ -22,9 +24,9 @@ const EXTENSION_TO_MIME: Record<string, string> = {
 
 export const EVIDENCIA_ACCEPTED_EXTENSIONS = Object.keys(EXTENSION_TO_MIME).map((ext) => `.${ext}`)
 
-export const EVIDENCIA_ACCEPTED_FORMATS_LABEL = 'PDF, PNG, JPG, CSV o Excel (máx. 10 MB)'
+export const EVIDENCIA_ACCEPTED_FORMATS_LABEL = 'PDF, PNG, JPG, WEBP, CSV o Excel (max. 10 MB)'
 
-export const EVIDENCIA_ACCEPTED_FORMATS_SHORT = 'PDF, PNG, JPG, CSV o Excel'
+export const EVIDENCIA_ACCEPTED_FORMATS_SHORT = 'PDF, PNG, JPG, WEBP, CSV o Excel'
 
 export function getFileExtension(name: string): string | null {
   const trimmed = name.trim()

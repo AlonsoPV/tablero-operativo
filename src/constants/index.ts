@@ -1,4 +1,7 @@
 export const APP_NAME = 'SCRUMBAN'
+export const APP_BASE_URL = (
+  import.meta.env.VITE_APP_URL?.trim() || 'https://scrumbanemx.vercel.app'
+).replace(/\/+$/, '')
 
 /** Rutas según módulos de lovable-spec §5 */
 export const ROUTES = {

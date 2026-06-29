@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { APP_NAME, ROUTES } from '@/constants'
+import { APP_BASE_URL, APP_NAME, ROUTES } from '@/constants'
 import { authService } from '@/services/auth.service'
 import { toast } from 'sonner'
 import {
@@ -39,8 +39,7 @@ export function ForgotPasswordPage() {
   const handleSubmit = form.handleSubmit(async (values) => {
     const email = values.email.trim()
     try {
-      const baseUrl = import.meta.env.VITE_APP_URL ?? window.location.origin
-      const redirectTo = `${baseUrl.replace(/\/$/, '')}${ROUTES.RESET_PASSWORD}`
+      const redirectTo = `${APP_BASE_URL}${ROUTES.RESET_PASSWORD}`
       await authService.resetPasswordForEmail(email, redirectTo)
       setSentToEmail(email)
       setSent(true)
