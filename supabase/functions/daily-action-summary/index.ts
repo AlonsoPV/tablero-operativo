@@ -319,27 +319,38 @@ Deno.serve(async (req) => {
   const runId = crypto.randomUUID()
   const { data: settings } = await admin.from('daily_action_summary_settings').select('*').eq('id', SETTINGS_ID).maybeSingle<Settings>()
   if (!settings) return json({ ok: false, message: 'Configuracion no disponible' }, 500)
-  const setStatus = (last_status: string, last_message: string, last_counts = {}) =>
+  const setDeliveryStatus = (last_status: string, last_message: string, last_counts = {}) =>
     admin.from('daily_action_summary_settings').update({ last_run_at: new Date().toISOString(), last_status, last_message, last_counts }).eq('id', SETTINGS_ID)
+  const setSchedulerStatus = (scheduler_last_status: string, scheduler_last_message: string) =>
+    admin
+      .from('daily_action_summary_settings')
+      .update({
+        scheduler_last_checked_at: new Date().toISOString(),
+        scheduler_last_status,
+        scheduler_last_message,
+      })
+      .eq('id', SETTINGS_ID)
 
   let local: ReturnType<typeof localParts>
   try {
     local = localParts(startedAt, settings.timezone)
   } catch {
-    await setStatus('config_error', 'Zona horaria invalida')
+    await setSchedulerStatus('config_error', 'Zona horaria invalida')
+    await setDeliveryStatus('config_error', 'Zona horaria invalida')
     return json({ ok: false, message: 'Zona horaria invalida' }, 400)
   }
   if (!isTest && !settings.enabled) {
-    await setStatus('skipped_disabled', 'Resumen diario desactivado')
+    await setSchedulerStatus('skipped_disabled', 'Resumen diario desactivado')
     return json({ ok: true, skipped: true, reason: 'disabled' })
   }
   if (!isTest && !isScheduleMatch(settings, local)) {
-    await setStatus('skipped_schedule', 'Fuera de horario configurado')
+    await setSchedulerStatus('skipped_schedule', 'Fuera de horario configurado')
     return json({ ok: true, skipped: true, reason: 'outside_schedule' })
   }
   const baseUrl = appBaseUrl()
   if (!baseUrl) {
-    await setStatus('config_error', 'APP_BASE_URL faltante o invalido')
+    await setSchedulerStatus('config_error', 'APP_BASE_URL faltante o invalido')
+    await setDeliveryStatus('config_error', 'APP_BASE_URL faltante o invalido')
     return json({ ok: false, message: 'APP_BASE_URL faltante o invalido' }, 500)
   }
 
@@ -360,7 +371,8 @@ Deno.serve(async (req) => {
     )
   }
   if (!isTest && settings.recipient_mode === 'selected' && (settings.selected_usuario_ids ?? []).length === 0) {
-    await setStatus('config_error', 'No hay usuarios seleccionados')
+    await setSchedulerStatus('config_error', 'No hay usuarios seleccionados')
+    await setDeliveryStatus('config_error', 'No hay usuarios seleccionados')
     return json({ ok: false, message: 'No hay usuarios seleccionados' }, 400)
   }
 
@@ -412,6 +424,7 @@ Deno.serve(async (req) => {
 
   const status = summary.errors ? (summary.sent ? 'partial_error' : 'error') : 'sent'
   const message = isTest ? 'Correo de prueba procesado' : `Resumen procesado: ${summary.sent} enviados, ${summary.omitted_no_pending} omitidos sin pendientes, ${summary.skipped} omitidos, ${summary.errors} errores`
-  await setStatus(status, message, summary)
+  await setDeliveryStatus(status, message, summary)
+  await setSchedulerStatus(summary.errors ? 'error' : 'ok', message)
   return json({ ok: summary.errors === 0, is_test: isTest, run_id: runId, target_date: local.date, summary })
 })

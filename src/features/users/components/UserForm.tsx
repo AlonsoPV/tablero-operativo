@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -31,11 +31,13 @@ interface UserFormProps {
   formId?: string
 }
 
+const NONE_AREA = '__none__'
+
 const EMPTY_USER_FORM: UserFormValues = {
   email: '',
   nombre: '',
   rol: '',
-  area: undefined,
+  area: null,
   activo: true,
 }
 
@@ -55,14 +57,72 @@ export function UserForm({
     [isCreate]
   )
 
+  const resolvedDefaults = defaultValues ?? EMPTY_USER_FORM
+
+  const currentRolMissing = Boolean(
+    !isCreate &&
+      resolvedDefaults.rol &&
+      !roles.some((role) => role.nombre === resolvedDefaults.rol)
+  )
+  const currentAreaMissing = Boolean(
+    !isCreate &&
+      resolvedDefaults.area &&
+      !areas.some((area) => area.nombre === resolvedDefaults.area)
+  )
+
+  const roleOptions = useMemo(() => {
+    const base = roles.map((role) => ({
+      id: role.id,
+      nombre: role.nombre,
+      label: role.nombre,
+    }))
+    if (!currentRolMissing || !resolvedDefaults.rol) return base
+    return [
+      {
+        id: `current-${resolvedDefaults.rol}`,
+        nombre: resolvedDefaults.rol,
+        label: `${resolvedDefaults.rol} (actual, fuera del catalogo activo)`,
+      },
+      ...base,
+    ]
+  }, [currentRolMissing, resolvedDefaults.rol, roles])
+
+  const areaOptions = useMemo(() => {
+    if (!currentAreaMissing || !resolvedDefaults.area) {
+      return areas.map((area) => ({ id: area.id, nombre: area.nombre, label: area.nombre }))
+    }
+    return [
+      {
+        id: `current-${resolvedDefaults.area}`,
+        nombre: resolvedDefaults.area,
+        label: `${resolvedDefaults.area} (actual, fuera del catalogo activo)`,
+      },
+      ...areas.map((area) => ({ id: area.id, nombre: area.nombre, label: area.nombre })),
+    ]
+  }, [areas, currentAreaMissing, resolvedDefaults.area])
+
   const form = useForm<UserFormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: defaultValues ?? EMPTY_USER_FORM,
+    defaultValues: resolvedDefaults,
+    shouldUnregister: false,
   })
 
   useEffect(() => {
-    form.reset(defaultValues ?? EMPTY_USER_FORM)
-  }, [defaultValues, form])
+    form.reset({
+      email: defaultValues?.email ?? '',
+      nombre: defaultValues?.nombre ?? '',
+      rol: defaultValues?.rol ?? '',
+      area: defaultValues?.area ?? null,
+      activo: defaultValues?.activo ?? true,
+    })
+  }, [
+    defaultValues?.email,
+    defaultValues?.nombre,
+    defaultValues?.rol,
+    defaultValues?.area,
+    defaultValues?.activo,
+    form,
+  ])
 
   return (
     <form
@@ -115,22 +175,29 @@ export function UserForm({
 
       <div className="space-y-2">
         <Label htmlFor="rol">Rol *</Label>
-        <Select
-          value={form.watch('rol')}
-          onValueChange={(v) => form.setValue('rol', v)}
-          disabled={loadingRoles}
-        >
-          <SelectTrigger id="rol">
-            <SelectValue placeholder={loadingRoles ? 'Cargando roles...' : 'Elige un rol'} />
-          </SelectTrigger>
-          <SelectContent>
-            {roles.map((r) => (
-              <SelectItem key={r.id} value={r.nombre}>
-                {r.nombre}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Controller
+          name="rol"
+          control={form.control}
+          render={({ field }) => (
+            <Select value={field.value} onValueChange={field.onChange} disabled={loadingRoles}>
+              <SelectTrigger id="rol">
+                <SelectValue placeholder={loadingRoles ? 'Cargando roles...' : 'Elige un rol'} />
+              </SelectTrigger>
+              <SelectContent>
+                {roleOptions.map((role) => (
+                  <SelectItem key={role.id} value={role.nombre}>
+                    {role.label ?? role.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        />
+        <p className="text-xs text-muted-foreground">
+          {currentRolMissing
+            ? 'El rol actual se conserva aunque no este activo en el catalogo.'
+            : 'Catalogo de roles de la organizacion.'}
+        </p>
         {form.formState.errors.rol && (
           <p className="text-sm text-destructive">{form.formState.errors.rol.message}</p>
         )}
@@ -138,37 +205,58 @@ export function UserForm({
 
       <div className="space-y-2">
         <Label htmlFor="area">Area</Label>
-        <Select
-          value={form.watch('area') ?? '__none__'}
-          onValueChange={(v) => form.setValue('area', v === '__none__' ? undefined : v)}
-          disabled={loadingAreas}
-        >
-          <SelectTrigger id="area">
-            <SelectValue placeholder={loadingAreas ? 'Cargando areas...' : 'Area (opcional)'} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__none__">Sin area</SelectItem>
-            {areas.map((a) => (
-              <SelectItem key={a.id} value={a.nombre}>
-                {a.nombre}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="text-xs text-muted-foreground">Opcional. Viene del catalogo de areas.</p>
+        <Controller
+          name="area"
+          control={form.control}
+          render={({ field }) => (
+            <Select
+              value={field.value ?? NONE_AREA}
+              onValueChange={(value) => field.onChange(value === NONE_AREA ? null : value)}
+              disabled={loadingAreas}
+            >
+              <SelectTrigger id="area">
+                <SelectValue placeholder={loadingAreas ? 'Cargando areas...' : 'Area (opcional)'} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE_AREA}>Sin area</SelectItem>
+                {areaOptions.map((area) => (
+                  <SelectItem key={area.id} value={area.nombre}>
+                    {area.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        />
+        <p className="text-xs text-muted-foreground">
+          {currentAreaMissing
+            ? 'El area actual se conserva aunque no este activa en el catalogo.'
+            : 'Opcional. Viene del catalogo de areas.'}
+        </p>
         {form.formState.errors.area && (
           <p className="text-sm text-destructive">{form.formState.errors.area.message}</p>
         )}
       </div>
 
-      <label className="flex cursor-pointer items-center gap-2">
-        <input
-          type="checkbox"
-          {...form.register('activo')}
-          className="h-4 w-4 rounded border-input"
-        />
-        <span className="text-sm font-medium">Usuario activo</span>
-      </label>
+      <Controller
+        name="activo"
+        control={form.control}
+        render={({ field }) => (
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              id="activo"
+              type="checkbox"
+              className="h-4 w-4 rounded border-input"
+              checked={field.value}
+              onChange={(event) => field.onChange(event.target.checked)}
+              onBlur={field.onBlur}
+              ref={field.ref}
+              disabled={isSubmitting}
+            />
+            <span className="text-sm font-medium">Usuario activo</span>
+          </label>
+        )}
+      />
 
       {!hideActions ? (
         <div className="flex justify-end gap-2 pt-2">

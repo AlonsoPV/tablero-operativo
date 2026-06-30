@@ -23,7 +23,7 @@ import { UserForm } from '../components/UserForm'
 import { useUsers, useCreateUser, useUpdateUser, useToggleUserStatus } from '../hooks'
 import type { UserProfile, UsersFilter } from '../types/user.types'
 import type { UserFormValues } from '../schemas/user.schema'
-import type { UpdateUserInput } from '../types/user.types'
+import { toCreateUserInput, toUpdateUserInput } from '../utils/userFormMappers'
 import { toast } from 'sonner'
 import { Plus } from 'lucide-react'
 
@@ -56,7 +56,7 @@ export function UsersPage() {
   const handleFormSubmit = (values: UserFormValues) => {
     if (editingUser) {
       updateUser.mutate(
-        { id: editingUser.id, input: values as UpdateUserInput },
+        { id: editingUser.id, input: toUpdateUserInput(values) },
         {
           onSuccess: () => {
             toast.success('Cambios guardados')
@@ -69,21 +69,10 @@ export function UsersPage() {
         }
       )
     } else {
-      const email = typeof values.email === 'string' ? values.email.trim() : ''
-      if (!email) {
-        toast.error('Indica un correo válido para enviar la invitación.')
-        return
-      }
-      createUser.mutate(
-        {
-          email,
-          nombre: values.nombre,
-          rol: values.rol,
-          area: values.area ?? null,
-          activo: values.activo ?? true,
-        },
-        {
+      try {
+        createUser.mutate(toCreateUserInput(values), {
           onSuccess: () => {
+            const email = values.email?.trim().toLowerCase() ?? ''
             toast.success(
               `Usuario creado y confirmado: ${email}. Puede iniciar sesion con la contrasena inicial configurada.`
             )
@@ -94,8 +83,10 @@ export function UsersPage() {
           onError: (err) => {
             toast.error(err instanceof Error ? err.message : 'No pudimos enviar la invitación. Inténtalo de nuevo.')
           },
-        }
-      )
+        })
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Indica un correo válido para enviar la invitación.')
+      }
     }
   }
 
@@ -176,7 +167,7 @@ export function UsersPage() {
                   ? {
                       nombre: editingUser.nombre,
                       rol: editingUser.rol,
-                      area: editingUser.area ?? undefined,
+                      area: editingUser.area ?? null,
                       activo: editingUser.activo,
                     }
                   : undefined

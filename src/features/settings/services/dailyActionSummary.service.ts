@@ -22,6 +22,9 @@ const DEFAULT_SETTINGS: DailyActionSummarySettings = {
   last_status: null,
   last_message: null,
   last_counts: {},
+  scheduler_last_checked_at: null,
+  scheduler_last_status: null,
+  scheduler_last_message: null,
   updated_at: new Date(0).toISOString(),
   updated_by: null,
 }

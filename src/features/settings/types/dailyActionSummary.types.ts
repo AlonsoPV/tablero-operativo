@@ -9,6 +9,13 @@ export type DailySummaryLastStatus =
   | 'config_error'
   | 'error'
 
+export type DailySummarySchedulerStatus =
+  | 'ok'
+  | 'skipped_disabled'
+  | 'skipped_schedule'
+  | 'config_error'
+  | 'error'
+
 export interface DailyActionSummarySettings {
   id: 'default'
   enabled: boolean
@@ -22,6 +29,9 @@ export interface DailyActionSummarySettings {
   last_status: DailySummaryLastStatus | null
   last_message: string | null
   last_counts: Record<string, unknown>
+  scheduler_last_checked_at: string | null
+  scheduler_last_status: DailySummarySchedulerStatus | null
+  scheduler_last_message: string | null
   updated_at: string
   updated_by: string | null
 }

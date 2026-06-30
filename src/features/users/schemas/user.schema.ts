@@ -20,11 +20,15 @@ const commonUserFormSchema = z.object({
     ),
   rol: z.string().min(1, 'Elige un rol'),
   area: z
-    .string()
-    .transform((s) => (s?.trim() === '' ? undefined : s?.trim() ?? undefined))
-    .optional()
-    .nullable(),
-  activo: z.boolean().default(true),
+    .union([z.string(), z.null(), z.undefined()])
+    .transform((value) => {
+      if (value == null) return null
+      const trimmed = value.trim()
+      return trimmed === '' ? null : trimmed
+    })
+    .nullable()
+    .optional(),
+  activo: z.boolean(),
 })
 
 /** Rol y área vienen de catálogos (catalog_roles, areas); se validan como texto no vacío. */

@@ -97,6 +97,15 @@ function statusMeta(status: string | null | undefined) {
   return { label: 'Error en el ultimo envio', variant: 'destructive' as const }
 }
 
+function schedulerStatusMeta(status: string | null | undefined) {
+  if (!status) return { label: 'Sin revision', variant: 'muted' as const }
+  if (status === 'ok') return { label: 'Scheduler listo', variant: 'success' as const }
+  if (status === 'skipped_disabled') return { label: 'Scheduler inactivo', variant: 'muted' as const }
+  if (status === 'skipped_schedule') return { label: 'Fuera de horario', variant: 'muted' as const }
+  if (status === 'config_error') return { label: 'Config incompleta', variant: 'destructive' as const }
+  return { label: 'Error de scheduler', variant: 'destructive' as const }
+}
+
 function logStatusLabel(status: string): string {
   const labels: Record<string, string> = {
     sent: 'Enviado',
@@ -129,6 +138,7 @@ export function DailyActionSummarySettingsPage() {
     [draft.selected_usuario_ids, users]
   )
   const meta = statusMeta(settings?.last_status)
+  const schedulerMeta = schedulerStatusMeta(settings?.scheduler_last_status)
   const isSelectedMode = draft.recipient_mode === 'selected'
 
   const updateDraft = <K extends keyof UpdateDailyActionSummarySettingsInput>(
@@ -381,6 +391,22 @@ export function DailyActionSummarySettingsPage() {
                 {settings?.last_message ? (
                   <p className="text-muted-foreground">{settings.last_message}</p>
                 ) : null}
+              </div>
+              <div className="border-t border-border/60 pt-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Scheduler
+                  </span>
+                  <Badge variant={schedulerMeta.variant}>{schedulerMeta.label}</Badge>
+                </div>
+                <div className="space-y-1 text-sm">
+                  <p className="font-medium">
+                    {formatDateTime(settings?.scheduler_last_checked_at)}
+                  </p>
+                  {settings?.scheduler_last_message ? (
+                    <p className="text-muted-foreground">{settings.scheduler_last_message}</p>
+                  ) : null}
+                </div>
               </div>
             </CardContent>
           </Card>

@@ -182,12 +182,13 @@ export const usersAdminService = {
     if (input.rol !== undefined) {
       payload.rol = input.rol
     }
-    if (input.area !== undefined) {
+    if ('area' in input) {
       payload.area = input.area?.trim() ?? null
     }
     if (input.activo !== undefined) {
       payload.activo = input.activo
     }
+
     const { data, error } = await supabase
       .from(TABLE)
       .update(payload)

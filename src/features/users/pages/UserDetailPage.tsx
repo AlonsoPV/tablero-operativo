@@ -22,7 +22,7 @@ import { PasswordManagementCard } from '../components/PasswordManagementCard'
 import { UserForm } from '../components/UserForm'
 import { useUser, useUserAuthEmail, useUpdateUser, useToggleUserStatus } from '../hooks'
 import type { UserFormValues } from '../schemas/user.schema'
-import type { UpdateUserInput } from '../types/user.types'
+import { toUpdateUserInput } from '../utils/userFormMappers'
 import { toast } from 'sonner'
 import { ArrowLeft } from 'lucide-react'
 
@@ -43,7 +43,7 @@ export function UserDetailPage() {
   const handleFormSubmit = (values: UserFormValues) => {
     if (!id) return
     updateUser.mutate(
-      { id, input: values as UpdateUserInput },
+      { id, input: toUpdateUserInput(values) },
       {
         onSuccess: () => {
           toast.success('Usuario actualizado correctamente')
@@ -129,7 +129,7 @@ export function UserDetailPage() {
               defaultValues={{
                 nombre: user.nombre,
                 rol: user.rol,
-                area: user.area ?? undefined,
+                area: user.area ?? null,
                 activo: user.activo,
               }}
               onSubmit={handleFormSubmit}
