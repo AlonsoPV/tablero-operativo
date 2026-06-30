@@ -26,6 +26,8 @@ import { compareImpactRows } from '@/features/kpi/utils/impactMatrixRows'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { usesOperationalDashboardByRole } from '@/features/auth/lib/permissions'
+import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
+import { useStatuses } from '@/features/catalogs/hooks/useStatuses'
 import type { AccionDiaria } from '@/types'
 import type { AccionesFilter } from '@/services/acciones.service'
 import {
@@ -37,6 +39,8 @@ import { DashboardHeader } from './components/DashboardHeader'
 import { DashboardKpiCards } from './components/DashboardKpiCards'
 import { DashboardActionsSection } from './components/DashboardActionsSection'
 import { DashboardUserActionsSummarySection } from './components/DashboardUserActionsSummarySection'
+import { DashboardExecutivePanel } from './components/DashboardExecutivePanel'
+import { useOperationalDashboardMetrics } from './hooks/useOperationalDashboardMetrics'
 import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
 import { InfoHint } from '@/components/InfoHint'
 import { Button } from '@/components/ui/button'
@@ -46,6 +50,41 @@ import { ROUTES } from '@/constants'
 import { accionComentariosService } from '@/services/accionComentarios.service'
 
 const DEFAULT_FILTER: AccionesFilter = {}
+const DEFAULT_TREND_DAYS = 30
+
+type Period = { start: string; end: string }
+
+function addDays(ymd: string, days: number): string {
+  const date = new Date(`${ymd}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+function diffDaysInclusive(start: string, end: string): number {
+  const startMs = Date.parse(`${start}T00:00:00Z`)
+  const endMs = Date.parse(`${end}T00:00:00Z`)
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return DEFAULT_TREND_DAYS
+  return Math.max(1, Math.round((endMs - startMs) / 86_400_000) + 1)
+}
+
+function currentPeriodFromFilter(filter: AccionesFilter, today: string): Period {
+  if (filter.fecha) return { start: filter.fecha, end: filter.fecha }
+  if (filter.fecha_min && filter.fecha_max) return { start: filter.fecha_min, end: filter.fecha_max }
+  if (filter.fecha_min) return { start: filter.fecha_min, end: addDays(filter.fecha_min, DEFAULT_TREND_DAYS - 1) }
+  if (filter.fecha_max) return { start: addDays(filter.fecha_max, -(DEFAULT_TREND_DAYS - 1)), end: filter.fecha_max }
+  return { start: addDays(today, -(DEFAULT_TREND_DAYS - 1)), end: today }
+}
+
+function previousFilterFromPeriod(filter: AccionesFilter, period: Period): AccionesFilter {
+  const days = diffDaysInclusive(period.start, period.end)
+  const previousEnd = addDays(period.start, -1)
+  const previousStart = addDays(previousEnd, -(days - 1))
+  const next: AccionesFilter = { ...filter }
+  delete next.fecha
+  delete next.fecha_min
+  delete next.fecha_max
+  return { ...next, fecha_min: previousStart, fecha_max: previousEnd }
+}
 
 function ImpactTableSkeleton() {
   return (
@@ -84,8 +123,14 @@ export function DashboardPage() {
   const [filtersExpanded, setFiltersExpanded] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingAccion, setEditingAccion] = useState<AccionDiaria | null>(null)
+  const [drillDown, setDrillDown] = useState<{ title: string; acciones: AccionDiaria[] } | null>(null)
 
   const filterForQuery = useMemo(() => ({ ...filter }), [filter])
+  const currentPeriod = useMemo(() => currentPeriodFromFilter(filterForQuery, today), [filterForQuery, today])
+  const previousFilterForQuery = useMemo(
+    () => previousFilterFromPeriod(filterForQuery, currentPeriod),
+    [currentPeriod, filterForQuery]
+  )
   const {
     data: acciones = [],
     isLoading,
@@ -93,6 +138,7 @@ export function DashboardPage() {
     error: accionesErrorObj,
     refetch: retryAcciones,
   } = useAcciones(filterForQuery)
+  const { data: previousAcciones = [], isLoading: previousAccionesLoading } = useAcciones(previousFilterForQuery)
   const accionIds = useMemo(() => acciones.map((a) => a.id), [acciones])
   const { data: commentCounts = {} } = useCommentCounts(accionIds)
   const { data: checklistProgressByAccionId = {} } = useChecklistProgressByAccionIds(accionIds)
@@ -104,8 +150,19 @@ export function DashboardPage() {
     retry: 1,
   })
   const { data: users = [] } = useUsers({ activo: true })
+  const { data: priorities = [] } = usePriorities({ activo: true })
+  const { data: statuses = [] } = useStatuses()
 
   const metricas = useMemo(() => metricasFromAcciones(acciones), [acciones])
+  const executiveMetrics = useOperationalDashboardMetrics({
+    actions: acciones,
+    previousActions: previousAcciones,
+    users,
+    priorities,
+    statuses,
+    today,
+    currentPeriod,
+  })
 
   const {
     isLoading: o2cScoreLoading,
@@ -177,6 +234,7 @@ export function DashboardPage() {
   const advancedFiltersActive = useMemo(() => hasKanbanActiveFilters(filter), [filter])
 
   const handleFilterChange = useCallback((next: AccionesFilter | Partial<AccionesFilter>) => {
+    setDrillDown(null)
     setFilter((prev) => {
       const merged: AccionesFilter = { ...prev, ...next }
       return merged
@@ -184,7 +242,15 @@ export function DashboardPage() {
   }, [])
 
   const handleClearFilters = useCallback(() => {
+    setDrillDown(null)
     setFilter({ ...DEFAULT_FILTER })
+  }, [])
+
+  const handleDrillDown = useCallback((input: { title: string; actions: AccionDiaria[] }) => {
+    setDrillDown({ title: input.title, acciones: input.actions })
+    window.requestAnimationFrame(() => {
+      document.getElementById('dashboard-section-actions')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
   }, [])
 
   const handleCreate = useCallback(() => {
@@ -307,6 +373,12 @@ export function DashboardPage() {
             id="dashboard-section-metrics"
             className="dashboard-section-metrics scroll-mt-4"
           >
+            <DashboardExecutivePanel
+              metrics={executiveMetrics}
+              isLoading={isLoading || previousAccionesLoading}
+              onDrillDown={handleDrillDown}
+            />
+            {false ? (
             <SectionCard>
               <SectionCardHeader
                 className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
@@ -318,6 +390,7 @@ export function DashboardPage() {
                 <DashboardKpiCards metricas={metricas} isLoading={isLoading} />
               </SectionCardBody>
             </SectionCard>
+            ) : null}
           </section>
         ) : null}
 
@@ -424,7 +497,7 @@ export function DashboardPage() {
             </SectionCard>
           ) : (
             <DashboardActionsSection
-              acciones={acciones}
+              acciones={drillDown?.acciones ?? acciones}
               isLoading={isLoading}
               commentCounts={commentCounts}
               responsableNames={responsableNames}
@@ -432,6 +505,14 @@ export function DashboardPage() {
               onSelectAccion={handleSelectAccion}
               onNewAction={handleCreate}
               fechaResumen={filter.fecha_max ?? filter.fecha_min ?? today}
+              title={drillDown ? `Detalle: ${drillDown.title}` : undefined}
+              eyebrow={drillDown ? 'Drill-down' : undefined}
+              subtitle={
+                drillDown
+                  ? `${drillDown.acciones.length} accion${drillDown.acciones.length !== 1 ? 'es' : ''} relacionadas con ${drillDown.title}.`
+                  : undefined
+              }
+              onClearDrillDown={drillDown ? () => setDrillDown(null) : undefined}
             />
           )}
         </div>

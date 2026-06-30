@@ -1,7 +1,3 @@
-/**
- * Sección "Control de acciones" con header refinado y tabla.
- */
-
 import { useEffect, useMemo, useState } from 'react'
 import { ClipboardList, ChevronDown, ChevronUp, Rows3 } from 'lucide-react'
 import { AccionesControlTable } from '@/features/operations'
@@ -21,8 +17,11 @@ export interface DashboardActionsSectionProps {
   checklistProgressByAccionId?: Record<string, { total: number; completed: number }>
   onSelectAccion?: (accion: AccionDiaria) => void
   onNewAction?: () => void
-  /** Fecha activa del filtro (YYYY-MM-DD) para el subtítulo */
   fechaResumen: string
+  title?: string
+  eyebrow?: string
+  subtitle?: string
+  onClearDrillDown?: () => void
 }
 
 export function DashboardActionsSection({
@@ -34,23 +33,27 @@ export function DashboardActionsSection({
   onSelectAccion,
   onNewAction,
   fechaResumen,
+  title = 'Acciones del dia',
+  eyebrow = 'Operacion',
+  subtitle: subtitleOverride,
+  onClearDrillDown,
 }: DashboardActionsSectionProps) {
   const [showAll, setShowAll] = useState(false)
 
   useEffect(() => {
     setShowAll(false)
-  }, [fechaResumen])
+  }, [fechaResumen, title])
 
   const total = acciones.length
   const hasMore = total > ACCIONES_VISTA_INICIAL
-  const ocultas = total - ACCIONES_VISTA_INICIAL
+  const hiddenCount = total - ACCIONES_VISTA_INICIAL
 
   const accionesVisibles = useMemo(() => {
     if (showAll || !hasMore) return acciones
     return acciones.slice(0, ACCIONES_VISTA_INICIAL)
   }, [acciones, showAll, hasMore])
 
-  const subtitle = `${total} acción${total !== 1 ? 'es' : ''} · ${fechaResumen}`
+  const subtitle = subtitleOverride ?? `${total} accion${total !== 1 ? 'es' : ''} · ${fechaResumen}`
 
   return (
     <div id="dashboard-actions-section" className="dashboard-actions-section">
@@ -58,29 +61,36 @@ export function DashboardActionsSection({
         <SectionCardHeader
           className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
           icon={ClipboardList}
-          eyebrow="Operación"
-          title="Acciones del día"
+          eyebrow={eyebrow}
+          title={title}
           subtitle={subtitle}
           action={
-            hasMore ? (
-              <Badge
-                variant="secondary"
-                className={cn(
-                  'w-full justify-center font-medium tabular-nums sm:w-auto',
-                  showAll
-                    ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100'
-                    : 'border-primary/20 bg-primary/10 text-primary'
-                )}
-              >
-                {showAll ? (
-                  <>Lista completa · {total}</>
-                ) : (
-                  <>
-                    Resumen · {ACCIONES_VISTA_INICIAL}/{total}
-                  </>
-                )}
-              </Badge>
-            ) : null
+            <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+              {onClearDrillDown ? (
+                <Button type="button" variant="outline" size="sm" className="h-8" onClick={onClearDrillDown}>
+                  Ver filtro normal
+                </Button>
+              ) : null}
+              {hasMore ? (
+                <Badge
+                  variant="secondary"
+                  className={cn(
+                    'justify-center font-medium tabular-nums',
+                    showAll
+                      ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100'
+                      : 'border-primary/20 bg-primary/10 text-primary'
+                  )}
+                >
+                  {showAll ? (
+                    <>Lista completa · {total}</>
+                  ) : (
+                    <>
+                      Resumen · {ACCIONES_VISTA_INICIAL}/{total}
+                    </>
+                  )}
+                </Badge>
+              ) : null}
+            </div>
           }
         />
         <SectionCardBody className="p-0">
@@ -93,8 +103,8 @@ export function DashboardActionsSection({
               responsableNames={responsableNames}
               checklistProgressByAccionId={checklistProgressByAccionId}
               indicadoresMode="checklist"
-              emptyMessage="No hay acciones registradas para esta fecha."
-              emptyActionLabel="Crear acción"
+              emptyMessage="No hay acciones para este criterio."
+              emptyActionLabel="Crear accion"
               onEmptyAction={onNewAction}
             />
             {hasMore && !showAll && !isLoading ? (
@@ -115,7 +125,7 @@ export function DashboardActionsSection({
                     </span>
                   ) : (
                     <span>
-                      <span className="font-semibold text-foreground">{ocultas}</span> más en la lista.
+                      <span className="font-semibold text-foreground">{hiddenCount}</span> mas en la lista.
                     </span>
                   )}
                 </p>
@@ -140,7 +150,7 @@ export function DashboardActionsSection({
                     <>
                       Mostrar todas
                       <span className="rounded-md bg-primary-foreground/15 px-1.5 py-0.5 text-xs font-bold tabular-nums">
-                        +{ocultas}
+                        +{hiddenCount}
                       </span>
                       <ChevronDown className="h-4 w-4 opacity-80" aria-hidden />
                     </>
