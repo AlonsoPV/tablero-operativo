@@ -17,7 +17,24 @@ type JsonResponse = {
   json(payload: unknown): void
 }
 
-const AI21_ENDPOINT = 'https://api.ai21.com/studio/v1/chat/completions'
+type GeminiContent = {
+  role: 'user' | 'model'
+  parts: Array<{ text: string }>
+}
+
+type GeminiResponse = {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{ text?: string }>
+    }
+    finishReason?: string
+  }>
+  promptFeedback?: {
+    blockReason?: string
+  }
+}
+
+const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
 
 const SYSTEM_PROMPTS: Record<AssistantMode, string> = {
   agile_eos_scalingup: `
@@ -133,6 +150,21 @@ function sanitizeMessages(messages: ChatMessage[]) {
     }))
 }
 
+function toGeminiContents(messages: ReturnType<typeof sanitizeMessages>): GeminiContent[] {
+  return messages.map((message) => ({
+    role: message.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: message.content }],
+  }))
+}
+
+function getGeminiText(data: GeminiResponse) {
+  return data.candidates?.[0]?.content?.parts
+    ?.map((part) => part.text)
+    .filter((text): text is string => Boolean(text))
+    .join('')
+    .trim()
+}
+
 export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
   const res = asJsonResponse(serverRes)
 
@@ -141,11 +173,11 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       return res.status(405).json({ error: 'Metodo no permitido. Usa POST.' })
     }
 
-    const apiKey = process.env.AI21_API_KEY
+    const apiKey = process.env.GEMINI_API_KEY
 
     if (!apiKey) {
       return res.status(500).json({
-        error: 'Falta configurar AI21_API_KEY en variables de entorno.',
+        error: 'Falta configurar GEMINI_API_KEY en variables de entorno.',
       })
     }
 
@@ -174,45 +206,61 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       return res.status(400).json({ error: 'El mensaje no puede estar vacio.' })
     }
 
-    const response = await fetch(AI21_ENDPOINT, {
+    const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+    const url = `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: process.env.AI21_MODEL || 'jamba-mini',
-        messages: [
-          {
-            role: 'system',
-            content: SYSTEM_PROMPTS[mode],
-          },
-          ...cleanMessages,
-        ],
-        max_tokens: Number(process.env.AI21_MAX_TOKENS || 900),
-        temperature: Number(process.env.AI21_TEMPERATURE || 0.25),
+        systemInstruction: {
+          parts: [{ text: SYSTEM_PROMPTS[mode] }],
+        },
+        contents: toGeminiContents(cleanMessages),
+        generationConfig: {
+          maxOutputTokens: Number(process.env.GEMINI_MAX_TOKENS || 900),
+          temperature: Number(process.env.GEMINI_TEMPERATURE || 0.25),
+        },
       }),
     })
 
     if (!response.ok) {
       const errorText = await response.text()
 
-      console.error('AI21 API Error:', {
+      console.error('Gemini API Error:', {
         status: response.status,
         body: errorText,
       })
 
-      return res.status(response.status).json({
+      if (response.status === 400 || response.status === 401 || response.status === 403) {
+        return res.status(502).json({
+          error:
+            'Gemini rechazo la solicitud. Revisa GEMINI_API_KEY y GEMINI_MODEL en Vercel.',
+        })
+      }
+
+      if (response.status === 429) {
+        return res.status(503).json({
+          error: 'Gemini esta limitando las solicitudes. Intenta nuevamente en unos minutos.',
+        })
+      }
+
+      return res.status(502).json({
         error: 'No se pudo obtener respuesta del asistente. Intenta nuevamente.',
       })
     }
 
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>
+    const data = (await response.json()) as GeminiResponse
+
+    if (data.promptFeedback?.blockReason) {
+      return res.status(400).json({
+        error: 'Gemini bloqueo la solicitud por politicas de seguridad.',
+      })
     }
 
-    const content =
-      data?.choices?.[0]?.message?.content || 'No pude generar una respuesta en este momento.'
+    const content = getGeminiText(data) || 'No pude generar una respuesta en este momento.'
 
     return res.status(200).json({ answer: content })
   } catch (error) {

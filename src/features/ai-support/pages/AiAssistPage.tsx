@@ -17,7 +17,7 @@ async function sendMessage({
   mode: AssistantModeId
   messages: AiChatMessage[]
 }) {
-  const response = await fetch('/api/ai21-chat', {
+  const response = await fetch('/api/gemini-chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -23,7 +23,7 @@ cp .env.example .env
 
 **Frontend (Vite):** en `.env` defínelas con prefijo `VITE_` — `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (Dashboard → Settings → API). Esas variables se inyectan en el **build**; **no** van en Supabase Secrets.
 
-**Vercel Serverless Functions:** el asistente `/asistente-ia` usa `/api/ai21-chat`. Configura `AI21_API_KEY` en **Vercel -> Project Settings -> Environment Variables**. Opcionales: `AI21_MODEL` (`jamba-mini`), `AI21_MAX_TOKENS` (`900`) y `AI21_TEMPERATURE` (`0.25`). No uses `VITE_AI21_API_KEY`.
+**Vercel Serverless Functions:** el asistente `/asistente-ia` usa `/api/gemini-chat`. Configura `GEMINI_API_KEY` en **Vercel -> Project Settings -> Environment Variables**. Opcionales: `GEMINI_MODEL` (`gemini-2.0-flash`), `GEMINI_MAX_TOKENS` (`900`) y `GEMINI_TEMPERATURE` (`0.25`). No uses `VITE_GEMINI_API_KEY`.
 
 **Edge Functions:** API keys y rol de servicio del **backend Supabase** se configuran en **Supabase → Edge Functions → Secrets** (nombres **sin** `VITE_`), no en variables `VITE_*`.
 
@@ -68,7 +68,7 @@ src/
 
 1. Conecta el repositorio en [Vercel](https://vercel.com).
 2. Añade las variables **`VITE_*`** del frontend (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) en el proyecto de Vercel.
-3. Añade las variables serverless del asistente AI21 en Vercel: `AI21_API_KEY` obligatoria, y opcionalmente `AI21_MODEL`, `AI21_MAX_TOKENS`, `AI21_TEMPERATURE`. No llevan prefijo `VITE_`.
+3. Añade las variables serverless del asistente Gemini en Vercel: `GEMINI_API_KEY` obligatoria, y opcionalmente `GEMINI_MODEL`, `GEMINI_MAX_TOKENS`, `GEMINI_TEMPERATURE`. No llevan prefijo `VITE_`.
 4. Los **secrets** de Edge Functions de Supabase se configuran en el **Dashboard de Supabase**, no como variables `VITE_*` (ver [docs/environment-variables.md](docs/environment-variables.md)).
 5. El build usa por defecto `npm run build` y el directorio de salida `dist`.
 

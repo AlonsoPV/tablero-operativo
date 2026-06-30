@@ -1,6 +1,6 @@
 # Variables de entorno en Vercel
 
-Configura aquí las variables del **build de Vite** (prefijo `VITE_*`) y los secretos de **Vercel Serverless Functions** que usa el deploy web, como `AI21_API_KEY`.
+Configura aquí las variables del **build de Vite** (prefijo `VITE_*`) y los secretos de **Vercel Serverless Functions** que usa el deploy web, como `GEMINI_API_KEY`.
 
 Los **secrets** de Edge Functions de Supabase (`SUPABASE_SERVICE_ROLE_KEY`, `LOVABLE_API_KEY`, `OPENAI_API_KEY`, etc.) van en **Supabase → Edge Functions → Secrets**, nunca como variables `VITE_*`.
 
@@ -23,16 +23,16 @@ En **Vercel → tu proyecto → Settings → Environment Variables**, añade par
 
 ## Asistente IA en Vercel
 
-El endpoint `/api/ai21-chat` se ejecuta en Vercel y llama a AI21 Studio desde servidor. Configura estas variables en **Vercel → tu proyecto → Settings → Environment Variables**:
+El endpoint `/api/gemini-chat` se ejecuta en Vercel y llama a Gemini desde servidor. Configura estas variables en **Vercel → tu proyecto → Settings → Environment Variables**:
 
 | Variable | Valor |
 |----------|--------|
-| `AI21_API_KEY` | API key real de AI21 Studio. Obligatoria. |
-| `AI21_MODEL` | Opcional. Por defecto `jamba-mini`. |
-| `AI21_MAX_TOKENS` | Opcional. Por defecto `900`. |
-| `AI21_TEMPERATURE` | Opcional. Por defecto `0.25`. |
+| `GEMINI_API_KEY` | API key real de Google AI Studio / Gemini API. Obligatoria. |
+| `GEMINI_MODEL` | Opcional. Por defecto `gemini-2.0-flash`. |
+| `GEMINI_MAX_TOKENS` | Opcional. Por defecto `900`. |
+| `GEMINI_TEMPERATURE` | Opcional. Por defecto `0.25`. |
 
-No uses `VITE_AI21_API_KEY`: cualquier variable con prefijo `VITE_` queda expuesta al navegador.
+No uses `VITE_GEMINI_API_KEY`: cualquier variable con prefijo `VITE_` queda expuesta al navegador.
 
 ## Comprobar
 
