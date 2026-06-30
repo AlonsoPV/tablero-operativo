@@ -35,6 +35,10 @@ type GeminiResponse = {
 }
 
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
+const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
+const DEFAULT_MAX_OUTPUT_TOKENS = 1400
+const DEFAULT_TEMPERATURE = 0.25
+const DEFAULT_TIMEOUT_MS = 25000
 
 const SYSTEM_PROMPTS: Record<AssistantMode, string> = {
   agile_eos_scalingup: `
@@ -165,6 +169,30 @@ function getGeminiText(data: GeminiResponse) {
     .trim()
 }
 
+function normalizeGeminiModel(model: string) {
+  return model.trim().replace(/^models\//, '') || DEFAULT_GEMINI_MODEL
+}
+
+function readNumberEnv(name: string, fallback: number) {
+  const value = Number(process.env[name])
+  return Number.isFinite(value) && value >= 0 ? value : fallback
+}
+
+function readGeminiError(errorText: string) {
+  try {
+    const parsed = JSON.parse(errorText) as {
+      error?: {
+        message?: string
+        status?: string
+      }
+    }
+
+    return [parsed.error?.status, parsed.error?.message].filter(Boolean).join(': ')
+  } catch {
+    return errorText.trim().slice(0, 220)
+  }
+}
+
 export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
   const res = asJsonResponse(serverRes)
 
@@ -206,38 +234,48 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       return res.status(400).json({ error: 'El mensaje no puede estar vacio.' })
     }
 
-    const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+    const model = normalizeGeminiModel(process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL)
     const url = `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), readNumberEnv('GEMINI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS))
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: SYSTEM_PROMPTS[mode] }],
+    let response: Response
+
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        contents: toGeminiContents(cleanMessages),
-        generationConfig: {
-          maxOutputTokens: Number(process.env.GEMINI_MAX_TOKENS || 900),
-          temperature: Number(process.env.GEMINI_TEMPERATURE || 0.25),
-        },
-      }),
-    })
+        signal: controller.signal,
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: SYSTEM_PROMPTS[mode] }],
+          },
+          contents: toGeminiContents(cleanMessages),
+          generationConfig: {
+            maxOutputTokens: readNumberEnv('GEMINI_MAX_TOKENS', DEFAULT_MAX_OUTPUT_TOKENS),
+            temperature: readNumberEnv('GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE),
+          },
+        }),
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
 
     if (!response.ok) {
       const errorText = await response.text()
+      const safeReason = readGeminiError(errorText)
 
       console.error('Gemini API Error:', {
         status: response.status,
-        body: errorText,
+        model,
+        reason: safeReason,
       })
 
-      if (response.status === 400 || response.status === 401 || response.status === 403) {
+      if ([400, 401, 403, 404].includes(response.status)) {
         return res.status(502).json({
-          error:
-            'Gemini rechazo la solicitud. Revisa GEMINI_API_KEY y GEMINI_MODEL en Vercel.',
+          error: `Gemini rechazo la solicitud (${response.status}). Revisa GEMINI_API_KEY, GEMINI_MODEL y permisos del proyecto.`,
         })
       }
 
@@ -260,10 +298,34 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       })
     }
 
-    const content = getGeminiText(data) || 'No pude generar una respuesta en este momento.'
+    const finishReason = data.candidates?.[0]?.finishReason
+    const text = getGeminiText(data)
+
+    if (!text) {
+      console.error('Gemini empty response:', {
+        model,
+        finishReason,
+        blockReason: data.promptFeedback?.blockReason,
+      })
+
+      return res.status(502).json({
+        error: 'Gemini no regreso contenido util. Intenta con una pregunta mas corta o vuelve a intentar.',
+      })
+    }
+
+    const content =
+      finishReason === 'MAX_TOKENS'
+        ? `${text}\n\nNota: la respuesta se corto por limite de longitud. Puedes pedirme que continue.`
+        : text
 
     return res.status(200).json({ answer: content })
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      return res.status(504).json({
+        error: 'Gemini tardo demasiado en responder. Intenta de nuevo con una pregunta mas concreta.',
+      })
+    }
+
     console.error('AI assistant error:', error)
 
     return res.status(500).json({

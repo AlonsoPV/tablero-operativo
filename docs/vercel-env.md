@@ -29,8 +29,9 @@ El endpoint `/api/gemini-chat` se ejecuta en Vercel y llama a Gemini desde servi
 |----------|--------|
 | `GEMINI_API_KEY` | API key real de Google AI Studio / Gemini API. Obligatoria. |
 | `GEMINI_MODEL` | Opcional. Por defecto `gemini-2.0-flash`. |
-| `GEMINI_MAX_TOKENS` | Opcional. Por defecto `900`. |
+| `GEMINI_MAX_TOKENS` | Opcional. Por defecto `1400`. |
 | `GEMINI_TEMPERATURE` | Opcional. Por defecto `0.25`. |
+| `GEMINI_TIMEOUT_MS` | Opcional. Por defecto `25000`. |
 
 No uses `VITE_GEMINI_API_KEY`: cualquier variable con prefijo `VITE_` queda expuesta al navegador.
 
