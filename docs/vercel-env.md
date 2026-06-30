@@ -1,6 +1,8 @@
 # Variables de entorno en Vercel
 
-Solo configura aquí las variables del **build de Vite** (prefijo `VITE_*`). Los **secrets** de Edge Functions (`SUPABASE_SERVICE_ROLE_KEY`, `LOVABLE_API_KEY`, `OPENAI_API_KEY`, etc.) van en **Supabase → Edge Functions → Secrets**, nunca en Vercel y **nunca** con prefijo `VITE_`.
+Configura aquí las variables del **build de Vite** (prefijo `VITE_*`) y los secretos de **Vercel Serverless Functions** que usa el deploy web, como `AI21_API_KEY`.
+
+Los **secrets** de Edge Functions de Supabase (`SUPABASE_SERVICE_ROLE_KEY`, `LOVABLE_API_KEY`, `OPENAI_API_KEY`, etc.) van en **Supabase → Edge Functions → Secrets**, nunca como variables `VITE_*`.
 
 Guía general: [environment-variables.md](./environment-variables.md).
 
@@ -18,6 +20,19 @@ En **Vercel → tu proyecto → Settings → Environment Variables**, añade par
 **Importante:** las variables que empiezan por `VITE_` se inyectan en **tiempo de build**. Después de crear o cambiar variables, ejecuta un **nuevo deploy** (Redeploy).
 
 **Incorrecto:** `npx supabase secrets set VITE_SUPABASE_URL=...` — Supabase Secrets no son para variables Vite; y no copies `service_role` a Vercel.
+
+## Asistente IA en Vercel
+
+El endpoint `/api/ai21-chat` se ejecuta en Vercel y llama a AI21 Studio desde servidor. Configura estas variables en **Vercel → tu proyecto → Settings → Environment Variables**:
+
+| Variable | Valor |
+|----------|--------|
+| `AI21_API_KEY` | API key real de AI21 Studio. Obligatoria. |
+| `AI21_MODEL` | Opcional. Por defecto `jamba-mini`. |
+| `AI21_MAX_TOKENS` | Opcional. Por defecto `900`. |
+| `AI21_TEMPERATURE` | Opcional. Por defecto `0.25`. |
+
+No uses `VITE_AI21_API_KEY`: cualquier variable con prefijo `VITE_` queda expuesta al navegador.
 
 ## Comprobar
 
