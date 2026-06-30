@@ -26,6 +26,7 @@ describe('role route permissions', () => {
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_ACADEMY_MODULES)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS_KPIS)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(true)
     expect(canManageAcademyModulesByRole(role)).toBe(true)
     expect(usesOperationalDashboardByRole(role)).toBe(true)
   })
@@ -36,12 +37,12 @@ describe('role route permissions', () => {
     expect(canAccessRouteByRole(role, ROUTES.ESTRATEGIA)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.DASHBOARD_KPIS)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.REPORTES)).toBe(false)
-    expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(false)
   })
 
   it('keeps Operativo limited to profile inside settings', () => {
     const role = 'Operativo'
 
+    expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_PROFILE)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_USERS)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_ACADEMY_MODULES)).toBe(false)
@@ -53,15 +54,17 @@ describe('role route permissions', () => {
 
     expect(canAccessRouteByRole(role, ROUTES.DASHBOARD)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.KANBAN)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_USERS)).toBe(false)
     expect(usesOperationalDashboardByRole(role)).toBe(true)
     expect(getDefaultRouteByRole(role)).toBe(ROUTES.KANBAN)
   })
 
-  it('keeps Analista limited to Kanban only', () => {
+  it('keeps Analista limited to Kanban and AI assistant only', () => {
     const role = 'Analista'
 
     expect(canAccessRouteByRole(role, ROUTES.KANBAN)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.DASHBOARD)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.DISCIPLINA)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.CALENDARIO)).toBe(false)

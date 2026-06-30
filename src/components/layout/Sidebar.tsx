@@ -48,6 +48,7 @@ const navGroups: NavGroup[] = [
       { to: ROUTES.ACADEMIA, label: 'Academia O2C', icon: GraduationCap },
       { to: ROUTES.TICKETS, label: 'Tickets', icon: LifeBuoy },
       { to: ROUTES.MANUAL, label: 'Manual', icon: BookOpen },
+      { to: ROUTES.AI_ASSIST, label: 'IA O2C', icon: Sparkles },
       { to: ROUTES.SPRINTS, label: 'Sprint Center', icon: TimerReset },
       { to: ROUTES.REPORTES, label: 'Reportes', icon: FileBarChart },
     ],
@@ -56,7 +57,6 @@ const navGroups: NavGroup[] = [
     label: 'Por Liberar',
     items: [
       { to: ROUTES.ESTRATEGIA, label: 'Alineación estratégica', icon: Map },
-      { to: ROUTES.AI_ASSIST, label: 'IA O2C', icon: Sparkles },
       { to: ROUTES.DASHBOARD_KPIS, label: 'KPIs O2C', icon: LineChart },
       { to: ROUTES.DASHBOARD_GAPS, label: 'Gaps O2C', icon: FolderKanban },
       { to: ROUTES.DASHBOARD_IMPACTO, label: 'Matriz de Impacto', icon: BarChart3 },
