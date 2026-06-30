@@ -35,10 +35,12 @@ type GeminiResponse = {
 }
 
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
-const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
-const DEFAULT_MAX_OUTPUT_TOKENS = 1400
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite'
+const DEFAULT_MAX_OUTPUT_TOKENS = 700
 const DEFAULT_TEMPERATURE = 0.25
-const DEFAULT_TIMEOUT_MS = 25000
+const DEFAULT_TIMEOUT_MS = 20000
+const MAX_CONTEXT_MESSAGES = 8
+const MAX_MESSAGE_CHARS = 3000
 
 const SYSTEM_PROMPTS: Record<AssistantMode, string> = {
   agile_eos_scalingup: `
@@ -69,6 +71,12 @@ REGLAS DE RESPUESTA:
 - Da pasos accionables, no teoria excesiva.
 - Cuando sea util, estructura la respuesta en: diagnostico, recomendacion y siguiente accion.
 - Manten respuestas breves, ejecutivas y aplicables.
+- Responde en maximo 220 palabras salvo que el usuario pida mas detalle.
+- No uses formato Markdown.
+- No uses simbolos # ni *.
+- Usa texto limpio con etiquetas simples como Diagnostico:, Recomendacion: y Siguiente accion:.
+- Si necesitas listar pasos, usa numeros: 1., 2., 3.
+- Si la respuesta requiere mas detalle, cierra con: "Puedo continuar con un plan mas detallado si lo necesitas."
 `,
 
   logistics: `
@@ -99,6 +107,12 @@ REGLAS DE RESPUESTA:
 - Da recomendaciones accionables.
 - Cuando sea util, estructura la respuesta en: problema detectado, causa probable, recomendacion y KPI sugerido.
 - Manten respuestas breves, ejecutivas y aplicables.
+- Responde en maximo 220 palabras salvo que el usuario pida mas detalle.
+- No uses formato Markdown.
+- No uses simbolos # ni *.
+- Usa texto limpio con etiquetas simples como Problema detectado:, Causa probable:, Recomendacion: y KPI sugerido:.
+- Si necesitas listar pasos, usa numeros: 1., 2., 3.
+- Si la respuesta requiere mas detalle, cierra con: "Puedo continuar con un plan mas detallado si lo necesitas."
 `,
 }
 
@@ -147,10 +161,10 @@ function sanitizeMessages(messages: ChatMessage[]) {
         message.content.trim().length > 0
       )
     })
-    .slice(-12)
+    .slice(-MAX_CONTEXT_MESSAGES)
     .map((message) => ({
       role: message.role,
-      content: message.content.trim().slice(0, 4000),
+      content: message.content.trim().slice(0, MAX_MESSAGE_CHARS),
     }))
 }
 
@@ -166,6 +180,14 @@ function getGeminiText(data: GeminiResponse) {
     ?.map((part) => part.text)
     .filter((text): text is string => Boolean(text))
     .join('')
+    .trim()
+}
+
+function cleanAssistantText(text: string) {
+  return text
+    .replace(/[#*]/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
@@ -313,10 +335,11 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       })
     }
 
-    const content =
+    const rawContent =
       finishReason === 'MAX_TOKENS'
         ? `${text}\n\nNota: la respuesta se corto por limite de longitud. Puedes pedirme que continue.`
         : text
+    const content = cleanAssistantText(rawContent)
 
     return res.status(200).json({ answer: content })
   } catch (error) {

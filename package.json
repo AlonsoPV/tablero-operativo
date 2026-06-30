@@ -13,6 +13,7 @@
     "supabase:deploy": "npx supabase@latest functions deploy calculate-distance",
     "supabase:deploy:all": "npx supabase@latest functions deploy calculate-distance && npx supabase@latest functions deploy invite-user && npx supabase@latest functions deploy academy-generate-quiz && npx supabase@latest functions deploy send-notification-email && npx supabase@latest functions deploy google-workspace-sync && npx supabase@latest functions deploy google-reminder-complete",
     "supabase:link:dev": "npx supabase link --project-ref tgiuevzlyptzlfgxsfhj",
+    "supabase:link:prod": "npx supabase link --project-ref xhpasmjzuwifmjhrsumb",
     "supabase:db:push:dev": "npx supabase db push --linked",
     "academy:generate-pdfs": "node scripts/generate-academy-module-pdfs.mjs",
     "academy:audit-storage": "node scripts/audit-academy-storage.mjs",

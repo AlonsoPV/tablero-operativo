@@ -23,7 +23,7 @@ cp .env.example .env
 
 **Frontend (Vite):** en `.env` defínelas con prefijo `VITE_` — `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (Dashboard → Settings → API). Esas variables se inyectan en el **build**; **no** van en Supabase Secrets.
 
-**Vercel Serverless Functions:** el asistente `/asistente-ia` usa `/api/gemini-chat`. Configura `GEMINI_API_KEY` en **Vercel -> Project Settings -> Environment Variables**. Opcionales: `GEMINI_MODEL` (`gemini-2.0-flash`), `GEMINI_MAX_TOKENS` (`1400`), `GEMINI_TEMPERATURE` (`0.25`) y `GEMINI_TIMEOUT_MS` (`25000`). No uses `VITE_GEMINI_API_KEY`.
+**Vercel Serverless Functions:** el asistente `/asistente-ia` usa `/api/gemini-chat`. Configura `GEMINI_API_KEY` en **Vercel -> Project Settings -> Environment Variables**. Opcionales: `GEMINI_MODEL` (`gemini-2.5-flash-lite`), `GEMINI_MAX_TOKENS` (`700`), `GEMINI_TEMPERATURE` (`0.25`) y `GEMINI_TIMEOUT_MS` (`20000`). No uses `VITE_GEMINI_API_KEY`.
 
 **Edge Functions:** API keys y rol de servicio del **backend Supabase** se configuran en **Supabase → Edge Functions → Secrets** (nombres **sin** `VITE_`), no en variables `VITE_*`.
 
@@ -71,6 +71,18 @@ src/
 3. Añade las variables serverless del asistente Gemini en Vercel: `GEMINI_API_KEY` obligatoria, y opcionalmente `GEMINI_MODEL`, `GEMINI_MAX_TOKENS`, `GEMINI_TEMPERATURE`, `GEMINI_TIMEOUT_MS`. No llevan prefijo `VITE_`.
 4. Los **secrets** de Edge Functions de Supabase se configuran en el **Dashboard de Supabase**, no como variables `VITE_*` (ver [docs/environment-variables.md](docs/environment-variables.md)).
 5. El build usa por defecto `npm run build` y el directorio de salida `dist`.
+
+Para productivo de Scrumban, usa el proyecto Supabase `xhpasmjzuwifmjhrsumb`:
+
+```env
+VITE_SUPABASE_URL=https://xhpasmjzuwifmjhrsumb.supabase.co
+GEMINI_MODEL=gemini-2.5-flash-lite
+GEMINI_MAX_TOKENS=700
+GEMINI_TEMPERATURE=0.25
+GEMINI_TIMEOUT_MS=20000
+```
+
+La clave `VITE_SUPABASE_ANON_KEY` debe ser la `anon public` del proyecto productivo. La clave `GEMINI_API_KEY` se configura en Vercel sin prefijo `VITE_`.
 
 La configuración está en `vercel.json` (SPA: todas las rutas reescriben a `index.html`, excepto `/api/*`, assets y docs).
 

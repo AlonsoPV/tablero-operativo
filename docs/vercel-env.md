@@ -17,6 +17,14 @@ En **Vercel → tu proyecto → Settings → Environment Variables**, añade par
 | `VITE_SUPABASE_URL` | `https://<ref>.supabase.co` (Dashboard → Project Settings → API) |
 | `VITE_SUPABASE_ANON_KEY` | Clave `anon` `public` (misma pantalla) |
 
+Para productivo de Scrumban usa:
+
+| Variable | Valor |
+|----------|--------|
+| `VITE_SUPABASE_URL` | `https://xhpasmjzuwifmjhrsumb.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | Clave `anon` `public` del proyecto `xhpasmjzuwifmjhrsumb` |
+| `VITE_APP_URL` | URL publica del deploy productivo de Vercel |
+
 **Importante:** las variables que empiezan por `VITE_` se inyectan en **tiempo de build**. Después de crear o cambiar variables, ejecuta un **nuevo deploy** (Redeploy).
 
 **Incorrecto:** `npx supabase secrets set VITE_SUPABASE_URL=...` — Supabase Secrets no son para variables Vite; y no copies `service_role` a Vercel.
@@ -28,12 +36,21 @@ El endpoint `/api/gemini-chat` se ejecuta en Vercel y llama a Gemini desde servi
 | Variable | Valor |
 |----------|--------|
 | `GEMINI_API_KEY` | API key real de Google AI Studio / Gemini API. Obligatoria. |
-| `GEMINI_MODEL` | Opcional. Por defecto `gemini-2.0-flash`. |
-| `GEMINI_MAX_TOKENS` | Opcional. Por defecto `1400`. |
+| `GEMINI_MODEL` | Opcional. Por defecto `gemini-2.5-flash-lite`. |
+| `GEMINI_MAX_TOKENS` | Opcional. Por defecto `700`. |
 | `GEMINI_TEMPERATURE` | Opcional. Por defecto `0.25`. |
-| `GEMINI_TIMEOUT_MS` | Opcional. Por defecto `25000`. |
+| `GEMINI_TIMEOUT_MS` | Opcional. Por defecto `20000`. |
 
 No uses `VITE_GEMINI_API_KEY`: cualquier variable con prefijo `VITE_` queda expuesta al navegador.
+
+Valores recomendados para productivo:
+
+| Variable | Valor |
+|----------|--------|
+| `GEMINI_MODEL` | `gemini-2.5-flash-lite` |
+| `GEMINI_MAX_TOKENS` | `700` |
+| `GEMINI_TEMPERATURE` | `0.25` |
+| `GEMINI_TIMEOUT_MS` | `20000` |
 
 ## Comprobar
 
