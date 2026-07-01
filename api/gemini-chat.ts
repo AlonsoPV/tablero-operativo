@@ -7,6 +7,23 @@ type ChatMessage = {
   content: string
 }
 
+type ActionContext = {
+  id?: unknown
+  titulo?: unknown
+  descripcion?: unknown
+  estado?: unknown
+  prioridad?: unknown
+  fechaCompromiso?: unknown
+  horaLimite?: unknown
+  evidenciaEsperada?: unknown
+  kpiAfectado?: unknown
+  okrImpactado?: unknown
+  proceso?: unknown
+  area?: unknown
+  causaRaiz?: unknown
+  notasEscalamiento?: unknown
+}
+
 type VercelRequestLike = IncomingMessage & {
   body?: unknown
   method?: string
@@ -41,6 +58,7 @@ const DEFAULT_TEMPERATURE = 0.25
 const DEFAULT_TIMEOUT_MS = 20000
 const MAX_CONTEXT_MESSAGES = 8
 const MAX_MESSAGE_CHARS = 3000
+const MAX_ACTION_CONTEXT_CHARS = 1800
 
 const SYSTEM_PROMPTS: Record<AssistantMode, string> = {
   agile_eos_scalingup: `
@@ -77,6 +95,15 @@ REGLAS DE RESPUESTA:
 - Usa texto limpio con etiquetas simples como Diagnostico:, Recomendacion: y Siguiente accion:.
 - Si necesitas listar pasos, usa numeros: 1., 2., 3.
 - Si la respuesta requiere mas detalle, cierra con: "Puedo continuar con un plan mas detallado si lo necesitas."
+
+CONTEXTO DE ACCION:
+- Si recibes una accion seleccionada por el usuario, usala como contexto principal.
+- Cuando hay accion seleccionada, responde solo sobre validar, abordar, desbloquear, priorizar, evidenciar o cerrar esa accion.
+- Si la pregunta no se relaciona con esa accion ni con su cierre, pide al usuario reformularla hacia la accion seleccionada.
+- Ayuda a validar como abordar, desbloquear o cerrar esa accion con buena calidad.
+- Recomienda evidencia, pasos de cierre, riesgos, responsables involucrados y siguiente movimiento.
+- No digas que la accion esta cerrada si el estado no lo confirma.
+- No inventes informacion que no venga en la accion o en la pregunta.
 `,
 
   logistics: `
@@ -113,6 +140,15 @@ REGLAS DE RESPUESTA:
 - Usa texto limpio con etiquetas simples como Problema detectado:, Causa probable:, Recomendacion: y KPI sugerido:.
 - Si necesitas listar pasos, usa numeros: 1., 2., 3.
 - Si la respuesta requiere mas detalle, cierra con: "Puedo continuar con un plan mas detallado si lo necesitas."
+
+CONTEXTO DE ACCION:
+- Si recibes una accion seleccionada por el usuario, usala como contexto principal.
+- Cuando hay accion seleccionada, responde solo sobre validar, abordar, desbloquear, priorizar, evidenciar o cerrar esa accion.
+- Si la pregunta no se relaciona con esa accion ni con su cierre, pide al usuario reformularla hacia la accion seleccionada.
+- Ayuda a validar como abordar, desbloquear o cerrar esa accion con buena calidad operativa.
+- Recomienda evidencia, pasos de cierre, riesgos, responsables involucrados y siguiente movimiento.
+- No digas que la accion esta cerrada si el estado no lo confirma.
+- No inventes informacion que no venga en la accion o en la pregunta.
 `,
 }
 
@@ -173,6 +209,56 @@ function toGeminiContents(messages: ReturnType<typeof sanitizeMessages>): Gemini
     role: message.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: message.content }],
   }))
+}
+
+function readString(value: unknown, maxLength = 240) {
+  return typeof value === 'string' ? value.trim().slice(0, maxLength) : ''
+}
+
+function sanitizeActionContext(actionContext: unknown) {
+  if (!actionContext || typeof actionContext !== 'object') return ''
+
+  const action = actionContext as ActionContext
+  const rows = [
+    ['ID', readString(action.id, 80)],
+    ['Titulo', readString(action.titulo)],
+    ['Descripcion', readString(action.descripcion, 700)],
+    ['Estado', readString(action.estado, 80)],
+    ['Prioridad', readString(action.prioridad, 80)],
+    ['Fecha compromiso', readString(action.fechaCompromiso, 40)],
+    ['Hora limite', readString(action.horaLimite, 40)],
+    ['Evidencia esperada', readString(action.evidenciaEsperada, 300)],
+    ['KPI afectado', readString(action.kpiAfectado, 160)],
+    ['OKR impactado', readString(action.okrImpactado, 160)],
+    ['Proceso', readString(action.proceso, 160)],
+    ['Area', readString(action.area, 160)],
+    ['Causa raiz', readString(action.causaRaiz, 300)],
+    ['Notas escalamiento', readString(action.notasEscalamiento, 300)],
+  ].filter(([, value]) => value.length > 0)
+
+  if (rows.length === 0) return ''
+
+  return [
+    'Accion seleccionada por el usuario para recibir asesoria:',
+    ...rows.map(([label, value]) => `${label}: ${value}`),
+  ].join('\n').slice(0, MAX_ACTION_CONTEXT_CHARS)
+}
+
+function appendActionContext(
+  messages: ReturnType<typeof sanitizeMessages>,
+  actionContext: unknown
+): ReturnType<typeof sanitizeMessages> {
+  const context = sanitizeActionContext(actionContext)
+  if (!context || messages.length === 0) return messages
+
+  const next = [...messages]
+  const lastIndex = next.length - 1
+  const last = next[lastIndex]
+  next[lastIndex] = {
+    ...last,
+    content: `${context}\n\nPregunta del usuario:\n${last.content}`.slice(0, MAX_MESSAGE_CHARS + MAX_ACTION_CONTEXT_CHARS),
+  }
+  return next
 }
 
 function getGeminiText(data: GeminiResponse) {
@@ -237,9 +323,10 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       return res.status(400).json({ error: 'Solicitud invalida.' })
     }
 
-    const { mode, messages } = body as {
+    const { mode, messages, actionContext } = body as {
       mode?: unknown
       messages?: unknown
+      actionContext?: unknown
     }
 
     if (!isAssistantMode(mode)) {
@@ -250,7 +337,7 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       return res.status(400).json({ error: 'Debes enviar al menos un mensaje.' })
     }
 
-    const cleanMessages = sanitizeMessages(messages as ChatMessage[])
+    const cleanMessages = appendActionContext(sanitizeMessages(messages as ChatMessage[]), actionContext)
 
     if (cleanMessages.length === 0) {
       return res.status(400).json({ error: 'El mensaje no puede estar vacio.' })

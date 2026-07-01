@@ -5,6 +5,8 @@ import {
   buildUserActionsSummaryRows,
   filterUsersWithAssignedArea,
   hasAssignedArea,
+  summarizeAreaActionsRows,
+  summarizeUserActionsRows,
 } from './dashboardUserActionsSummary'
 
 function user(partial: Partial<UserProfile> & Pick<UserProfile, 'id' | 'nombre'>): UserProfile {
@@ -99,6 +101,68 @@ describe('dashboardUserActionsSummary', () => {
       usuarios: 1,
       abiertas: 1,
       gamificationPoints: 2,
+    })
+  })
+
+  it('summarizeUserActionsRows agrega totales visibles', () => {
+    const totals = summarizeUserActionsRows([
+      {
+        userId: 'u1',
+        nombre: 'Ana',
+        area: 'Operaciones',
+        abiertas: 3,
+        retraso: 1,
+        bloqueadas: 0,
+        gamificationPoints: 10,
+      },
+      {
+        userId: 'u2',
+        nombre: 'Luis',
+        area: 'RH',
+        abiertas: 2,
+        retraso: 0,
+        bloqueadas: 1,
+        gamificationPoints: 5,
+      },
+    ])
+
+    expect(totals).toEqual({
+      count: 2,
+      abiertas: 5,
+      retraso: 1,
+      bloqueadas: 1,
+      gamificationPoints: 15,
+    })
+  })
+
+  it('summarizeAreaActionsRows agrega totales por area', () => {
+    const totals = summarizeAreaActionsRows(buildAreaActionsSummaryRows([
+      {
+        userId: 'u1',
+        nombre: 'Ana',
+        area: 'Operaciones',
+        abiertas: 2,
+        retraso: 1,
+        bloqueadas: 0,
+        gamificationPoints: 4,
+      },
+      {
+        userId: 'u2',
+        nombre: 'Luis',
+        area: 'Operaciones',
+        abiertas: 1,
+        retraso: 0,
+        bloqueadas: 1,
+        gamificationPoints: 2,
+      },
+    ]))
+
+    expect(totals).toMatchObject({
+      count: 1,
+      abiertas: 3,
+      retraso: 1,
+      bloqueadas: 1,
+      gamificationPoints: 6,
     })
   })
 })

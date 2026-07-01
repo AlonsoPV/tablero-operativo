@@ -9,6 +9,7 @@ import { isAnalystByRole } from '@/features/auth/lib/permissions'
 import { gapActionsLogService } from '@/services/gapActionsLog.service'
 import { listGapIdsForAccion } from '@/services/accionLinks.service'
 import { usuariosService } from '@/services/usuarios.service'
+import { notificacionesService } from '@/services/notificaciones.service'
 import { assertAccionEstadoTransition } from '@/services/accionEstadoValidation.service'
 import {
   getAutoEstadoPorFechaCompromiso,
@@ -140,6 +141,47 @@ async function maybeInsertGapActionLog(prev: AccionDiaria, updated: AccionDiaria
     }
   } catch (err) {
     console.error('[acciones] gap_actions_log:', err)
+  }
+}
+
+async function maybeNotifyAssignerOnDone(prev: AccionDiaria, updated: AccionDiaria): Promise<void> {
+  if (prev.estado === updated.estado || updated.estado !== 'Hecho') return
+  const assignerId = prev.created_by ?? updated.created_by
+  if (!assignerId) return
+
+  try {
+    const actor = await resolveCurrentUsuario()
+    if (actor?.id && actor.id === assignerId) return
+
+    let responsableNombre: string | undefined
+    if (updated.responsable) {
+      try {
+        responsableNombre = (await usuariosService.getById(updated.responsable))?.nombre
+      } catch {
+        responsableNombre = undefined
+      }
+    }
+
+    await notificacionesService.create({
+      usuario_id: assignerId,
+      tipo: 'estado',
+      prioridad: 'Alta',
+      payload: {
+        titulo: 'Accion marcada como realizada',
+        titulo_accion: updated.titulo_accion ?? undefined,
+        descripcion_accion: updated.descripcion_accion ?? undefined,
+        accion_id: updated.id,
+        previous_estado: prev.estado,
+        estado: updated.estado,
+        responsable_id: updated.responsable ?? null,
+        responsable_nombre: responsableNombre,
+        autor_id: actor?.id ?? null,
+        autor_nombre: actor?.nombre ?? null,
+        mensaje: 'La accion fue marcada como realizada y esta lista para revision.',
+      },
+    })
+  } catch (err) {
+    console.warn('[acciones] No se pudo notificar al asignador al marcar realizada:', err)
   }
 }
 
@@ -433,6 +475,7 @@ export const accionesService = {
 
       const updated = await this.getById(id)
       await maybeInsertGapActionLog(prev, updated)
+      await maybeNotifyAssignerOnDone(prev, updated)
       return updated
     }
 
@@ -460,6 +503,7 @@ export const accionesService = {
 
     if (prev && nextEstado !== undefined) {
       await maybeInsertGapActionLog(prev, updated)
+      await maybeNotifyAssignerOnDone(prev, updated)
     }
 
     return updated

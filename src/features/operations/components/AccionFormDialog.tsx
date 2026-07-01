@@ -50,7 +50,7 @@ import type { AccionCreateInput, AccionFormInput } from '../schemas/accion.schem
 import { flattenDescripcionForForm } from '../utils/descripcionAccionTriada'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { Download, ExternalLink, Paperclip, FileText, Image, Mail, Trash2 } from 'lucide-react'
+import { CheckCircle2, Download, ExternalLink, Paperclip, FileText, Image, Mail, Trash2 } from 'lucide-react'
 import {
   AccionChecklistEditor,
   type LocalCheckpointDraft,
@@ -121,9 +121,19 @@ export function AccionFormDialog({
   const { data: priorities = [] } = usePriorities()
   const isAnalyst = isAnalystByRole(currentUser?.rol)
   const isSuperAdmin = isSuperAdminByRole(currentUser?.rol)
+  const isDirection = isDirectionByRole(currentUser?.rol)
   const canManageActions = canManageActionsByRole(currentUser?.rol)
   const isActionCreator = !!accionLive?.created_by && accionLive.created_by === currentUser?.id
+  const isActionResponsible = !!accionLive?.responsable && accionLive.responsable === currentUser?.id
   const canFullyEditAction = !isEdit || isActionCreator || canManageActions
+  const canMarkActionDone =
+    isEdit &&
+    !!accionLive?.id &&
+    !!currentUser?.id &&
+    !isAnalyst &&
+    accionLive.estado !== 'Hecho' &&
+    accionLive.estado !== 'Verificado' &&
+    (isSuperAdmin || isDirection || isActionCreator || isActionResponsible)
   const canDeleteAccion = isEdit && isSuperAdmin
   const isEditProtectedReadonly = isEdit && !canFullyEditAction
   const canManageChecklistStructure = isActionCreator || canManageActions
@@ -367,6 +377,30 @@ export function AccionFormDialog({
         toast.error(error instanceof Error ? error.message : 'No se pudo eliminar la accion')
       },
     })
+  }
+
+  function handleMarkActionDone() {
+    if (!accionLive?.id || !canMarkActionDone) return
+
+    updateAccion.mutate(
+      {
+        id: accionLive.id,
+        payload: {
+          estado: 'Hecho',
+          updated_by: currentUser?.id ?? null,
+        },
+      },
+      {
+        onSuccess: () => {
+          toast.success('Accion marcada como realizada')
+          refreshActionViews()
+          onSuccess?.()
+        },
+        onError: (error) => {
+          toast.error(error instanceof Error ? error.message : 'No se pudo marcar como realizada')
+        },
+      }
+    )
   }
 
   const defaultValues = useMemo((): Partial<AccionFormInput> | null => {
@@ -657,9 +691,10 @@ export function AccionFormDialog({
 
   const formBaseId = `${dialogId ?? 'accion-form-dialog'}-form`
   const showEmailButton = isEdit && !!accion
+  const showMarkDoneButton = canMarkActionDone
   const isManualNotificationPending = manualEmailPending
   const footerButtonCount =
-    2 + (showEmailButton ? 1 : 0) + (canDeleteAccion ? 1 : 0)
+    2 + (showEmailButton ? 1 : 0) + (showMarkDoneButton ? 1 : 0) + (canDeleteAccion ? 1 : 0)
   const footerActionsGridClass =
     footerButtonCount === 3 ? 'grid-cols-3' : footerButtonCount >= 4 ? 'grid-cols-2' : 'grid-cols-2'
 
@@ -955,6 +990,20 @@ export function AccionFormDialog({
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+            ) : null}
+            {showMarkDoneButton ? (
+              <Button
+                type="button"
+                variant="outline"
+                id={`${formBaseId}-mark-done`}
+                className="accion-form-dialog-mark-done h-10 w-full gap-1.5 px-2 text-xs sm:h-9 sm:text-sm"
+                onClick={handleMarkActionDone}
+                disabled={isMutating || isManualNotificationPending}
+                title="Pasar esta accion a realizada"
+              >
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                <span className="truncate">Realizado</span>
+              </Button>
             ) : null}
             {showEmailButton ? (
               <Button

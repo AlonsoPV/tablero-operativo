@@ -154,3 +154,110 @@ export function compareAreaSummaryRows(
 
   return sortDir === 'asc' ? cmp : -cmp
 }
+
+export interface ActionsSummaryTotals {
+  count: number
+  abiertas: number
+  retraso: number
+  bloqueadas: number
+  gamificationPoints: number
+}
+
+export function summarizeUserActionsRows(rows: UserActionsSummaryRow[]): ActionsSummaryTotals {
+  return rows.reduce<ActionsSummaryTotals>(
+    (totals, row) => ({
+      count: totals.count + 1,
+      abiertas: totals.abiertas + row.abiertas,
+      retraso: totals.retraso + row.retraso,
+      bloqueadas: totals.bloqueadas + row.bloqueadas,
+      gamificationPoints: totals.gamificationPoints + row.gamificationPoints,
+    }),
+    { count: 0, abiertas: 0, retraso: 0, bloqueadas: 0, gamificationPoints: 0 }
+  )
+}
+
+export function summarizeAreaActionsRows(rows: AreaActionsSummaryRow[]): ActionsSummaryTotals {
+  return rows.reduce<ActionsSummaryTotals>(
+    (totals, row) => ({
+      count: totals.count + 1,
+      abiertas: totals.abiertas + row.abiertas,
+      retraso: totals.retraso + row.retraso,
+      bloqueadas: totals.bloqueadas + row.bloqueadas,
+      gamificationPoints: totals.gamificationPoints + row.gamificationPoints,
+    }),
+    { count: 0, abiertas: 0, retraso: 0, bloqueadas: 0, gamificationPoints: 0 }
+  )
+}
+
+export function initialsFromDisplayName(nombre: string): string {
+  const parts = nombre.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toLocaleUpperCase('es')
+  return (parts[0][0] + parts[parts.length - 1][0]).toLocaleUpperCase('es')
+}
+
+export interface SummaryTotals {
+  count: number
+  abiertas: number
+  retraso: number
+  bloqueadas: number
+  gamificationPoints: number
+}
+
+export function computeUserSummaryTotals(rows: UserActionsSummaryRow[]): SummaryTotals {
+  return rows.reduce(
+    (totals, row) => ({
+      count: totals.count + 1,
+      abiertas: totals.abiertas + row.abiertas,
+      retraso: totals.retraso + row.retraso,
+      bloqueadas: totals.bloqueadas + row.bloqueadas,
+      gamificationPoints: totals.gamificationPoints + row.gamificationPoints,
+    }),
+    { count: 0, abiertas: 0, retraso: 0, bloqueadas: 0, gamificationPoints: 0 }
+  )
+}
+
+export function computeAreaSummaryTotals(rows: AreaActionsSummaryRow[]): SummaryTotals {
+  return rows.reduce(
+    (totals, row) => ({
+      count: totals.count + 1,
+      abiertas: totals.abiertas + row.abiertas,
+      retraso: totals.retraso + row.retraso,
+      bloqueadas: totals.bloqueadas + row.bloqueadas,
+      gamificationPoints: totals.gamificationPoints + row.gamificationPoints,
+    }),
+    { count: 0, abiertas: 0, retraso: 0, bloqueadas: 0, gamificationPoints: 0 }
+  )
+}
+
+export function userSummarySortLabel(sortKey: UserSummarySortKey): string {
+  switch (sortKey) {
+    case 'nombre':
+      return 'nombre'
+    case 'abiertas':
+      return 'acciones abiertas'
+    case 'retraso':
+      return 'retrasos'
+    case 'bloqueadas':
+      return 'bloqueadas'
+    case 'gamificationPoints':
+      return 'puntos'
+  }
+}
+
+export function areaSummarySortLabel(sortKey: AreaSummarySortKey): string {
+  switch (sortKey) {
+    case 'area':
+      return 'área'
+    case 'usuarios':
+      return 'usuarios'
+    case 'abiertas':
+      return 'acciones abiertas'
+    case 'retraso':
+      return 'retrasos'
+    case 'bloqueadas':
+      return 'bloqueadas'
+    case 'gamificationPoints':
+      return 'puntos'
+  }
+}

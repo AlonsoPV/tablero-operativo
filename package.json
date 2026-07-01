@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:prod": "vite --mode prodlocal",
     "build": "tsc -b && node ./node_modules/vite/bin/vite.js build",
     "vercel-build": "npm run build",
     "lint": "eslint .",

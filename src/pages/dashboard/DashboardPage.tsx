@@ -12,7 +12,6 @@ import {
   AccionFormDialog,
   KanbanToolbar,
   hasKanbanActiveFilters,
-  metricasFromAcciones,
 } from '@/features/operations'
 import {
   CatalogKpiSemaforoGrid,
@@ -36,7 +35,6 @@ import {
 } from '@/features/catalogs/hooks/useDropdownOptions'
 import { DashboardScoreAndRoadmapSection } from './components/DashboardScoreAndRoadmapSection'
 import { DashboardHeader } from './components/DashboardHeader'
-import { DashboardKpiCards } from './components/DashboardKpiCards'
 import { DashboardActionsSection } from './components/DashboardActionsSection'
 import { DashboardUserActionsSummarySection } from './components/DashboardUserActionsSummarySection'
 import { DashboardExecutivePanel } from './components/DashboardExecutivePanel'
@@ -153,7 +151,6 @@ export function DashboardPage() {
   const { data: priorities = [] } = usePriorities({ activo: true })
   const { data: statuses = [] } = useStatuses()
 
-  const metricas = useMemo(() => metricasFromAcciones(acciones), [acciones])
   const executiveMetrics = useOperationalDashboardMetrics({
     actions: acciones,
     previousActions: previousAcciones,
@@ -295,6 +292,17 @@ export function DashboardPage() {
           />
         </section>
 
+        <section
+          id="dashboard-section-metrics"
+          className="dashboard-section-metrics scroll-mt-4"
+        >
+          <DashboardExecutivePanel
+            metrics={executiveMetrics}
+            isLoading={isLoading || previousAccionesLoading}
+            onDrillDown={handleDrillDown}
+          />
+        </section>
+
         {!usesOperationalDashboard ? (
           <>
         <DashboardScoreAndRoadmapSection
@@ -368,8 +376,8 @@ export function DashboardPage() {
           </>
         ) : null}
 
-        {usesOperationalDashboard ? (
-          <section
+        {false ? (
+        <section
             id="dashboard-section-metrics"
             className="dashboard-section-metrics scroll-mt-4"
           >
@@ -378,7 +386,7 @@ export function DashboardPage() {
               isLoading={isLoading || previousAccionesLoading}
               onDrillDown={handleDrillDown}
             />
-            {false ? (
+            {false && false ? (
             <SectionCard>
               <SectionCardHeader
                 className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
@@ -387,11 +395,22 @@ export function DashboardPage() {
                 subtitle="Totales según filtros activos."
               />
               <SectionCardBody className="p-3 sm:p-4 md:p-6">
-                <DashboardKpiCards metricas={metricas} isLoading={isLoading} />
+                {null}
               </SectionCardBody>
             </SectionCard>
             ) : null}
           </section>
+        ) : null}
+
+        {!accionesError ? (
+          <DashboardUserActionsSummarySection
+            users={users}
+            acciones={acciones}
+            comentarios={accionComentarios}
+            today={today}
+            areaFilter={filter.area}
+            isLoading={isLoading || comentariosLoading}
+          />
         ) : null}
 
         {!usesOperationalDashboard ? (
@@ -517,18 +536,7 @@ export function DashboardPage() {
           )}
         </div>
 
-        {!accionesError ? (
-          <DashboardUserActionsSummarySection
-            users={users}
-            acciones={acciones}
-            comentarios={accionComentarios}
-            today={today}
-            areaFilter={filter.area}
-            isLoading={isLoading || comentariosLoading}
-          />
-        ) : null}
-
-        {!usesOperationalDashboard ? (
+        {false ? (
         <section
           id="dashboard-section-metrics"
           className="dashboard-section-metrics scroll-mt-4 border-t border-border/40 pt-4 sm:pt-6"
@@ -541,7 +549,7 @@ export function DashboardPage() {
               subtitle="Totales según filtros activos."
             />
             <SectionCardBody className="p-3 sm:p-4 md:p-6">
-              <DashboardKpiCards metricas={metricas} isLoading={isLoading} />
+              {null}
             </SectionCardBody>
           </SectionCard>
         </section>
