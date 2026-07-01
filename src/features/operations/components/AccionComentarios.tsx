@@ -195,8 +195,12 @@ export function AccionComentarios({
                   autor_nombre: currentUser?.nombre ?? null,
                 },
               })
-            } catch {
-              // no bloquear UX
+            } catch (err) {
+              console.warn('[comentarios] No se pudo crear notificacion de comentario:', {
+                usuario_id: uid,
+                tipo,
+                error: err,
+              })
             }
           }
         },

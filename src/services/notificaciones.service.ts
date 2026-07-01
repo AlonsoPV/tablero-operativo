@@ -17,8 +17,17 @@ export interface CreateNotificacionInput {
   payload?: Record<string, unknown>
 }
 
+type NotificationEmailResult = {
+  ok?: boolean
+  skipped?: boolean
+  reason?: string
+  message?: string
+  provider?: string
+  email_id?: string | null
+}
+
 export async function sendNotificationEmail(input: CreateNotificacionInput): Promise<void> {
-  const { error } = await supabase.functions.invoke('send-notification-email', {
+  const { data, error } = await supabase.functions.invoke<NotificationEmailResult>('send-notification-email', {
     body: {
       usuario_id: input.usuario_id,
       tipo: input.tipo,
@@ -28,6 +37,10 @@ export async function sendNotificationEmail(input: CreateNotificacionInput): Pro
   })
 
   if (error) throw error
+  if (data?.ok === false || data?.skipped === true) {
+    const detail = [data.reason, data.message].filter(Boolean).join(': ')
+    throw new Error(detail || 'La funcion omitio el envio de correo')
+  }
 }
 
 export const notificacionesService = {

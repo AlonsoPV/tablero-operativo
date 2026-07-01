@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from 'npm:@supabase/supabase-js@2'
 import { handleCorsPreflight, jsonResponse } from '../_shared/cors.ts'
 import { requireAuthUser } from '../_shared/requireUser.ts'
 
@@ -366,15 +366,32 @@ Deno.serve(async (req) => {
     .maybeSingle<RecipientProfile>()
 
   if (profileError) {
+    console.error('[send-notification-email] recipient lookup failed:', {
+      usuario_id: usuarioId,
+      tipo,
+      message: profileError.message,
+    })
     return jsonResponse({ ok: false, message: 'No se pudo resolver destinatario' }, 500)
   }
   if (!profile?.user_id || profile.activo === false) {
+    console.warn('[send-notification-email] skipped inactive recipient:', {
+      usuario_id: usuarioId,
+      tipo,
+      has_user_id: Boolean(profile?.user_id),
+      activo: profile?.activo ?? null,
+    })
     return jsonResponse({ ok: true, skipped: true, reason: 'Destinatario inactivo o sin acceso' })
   }
 
   const { data: authUserData, error: authUserError } = await adminClient.auth.admin.getUserById(profile.user_id)
   const email = authUserData.user?.email?.trim()
   if (authUserError || !email) {
+    console.warn('[send-notification-email] skipped missing recipient email:', {
+      usuario_id: usuarioId,
+      tipo,
+      auth_user_id: profile.user_id,
+      message: authUserError?.message ?? null,
+    })
     return jsonResponse({ ok: true, skipped: true, reason: 'Destinatario sin email' })
   }
 
@@ -391,6 +408,12 @@ Deno.serve(async (req) => {
 
   try {
     const result = await sendEmail(email)
+    console.info('[send-notification-email] sent:', {
+      usuario_id: usuarioId,
+      tipo,
+      provider: result.provider,
+      email_id: result.id,
+    })
 
     const ticketsAdminEmail = optionalEnv('TICKETS_ADMIN_EMAIL').trim().toLowerCase()
     const isTicketNotification = tipo.startsWith('ticket_')
@@ -409,12 +432,16 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: true, provider: result.provider, email_id: result.id })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'No se pudo enviar correo de notificacion'
-    console.error('[send-notification-email] email provider failed:', message)
+    console.error('[send-notification-email] email provider failed:', {
+      usuario_id: usuarioId,
+      tipo,
+      message,
+    })
     return jsonResponse({
       ok: false,
       skipped: true,
       reason: 'email_provider_failed',
       message,
-    })
+    }, 502)
   }
 })
