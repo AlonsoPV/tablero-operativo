@@ -14,6 +14,7 @@ type NotificationEmailPayload = {
   usuario_id?: string
   tipo?: string
   prioridad?: 'Normal' | 'Alta' | 'Urgente'
+  notification_id?: string | null
   payload?: Record<string, unknown> | null
 }
 
@@ -25,6 +26,7 @@ type RecipientProfile = {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const FUNCTION_VERSION = 'notification-email-logs-20260701'
 
 function normalizePriority(value: unknown): 'Normal' | 'Alta' | 'Urgente' {
   return value === 'Alta' || value === 'Urgente' ? value : 'Normal'
@@ -103,6 +105,42 @@ function hasGoogleMailSecrets(): boolean {
       optionalEnv('GOOGLE_CLIENT_SECRET') &&
       optionalEnv('GOOGLE_REFRESH_TOKEN')
   )
+}
+
+async function logNotificationEmail(
+  adminClient: ReturnType<typeof createClient>,
+  input: {
+    notificationId?: string | null
+    usuarioId?: string | null
+    tipo?: string | null
+    prioridad?: string | null
+    email?: string | null
+    provider?: string | null
+    providerAccount?: string | null
+    emailId?: string | null
+    status: string
+    reason?: string | null
+    errorMessage?: string | null
+    payload?: Record<string, unknown> | null
+  }
+): Promise<void> {
+  const { error } = await adminClient.from('notification_email_logs').insert({
+    notification_id: input.notificationId ?? null,
+    usuario_id: input.usuarioId ?? null,
+    tipo: input.tipo ?? null,
+    prioridad: input.prioridad ?? null,
+    email: input.email ?? null,
+    provider: input.provider ?? null,
+    provider_account: input.providerAccount ?? null,
+    email_id: input.emailId ?? null,
+    status: input.status,
+    reason: input.reason ?? null,
+    error_message: input.errorMessage?.slice(0, 1000) ?? null,
+    payload: input.payload ?? null,
+  })
+  if (error) {
+    console.error('[send-notification-email] log insert failed:', error.message)
+  }
 }
 
 function actionUrl(payload: Record<string, unknown> | null | undefined): string {
@@ -296,8 +334,13 @@ async function sendWithGoogleMail(input: {
   subject: string
   html: string
   text: string
-}): Promise<{ provider: 'gmail'; id: string | null }> {
+}): Promise<{ provider: 'gmail'; id: string | null; account: string | null }> {
   const token = await googleAccessToken()
+  const profileResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const profile = await profileResponse.json().catch(() => ({}))
+  const account = typeof profile?.emailAddress === 'string' ? profile.emailAddress : null
   const from = optionalEnv('GOOGLE_GMAIL_FROM') || optionalEnv('NOTIFICATION_EMAIL_FROM') || 'me'
   const raw = gmailRawMessage({
     from,
@@ -320,12 +363,20 @@ async function sendWithGoogleMail(input: {
   if (!response.ok) {
     throw new Error(result?.error?.message || 'No se pudo enviar correo por Gmail')
   }
-  return { provider: 'gmail', id: result?.id ?? null }
+  return { provider: 'gmail', id: result?.id ?? null, account }
 }
 
 Deno.serve(async (req) => {
   const preflight = handleCorsPreflight(req)
   if (preflight) return preflight
+
+  if (req.method === 'GET') {
+    return jsonResponse({
+      ok: true,
+      function: 'send-notification-email',
+      version: FUNCTION_VERSION,
+    })
+  }
 
   if (req.method !== 'POST') {
     return jsonResponse({ ok: false, message: 'Metodo no permitido' }, 405)
@@ -349,6 +400,9 @@ Deno.serve(async (req) => {
 
   const tipo = body?.tipo?.trim() || 'notificacion'
   const prioridad = normalizePriority(body?.prioridad)
+  const notificationId = body?.notification_id && UUID_RE.test(body.notification_id)
+    ? body.notification_id
+    : null
   const payload = body?.payload && typeof body.payload === 'object' ? body.payload : null
 
   const adminClient = createClient(supabaseUrl, serviceRoleKey, {
@@ -371,6 +425,16 @@ Deno.serve(async (req) => {
       tipo,
       message: profileError.message,
     })
+    await logNotificationEmail(adminClient, {
+      notificationId,
+      usuarioId,
+      tipo,
+      prioridad,
+      status: 'recipient_lookup_error',
+      reason: 'No se pudo resolver destinatario',
+      errorMessage: profileError.message,
+      payload,
+    })
     return jsonResponse({ ok: false, message: 'No se pudo resolver destinatario' }, 500)
   }
   if (!profile?.user_id || profile.activo === false) {
@@ -379,6 +443,15 @@ Deno.serve(async (req) => {
       tipo,
       has_user_id: Boolean(profile?.user_id),
       activo: profile?.activo ?? null,
+    })
+    await logNotificationEmail(adminClient, {
+      notificationId,
+      usuarioId,
+      tipo,
+      prioridad,
+      status: 'skipped_inactive',
+      reason: 'Destinatario inactivo o sin acceso',
+      payload,
     })
     return jsonResponse({ ok: true, skipped: true, reason: 'Destinatario inactivo o sin acceso' })
   }
@@ -391,6 +464,17 @@ Deno.serve(async (req) => {
       tipo,
       auth_user_id: profile.user_id,
       message: authUserError?.message ?? null,
+    })
+    await logNotificationEmail(adminClient, {
+      notificationId,
+      usuarioId,
+      tipo,
+      prioridad,
+      email: email ?? null,
+      status: 'skipped_no_email',
+      reason: 'Destinatario sin email',
+      errorMessage: authUserError?.message ?? null,
+      payload,
     })
     return jsonResponse({ ok: true, skipped: true, reason: 'Destinatario sin email' })
   }
@@ -412,7 +496,20 @@ Deno.serve(async (req) => {
       usuario_id: usuarioId,
       tipo,
       provider: result.provider,
+      provider_account: result.account,
       email_id: result.id,
+    })
+    await logNotificationEmail(adminClient, {
+      notificationId,
+      usuarioId,
+      tipo,
+      prioridad,
+      email,
+      provider: result.provider,
+      providerAccount: result.account,
+      emailId: result.id,
+      status: 'sent',
+      payload,
     })
 
     const ticketsAdminEmail = optionalEnv('TICKETS_ADMIN_EMAIL').trim().toLowerCase()
@@ -436,6 +533,17 @@ Deno.serve(async (req) => {
       usuario_id: usuarioId,
       tipo,
       message,
+    })
+    await logNotificationEmail(adminClient, {
+      notificationId,
+      usuarioId,
+      tipo,
+      prioridad,
+      email,
+      status: 'provider_error',
+      reason: 'email_provider_failed',
+      errorMessage: message,
+      payload,
     })
     return jsonResponse({
       ok: false,
