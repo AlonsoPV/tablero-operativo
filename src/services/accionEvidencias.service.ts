@@ -31,7 +31,7 @@ function normalizeEvidenciaError(error: unknown): Error {
     (error as { code?: string }).code === '42501'
   ) {
     return new Error(
-      'No tienes permiso para modificar la evidencia de esta accion. Puede hacerlo quien crea la accion, super admin o direccion.'
+      'No tienes permiso para modificar la evidencia de esta accion. Puede subirla quien crea la accion, el responsable asignado, super admin o direccion.'
     )
   }
   return error instanceof Error ? error : new Error('No se pudo guardar la evidencia.')

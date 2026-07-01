@@ -354,19 +354,20 @@ export const accionesService = {
       .from(TABLE)
       .select(accionSelectColumns())
       .eq('id', id)
-      .maybeSingle()
+      .limit(1)
     if (markPrioridadIdUnavailable(error)) {
       ;({ data, error } = await supabase
         .from(TABLE)
         .select(accionSelectColumns())
         .eq('id', id)
-        .maybeSingle())
+        .limit(1))
     }
     if (error) throw error
-    if (!data) {
+    const row = Array.isArray(data) ? data[0] : null
+    if (!row) {
       throw new Error('No se encontró la acción o no tienes permiso para verla.')
     }
-    return data as unknown as AccionDiaria
+    return row as unknown as AccionDiaria
   },
 
   /** Títulos y autores para enriquecer notificaciones (batch). */

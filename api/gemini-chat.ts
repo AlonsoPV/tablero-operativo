@@ -11,6 +11,8 @@ type ActionContext = {
   id?: unknown
   titulo?: unknown
   descripcion?: unknown
+  checklist?: unknown
+  comentarios?: unknown
   estado?: unknown
   prioridad?: unknown
   fechaCompromiso?: unknown
@@ -98,6 +100,10 @@ REGLAS DE RESPUESTA:
 
 CONTEXTO DE ACCION:
 - Si recibes una accion seleccionada por el usuario, usala como contexto principal.
+- Basa tu analisis principalmente en titulo, descripcion y checklist de la accion.
+- Trata el checklist como la fuente principal para decidir que falta, que evidencia pedir y si el cierre es viable.
+- Usa los comentarios como contexto complementario para entender bloqueos, avances, acuerdos o dudas.
+- Si titulo, descripcion, checklist y comentarios no dan suficiente informacion para recomendar avance o cierre, dilo claramente y pide la informacion minima faltante.
 - Cuando hay accion seleccionada, responde solo sobre validar, abordar, desbloquear, priorizar, evidenciar o cerrar esa accion.
 - Si la pregunta no se relaciona con esa accion ni con su cierre, pide al usuario reformularla hacia la accion seleccionada.
 - Ayuda a validar como abordar, desbloquear o cerrar esa accion con buena calidad.
@@ -143,6 +149,10 @@ REGLAS DE RESPUESTA:
 
 CONTEXTO DE ACCION:
 - Si recibes una accion seleccionada por el usuario, usala como contexto principal.
+- Basa tu analisis principalmente en titulo, descripcion y checklist de la accion.
+- Trata el checklist como la fuente principal para decidir que falta, que evidencia pedir y si el cierre es viable.
+- Usa los comentarios como contexto complementario para entender bloqueos, avances, acuerdos o dudas.
+- Si titulo, descripcion, checklist y comentarios no dan suficiente informacion para recomendar avance o cierre, dilo claramente y pide la informacion minima faltante.
 - Cuando hay accion seleccionada, responde solo sobre validar, abordar, desbloquear, priorizar, evidenciar o cerrar esa accion.
 - Si la pregunta no se relaciona con esa accion ni con su cierre, pide al usuario reformularla hacia la accion seleccionada.
 - Ayuda a validar como abordar, desbloquear o cerrar esa accion con buena calidad operativa.
@@ -219,10 +229,41 @@ function sanitizeActionContext(actionContext: unknown) {
   if (!actionContext || typeof actionContext !== 'object') return ''
 
   const action = actionContext as ActionContext
+  const checklist = Array.isArray(action.checklist)
+    ? action.checklist
+        .map((item, index) => {
+          if (!item || typeof item !== 'object') return ''
+          const row = item as { texto?: unknown; completado?: unknown; obligatorio?: unknown }
+          const texto = readString(row.texto, 240)
+          if (!texto) return ''
+          const completado = row.completado === true ? 'completo' : 'pendiente'
+          const obligatorio = row.obligatorio === false ? 'opcional' : 'obligatorio'
+          return `${index + 1}. [${completado}, ${obligatorio}] ${texto}`
+        })
+        .filter(Boolean)
+        .slice(0, 12)
+        .join('\n')
+    : ''
+  const comentarios = Array.isArray(action.comentarios)
+    ? action.comentarios
+        .map((item, index) => {
+          if (!item || typeof item !== 'object') return ''
+          const row = item as { contenido?: unknown; created_at?: unknown }
+          const contenido = readString(row.contenido, 320)
+          if (!contenido) return ''
+          const createdAt = readString(row.created_at, 40)
+          return `${index + 1}. ${createdAt ? `[${createdAt}] ` : ''}${contenido}`
+        })
+        .filter(Boolean)
+        .slice(-8)
+        .join('\n')
+    : ''
   const rows = [
     ['ID', readString(action.id, 80)],
     ['Titulo', readString(action.titulo)],
     ['Descripcion', readString(action.descripcion, 700)],
+    ['Checklist', checklist],
+    ['Comentarios', comentarios],
     ['Estado', readString(action.estado, 80)],
     ['Prioridad', readString(action.prioridad, 80)],
     ['Fecha compromiso', readString(action.fechaCompromiso, 40)],

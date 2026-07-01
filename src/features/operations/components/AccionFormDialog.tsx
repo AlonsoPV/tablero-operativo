@@ -910,7 +910,12 @@ export function AccionFormDialog({
               id={`${formBaseId}-evidencias-section`}
               className="accion-form-dialog-evidencias border-t border-border/60 pt-4 sm:pt-5"
             >
-              <AccionEvidenciasSection accionId={accion.id} readOnly={!canFullyEditAction} />
+              <AccionEvidenciasSection
+                accionId={accion.id}
+                readOnly={!canFullyEditAction && !isActionResponsible}
+                canUpload={canFullyEditAction || isActionResponsible}
+                canDelete={canFullyEditAction}
+              />
             </div>
             <div id={`${formBaseId}-comentarios`} className="accion-form-dialog-comentarios">
               <AccionComentarios

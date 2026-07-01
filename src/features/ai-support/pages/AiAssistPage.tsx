@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
+  CircleSlash,
   HelpCircle,
   Loader2,
   Send,
@@ -25,11 +26,14 @@ import { assistantModes, type AssistantModeId } from '@/lib/assistantModes'
 import type { AiChatMessage } from '@/features/ai-support/types'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { useAcciones } from '@/features/operations/hooks/useAcciones'
+import { useAccionCheckpoints } from '@/features/operations/hooks/useAccionCheckpoints'
+import { useAccionComentarios } from '@/features/operations/hooks/useAccionComentarios'
 import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
 import { AccionPriorityBadge } from '@/features/operations/components/AccionPriorityBadge'
 import { findPriorityForAccion } from '@/features/operations/utils/resolveAccionPrioridad'
 import { priorityColorFor } from '@/features/operations/utils/priorityColors'
-import type { AccionDiaria } from '@/types'
+import type { AccionCheckpoint, AccionDiaria } from '@/types'
+import type { AccionComentario } from '@/types/accionComentario'
 
 const MAX_MESSAGES = 24
 const DEFAULT_MODE: AssistantModeId = 'agile_eos_scalingup'
@@ -46,6 +50,15 @@ type ActionContext = {
   id: string
   titulo: string
   descripcion: string
+  checklist: Array<{
+    texto: string
+    completado: boolean
+    obligatorio: boolean
+  }>
+  comentarios: Array<{
+    contenido: string
+    created_at: string
+  }>
   estado: string
   prioridad: string
   fechaCompromiso: string
@@ -111,11 +124,24 @@ function formatActionOption(action: AccionDiaria) {
   return `${title} - ${action.estado} - ${action.fecha}`
 }
 
-function toActionContext(action: AccionDiaria): ActionContext {
+function toActionContext(
+  action: AccionDiaria,
+  checkpoints: AccionCheckpoint[],
+  comentarios: AccionComentario[]
+): ActionContext {
   return {
     id: action.id,
     titulo: action.titulo_accion,
     descripcion: action.descripcion_accion,
+    checklist: checkpoints.map((checkpoint) => ({
+      texto: checkpoint.texto,
+      completado: checkpoint.completado,
+      obligatorio: checkpoint.obligatorio,
+    })),
+    comentarios: comentarios.map((comentario) => ({
+      contenido: comentario.contenido,
+      created_at: comentario.created_at,
+    })),
     estado: action.estado,
     prioridad: action.prioridad,
     fechaCompromiso: action.fecha,
@@ -133,6 +159,7 @@ function toActionContext(action: AccionDiaria): ActionContext {
 export function AiAssistPage() {
   const [selectedMode, setSelectedMode] = useState<AssistantModeId>(DEFAULT_MODE)
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null)
+  const [actionContextEnabled, setActionContextEnabled] = useState(true)
   const [messages, setMessages] = useState<AiChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -169,6 +196,13 @@ export function AiAssistPage() {
     () => redOpenActions.find((action) => action.id === selectedActionId) ?? null,
     [redOpenActions, selectedActionId]
   )
+  const { data: selectedCheckpoints = [], isLoading: checkpointsLoading } = useAccionCheckpoints(
+    selectedAction?.id
+  )
+  const { data: selectedComments = [], isLoading: commentsLoading } = useAccionComentarios(
+    selectedAction?.id
+  )
+  const activeActionContext = Boolean(selectedAction && actionContextEnabled)
 
   const visibleMessages = useMemo(
     () => [{ role: 'assistant' as const, content: currentMode.welcome }, ...messages],
@@ -214,7 +248,9 @@ export function AiAssistPage() {
       const answer = await sendMessage({
         mode: selectedMode,
         messages: nextMessages,
-        actionContext: selectedAction ? toActionContext(selectedAction) : undefined,
+        actionContext: activeActionContext
+          ? toActionContext(selectedAction!, selectedCheckpoints, selectedComments)
+          : undefined,
       })
 
       setMessages([...nextMessages, { role: 'assistant' as const, content: answer }].slice(-MAX_MESSAGES))
@@ -250,9 +286,25 @@ export function AiAssistPage() {
             cerrarla con evidencia suficiente.
           </p>
         </div>
-        <div className="flex w-fit items-center gap-2 rounded-lg border border-border/70 bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
-          <AlertTriangle className="h-4 w-4 text-red-600" aria-hidden />
-          <span>{redOpenActions.length} rojas abiertas</span>
+        <div className="flex flex-wrap gap-2">
+          <div className="flex w-fit items-center gap-2 rounded-lg border border-border/70 bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
+            <AlertTriangle className="h-4 w-4 text-red-600" aria-hidden />
+            <span>{redOpenActions.length} rojas abiertas</span>
+          </div>
+          <Button
+            type="button"
+            variant={actionContextEnabled ? 'outline' : 'default'}
+            size="sm"
+            onClick={() => setActionContextEnabled((value) => !value)}
+            className="h-9 gap-2"
+          >
+            {actionContextEnabled ? (
+              <HelpCircle className="h-4 w-4" aria-hidden />
+            ) : (
+              <CircleSlash className="h-4 w-4" aria-hidden />
+            )}
+            {actionContextEnabled ? 'Contexto activo' : 'Pregunta limpia'}
+          </Button>
         </div>
       </header>
 
@@ -303,6 +355,23 @@ export function AiAssistPage() {
 
             {selectedAction ? (
               <div className="space-y-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+                <div className="flex items-center justify-between gap-2 rounded-md border border-border/70 bg-background px-2 py-1.5">
+                  <span className="text-xs font-medium text-foreground">
+                    {actionContextEnabled ? 'Usando contexto de accion' : 'Contexto pausado'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setActionContextEnabled((value) => !value)}
+                    className={cn(
+                      'rounded-md px-2 py-1 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      actionContextEnabled
+                        ? 'bg-primary/10 text-primary hover:bg-primary/15'
+                        : 'bg-muted text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    {actionContextEnabled ? 'Quitar' : 'Activar'}
+                  </button>
+                </div>
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <AccionPriorityBadge
@@ -318,6 +387,63 @@ export function AiAssistPage() {
                   <p className="line-clamp-4 text-xs leading-5 text-muted-foreground">
                     {selectedAction.descripcion_accion}
                   </p>
+                </div>
+                <div className="space-y-2 border-t border-border/70 pt-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-foreground">Checklist</span>
+                    <span className="text-xs text-muted-foreground">
+                      {checkpointsLoading
+                        ? 'Cargando...'
+                        : `${selectedCheckpoints.filter((item) => item.completado).length}/${selectedCheckpoints.length}`}
+                    </span>
+                  </div>
+                  {selectedCheckpoints.length > 0 ? (
+                    <ul className="space-y-1.5">
+                      {selectedCheckpoints.slice(0, 4).map((checkpoint) => (
+                        <li
+                          key={checkpoint.id}
+                          className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 text-xs leading-5 text-muted-foreground"
+                        >
+                          <span
+                            className={cn(
+                              'mt-1 h-2 w-2 rounded-full',
+                              checkpoint.completado ? 'bg-emerald-500' : 'bg-amber-500'
+                            )}
+                            aria-hidden
+                          />
+                          <span className="line-clamp-2">{checkpoint.texto}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Sin puntos activos en el checklist.
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2 border-t border-border/70 pt-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-foreground">Comentarios</span>
+                    <span className="text-xs text-muted-foreground">
+                      {commentsLoading ? 'Cargando...' : selectedComments.length}
+                    </span>
+                  </div>
+                  {selectedComments.length > 0 ? (
+                    <ul className="space-y-1.5">
+                      {selectedComments.slice(-3).map((comentario) => (
+                        <li
+                          key={comentario.id}
+                          className="rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground"
+                        >
+                          <span className="line-clamp-2">{comentario.contenido}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Sin comentarios registrados.
+                    </p>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-2 border-t border-border/70 pt-3 text-xs">
                   <div>
@@ -417,9 +543,20 @@ export function AiAssistPage() {
                 </div>
               </div>
               {selectedAction ? (
-                <span className="inline-flex w-fit items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
-                  <HelpCircle className="h-3.5 w-3.5" aria-hidden />
-                  Contexto activo
+                <span
+                  className={cn(
+                    'inline-flex w-fit items-center gap-1 rounded-md px-2 py-1 text-xs font-medium',
+                    actionContextEnabled
+                      ? 'bg-primary/10 text-primary'
+                      : 'bg-muted text-muted-foreground'
+                  )}
+                >
+                  {actionContextEnabled ? (
+                    <HelpCircle className="h-3.5 w-3.5" aria-hidden />
+                  ) : (
+                    <CircleSlash className="h-3.5 w-3.5" aria-hidden />
+                  )}
+                  {actionContextEnabled ? 'Contexto activo' : 'Pregunta limpia'}
                 </span>
               ) : null}
             </div>
@@ -451,17 +588,17 @@ export function AiAssistPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {(selectedAction ? ACTION_PROMPTS : currentMode.suggestions).map((suggestion) => (
+              {(activeActionContext ? ACTION_PROMPTS : currentMode.suggestions).map((suggestion) => (
                 <button
                   key={suggestion}
                   type="button"
                   onClick={() => {
-                    if (selectedAction) handleActionPrompt(suggestion)
+                    if (activeActionContext) handleActionPrompt(suggestion)
                     else handleSuggestion(suggestion)
                   }}
                   className={cn(
                     'rounded-full border bg-background px-3 py-1.5 text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    selectedAction
+                    activeActionContext
                       ? 'border-red-500/30 text-red-800 hover:border-red-500/60 hover:bg-red-500/10 dark:text-red-200'
                       : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground'
                   )}
@@ -474,7 +611,7 @@ export function AiAssistPage() {
 
             <div className="space-y-2">
               <Label htmlFor="ai-assistant-input">
-                {selectedAction ? 'Pregunta sobre la accion seleccionada' : 'Tu pregunta'}
+                {activeActionContext ? 'Pregunta sobre la accion seleccionada' : 'Pregunta limpia'}
               </Label>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
                 <textarea
@@ -483,7 +620,9 @@ export function AiAssistPage() {
                   onChange={(event) => setInput(event.target.value)}
                   placeholder={
                     selectedAction
-                      ? 'Ej. Que evidencia debo adjuntar para cerrarla sin riesgo?'
+                      ? actionContextEnabled
+                        ? 'Ej. Que evidencia debo adjuntar para cerrarla sin riesgo?'
+                        : 'Pregunta sin usar el contexto de la accion seleccionada...'
                       : 'Describe el proceso, problema, objetivo y restricciones...'
                   }
                   className="min-h-[88px] flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"

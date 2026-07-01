@@ -28,12 +28,16 @@ const EVIDENCIAS_KEY = ['accion_evidencias'] as const
 export interface AccionEvidenciasSectionProps {
   accionId: string
   readOnly?: boolean
+  canUpload?: boolean
+  canDelete?: boolean
   onEvidenciaChange?: () => void
 }
 
 export function AccionEvidenciasSection({
   accionId,
   readOnly = false,
+  canUpload,
+  canDelete,
   onEvidenciaChange,
 }: AccionEvidenciasSectionProps) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -79,10 +83,12 @@ export function AccionEvidenciasSection({
     onError: () => toast.error('Error al eliminar'),
   })
   const [dragOver, setDragOver] = useState(false)
+  const uploadAllowed = canUpload ?? !readOnly
+  const deleteAllowed = canDelete ?? !readOnly
 
   const handleFile = (file: File) => {
-    if (readOnly) {
-      toast.error('Solo quien crea la accion, super admin o direccion puede editar la evidencia.')
+    if (!uploadAllowed) {
+      toast.error('Solo quien crea la accion, el responsable asignado, super admin o direccion puede subir evidencia.')
       return
     }
     if (!isAcceptedFile(file)) {
@@ -101,7 +107,7 @@ export function AccionEvidenciasSection({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
-    if (readOnly) return
+    if (!uploadAllowed) return
     const file = e.dataTransfer.files?.[0]
     if (file) handleFile(file)
   }
@@ -142,14 +148,14 @@ export function AccionEvidenciasSection({
           accept={getAcceptedAccept()}
           className="hidden"
           onChange={handleInputChange}
-          disabled={readOnly}
+          disabled={!uploadAllowed}
         />
-        {readOnly && (
+        {!uploadAllowed && (
           <p className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-xs leading-snug text-muted-foreground">
-            Solo quien crea la accion, super admin o direccion puede editar la evidencia.
+            Solo quien crea la accion, el responsable asignado, super admin o direccion puede subir evidencia.
           </p>
         )}
-        {!readOnly && (
+        {uploadAllowed && (
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
           onDragLeave={() => setDragOver(false)}
@@ -234,7 +240,7 @@ export function AccionEvidenciasSection({
                 >
                   <Download className="h-4 w-4" />
                 </Button>
-                {!readOnly && (
+                {deleteAllowed && (
                   <Button
                     type="button"
                     variant="ghost"
