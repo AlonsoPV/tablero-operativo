@@ -1,4 +1,4 @@
-import { createClient } from 'npm:@supabase/supabase-js@2'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { handleCorsPreflight, jsonResponse } from '../_shared/cors.ts'
 import { requireAuthUser } from '../_shared/requireUser.ts'
 
@@ -107,8 +107,11 @@ function hasGoogleMailSecrets(): boolean {
   )
 }
 
+/** Sin `Database` generado, `ReturnType<typeof createClient>` tipa tablas desconocidas como `never`. */
+type AdminClient = SupabaseClient
+
 async function logNotificationEmail(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: AdminClient,
   input: {
     notificationId?: string | null
     usuarioId?: string | null
