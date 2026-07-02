@@ -26,7 +26,7 @@ function normalizeCheckpointError(error: unknown): Error {
     (error as { code?: string }).code === '42501'
   ) {
     return new Error(
-      'No tienes permiso para modificar este checklist. La persona asignada puede marcar checks y agregar puntos; la estructura existente solo la edita quien creo la accion.'
+      'No tienes permiso para modificar este checklist. La persona asignada puede marcar checks y agregar puntos; la estructura la editan quien administra la accion, Direccion o super_admin.'
     )
   }
   return error instanceof Error ? error : new Error('No se pudo guardar el checklist.')
@@ -169,7 +169,9 @@ export const accionCheckpointsService = {
   },
 
   async delete(id: string): Promise<void> {
-    const { error } = await supabase.from(TABLE).delete().eq('id', id)
+    const { error } = await supabase.rpc('delete_accion_checkpoint', {
+      p_checkpoint_id: id,
+    })
     if (error) throw normalizeCheckpointError(error)
   },
 

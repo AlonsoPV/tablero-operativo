@@ -203,12 +203,12 @@ export function AccionChecklistManage({
             {!mayEditStructure && (mayAddPoint || mayToggle) && (
               <p className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs leading-snug text-muted-foreground">
                 Puedes agregar nuevos puntos y marcar validaciones. La edición de textos, orden y eliminación queda
-                reservada para quien creó la acción.
+                reservada para quien administra la acción, Dirección o super_admin.
               </p>
             )}
             {!mayEditStructure && !mayAddPoint && !mayToggle && (
               <p className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs leading-snug text-muted-foreground">
-                Solo la persona creadora de la acción puede editar el checklist.
+                Solo quien administra la acción, Dirección o super_admin puede editar el checklist.
               </p>
             )}
             {pendientes > 0 && total > 0 && (
