@@ -80,6 +80,15 @@ function stripPrioridadIdIfUnavailable<T extends Partial<AccionDiaria>>(payload:
   return rest as T
 }
 
+function isPostgrestNoRowsError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: string }).code === 'PGRST116'
+  )
+}
+
 function markPrioridadIdUnavailable(error: { code?: string; message?: string } | null): boolean {
   if (!isMissingPrioridadIdColumn(error)) return false
   prioridadIdColumnAvailable = false
@@ -494,10 +503,14 @@ export const accionesService = {
         .select(accionSelectColumns())
         .maybeSingle())
     }
+    if (isPostgrestNoRowsError(error)) {
+      data = null
+      error = null
+    }
     if (error) throw error
     if (!data) {
       throw new Error(
-        'No se pudo actualizar la acción. Verifica que seas responsable, creador o administrador.'
+        'No se pudo actualizar la acción. Solo quien asignó/creó la acción, Dirección o super_admin pueden guardar cambios generales.'
       )
     }
     const updated = data as unknown as AccionDiaria

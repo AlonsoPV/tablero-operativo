@@ -5,6 +5,7 @@
 
 import {
   EVIDENCIA_REJECTED_MESSAGE,
+  getFileExtension,
   isAcceptedEvidenciaFile,
   resolveEvidenciaContentType,
 } from '@/lib/evidenciaFileTypes'
@@ -21,7 +22,7 @@ export async function uploadEvidenciaFile(
   if (!isAcceptedEvidenciaFile(file)) {
     throw new Error(EVIDENCIA_REJECTED_MESSAGE)
   }
-  const ext = file.name.split('.').pop() ?? 'bin'
+  const ext = getFileExtension(file.name) ?? 'bin'
   const path = `${folder}/${crypto.randomUUID()}.${ext}`
   const contentType = resolveEvidenciaContentType(file)
   const { error } = await supabase.storage

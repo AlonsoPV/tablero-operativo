@@ -456,6 +456,13 @@ export function AccionFormDialog({
 
   const handleSubmit = (values: AccionCreateInput) => {
     setSubmitFooterErrors(null)
+    if (isEditProtectedReadonly) {
+      const message =
+        'No tienes permiso para guardar cambios generales de esta acción. Tus comentarios, evidencias y cambios operativos se guardan desde su propia sección.'
+      setSubmitFooterErrors([message])
+      toast.error(message)
+      return
+    }
     const originalGapIds = defaultValues?.gap_ids ?? []
     const originalCatalogKpiIds = defaultValues?.catalog_kpi_ids ?? []
     const gapIds = isEditProtectedReadonly ? originalGapIds : (values.gap_ids ?? [])
@@ -1044,7 +1051,12 @@ export function AccionFormDialog({
               id={`${formBaseId}-submit`}
               variant="default"
               className="accion-form-dialog-submit h-10 w-full px-2 text-xs sm:h-9 sm:text-sm"
-              disabled={isMutating || isManualNotificationPending}
+              disabled={isMutating || isManualNotificationPending || isEditProtectedReadonly}
+              title={
+                isEditProtectedReadonly
+                  ? 'Solo quien asignó/creó la acción, Dirección o super_admin pueden guardar cambios generales.'
+                  : undefined
+              }
             >
               {createAccion.isPending || updateAccion.isPending ? (
                 'Guardando…'
