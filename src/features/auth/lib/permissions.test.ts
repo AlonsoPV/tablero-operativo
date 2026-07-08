@@ -90,6 +90,13 @@ describe('role route permissions', () => {
     expect(canManageSupportTicketsByRole('Operativo')).toBe(false)
   })
 
+  it('allows app super_admin full route access even with Analista business role', () => {
+    expect(canAccessRouteByRole('Analista', ROUTES.ORG_CHART, 'super_admin')).toBe(true)
+    expect(canAccessRouteByRole('Analista', ROUTES.DASHBOARD, 'super_admin')).toBe(true)
+    expect(canAccessRouteByRole('Analista', ROUTES.SETTINGS_USERS, 'super_admin')).toBe(true)
+    expect(canAccessRouteByRole('Analista', ROUTES.ORG_CHART, 'viewer')).toBe(false)
+  })
+
   it('allows hierarchy editing for admin, direction and app super_admin', () => {
     expect(canEditOrgHierarchyByRole('Direccion')).toBe(true)
     expect(canEditOrgHierarchyByRole('DG')).toBe(true)

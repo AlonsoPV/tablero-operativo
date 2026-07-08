@@ -9,6 +9,7 @@ import { useEffect } from 'react'
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ROUTES } from '@/constants'
 import { useAuth } from '@/features/auth/hooks/useAuth'
+import { useAppRole } from '@/features/auth/hooks/useAppRole'
 import { canAccessRouteByRole, getDefaultRouteByRole } from '@/features/auth/lib/permissions'
 import { useAppStore } from '@/store'
 import { AuthLoader } from '@/features/auth/components/AuthLoader'
@@ -28,6 +29,7 @@ export function ProtectedRoute() {
     logout,
     refetch,
   } = useAuth()
+  const { data: appRole } = useAppRole()
 
   useEffect(() => {
     if (authLoading || sessionStatus !== 'signed_out' || error?.type === 'network') return
@@ -107,7 +109,7 @@ export function ProtectedRoute() {
     )
   }
 
-  if (profileStatus === 'loaded' && !canAccessRouteByRole(profile?.rol, location.pathname)) {
+  if (profileStatus === 'loaded' && !canAccessRouteByRole(profile?.rol, location.pathname, appRole)) {
     return <Navigate to={getDefaultRouteByRole(profile?.rol)} replace />
   }
 

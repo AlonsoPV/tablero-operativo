@@ -157,7 +157,13 @@ export function canManageActionsByRole(rol: string | null | undefined): boolean 
   return isSuperAdminByRole(rol) || isDirectionByRole(rol)
 }
 
-export function canAccessRouteByRole(rol: string | null | undefined, pathname: string): boolean {
+export function canAccessRouteByRole(
+  rol: string | null | undefined,
+  pathname: string,
+  appRole?: string | null | undefined
+): boolean {
+  if (isAppAdminByAppRole(appRole)) return true
+
   if (isAnalystByRole(rol)) {
     return STRICT_ANALYST_ALLOWED_ROUTES.some((route) => routeMatches(pathname, route))
   }

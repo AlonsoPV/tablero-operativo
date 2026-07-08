@@ -22,8 +22,7 @@ import {
 import { cn } from '@/lib/utils'
 import { ROUTES, APP_NAME } from '@/constants'
 import { useAppStore } from '@/store'
-import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { canAccessRouteByRole } from '@/features/auth/lib/permissions'
+import { useRouteAccess } from '@/features/auth/hooks/useRouteAccess'
 import { Button } from '@/components/ui/button'
 
 type NavItem = {
@@ -77,11 +76,11 @@ export function Sidebar() {
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
   const setSidebarOpen = useAppStore((s) => s.setSidebarOpen)
   const closeBtnRef = useRef<HTMLButtonElement>(null)
-  const { data: currentUser } = useCurrentUser()
+  const { canAccessRoute } = useRouteAccess()
   const visibleNavGroups = navGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => canAccessRouteByRole(currentUser?.rol, item.to)),
+      items: group.items.filter((item) => canAccessRoute(item.to)),
     }))
     .filter((group) => group.items.length > 0)
 

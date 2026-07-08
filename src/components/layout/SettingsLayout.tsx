@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { canAccessRouteByRole, canManageAcademyModulesByRole, isAnalystByRole } from '@/features/auth/lib/permissions'
+import { useAppRole } from '@/features/auth/hooks/useAppRole'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -128,13 +129,16 @@ export function SettingsLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const { profile } = useAuth()
+  const { data: appRole } = useAppRole()
 
   const visibleSettingsLinks = SETTINGS_LINKS.filter(
     (link) =>
-      canAccessRouteByRole(profile?.rol, link.to) &&
+      canAccessRouteByRole(profile?.rol, link.to, appRole) &&
       (!('superAdminOnly' in link) || canManageAcademyModulesByRole(profile?.rol))
   )
-  const visibleCatalogLinks = CATALOG_LINKS.filter((link) => canAccessRouteByRole(profile?.rol, link.to))
+  const visibleCatalogLinks = CATALOG_LINKS.filter((link) =>
+    canAccessRouteByRole(profile?.rol, link.to, appRole)
+  )
   const showCatalogNav = visibleCatalogLinks.length > 0
 
   if (isAnalystByRole(profile?.rol) && location.pathname !== ROUTES.SETTINGS_PROFILE) {
