@@ -66,11 +66,6 @@ export function LoginManifesto({ variant = 'panel', className }: LoginManifestoP
           {ENVIARDIAN_MANIFESTO.title.split(' ').slice(1).join(' ')}
         </span>
       </p>
-
-      <p className="max-w-sm text-sm leading-relaxed text-primary-foreground/75">
-        Cada acción en el tablero conecta con personas reales. Entra con tu cuenta y sigue
-        construyendo impacto con propósito.
-      </p>
     </div>
   )
 }
