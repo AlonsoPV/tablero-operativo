@@ -26,7 +26,7 @@ type RecipientProfile = {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const FUNCTION_VERSION = 'notification-email-logs-20260701'
+const FUNCTION_VERSION = 'notification-email-logs-20260707-provider-skip'
 
 function normalizePriority(value: unknown): 'Normal' | 'Alta' | 'Urgente' {
   return value === 'Alta' || value === 'Urgente' ? value : 'Normal'
@@ -549,10 +549,10 @@ Deno.serve(async (req) => {
       payload,
     })
     return jsonResponse({
-      ok: false,
+      ok: true,
       skipped: true,
       reason: 'email_provider_failed',
       message,
-    }, 502)
+    })
   }
 })

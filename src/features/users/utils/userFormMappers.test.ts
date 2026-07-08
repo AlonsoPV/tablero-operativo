@@ -10,12 +10,14 @@ describe('user form mappers', () => {
         rol: 'Operaciones',
         area: 'Logistica',
         activo: false,
+        manager_user_id: 'manager-1',
       })
     ).toEqual({
       nombre: 'Ana Perez',
       rol: 'Operaciones',
       area: 'Logistica',
       activo: false,
+      manager_user_id: 'manager-1',
     })
   })
 

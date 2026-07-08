@@ -14,6 +14,7 @@ export interface UserProfile {
   rol: string
   area: string | null
   activo: boolean
+  manager_user_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -33,6 +34,7 @@ export interface UpdateUserInput {
   rol?: string
   area?: string | null
   activo?: boolean
+  manager_user_id?: string | null
 }
 
 /** Filtros del listado de usuarios. */

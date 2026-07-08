@@ -28,6 +28,7 @@ const ANALYST_ALLOWED_ROUTES = [
   ROUTES.NOTIFICACIONES,
   ROUTES.MANUAL,
   ROUTES.AI_ASSIST,
+  ROUTES.ORG_CHART,
   ROUTES.SETTINGS,
   ROUTES.SETTINGS_PROFILE,
 ] as const
@@ -37,6 +38,7 @@ const DIRECTION_ALLOWED_ROUTES = [
   ...ANALYST_ALLOWED_ROUTES,
   ROUTES.SETTINGS_USERS,
   ROUTES.SETTINGS_USERS_DETAIL,
+  ROUTES.ORG_CHART,
   ROUTES.SETTINGS_REMINDERS,
   ROUTES.SETTINGS_CATALOGS,
   ROUTES.SETTINGS_CATALOGS_ROLES,
@@ -121,12 +123,34 @@ export function isSuperAdminByRole(rol: string | null | undefined): boolean {
   return normalizeRole(rol) === normalizeRole(SUPER_ADMIN_ROLE)
 }
 
+export function isAppSuperAdminByAppRole(appRole: string | null | undefined): boolean {
+  return normalizeRole(appRole) === normalizeRole(SUPER_ADMIN_ROLE)
+}
+
+export function isAppAdminByAppRole(appRole: string | null | undefined): boolean {
+  const normalized = normalizeRole(appRole)
+  return normalized === 'admin' || normalized === normalizeRole(SUPER_ADMIN_ROLE)
+}
+
 export function canManageSupportTicketsByRole(rol: string | null | undefined): boolean {
   return isSuperAdminByRole(rol)
 }
 
 export function canManageAcademyModulesByRole(rol: string | null | undefined): boolean {
   return isSuperAdminByRole(rol) || isDirectionByRole(rol)
+}
+
+export function canEditOrgHierarchyByRole(
+  rol: string | null | undefined,
+  appRole?: string | null | undefined
+): boolean {
+  return (
+    isAdminByRole(rol) ||
+    isDirectionByRole(rol) ||
+    isSuperAdminByRole(rol) ||
+    isAppSuperAdminByAppRole(appRole) ||
+    isAppAdminByAppRole(appRole)
+  )
 }
 
 export function canManageActionsByRole(rol: string | null | undefined): boolean {

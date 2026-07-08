@@ -18,6 +18,8 @@ import {
 } from '../schemas/user.schema'
 import { useRoles } from '@/features/catalogs/hooks/useRoles'
 import { useAreas } from '@/features/catalogs/hooks/useAreas'
+import { wouldCreateHierarchyCycle } from '@/features/org-chart/utils/orgHierarchy'
+import type { OrgChartUser } from '@/features/org-chart/types/orgChart.types'
 
 interface UserFormProps {
   defaultValues?: Partial<UserFormValues> | null
@@ -29,9 +31,16 @@ interface UserFormProps {
   /** Oculta acciones; usar con `formId` y botones externos. */
   hideActions?: boolean
   formId?: string
+  /** Usuario en edición (para validar jerarquía). */
+  editingUserId?: string
+  /** Opciones de jefe directo. */
+  managerOptions?: OrgChartUser[]
+  /** Si puede editar "Reporta a". */
+  canEditManager?: boolean
 }
 
 const NONE_AREA = '__none__'
+const NONE_MANAGER = '__none_manager__'
 
 const EMPTY_USER_FORM: UserFormValues = {
   email: '',
@@ -39,6 +48,7 @@ const EMPTY_USER_FORM: UserFormValues = {
   rol: '',
   area: null,
   activo: true,
+  manager_user_id: null,
 }
 
 export function UserForm({
@@ -49,6 +59,9 @@ export function UserForm({
   isCreate = false,
   hideActions = false,
   formId,
+  editingUserId,
+  managerOptions = [],
+  canEditManager = false,
 }: UserFormProps) {
   const { data: roles = [], isLoading: loadingRoles } = useRoles({ activo: true })
   const { data: areas = [], isLoading: loadingAreas } = useAreas({ activo: true })
@@ -101,6 +114,19 @@ export function UserForm({
     ]
   }, [areas, currentAreaMissing, resolvedDefaults.area])
 
+  const selectableManagers = useMemo(() => {
+    return managerOptions
+      .filter((option) => option.activo)
+      .filter((option) => option.id !== editingUserId)
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+  }, [editingUserId, managerOptions])
+
+  const currentManagerMissing = Boolean(
+    !isCreate &&
+      resolvedDefaults.manager_user_id &&
+      !managerOptions.some((option) => option.id === resolvedDefaults.manager_user_id)
+  )
+
   const form = useForm<UserFormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: resolvedDefaults,
@@ -114,6 +140,7 @@ export function UserForm({
       rol: defaultValues?.rol ?? '',
       area: defaultValues?.area ?? null,
       activo: defaultValues?.activo ?? true,
+      manager_user_id: defaultValues?.manager_user_id ?? null,
     })
   }, [
     defaultValues?.email,
@@ -121,13 +148,30 @@ export function UserForm({
     defaultValues?.rol,
     defaultValues?.area,
     defaultValues?.activo,
+    defaultValues?.manager_user_id,
     form,
   ])
+
+  const handleValidatedSubmit = (values: UserFormValues) => {
+    if (
+      !isCreate &&
+      canEditManager &&
+      editingUserId &&
+      values.manager_user_id &&
+      wouldCreateHierarchyCycle(editingUserId, values.manager_user_id, managerOptions)
+    ) {
+      form.setError('manager_user_id', {
+        message: 'Ese jefe generaría un ciclo jerárquico.',
+      })
+      return
+    }
+    onSubmit(values)
+  }
 
   return (
     <form
       id={formId}
-      onSubmit={form.handleSubmit(onSubmit)}
+      onSubmit={form.handleSubmit(handleValidatedSubmit)}
       className="space-y-6"
     >
       {isCreate && (
@@ -237,6 +281,49 @@ export function UserForm({
           <p className="text-sm text-destructive">{form.formState.errors.area.message}</p>
         )}
       </div>
+
+      {!isCreate && canEditManager ? (
+        <div className="space-y-2">
+          <Label htmlFor="manager_user_id">Reporta a</Label>
+          <Controller
+            name="manager_user_id"
+            control={form.control}
+            render={({ field }) => (
+              <Select
+                value={field.value ?? NONE_MANAGER}
+                onValueChange={(value) =>
+                  field.onChange(value === NONE_MANAGER ? null : value)
+                }
+              >
+                <SelectTrigger id="manager_user_id">
+                  <SelectValue placeholder="Sin responsable superior" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE_MANAGER}>Sin responsable superior</SelectItem>
+                  {currentManagerMissing && resolvedDefaults.manager_user_id ? (
+                    <SelectItem value={resolvedDefaults.manager_user_id}>
+                      Jefe actual (no visible en catálogo)
+                    </SelectItem>
+                  ) : null}
+                  {selectableManagers.map((manager) => (
+                    <SelectItem key={manager.id} value={manager.id}>
+                      {manager.nombre} · {manager.rol}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+          <p className="text-xs text-muted-foreground">
+            Define el jefe directo para organigrama y escalamientos futuros.
+          </p>
+          {form.formState.errors.manager_user_id && (
+            <p className="text-sm text-destructive">
+              {form.formState.errors.manager_user_id.message}
+            </p>
+          )}
+        </div>
+      ) : null}
 
       <Controller
         name="activo"

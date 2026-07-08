@@ -37,9 +37,16 @@ export async function sendNotificationEmail(input: CreateNotificacionInput): Pro
   })
 
   if (error) throw error
-  if (data?.ok === false || data?.skipped === true) {
+  if (data?.skipped === true) {
+    console.warn(
+      '[notificaciones] La notificacion se creo, pero el correo fue omitido.',
+      data.reason ?? data.message ?? 'sin detalle'
+    )
+    return
+  }
+  if (data?.ok === false) {
     const detail = [data.reason, data.message].filter(Boolean).join(': ')
-    throw new Error(detail || 'La funcion omitio el envio de correo')
+    throw new Error(detail || 'No se pudo enviar el correo de notificacion')
   }
 }
 

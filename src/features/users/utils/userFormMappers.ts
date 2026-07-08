@@ -8,6 +8,7 @@ export function toUpdateUserInput(values: UserFormValues): UpdateUserInput {
     rol: values.rol,
     area: values.area ?? null,
     activo: Boolean(values.activo),
+    manager_user_id: values.manager_user_id ?? null,
   }
 }
 

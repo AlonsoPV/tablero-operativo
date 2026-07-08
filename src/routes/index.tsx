@@ -85,6 +85,13 @@ const router = createBrowserRouter([
             },
           },
           {
+            path: ROUTES.ORG_CHART,
+            lazy: async () => {
+              const { OrgChartPage } = await importWithReload(() => import('@/features/org-chart'))
+              return { Component: OrgChartPage }
+            },
+          },
+          {
             path: ROUTES.TICKETS,
             lazy: async () => {
               const { TicketsPage } = await importWithReload(() => import('@/features/tickets'))

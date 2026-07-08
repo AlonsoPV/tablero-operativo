@@ -15,6 +15,7 @@ import {
   LineChart,
   FolderKanban,
   BarChart3,
+  Network,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -43,6 +44,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: ROUTES.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard },
       { to: ROUTES.KANBAN, label: 'Kanban', icon: Columns3 },
+      { to: ROUTES.ORG_CHART, label: 'Organigrama', icon: Network },
       { to: ROUTES.DISCIPLINA, label: 'Disciplina', icon: Target },
       { to: ROUTES.CALENDARIO, label: 'Calendario', icon: Calendar },
       { to: ROUTES.ACADEMIA, label: 'Academia O2C', icon: GraduationCap },

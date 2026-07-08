@@ -27,6 +27,8 @@ export const ROUTES = {
   MANUAL: '/manual',
   /** Asistente IA O2C (proxy Edge Functions → Lovable). */
   AI_ASSIST: '/asistente-ia',
+  /** Organigrama jerárquico de la organización. */
+  ORG_CHART: '/organigrama',
   /** Plan de acción Scrum Master — acceso restringido por usuario. */
   PLAN_ACCION: '/plan-accion',
   SETTINGS: '/settings',

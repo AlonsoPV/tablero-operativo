@@ -66,6 +66,14 @@ const GROUPS: CatalogGroup[] = [
         icon: Building2,
         iconClass: 'bg-blue-500/12 text-blue-700 dark:text-blue-400',
       },
+      {
+        title: 'Organigrama',
+        description: 'Jerarquía de reporte, jefes directos y equipos.',
+        href: ROUTES.ORG_CHART,
+        cta: 'Ver organigrama',
+        icon: ListTree,
+        iconClass: 'bg-blue-500/12 text-blue-700 dark:text-blue-400',
+      },
     ],
   },
   {

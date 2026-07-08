@@ -32,12 +32,14 @@ type ActionRow = {
 type Counts = {
   total_open: number
   critical_open: number
+  red_today: number
   overdue: number
   due_today: number
   blocked: number
   missing_evidence: number
   recently_closed: number
 }
+type PrioritizedAction = ActionRow & { priority_reason: string; priority_rank: number }
 
 const SETTINGS_ID = 'default'
 const LEADER_ROLES = ['direccion', 'super_admin', 'dg', 'sistemas', 'lider', 'leader']
@@ -110,7 +112,21 @@ function appBaseUrl() {
 }
 
 function emptyCounts(): Counts {
-  return { total_open: 0, critical_open: 0, overdue: 0, due_today: 0, blocked: 0, missing_evidence: 0, recently_closed: 0 }
+  return { total_open: 0, critical_open: 0, red_today: 0, overdue: 0, due_today: 0, blocked: 0, missing_evidence: 0, recently_closed: 0 }
+}
+
+function statusKeyFor(action: ActionRow, statusByName: Map<string, string>) {
+  return clean(statusByName.get(clean(action.estado)) ?? action.estado)
+}
+
+function isClosedAction(action: ActionRow, statusByName: Map<string, string>) {
+  return ['hecho', 'verificado', 'cerrado', 'realizado'].includes(statusKeyFor(action, statusByName))
+}
+
+function isCriticalAction(action: ActionRow, priorityById: Map<string, string>, priorityByName: Map<string, string>) {
+  const priorityColor = action.prioridad_id ? priorityById.get(action.prioridad_id) : priorityByName.get(clean(action.prioridad))
+  const priorityLabel = clean(action.prioridad)
+  return priorityColor === 'rojo' || priorityLabel.includes('rojo') || priorityLabel.includes('crit') || priorityLabel.includes('p1')
 }
 
 function calculateCounts(
@@ -122,19 +138,20 @@ function calculateCounts(
 ) {
   const counts = emptyCounts()
   for (const action of actions) {
-    const statusKey = clean(statusByName.get(clean(action.estado)) ?? action.estado)
-    const closed = ['hecho', 'verificado', 'cerrado', 'realizado'].includes(statusKey)
-    if (closed) {
+    const statusKey = statusKeyFor(action, statusByName)
+    if (isClosedAction(action, statusByName)) {
       if (action.completed_at?.slice(0, 10) === targetDate) counts.recently_closed += 1
       continue
     }
 
-    const priorityColor = action.prioridad_id ? priorityById.get(action.prioridad_id) : priorityByName.get(clean(action.prioridad))
-    const priorityLabel = clean(action.prioridad)
+    const isCritical = isCriticalAction(action, priorityById, priorityByName)
     counts.total_open += 1
-    if (priorityColor === 'rojo' || priorityLabel.includes('rojo') || priorityLabel.includes('crit') || priorityLabel.includes('p1')) counts.critical_open += 1
+    if (isCritical) counts.critical_open += 1
     if (action.fecha < targetDate) counts.overdue += 1
-    if (action.fecha === targetDate) counts.due_today += 1
+    if (action.fecha === targetDate) {
+      counts.due_today += 1
+      if (isCritical) counts.red_today += 1
+    }
     if (statusKey.includes('bloqueado')) counts.blocked += 1
     if ((action.evidencia_esperada ?? '').trim() && action.evidencia_cargada !== true) counts.missing_evidence += 1
   }
@@ -142,16 +159,30 @@ function calculateCounts(
 }
 
 function pending(counts: Counts) {
-  return counts.total_open > 0 || counts.critical_open > 0 || counts.overdue > 0 || counts.due_today > 0 || counts.blocked > 0
+  return counts.red_today > 0 || counts.overdue > 0
 }
 
-function topActions(actions: ActionRow[], targetDate: string, statusByName: Map<string, string>) {
+function topActions(
+  actions: ActionRow[],
+  targetDate: string,
+  statusByName: Map<string, string>,
+  priorityById: Map<string, string>,
+  priorityByName: Map<string, string>
+): PrioritizedAction[] {
   return actions
-    .filter((action) => !['hecho', 'verificado', 'cerrado', 'realizado'].includes(clean(statusByName.get(clean(action.estado)) ?? action.estado)))
+    .map((action): PrioritizedAction | null => {
+      if (isClosedAction(action, statusByName)) return null
+      const isCritical = isCriticalAction(action, priorityById, priorityByName)
+      const isOverdue = action.fecha < targetDate
+      const isRedToday = isCritical && action.fecha === targetDate
+      if (!isOverdue && !isRedToday) return null
+      if (isCritical && isOverdue) return { ...action, priority_reason: 'Roja vencida', priority_rank: 0 }
+      if (isOverdue) return { ...action, priority_reason: 'Vencida', priority_rank: 1 }
+      return { ...action, priority_reason: 'Roja de hoy', priority_rank: 2 }
+    })
+    .filter((action): action is PrioritizedAction => Boolean(action))
     .sort((a, b) => {
-      const aOverdue = a.fecha < targetDate ? 0 : 1
-      const bOverdue = b.fecha < targetDate ? 0 : 1
-      if (aOverdue !== bOverdue) return aOverdue - bOverdue
+      if (a.priority_rank !== b.priority_rank) return a.priority_rank - b.priority_rank
       return `${a.fecha} ${a.hora_limite ?? ''}`.localeCompare(`${b.fecha} ${b.hora_limite ?? ''}`)
     })
     .slice(0, 6)
@@ -249,25 +280,24 @@ async function sendWithGoogleMail(input: { to: string; subject: string; html: st
   return { provider: 'gmail', id: result?.id ?? null }
 }
 
-function buildEmail(input: { name: string; counts: Counts; actions: ActionRow[]; url: string; isTest: boolean }) {
+function buildEmail(input: { name: string; counts: Counts; actions: PrioritizedAction[]; url: string; isTest: boolean }) {
   const subject = `${input.isTest ? '[Prueba] ' : ''}Resumen diario de acciones pendientes`
   const actionList = input.actions.length
-    ? input.actions.map((action, index) => `${index + 1}. ${action.titulo_accion || 'Accion sin titulo'} (${action.fecha})`).join('\n')
-    : 'No hay acciones abiertas para priorizar.'
+    ? input.actions.map((action, index) => `${index + 1}. [${action.priority_reason}] ${action.titulo_accion || 'Accion sin titulo'} (${action.fecha})`).join('\n')
+    : 'No hay acciones rojas del dia ni vencidas por cerrar.'
   const text = [
     subject,
     '',
     `Hola ${input.name},`,
     '',
     'Este es tu resumen de acciones para hoy:',
-    `- ${input.counts.critical_open} acciones criticas por cerrar`,
-    `- ${input.counts.overdue} acciones atrasadas`,
-    `- ${input.counts.due_today} acciones vencen hoy`,
-    `- ${input.counts.blocked} acciones bloqueadas`,
+    `- ${input.counts.red_today} acciones rojas del dia`,
+    `- ${input.counts.overdue} acciones vencidas`,
     '',
     'Prioridad sugerida:',
-    '1. Atiende primero las acciones criticas atrasadas.',
-    '2. Actualiza el estatus de acciones en curso.',
+    '1. Cierra primero las acciones rojas vencidas.',
+    '2. Despues atiende las demas acciones vencidas.',
+    '3. Finalmente atiende las acciones rojas con fecha de hoy.',
     '',
     'Que cerrar primero:',
     actionList,
@@ -275,9 +305,9 @@ function buildEmail(input: { name: string; counts: Counts; actions: ActionRow[];
     `Ver mi dia operativo: ${input.url}`,
   ].join('\n')
   const items = input.actions.length
-    ? `<ol>${input.actions.map((action) => `<li>${html(action.titulo_accion || 'Accion sin titulo')} <span style="color:#64748b">(${html(action.fecha)})</span></li>`).join('')}</ol>`
-    : '<p style="color:#64748b">No hay acciones abiertas para priorizar.</p>'
-  const body = `<!doctype html><html lang="es"><body style="margin:0;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a"><div style="max-width:640px;margin:0 auto;padding:28px 18px"><div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:24px"><p style="margin:0 0 10px;color:#64748b;font-size:13px">SCRUMBAN</p><h1 style="margin:0 0 14px;font-size:22px">${html(subject)}</h1><p>Hola ${html(input.name)},</p><p>Este es tu resumen de acciones para hoy:</p><ul><li>${input.counts.critical_open} acciones criticas por cerrar</li><li>${input.counts.overdue} acciones atrasadas</li><li>${input.counts.due_today} acciones vencen hoy</li><li>${input.counts.blocked} acciones bloqueadas</li></ul><h2 style="font-size:16px">Prioridad sugerida</h2><ol><li>Atiende primero las acciones criticas atrasadas.</li><li>Actualiza el estatus de acciones en curso.</li></ol><h2 style="font-size:16px">Que cerrar primero</h2>${items}<p style="margin-top:24px"><a href="${html(input.url)}" style="display:inline-block;background:#0f172a;color:#fff;text-decoration:none;border-radius:8px;padding:11px 16px;font-weight:700">Ver mi dia operativo</a></p></div></div></body></html>`
+    ? `<ol>${input.actions.map((action) => `<li><strong>${html(action.priority_reason)}</strong>: ${html(action.titulo_accion || 'Accion sin titulo')} <span style="color:#64748b">(${html(action.fecha)})</span></li>`).join('')}</ol>`
+    : '<p style="color:#64748b">No hay acciones rojas del dia ni vencidas por cerrar.</p>'
+  const body = `<!doctype html><html lang="es"><body style="margin:0;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a"><div style="max-width:640px;margin:0 auto;padding:28px 18px"><div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:24px"><p style="margin:0 0 10px;color:#64748b;font-size:13px">SCRUMBAN</p><h1 style="margin:0 0 14px;font-size:22px">${html(subject)}</h1><p>Hola ${html(input.name)},</p><p>Este es tu resumen de acciones para hoy:</p><ul><li>${input.counts.red_today} acciones rojas del dia</li><li>${input.counts.overdue} acciones vencidas</li></ul><h2 style="font-size:16px">Prioridad sugerida</h2><ol><li>Cierra primero las acciones rojas vencidas.</li><li>Despues atiende las demas acciones vencidas.</li><li>Finalmente atiende las acciones rojas con fecha de hoy.</li></ol><h2 style="font-size:16px">Que cerrar primero</h2>${items}<p style="margin-top:24px"><a href="${html(input.url)}" style="display:inline-block;background:#0f172a;color:#fff;text-decoration:none;border-radius:8px;padding:11px 16px;font-weight:700">Ver mi dia operativo</a></p></div></div></body></html>`
   return { subject, text, html: body }
 }
 
@@ -412,7 +442,13 @@ Deno.serve(async (req) => {
         summary.omitted_no_pending += 1
         continue
       }
-      const built = buildEmail({ name: user.nombre?.trim() || email.split('@')[0] || 'usuario', counts, actions: topActions(rows, local.date, statusByName), url: `${baseUrl}/disciplina`, isTest })
+      const built = buildEmail({
+        name: user.nombre?.trim() || email.split('@')[0] || 'usuario',
+        counts,
+        actions: topActions(rows, local.date, statusByName, priorityById, priorityByName),
+        url: `${baseUrl}/disciplina`,
+        isTest,
+      })
       const sent = await sendEmail(email, built.subject, built.html, built.text)
       await admin.from('daily_action_summary_logs').insert({ ...baseLog, email, status: 'sent', counts, provider: sent.provider, email_id: sent.id })
       summary.sent += 1

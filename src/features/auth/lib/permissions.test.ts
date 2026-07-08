@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ROUTES } from '@/constants'
 import {
   canAccessRouteByRole,
+  canEditOrgHierarchyByRole,
   canManageAcademyModulesByRole,
   canManageSupportTicketsByRole,
   getDefaultRouteByRole,
@@ -27,6 +28,7 @@ describe('role route permissions', () => {
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS_KPIS)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.ORG_CHART)).toBe(true)
     expect(canManageAcademyModulesByRole(role)).toBe(true)
     expect(usesOperationalDashboardByRole(role)).toBe(true)
   })
@@ -43,6 +45,7 @@ describe('role route permissions', () => {
     const role = 'Operativo'
 
     expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.ORG_CHART)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_PROFILE)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_USERS)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_ACADEMY_MODULES)).toBe(false)
@@ -85,5 +88,16 @@ describe('role route permissions', () => {
     expect(canManageSupportTicketsByRole('super_admin')).toBe(true)
     expect(canManageSupportTicketsByRole('Direccion')).toBe(false)
     expect(canManageSupportTicketsByRole('Operativo')).toBe(false)
+  })
+
+  it('allows hierarchy editing for admin, direction and app super_admin', () => {
+    expect(canEditOrgHierarchyByRole('Direccion')).toBe(true)
+    expect(canEditOrgHierarchyByRole('DG')).toBe(true)
+    expect(canEditOrgHierarchyByRole('Operativo')).toBe(false)
+    expect(canEditOrgHierarchyByRole('Analista')).toBe(false)
+    expect(canEditOrgHierarchyByRole('Operativo', 'super_admin')).toBe(true)
+    expect(canEditOrgHierarchyByRole(null, 'super_admin')).toBe(true)
+    expect(canEditOrgHierarchyByRole('Operativo', 'admin')).toBe(true)
+    expect(canEditOrgHierarchyByRole('Operativo', 'viewer')).toBe(false)
   })
 })

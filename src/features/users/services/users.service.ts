@@ -27,6 +27,43 @@ function isMissingRpcError(error: unknown): boolean {
   return e.code === 'PGRST202' || message.includes('could not find the function')
 }
 
+function isNoRowsUpdateError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const e = error as { code?: string; message?: string }
+  return e.code === 'PGRST116' || (e.message?.includes('0 rows') ?? false)
+}
+
+function profileFromRpcRow(data: unknown): UserProfile | null {
+  const row = Array.isArray(data) ? data[0] : data
+  return row ? (row as UserProfile) : null
+}
+
+async function updateManagerViaRpc(
+  id: string,
+  managerUserId: string | null
+): Promise<UserProfile> {
+  const { data, error } = await supabase.rpc('settings_users_update_manager', {
+    p_user_id: id,
+    p_manager_user_id: managerUserId,
+  })
+
+  if (error) {
+    if (isMissingRpcError(error)) {
+      throw new Error(
+        'Falta aplicar la migración de organigrama en Supabase (settings_users_update_manager).'
+      )
+    }
+    throw error
+  }
+
+  const profile = profileFromRpcRow(data)
+  if (!profile) {
+    throw new Error('Usuario no encontrado tras actualizar la jerarquía.')
+  }
+
+  return profile
+}
+
 function applyUserFilters(list: UserProfile[], filter: UsersFilter): UserProfile[] {
   let next = list
 
@@ -56,7 +93,7 @@ function applyUserFilters(list: UserProfile[], filter: UsersFilter): UserProfile
 async function listVisibleUsersCatalog(filter: UsersFilter): Promise<UserProfile[]> {
   let query = supabase
     .from(TABLE)
-    .select('id,user_id,nombre,rol,area,activo,created_at,updated_at')
+    .select('id,user_id,nombre,rol,area,activo,manager_user_id,created_at,updated_at')
     .order('nombre', { ascending: true })
 
   if (filter.activo !== undefined && filter.activo !== null) {
@@ -172,6 +209,7 @@ export const usersAdminService = {
   },
 
   async update(id: string, input: UpdateUserInput): Promise<UserProfile> {
+    const hasManagerField = 'manager_user_id' in input
     const payload: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     }
@@ -189,14 +227,34 @@ export const usersAdminService = {
       payload.activo = input.activo
     }
 
-    const { data, error } = await supabase
-      .from(TABLE)
-      .update(payload)
-      .eq('id', id)
-      .select()
-      .single()
-    if (error) throw error
-    return data as UserProfile
+    const hasOtherFields = Object.keys(payload).length > 1
+    let profile: UserProfile | null = null
+
+    if (hasOtherFields) {
+      const { data, error } = await supabase
+        .from(TABLE)
+        .update(payload)
+        .eq('id', id)
+        .select()
+        .maybeSingle()
+
+      if (error && !isNoRowsUpdateError(error)) {
+        throw error
+      }
+
+      profile = (data as UserProfile | null) ?? null
+    }
+
+    if (hasManagerField) {
+      profile = await updateManagerViaRpc(id, input.manager_user_id ?? null)
+      return profile
+    }
+
+    if (!profile) {
+      throw new Error('No se pudo actualizar el usuario. Verifica tus permisos.')
+    }
+
+    return profile
   },
 
   /**

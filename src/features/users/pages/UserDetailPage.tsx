@@ -20,11 +20,16 @@ import {
 import { UserDetailCard } from '../components/UserDetailCard'
 import { PasswordManagementCard } from '../components/PasswordManagementCard'
 import { UserForm } from '../components/UserForm'
-import { useUser, useUserAuthEmail, useUpdateUser, useToggleUserStatus } from '../hooks'
+import { UserHierarchySection } from '../components/UserHierarchySection'
+import { useUser, useUserAuthEmail, useUpdateUser, useToggleUserStatus, useCurrentUser } from '../hooks'
 import type { UserFormValues } from '../schemas/user.schema'
 import { toUpdateUserInput } from '../utils/userFormMappers'
 import { toast } from 'sonner'
 import { ArrowLeft } from 'lucide-react'
+import { useOrgChart } from '@/features/org-chart/hooks/useOrgChart'
+import { canEditOrgHierarchyByRole } from '@/features/auth/lib/permissions'
+import { useAppRole } from '@/features/auth/hooks/useAppRole'
+import { mapManagerUpdateError } from '@/features/org-chart/utils/orgHierarchy'
 
 const USER_FORM_ID = 'user-detail-form'
 
@@ -36,9 +41,13 @@ export function UserDetailPage() {
 
   const { data: user, isLoading, isError, error } = useUser(id)
   const { data: authEmail } = useUserAuthEmail(user?.email ? null : user?.user_id)
+  const { data: currentUser } = useCurrentUser()
+  const { data: appRole } = useAppRole()
+  const { data: orgUsers = [] } = useOrgChart()
   const email = user?.email ?? authEmail ?? null
   const updateUser = useUpdateUser()
   const toggleStatus = useToggleUserStatus()
+  const canEditManager = canEditOrgHierarchyByRole(currentUser?.rol, appRole)
 
   const handleFormSubmit = (values: UserFormValues) => {
     if (!id) return
@@ -50,7 +59,8 @@ export function UserDetailPage() {
           setFormOpen(false)
         },
         onError: (err) => {
-          toast.error(err instanceof Error ? err.message : 'Error al actualizar')
+          const message = err instanceof Error ? err.message : 'Error al actualizar'
+          toast.error(mapManagerUpdateError(message))
         },
       }
     )
@@ -111,6 +121,8 @@ export function UserDetailPage() {
         isToggling={toggleStatus.isPending}
       />
 
+      <UserHierarchySection user={user} users={orgUsers} />
+
       <PasswordManagementCard userEmail={email ?? null} />
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
@@ -126,11 +138,15 @@ export function UserDetailPage() {
               key={`edit-user-${user.id}`}
               formId={USER_FORM_ID}
               hideActions
+              editingUserId={user.id}
+              managerOptions={orgUsers}
+              canEditManager={canEditManager}
               defaultValues={{
                 nombre: user.nombre,
                 rol: user.rol,
                 area: user.area ?? null,
                 activo: user.activo,
+                manager_user_id: user.manager_user_id ?? null,
               }}
               onSubmit={handleFormSubmit}
               onCancel={() => setFormOpen(false)}

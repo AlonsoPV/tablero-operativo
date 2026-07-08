@@ -29,6 +29,11 @@ const commonUserFormSchema = z.object({
     .nullable()
     .optional(),
   activo: z.boolean(),
+  manager_user_id: z
+    .union([z.string().uuid(), z.null(), z.undefined()])
+    .transform((value) => (value == null || value === '' ? null : value))
+    .nullable()
+    .optional(),
 })
 
 /** Rol y área vienen de catálogos (catalog_roles, areas); se validan como texto no vacío. */

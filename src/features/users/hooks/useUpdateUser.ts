@@ -39,6 +39,7 @@ export function useUpdateUser() {
 
       queryClient.invalidateQueries({ queryKey: usersQueryKey })
       queryClient.invalidateQueries({ queryKey: ['users', 'current'] })
+      queryClient.invalidateQueries({ queryKey: ['org-chart'] })
     },
   })
 }

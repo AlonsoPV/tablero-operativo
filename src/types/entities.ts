@@ -17,6 +17,8 @@ export interface Usuario {
   rol: string
   area: string | null
   activo: boolean
+  /** Jefe directo (usuarios.id). Null = sin responsable superior. */
+  manager_user_id?: string | null
   onboarding_completed: boolean
   created_at: string
   updated_at: string
