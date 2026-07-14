@@ -1,7 +1,10 @@
 import type { AccionDiaria } from '@/types'
 import type { AccionComentario } from '@/types/accionComentario'
 import type { UserProfile } from '@/features/users/types/user.types'
-import { buildActionGamificationMetrics } from '@/features/disciplina/utils/actionGamification'
+import {
+  buildActionGamificationMetrics,
+  type OrgChartGamificationScore,
+} from '@/features/disciplina/utils/actionGamification'
 import { isEnRetraso } from '@/features/operations/utils/accionUtils'
 
 const CLOSED_STATES = new Set(['Hecho', 'Verificado'])
@@ -55,7 +58,8 @@ export function buildUserActionsSummaryRows(
   acciones: AccionDiaria[],
   comentarios: AccionComentario[],
   today: string,
-  areaFilter?: string
+  areaFilter?: string,
+  orgChartScores: ReadonlyMap<string, OrgChartGamificationScore> = new Map()
 ): UserActionsSummaryRow[] {
   return filterUsersWithAssignedArea(users, areaFilter).map((user) => {
     const assignedOpenActions = acciones.filter(
@@ -65,7 +69,9 @@ export function buildUserActionsSummaryRows(
       user.id,
       acciones,
       comentarios,
-      today
+      today,
+      0,
+      orgChartScores.get(user.id) ?? null
     ).totalPoints
 
     return {

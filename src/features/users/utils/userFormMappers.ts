@@ -1,12 +1,25 @@
 import type { CreateUserInput, UpdateUserInput } from '../types/user.types'
 import type { UserFormValues } from '../schemas/user.schema'
+import type { AreaOption } from '../components/AreaMembershipFields'
+import { resolveAreaIdsForSave } from '../components/AreaMembershipFields'
 
 /** Payload explícito para UPDATE: siempre envía todos los campos editables. */
-export function toUpdateUserInput(values: UserFormValues): UpdateUserInput {
+export function toUpdateUserInput(
+  values: UserFormValues,
+  catalogAreas: AreaOption[] = []
+): UpdateUserInput {
+  const { primaryAreaId, areaIds } = resolveAreaIdsForSave(
+    catalogAreas,
+    values.area ?? null,
+    values.additional_area_ids ?? []
+  )
+
   return {
     nombre: values.nombre.trim(),
     rol: values.rol,
     area: values.area ?? null,
+    primary_area_id: primaryAreaId,
+    area_ids: areaIds,
     activo: Boolean(values.activo),
     manager_user_id: values.manager_user_id ?? null,
   }

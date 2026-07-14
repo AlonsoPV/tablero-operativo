@@ -33,9 +33,19 @@ function isNoRowsUpdateError(error: unknown): boolean {
   return e.code === 'PGRST116' || (e.message?.includes('0 rows') ?? false)
 }
 
+function normalizeAreas(profile: UserProfile): UserProfile {
+  const areas =
+    profile.areas && profile.areas.length > 0
+      ? profile.areas
+      : profile.area
+        ? [profile.area]
+        : []
+  return { ...profile, areas }
+}
+
 function profileFromRpcRow(data: unknown): UserProfile | null {
   const row = Array.isArray(data) ? data[0] : data
-  return row ? (row as UserProfile) : null
+  return row ? normalizeAreas(row as UserProfile) : null
 }
 
 async function updateManagerViaRpc(
@@ -64,14 +74,102 @@ async function updateManagerViaRpc(
   return profile
 }
 
+async function setAreasViaRpc(
+  id: string,
+  primaryAreaId: string | null,
+  areaIds: string[]
+): Promise<UserProfile> {
+  const { data, error } = await supabase.rpc('settings_users_set_areas', {
+    p_user_id: id,
+    p_primary_area_id: primaryAreaId,
+    p_area_ids: areaIds,
+  })
+
+  if (error) {
+    if (isMissingRpcError(error)) {
+      throw new Error(
+        'Falta aplicar la migración de multi-área en Supabase (settings_users_set_areas).'
+      )
+    }
+    throw error
+  }
+
+  const profile = profileFromRpcRow(data)
+  if (!profile) {
+    throw new Error('Usuario no encontrado tras actualizar las áreas.')
+  }
+  return profile
+}
+
+async function setDirectReportsViaRpc(
+  managerId: string,
+  reportIds: string[]
+): Promise<UserProfile[]> {
+  const { data, error } = await supabase.rpc('settings_users_set_direct_reports', {
+    p_manager_id: managerId,
+    p_report_ids: reportIds,
+  })
+
+  if (error) {
+    if (isMissingRpcError(error)) {
+      throw new Error(
+        'Falta aplicar la migración de organigrama en Supabase (settings_users_set_direct_reports).'
+      )
+    }
+    throw error
+  }
+
+  return ((data ?? []) as UserProfile[]).map(normalizeAreas)
+}
+
+async function updateOrgHierarchyViaRpc(
+  id: string,
+  managerUserId: string | null,
+  reportIds: string[]
+): Promise<UserProfile> {
+  const { data, error } = await supabase.rpc('settings_users_update_org_hierarchy', {
+    p_user_id: id,
+    p_manager_user_id: managerUserId,
+    p_report_ids: reportIds,
+  })
+
+  if (error) {
+    if (isMissingRpcError(error)) {
+      throw new Error(
+        'Falta aplicar la migración de puntos del organigrama en Supabase (settings_users_update_org_hierarchy).'
+      )
+    }
+    throw error
+  }
+
+  const profile = profileFromRpcRow(data)
+  if (!profile) throw new Error('Usuario no encontrado tras actualizar la jerarquía.')
+  return profile
+}
+
+async function refreshOrgChartScore(id: string): Promise<void> {
+  const { error } = await supabase.rpc('org_chart_score_refresh', { p_user_id: id })
+  if (error) {
+    if (isMissingRpcError(error)) {
+      throw new Error('Falta aplicar la migración de puntos del organigrama en Supabase.')
+    }
+    throw error
+  }
+}
+
+function userMatchesArea(user: UserProfile, area: string): boolean {
+  if (user.area === area) return true
+  return (user.areas ?? []).includes(area)
+}
+
 function applyUserFilters(list: UserProfile[], filter: UsersFilter): UserProfile[] {
-  let next = list
+  let next = list.map(normalizeAreas)
 
   if (filter.rol != null && filter.rol !== '') {
     next = next.filter((u) => u.rol === filter.rol)
   }
   if (filter.area != null && filter.area !== '') {
-    next = next.filter((u) => u.area === filter.area)
+    next = next.filter((u) => userMatchesArea(u, filter.area!))
   }
   if (filter.activo !== undefined && filter.activo !== null) {
     next = next.filter((u) => u.activo === filter.activo)
@@ -83,7 +181,8 @@ function applyUserFilters(list: UserProfile[], filter: UsersFilter): UserProfile
       (u) =>
         u.nombre.toLowerCase().includes(term) ||
         (u.email?.toLowerCase().includes(term) ?? false) ||
-        (u.area?.toLowerCase().includes(term) ?? false)
+        (u.area?.toLowerCase().includes(term) ?? false) ||
+        (u.areas ?? []).some((a) => a.toLowerCase().includes(term))
     )
   }
 
@@ -210,6 +309,8 @@ export const usersAdminService = {
 
   async update(id: string, input: UpdateUserInput): Promise<UserProfile> {
     const hasManagerField = 'manager_user_id' in input
+    const hasAreasField = 'primary_area_id' in input || 'area_ids' in input
+    const hasReportsField = 'direct_report_ids' in input
     const payload: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     }
@@ -220,7 +321,7 @@ export const usersAdminService = {
     if (input.rol !== undefined) {
       payload.rol = input.rol
     }
-    if ('area' in input) {
+    if ('area' in input && !hasAreasField) {
       payload.area = input.area?.trim() ?? null
     }
     if (input.activo !== undefined) {
@@ -242,18 +343,56 @@ export const usersAdminService = {
         throw error
       }
 
-      profile = (data as UserProfile | null) ?? null
+      profile = data ? normalizeAreas(data as UserProfile) : null
     }
 
-    if (hasManagerField) {
+    if (hasAreasField) {
+      profile = await setAreasViaRpc(
+        id,
+        input.primary_area_id ?? null,
+        input.area_ids ?? []
+      )
+    }
+
+    if (hasManagerField && hasReportsField) {
+      profile = await updateOrgHierarchyViaRpc(
+        id,
+        input.manager_user_id ?? null,
+        input.direct_report_ids ?? []
+      )
+    } else if (hasManagerField) {
       profile = await updateManagerViaRpc(id, input.manager_user_id ?? null)
-      return profile
+      await refreshOrgChartScore(id)
+    } else if (hasReportsField) {
+      await setDirectReportsViaRpc(id, input.direct_report_ids ?? [])
+      await refreshOrgChartScore(id)
+      profile = await this.getById(id)
     }
 
     if (!profile) {
       throw new Error('No se pudo actualizar el usuario. Verifica tus permisos.')
     }
 
+    return normalizeAreas(profile)
+  },
+
+  async setAreas(
+    id: string,
+    primaryAreaId: string | null,
+    areaIds: string[]
+  ): Promise<UserProfile> {
+    return setAreasViaRpc(id, primaryAreaId, areaIds)
+  },
+
+  async setDirectReports(managerId: string, reportIds: string[]): Promise<UserProfile[]> {
+    const reports = await setDirectReportsViaRpc(managerId, reportIds)
+    await refreshOrgChartScore(managerId)
+    return reports
+  },
+
+  async setManager(id: string, managerUserId: string | null): Promise<UserProfile> {
+    const profile = await updateManagerViaRpc(id, managerUserId)
+    await refreshOrgChartScore(id)
     return profile
   },
 

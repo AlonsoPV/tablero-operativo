@@ -1,5 +1,6 @@
 import type { AccionDiaria } from '@/types'
 import { isEnRetraso } from '@/features/operations/utils/accionUtils'
+import { isExcludedFromOrgChartByRole } from '@/features/auth/lib/permissions'
 import type {
   OrgChartCommandChainRow,
   OrgChartFilters,
@@ -106,14 +107,17 @@ export function filterOrgChartUsers(
   users: OrgChartUser[],
   filters: OrgChartFilters
 ): OrgChartUser[] {
-  let next = [...users]
+  let next = users.filter((user) => !isExcludedFromOrgChartByRole(user.rol))
 
   if (filters.soloActivos !== false) {
     next = next.filter((user) => user.activo)
   }
 
   if (filters.area != null && filters.area !== '') {
-    next = next.filter((user) => user.area === filters.area)
+    next = next.filter((user) => {
+      if (user.area === filters.area) return true
+      return (user.areas ?? []).includes(filters.area!)
+    })
   }
 
   if (filters.rol != null && filters.rol !== '') {
@@ -145,7 +149,8 @@ export function filterOrgChartUsers(
       (user) =>
         user.nombre.toLowerCase().includes(term) ||
         user.rol.toLowerCase().includes(term) ||
-        (user.area?.toLowerCase().includes(term) ?? false)
+        (user.area?.toLowerCase().includes(term) ?? false) ||
+        (user.areas ?? []).some((area) => area.toLowerCase().includes(term))
     )
   }
 
@@ -182,6 +187,50 @@ export function buildOrgChartForest(
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
 
   return sortTree(roots)
+}
+
+export type OrgChartListRow = OrgChartUser & {
+  depth: number
+  reportsCount: number
+  managerNombre: string | null
+  reportNombres: string[]
+}
+
+/** Aplana el bosque jerárquico en orden DFS para la vista de lista. */
+export function flattenOrgChartForest(
+  roots: OrgChartNode[],
+  allUsers: OrgChartUser[] = []
+): OrgChartListRow[] {
+  const byId = new Map(allUsers.map((user) => [user.id, user]))
+  const rows: OrgChartListRow[] = []
+
+  const walk = (nodes: OrgChartNode[], depth: number) => {
+    nodes.forEach((node) => {
+      const manager = node.manager_user_id
+        ? byId.get(node.manager_user_id) ?? null
+        : null
+      rows.push({
+        id: node.id,
+        user_id: node.user_id,
+        nombre: node.nombre,
+        rol: node.rol,
+        area: node.area,
+        areas: node.areas,
+        activo: node.activo,
+        manager_user_id: node.manager_user_id,
+        created_at: node.created_at,
+        updated_at: node.updated_at,
+        depth,
+        reportsCount: node.children.length,
+        managerNombre: manager?.nombre ?? null,
+        reportNombres: node.children.map((child) => child.nombre),
+      })
+      walk(node.children, depth + 1)
+    })
+  }
+
+  walk(roots, 0)
+  return rows
 }
 
 export function summarizeUserActions(

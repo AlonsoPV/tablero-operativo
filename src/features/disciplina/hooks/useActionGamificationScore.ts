@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { addCalendarDays, todayWallClockCDMX } from '@/lib/dateUtils'
 import { useAcciones } from '@/features/operations/hooks'
 import { accionComentariosService } from '@/services/accionComentarios.service'
+import { orgChartScoreService } from '../services/orgChartScore.service'
 import {
   buildActionGamificationMetrics,
   getUserOwnedActions,
@@ -41,14 +42,24 @@ export function useActionGamificationScore(
     () => getUserRelevantComments(userId, comentarios, personalActions),
     [comentarios, personalActions, userId]
   )
+  const {
+    data: orgChartScore = null,
+    isLoading: loadingOrgChartScore,
+    isError: orgChartScoreError,
+  } = useQuery({
+    queryKey: ['disciplina', 'org-chart-score', userId ?? ''],
+    queryFn: () => orgChartScoreService.getByUser(userId!),
+    enabled: Boolean(userId && enabled),
+    staleTime: 30_000,
+  })
   const metrics = useMemo(
-    () => buildActionGamificationMetrics(userId, personalActions, personalComments, today),
-    [personalActions, personalComments, today, userId]
+    () => buildActionGamificationMetrics(userId, personalActions, personalComments, today, 0, orgChartScore),
+    [orgChartScore, personalActions, personalComments, today, userId]
   )
 
   return {
     metrics,
-    isLoading: loadingActions || loadingComments,
-    isError: actionsError || commentsError,
+    isLoading: loadingActions || loadingComments || loadingOrgChartScore,
+    isError: actionsError || commentsError || orgChartScoreError,
   }
 }

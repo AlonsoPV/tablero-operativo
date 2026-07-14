@@ -26,6 +26,7 @@ import type { UserFormValues } from '../schemas/user.schema'
 import { toCreateUserInput, toUpdateUserInput } from '../utils/userFormMappers'
 import { toast } from 'sonner'
 import { Plus } from 'lucide-react'
+import { useAreas } from '@/features/catalogs/hooks/useAreas'
 
 const DEFAULT_FILTER: UsersFilter = {}
 const USER_FORM_ID = 'user-form-dialog'
@@ -37,6 +38,7 @@ export function UsersPage() {
   const [confirmToggle, setConfirmToggle] = useState<UserProfile | null>(null)
 
   const { data: users = [], isLoading, isError, error } = useUsers(filter)
+  const { data: catalogAreas = [] } = useAreas({ activo: true })
   const createUser = useCreateUser()
   const updateUser = useUpdateUser()
   const toggleStatus = useToggleUserStatus()
@@ -56,7 +58,13 @@ export function UsersPage() {
   const handleFormSubmit = (values: UserFormValues) => {
     if (editingUser) {
       updateUser.mutate(
-        { id: editingUser.id, input: toUpdateUserInput(values) },
+        {
+          id: editingUser.id,
+          input: toUpdateUserInput(
+            values,
+            catalogAreas.map((a) => ({ id: a.id, nombre: a.nombre }))
+          ),
+        },
         {
           onSuccess: () => {
             toast.success('Cambios guardados')
@@ -172,6 +180,7 @@ export function UsersPage() {
                     }
                   : undefined
               }
+              membershipAreaNames={editingUser?.areas ?? []}
               onSubmit={handleFormSubmit}
               onCancel={() => setFormOpen(false)}
               isSubmitting={createUser.isPending || updateUser.isPending}

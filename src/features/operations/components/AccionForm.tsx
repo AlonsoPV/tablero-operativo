@@ -134,6 +134,9 @@ export interface AccionFormProps {
   validationExtras?: ReactNode
   onPrioridadChange?: (prioridad: string | undefined) => void
   accionPrioridadId?: string | null
+  userOptions?: Array<{ id: string; nombre: string }>
+  areaOptions?: Array<{ id: string; nombre: string }>
+  lockedAreaName?: string
 }
 
 export function AccionForm({
@@ -148,23 +151,32 @@ export function AccionForm({
   validationExtras,
   onPrioridadChange,
   accionPrioridadId,
+  userOptions,
+  areaOptions,
+  lockedAreaName,
 }: AccionFormProps) {
   void _onCancel
   void _isSubmitting
 
   const {
-    data: users = [],
+    data: queriedUsers = [],
     isLoading: usersLoading,
     isError: usersError,
     error: usersErrorObj,
     refetch: retryUsers,
   } = useUsers({ activo: true })
   const {
-    data: areas = [],
+    data: queriedAreas = [],
     isLoading: areasLoading,
     isError: areasError,
     refetch: retryAreas,
   } = useAreas({ activo: true })
+  const users = userOptions ?? queriedUsers
+  const areas = areaOptions ?? queriedAreas
+  const effectiveUsersLoading = userOptions ? false : usersLoading
+  const effectiveUsersError = userOptions ? false : usersError
+  const effectiveAreasLoading = areaOptions ? false : areasLoading
+  const effectiveAreasError = areaOptions ? false : areasError
   const {
     data: priorities = [],
     isLoading: prioritiesLoading,
@@ -226,6 +238,10 @@ export function AccionForm({
       ...defaultValues,
     },
   })
+
+  useEffect(() => {
+    if (lockedAreaName) form.setValue('area', lockedAreaName)
+  }, [form, lockedAreaName])
 
   const gapById = useMemo(() => {
     const m = new Map<string, { area: string | null }>()
@@ -505,8 +521,8 @@ export function AccionForm({
           required
           error={form.formState.errors.responsable?.message}
         >
-          {usersLoading && <p className="text-xs text-muted-foreground">Cargando responsables…</p>}
-          {usersError && (
+          {effectiveUsersLoading && <p className="text-xs text-muted-foreground">Cargando responsables…</p>}
+          {effectiveUsersError && (
             <CatalogLoadError
               message={`No se pudo cargar responsables.${usersErrorObj instanceof Error ? ` ${usersErrorObj.message}` : ''}`}
               onRetry={() => void retryUsers()}
@@ -515,7 +531,7 @@ export function AccionForm({
           <Select
             value={form.watch('responsable') ?? '__none__'}
             onValueChange={(v) => form.setValue('responsable', v === '__none__' ? '' : v)}
-            disabled={isEditProtectedReadonly || (usersLoading && users.length === 0)}
+            disabled={isEditProtectedReadonly || (effectiveUsersLoading && users.length === 0)}
           >
             <SelectTrigger id={fieldId('responsable')} className={`${inputBase} h-10`}>
               <SelectValue placeholder="Seleccionar responsable" />
@@ -703,8 +719,8 @@ export function AccionForm({
         </AccionFormField>
 
         <AccionFormField label="Área (opcional)" htmlFor={fieldId('area')} hintAsIcon hint="Puede autocompletarse al elegir brecha.">
-          {areasLoading && <p className="text-xs text-muted-foreground">Cargando áreas…</p>}
-          {areasError && (
+          {effectiveAreasLoading && <p className="text-xs text-muted-foreground">Cargando áreas…</p>}
+          {effectiveAreasError && (
             <CatalogLoadError
               message="No se pudo cargar áreas."
               onRetry={() => void retryAreas()}
@@ -713,7 +729,7 @@ export function AccionForm({
           <Select
             value={form.watch('area') ?? '__none__'}
             onValueChange={(v) => form.setValue('area', v === '__none__' ? undefined : v)}
-            disabled={isEditProtectedReadonly || (areasLoading && areas.length === 0)}
+            disabled={Boolean(lockedAreaName) || isEditProtectedReadonly || (effectiveAreasLoading && areas.length === 0)}
           >
             <SelectTrigger id={fieldId('area')} className={`${inputBase} h-10`}>
               <SelectValue placeholder="Sin área" />

@@ -17,7 +17,11 @@ const ANALYST_ROLE = 'Analista'
 const DIRECTION_ROLE = 'Direccion'
 const SUPER_ADMIN_ROLE = 'super_admin'
 
-const STRICT_ANALYST_ALLOWED_ROUTES = [ROUTES.KANBAN, ROUTES.AI_ASSIST] as const
+const STRICT_ANALYST_ALLOWED_ROUTES = [
+  ROUTES.KANBAN,
+  ROUTES.AI_ASSIST,
+  ROUTES.ORG_CHART,
+] as const
 
 const ANALYST_ALLOWED_ROUTES = [
   ROUTES.KANBAN,
@@ -140,17 +144,72 @@ export function canManageAcademyModulesByRole(rol: string | null | undefined): b
   return isSuperAdminByRole(rol) || isDirectionByRole(rol)
 }
 
+/**
+ * Super Admin no participa ni visualiza el organigrama (función solo administrativa).
+ */
+export function isExcludedFromOrgChartByRole(rol: string | null | undefined): boolean {
+  return isSuperAdminByRole(rol)
+}
+
+/**
+ * Campos Reporta a / Supervisa a en perfil: Dirección y Operativo.
+ * Analista y Super Admin no editan ni ven estos campos.
+ */
+export function canEditOwnOrgProfileByRole(rol: string | null | undefined): boolean {
+  if (isExcludedFromOrgChartByRole(rol) || isAnalystByRole(rol)) return false
+  return isOperativeByRole(rol) || isDirectionByRole(rol)
+}
+
+/** @deprecated Prefer canEditOwnOrgProfileByRole */
+export function canEditOwnHierarchy(rol?: string | null): boolean {
+  if (rol === undefined) return true
+  return canEditOwnOrgProfileByRole(rol)
+}
+
+/**
+ * Quién puede editar la jerarquía de cualquiera (organigrama / usuarios).
+ * Área RH o Super Admin (solo administración; no forman parte del organigrama).
+ */
 export function canEditOrgHierarchyByRole(
-  rol: string | null | undefined,
-  appRole?: string | null | undefined
+  rol?: string | null,
+  appRole?: string | null,
+  area?: string | null,
+  areas?: string[] | null
 ): boolean {
-  return (
-    isAdminByRole(rol) ||
-    isDirectionByRole(rol) ||
-    isSuperAdminByRole(rol) ||
-    isAppSuperAdminByAppRole(appRole) ||
-    isAppAdminByAppRole(appRole)
-  )
+  if (isSuperAdminByRole(rol) || isAppSuperAdminByAppRole(appRole)) return true
+  return belongsToRhArea(area, areas)
+}
+
+/**
+ * Edición en organigrama: RH/Super Admin editan a cualquiera (no a sí mismos vía módulo);
+ * Dirección/Operativo solo su propia ficha.
+ */
+export function canEditOrgUserHierarchy(
+  options: {
+    actorUserId?: string | null
+    targetUserId?: string | null
+    rol?: string | null
+    appRole?: string | null
+    area?: string | null
+    areas?: string[] | null
+  }
+): boolean {
+  const { actorUserId, targetUserId, rol, appRole, area, areas } = options
+  if (actorUserId && targetUserId && actorUserId === targetUserId) {
+    return canEditOwnOrgProfileByRole(rol)
+  }
+  return canEditOrgHierarchyByRole(rol, appRole, area, areas)
+}
+
+function belongsToRhArea(
+  area?: string | null | undefined,
+  areas?: string[] | null | undefined
+): boolean {
+  const names = [
+    ...(area ? [area] : []),
+    ...(areas ?? []),
+  ]
+  return names.some((name) => normalizeRole(name) === 'rh')
 }
 
 export function canManageActionsByRole(rol: string | null | undefined): boolean {
@@ -162,6 +221,10 @@ export function canAccessRouteByRole(
   pathname: string,
   appRole?: string | null | undefined
 ): boolean {
+  if (routeMatches(pathname, ROUTES.TEAM_KANBAN)) {
+    return isSuperAdminByRole(rol) || isAppSuperAdminByAppRole(appRole)
+  }
+
   if (isAppAdminByAppRole(appRole)) return true
 
   if (isAnalystByRole(rol)) {

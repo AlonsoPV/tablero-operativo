@@ -11,7 +11,8 @@ import type { Usuario } from '@/types'
 
 const TABLE = 'usuarios'
 const __DEV__ = import.meta.env.DEV
-const PROFILE_SELECT = 'id,user_id,nombre,rol,area,activo,onboarding_completed,created_at,updated_at'
+const PROFILE_SELECT =
+  'id,user_id,nombre,rol,area,activo,manager_user_id,onboarding_completed,created_at,updated_at'
 
 function devLog(message: string, payload?: unknown) {
   if (!__DEV__) return
@@ -20,6 +21,36 @@ function devLog(message: string, payload?: unknown) {
     return
   }
   console.log(`[usuarios] ${message}`, payload)
+}
+
+async function loadAreaNames(userId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('usuario_areas')
+    .select('is_primary, areas(nombre)')
+    .eq('user_id', userId)
+
+  if (error || !data) return []
+
+  type Row = { is_primary: boolean; areas: { nombre: string } | { nombre: string }[] | null }
+  const rows = data as unknown as Row[]
+
+  return rows
+    .map((row) => {
+      const area = Array.isArray(row.areas) ? row.areas[0] : row.areas
+      return { nombre: area?.nombre ?? null, isPrimary: row.is_primary }
+    })
+    .filter((row): row is { nombre: string; isPrimary: boolean } => Boolean(row.nombre))
+    .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.nombre.localeCompare(b.nombre, 'es'))
+    .map((row) => row.nombre)
+}
+
+async function enrichUsuario(profile: Usuario | null): Promise<Usuario | null> {
+  if (!profile) return null
+  const areas = await loadAreaNames(profile.id)
+  return {
+    ...profile,
+    areas: areas.length > 0 ? areas : profile.area ? [profile.area] : [],
+  }
 }
 
 export const usuariosService = {
@@ -43,7 +74,7 @@ export const usuariosService = {
     }
 
     const rows = (await response.json()) as Usuario[]
-    const profile = rows[0] ?? null
+    const profile = await enrichUsuario(rows[0] ?? null)
     const elapsedMs = Math.round(
       (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
     )
@@ -70,12 +101,13 @@ export const usuariosService = {
     )
 
     if (error) throw error
+    const profile = await enrichUsuario((data as Usuario) ?? null)
     devLog('getByAuthId resolved', {
       authUserId,
-      found: !!data,
+      found: !!profile,
       elapsedMs,
     })
-    return (data as Usuario) ?? null
+    return profile
   },
 
   async getById(id: string) {
@@ -85,7 +117,7 @@ export const usuariosService = {
       .eq('id', id)
       .single()
     if (error) throw error
-    return data as Usuario
+    return (await enrichUsuario(data as Usuario)) as Usuario
   },
 
   /** Perfil interno por correo de auth (RPC; admin de tickets). */

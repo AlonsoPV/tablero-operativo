@@ -28,12 +28,15 @@ const commonUserFormSchema = z.object({
     })
     .nullable()
     .optional(),
+  /** IDs de áreas adicionales (no incluye necesariamente la principal). */
+  additional_area_ids: z.array(z.string().uuid()).optional().default([]),
   activo: z.boolean(),
   manager_user_id: z
     .union([z.string().uuid(), z.null(), z.undefined()])
     .transform((value) => (value == null || value === '' ? null : value))
     .nullable()
     .optional(),
+  direct_report_ids: z.array(z.string().uuid()).optional().default([]),
 })
 
 /** Rol y área vienen de catálogos (catalog_roles, areas); se validan como texto no vacío. */

@@ -4,6 +4,7 @@ export interface OrgChartUser {
   nombre: string
   rol: string
   area: string | null
+  areas?: string[]
   activo: boolean
   manager_user_id: string | null
   created_at: string

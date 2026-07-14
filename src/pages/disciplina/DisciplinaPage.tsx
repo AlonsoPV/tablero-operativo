@@ -33,6 +33,7 @@ import {
 } from '@/features/disciplina/utils/actionGamification'
 import { DisciplinaOperativoSection } from './components/DisciplinaOperativoSection'
 import { useAcademyProgress } from '@/features/academy'
+import { orgChartScoreService } from '@/features/disciplina/services/orgChartScore.service'
 
 const RECENT_CALENDAR_ITEMS_LIMIT = 6
 type MetricTone = 'neutral' | 'good' | 'warn' | 'risk'
@@ -90,10 +91,26 @@ export function DisciplinaPage() {
     staleTime: 30_000,
   })
   const { completedCount: academyModulesCompleted } = useAcademyProgress()
+  const {
+    data: orgChartScore = null,
+    isLoading: orgChartScoreLoading,
+  } = useQuery({
+    queryKey: ['disciplina', 'org-chart-score', currentUser?.id ?? ''],
+    queryFn: () => orgChartScoreService.getByUser(currentUser!.id),
+    enabled: Boolean(currentUser?.id),
+    staleTime: 30_000,
+  })
 
   const personalMetrics = useMemo(
-    () => buildPersonalMetrics(currentUser?.id, personalActions, personalComments, today, academyModulesCompleted),
-    [academyModulesCompleted, currentUser?.id, personalActions, personalComments, today]
+    () => buildPersonalMetrics(
+      currentUser?.id,
+      personalActions,
+      personalComments,
+      today,
+      academyModulesCompleted,
+      orgChartScore
+    ),
+    [academyModulesCompleted, currentUser?.id, orgChartScore, personalActions, personalComments, today]
   )
   const positiveRules = useMemo(
     () => personalMetrics.rules.filter((rule) => rule.pointsPerUnit > 0),
@@ -116,7 +133,7 @@ export function DisciplinaPage() {
     () => todayOwnedActions.filter((action) => action.estado === 'Bloqueado').length,
     [todayOwnedActions]
   )
-  const loading = loadingActions || loadingComments
+  const loading = loadingActions || loadingComments || orgChartScoreLoading
   const hasError = actionsError
 
   return (

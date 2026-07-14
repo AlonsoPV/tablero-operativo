@@ -5,19 +5,26 @@ import { toCreateUserInput, toUpdateUserInput } from './userFormMappers'
 describe('user form mappers', () => {
   it('toUpdateUserInput envia todos los campos editables', () => {
     expect(
-      toUpdateUserInput({
-        nombre: '  Ana Perez ',
-        rol: 'Operaciones',
-        area: 'Logistica',
-        activo: false,
-        manager_user_id: 'manager-1',
-      })
+      toUpdateUserInput(
+        {
+          nombre: '  Ana Perez ',
+          rol: 'Operaciones',
+          area: 'Logistica',
+          additional_area_ids: [],
+          activo: false,
+          manager_user_id: '11111111-1111-1111-1111-111111111111',
+          direct_report_ids: [],
+        },
+        [{ id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', nombre: 'Logistica' }]
+      )
     ).toEqual({
       nombre: 'Ana Perez',
       rol: 'Operaciones',
       area: 'Logistica',
+      primary_area_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      area_ids: ['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'],
       activo: false,
-      manager_user_id: 'manager-1',
+      manager_user_id: '11111111-1111-1111-1111-111111111111',
     })
   })
 
@@ -27,7 +34,9 @@ describe('user form mappers', () => {
         nombre: 'Ana',
         rol: 'Operaciones',
         area: null,
+        additional_area_ids: [],
         activo: true,
+        direct_report_ids: [],
       }).area
     ).toBeNull()
   })
@@ -39,7 +48,9 @@ describe('user form mappers', () => {
         nombre: 'Ana',
         rol: 'Operaciones',
         area: 'RH',
+        additional_area_ids: [],
         activo: true,
+        direct_report_ids: [],
       })
     ).toEqual({
       email: 'ana@empresa.com',
@@ -56,7 +67,9 @@ describe('user form mappers', () => {
         nombre: 'Ana',
         rol: 'Operaciones',
         area: null,
+        additional_area_ids: [],
         activo: true,
+        direct_report_ids: [],
       })
     ).toThrow(/correo/i)
   })
@@ -71,12 +84,13 @@ describe('updateUserFormSchema', () => {
       activo: false,
     })
 
-    expect(parsed).toEqual({
-      email: undefined,
+    expect(parsed).toMatchObject({
       nombre: 'Carlos',
       rol: 'Direccion',
       area: null,
       activo: false,
+      additional_area_ids: [],
+      direct_report_ids: [],
     })
   })
 
