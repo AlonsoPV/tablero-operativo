@@ -9,6 +9,7 @@ interface OrgChartUserSlidePanelProps {
   users: OrgChartUser[]
   actionStats: OrgChartUserActionStats | null
   canEditHierarchy: boolean
+  canOpenUserAdmin?: boolean
   currentUserId?: string | null
   onClose: () => void
 }
@@ -19,6 +20,7 @@ export function OrgChartUserSlidePanel({
   users,
   actionStats,
   canEditHierarchy,
+  canOpenUserAdmin = false,
   currentUserId,
   onClose,
 }: OrgChartUserSlidePanelProps) {
@@ -57,6 +59,7 @@ export function OrgChartUserSlidePanel({
             users={users}
             actionStats={actionStats}
             canEditHierarchy={canEditHierarchy}
+            canOpenUserAdmin={canOpenUserAdmin}
             currentUserId={currentUserId}
             onClose={onClose}
           />

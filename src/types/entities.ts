@@ -16,6 +16,8 @@ export interface Usuario {
   /** Nombre del rol; conectado con catalog_roles.nombre */
   rol: string
   area: string | null
+  /** Todas las áreas (principal + adicionales). */
+  areas?: string[]
   activo: boolean
   /** Jefe directo (usuarios.id). Null = sin responsable superior. */
   manager_user_id?: string | null

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   AlertTriangle,
   ArrowDown,
@@ -19,6 +20,7 @@ import { cn } from '@/lib/utils'
 import type { AccionDiaria } from '@/types'
 import type { AccionComentario } from '@/types/accionComentario'
 import type { UserProfile } from '@/features/users/types/user.types'
+import { orgChartScoreService } from '@/features/disciplina/services/orgChartScore.service'
 import {
   buildAreaActionsSummaryRows,
   buildUserActionsSummaryRows,
@@ -329,6 +331,15 @@ export function DashboardUserActionsSummarySection({
   const [userSortKey, setUserSortKey] = useState<UserSummarySortKey>('abiertas')
   const [areaSortKey, setAreaSortKey] = useState<AreaSummarySortKey>('abiertas')
   const [sortDir, setSortDir] = useState<SummarySortDir>('desc')
+  const { data: orgChartScores = [], isLoading: orgChartScoresLoading } = useQuery({
+    queryKey: ['disciplina', 'org-chart-scores-visible'],
+    queryFn: () => orgChartScoreService.listVisible(),
+    staleTime: 30_000,
+  })
+  const orgChartScoreMap = useMemo(
+    () => new Map(orgChartScores.map((score) => [score.user_id, score])),
+    [orgChartScores]
+  )
 
   const handleUserSort = (key: string) => {
     const nextKey = key as UserSummarySortKey
@@ -351,8 +362,8 @@ export function DashboardUserActionsSummarySection({
   }
 
   const baseUserRows = useMemo(
-    () => buildUserActionsSummaryRows(users, acciones, comentarios, today, areaFilter),
-    [users, acciones, comentarios, today, areaFilter]
+    () => buildUserActionsSummaryRows(users, acciones, comentarios, today, areaFilter, orgChartScoreMap),
+    [users, acciones, comentarios, today, areaFilter, orgChartScoreMap]
   )
 
   const userRows = useMemo(() => {
@@ -409,7 +420,7 @@ export function DashboardUserActionsSummarySection({
           action={<SummaryViewToggle view={view} onViewChange={setView} />}
         />
         <SectionCardBody className="space-y-4 p-4 md:p-6">
-          {isLoading ? (
+          {isLoading || orgChartScoresLoading ? (
             <DashboardUserActionsSkeleton columns={view === 'usuario' ? 5 : 6} />
           ) : baseUserRows.length === 0 ? (
             <div className="flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 bg-muted/10 px-4 py-10 text-center">

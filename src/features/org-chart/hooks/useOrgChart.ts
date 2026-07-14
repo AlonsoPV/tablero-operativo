@@ -9,6 +9,15 @@ export function useOrgChart() {
   })
 }
 
+export function useHierarchyPeers(enabled = true) {
+  return useQuery({
+    queryKey: ['org-chart', 'hierarchy-peers'],
+    queryFn: () => orgChartService.hierarchyPeers(),
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
 export function useOrgChartCommandChain(userId: string | null | undefined) {
   return useQuery({
     queryKey: ['org-chart', 'command-chain', userId],

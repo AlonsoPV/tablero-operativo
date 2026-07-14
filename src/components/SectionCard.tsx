@@ -72,9 +72,11 @@ export function SectionCardHeader({
 export function SectionCardBody({
   children,
   className,
-}: {
-  children: ReactNode
-  className?: string
-}) {
-  return <div className={cn('p-4 sm:p-6', className)}>{children}</div>
+  ...props
+}: { children: ReactNode; className?: string } & ComponentPropsWithoutRef<'div'>) {
+  return (
+    <div className={cn('p-4 sm:p-6', className)} {...props}>
+      {children}
+    </div>
+  )
 }

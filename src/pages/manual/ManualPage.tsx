@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  ArrowRight,
   BarChart3,
   Bell,
   BookOpen,
@@ -25,6 +27,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ROUTES } from '@/constants'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { canAccessRouteByRole } from '@/features/auth/lib/permissions'
+import { GamificationManualSection } from './GamificationManualSection'
 
 type ManualSection = {
   title: string
@@ -157,7 +160,7 @@ const manualSections: ManualSection[] = [
     ],
   },
   {
-    title: 'IA O2C',
+    title: 'Asistente IA',
     route: ROUTES.AI_ASSIST,
     icon: Sparkles,
     value: 'Acelera analisis y redaccion con contexto del programa.',
@@ -332,6 +335,7 @@ const glossary = [
 ]
 
 export function ManualPage() {
+  const [activeTab, setActiveTab] = useState<'tablero' | 'gamificacion'>('tablero')
   const { data: currentUser } = useCurrentUser()
   const visibleSections = manualSections.filter((section) =>
     canAccessRouteByRole(currentUser?.rol, section.route)
@@ -348,37 +352,114 @@ export function ManualPage() {
 
   return (
     <div id="manual-page" className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-3 py-5 sm:px-6 sm:py-6">
-      <header className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary" className="gap-1.5">
-            <BookOpen className="h-3.5 w-3.5" aria-hidden />
-            Manual del tablero
-          </Badge>
-          <Badge variant="outline">Operacion O2C</Badge>
-        </div>
-        <div className="max-w-4xl space-y-3">
-          <h1 className="text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-            Guia clara para entender y operar el tablero
-          </h1>
-          <p className="text-pretty text-base leading-7 text-muted-foreground sm:text-lg">
-            Esta seccion explica para que sirve cada modulo, que informacion muestra y como usarlo en la
-            gestion diaria. La idea es simple: ver el pulso, ejecutar acciones, conectar con KPIs y comunicar
-            decisiones con evidencia.
-          </p>
+      <header className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/[0.09] via-background to-amber-500/[0.08] px-5 py-7 shadow-sm sm:px-8 sm:py-9">
+        <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-primary/10 blur-3xl" />
+        <div className="relative flex items-center justify-between gap-8">
+          <div className="max-w-4xl space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="gap-1.5 border-primary/20 bg-primary/10 text-primary hover:bg-primary/10">
+                <BookOpen className="h-3.5 w-3.5" aria-hidden />
+                Centro de ayuda
+              </Badge>
+              <Badge variant="outline" className="bg-background/70">Operación O2C</Badge>
+            </div>
+            <div className="space-y-3">
+              <h1 className="text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+                Manual operativo del tablero
+              </h1>
+              <p className="max-w-3xl text-pretty text-base leading-7 text-muted-foreground sm:text-lg">
+                Aprende a usar cada módulo y consulta las reglas de gamificación desde una guía organizada,
+                clara y disponible para toda la organización.
+              </p>
+            </div>
+          </div>
+          <div className="hidden h-28 w-28 shrink-0 items-center justify-center rounded-3xl border border-primary/15 bg-background/70 text-primary shadow-sm backdrop-blur lg:flex">
+            <BookOpen className="h-12 w-12" strokeWidth={1.5} aria-hidden />
+          </div>
         </div>
       </header>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Flujo recomendado">
-        {flowSteps.map((step) => (
-          <Card key={step.title} className="rounded-lg shadow-sm">
-            <CardHeader className="p-4">
-              <CardTitle className="text-base">{step.title}</CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 pt-0">
-              <p className="text-sm leading-6 text-muted-foreground">{step.text}</p>
-            </CardContent>
-          </Card>
-        ))}
+      <div
+        role="tablist"
+        aria-label="Secciones del manual"
+        className="grid w-full gap-3 sm:grid-cols-2"
+      >
+        <button
+          type="button"
+          role="tab"
+          id="manual-tab-tablero"
+          aria-selected={activeTab === 'tablero'}
+          aria-controls="manual-panel-tablero"
+          onClick={() => setActiveTab('tablero')}
+          className={`group flex min-h-20 items-center gap-4 rounded-xl border px-4 py-3 text-left transition-all sm:px-5 ${
+            activeTab === 'tablero'
+              ? 'border-primary/40 bg-primary/[0.07] text-foreground shadow-sm ring-1 ring-primary/10'
+              : 'bg-card text-muted-foreground hover:border-primary/25 hover:bg-muted/30 hover:text-foreground'
+          }`}
+        >
+          <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${activeTab === 'tablero' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>
+            <BookOpen className="h-5 w-5" aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-semibold">Uso del tablero</span>
+            <span className="mt-0.5 block text-xs font-normal text-muted-foreground sm:text-sm">
+              Flujo, módulos y buenas prácticas
+            </span>
+          </span>
+          <ArrowRight className={`h-4 w-4 shrink-0 transition-transform ${activeTab === 'tablero' ? 'text-primary' : 'opacity-40 group-hover:translate-x-0.5'}`} aria-hidden />
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="manual-tab-gamificacion"
+          aria-selected={activeTab === 'gamificacion'}
+          aria-controls="manual-panel-gamificacion"
+          onClick={() => setActiveTab('gamificacion')}
+          className={`group flex min-h-20 items-center gap-4 rounded-xl border px-4 py-3 text-left transition-all sm:px-5 ${
+            activeTab === 'gamificacion'
+              ? 'border-amber-500/40 bg-amber-500/[0.08] text-foreground shadow-sm ring-1 ring-amber-500/10'
+              : 'bg-card text-muted-foreground hover:border-amber-500/25 hover:bg-muted/30 hover:text-foreground'
+          }`}
+        >
+          <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${activeTab === 'gamificacion' ? 'bg-amber-500 text-white' : 'bg-muted text-foreground'}`}>
+            <Sparkles className="h-5 w-5" aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-semibold">Gamificación</span>
+            <span className="mt-0.5 block text-xs font-normal text-muted-foreground sm:text-sm">
+              Actividades, reconocimientos y puntos
+            </span>
+          </span>
+          <ArrowRight className={`h-4 w-4 shrink-0 transition-transform ${activeTab === 'gamificacion' ? 'text-amber-600' : 'opacity-40 group-hover:translate-x-0.5'}`} aria-hidden />
+        </button>
+      </div>
+
+      {activeTab === 'tablero' ? (
+        <div
+          id="manual-panel-tablero"
+          role="tabpanel"
+          aria-labelledby="manual-tab-tablero"
+          className="flex flex-col gap-6"
+        >
+      <section className="space-y-4" aria-labelledby="manual-flow-title">
+        <div className="space-y-1.5">
+          <h2 id="manual-flow-title" className="text-xl font-semibold tracking-tight sm:text-2xl">Ruta de uso recomendada</h2>
+          <p className="text-sm leading-6 text-muted-foreground">Cuatro pasos para pasar de la lectura operativa a una decisión respaldada por evidencia.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {flowSteps.map((step, index) => (
+            <Card key={step.title} className="group relative overflow-hidden rounded-xl border-border/70 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md">
+              <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary/80 to-primary/20" />
+              <CardHeader className="gap-3 p-5 pb-3">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-sm font-bold text-primary">{index + 1}</span>
+                <CardTitle className="text-base">{step.title.replace(/^\d+\.\s*/, '')}</CardTitle>
+              </CardHeader>
+              <CardContent className="px-5 pb-5 pt-0">
+                <p className="text-sm leading-6 text-muted-foreground">{step.text}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </section>
 
       <section className="space-y-4" aria-labelledby="manual-sections-title">
@@ -396,10 +477,10 @@ export function ManualPage() {
           {visibleSections.map((section) => {
             const Icon = section.icon
             return (
-              <Card key={section.title} className="rounded-lg shadow-sm">
+              <Card key={section.title} className="group rounded-xl border-border/70 shadow-sm transition-all hover:border-primary/20 hover:shadow-md">
                 <CardHeader className="gap-3 p-5">
                   <div className="flex items-start gap-3">
-                    <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                    <div className="rounded-xl bg-primary/10 p-2.5 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
                       <Icon className="h-5 w-5" aria-hidden />
                     </div>
                     <div className="min-w-0 flex-1 space-y-1">
@@ -445,9 +526,10 @@ export function ManualPage() {
 
                   <Link
                     to={section.route}
-                    className="inline-flex items-center text-sm font-medium text-primary hover:underline"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
                   >
                     Abrir {section.title}
+                    <ArrowRight className="h-3.5 w-3.5" aria-hidden />
                   </Link>
                 </CardContent>
               </Card>
@@ -457,7 +539,7 @@ export function ManualPage() {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]" aria-label="Criterios de lectura">
-        <Card className="rounded-lg shadow-sm">
+        <Card className="rounded-xl border-border/70 shadow-sm">
           <CardHeader className="p-5">
             <CardTitle className="flex items-center gap-2 text-lg">
               <HelpCircle className="h-5 w-5 text-primary" aria-hidden />
@@ -483,7 +565,7 @@ export function ManualPage() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-lg shadow-sm">
+        <Card className="rounded-xl border-border/70 shadow-sm">
           <CardHeader className="p-5">
             <CardTitle className="text-lg">Glosario rapido</CardTitle>
             <CardDescription>Terminos frecuentes del tablero explicados sin tecnicismos.</CardDescription>
@@ -498,6 +580,16 @@ export function ManualPage() {
           </CardContent>
         </Card>
       </section>
+        </div>
+      ) : (
+        <div
+          id="manual-panel-gamificacion"
+          role="tabpanel"
+          aria-labelledby="manual-tab-gamificacion"
+        >
+          <GamificationManualSection />
+        </div>
+      )}
     </div>
   )
 }

@@ -27,9 +27,10 @@ import { toUpdateUserInput } from '../utils/userFormMappers'
 import { toast } from 'sonner'
 import { ArrowLeft } from 'lucide-react'
 import { useOrgChart } from '@/features/org-chart/hooks/useOrgChart'
-import { canEditOrgHierarchyByRole } from '@/features/auth/lib/permissions'
+import { canEditOrgUserHierarchy } from '@/features/auth/lib/permissions'
 import { useAppRole } from '@/features/auth/hooks/useAppRole'
 import { mapManagerUpdateError } from '@/features/org-chart/utils/orgHierarchy'
+import { useAreas } from '@/features/catalogs/hooks/useAreas'
 
 const USER_FORM_ID = 'user-detail-form'
 
@@ -44,15 +45,29 @@ export function UserDetailPage() {
   const { data: currentUser } = useCurrentUser()
   const { data: appRole } = useAppRole()
   const { data: orgUsers = [] } = useOrgChart()
+  const { data: catalogAreas = [] } = useAreas({ activo: true })
   const email = user?.email ?? authEmail ?? null
   const updateUser = useUpdateUser()
   const toggleStatus = useToggleUserStatus()
-  const canEditManager = canEditOrgHierarchyByRole(currentUser?.rol, appRole)
+  const canEditManager = canEditOrgUserHierarchy({
+    actorUserId: currentUser?.id,
+    targetUserId: user?.id ?? id,
+    rol: currentUser?.rol,
+    appRole,
+    area: currentUser?.area,
+    areas: currentUser?.areas,
+  })
 
   const handleFormSubmit = (values: UserFormValues) => {
     if (!id) return
     updateUser.mutate(
-      { id, input: toUpdateUserInput(values) },
+      {
+        id,
+        input: toUpdateUserInput(
+          values,
+          catalogAreas.map((a) => ({ id: a.id, nombre: a.nombre }))
+        ),
+      },
       {
         onSuccess: () => {
           toast.success('Usuario actualizado correctamente')
@@ -148,6 +163,7 @@ export function UserDetailPage() {
                 activo: user.activo,
                 manager_user_id: user.manager_user_id ?? null,
               }}
+              membershipAreaNames={user.areas ?? []}
               onSubmit={handleFormSubmit}
               onCancel={() => setFormOpen(false)}
               isSubmitting={updateUser.isPending}

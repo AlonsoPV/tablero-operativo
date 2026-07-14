@@ -15,6 +15,7 @@ export const ROUTES = {
   DASHBOARD_GAPS: '/dashboard/gaps',
   DASHBOARD_IMPACTO: '/dashboard/impacto',
   KANBAN: '/kanban',
+  TEAM_KANBAN: '/kanban-equipos',
   TICKETS: '/tickets',
   SPRINTS: '/sprints',
   DISCIPLINA: '/disciplina',

@@ -20,9 +20,12 @@ import { useRoles } from '@/features/catalogs/hooks/useRoles'
 import { useAreas } from '@/features/catalogs/hooks/useAreas'
 import { wouldCreateHierarchyCycle } from '@/features/org-chart/utils/orgHierarchy'
 import type { OrgChartUser } from '@/features/org-chart/types/orgChart.types'
+import { AreaMembershipFields } from './AreaMembershipFields'
 
 interface UserFormProps {
   defaultValues?: Partial<UserFormValues> | null
+  /** Nombres de áreas adicionales (además de area principal). */
+  membershipAreaNames?: string[]
   onSubmit: (values: UserFormValues) => void
   onCancel: () => void
   isSubmitting?: boolean
@@ -39,7 +42,6 @@ interface UserFormProps {
   canEditManager?: boolean
 }
 
-const NONE_AREA = '__none__'
 const NONE_MANAGER = '__none_manager__'
 
 const EMPTY_USER_FORM: UserFormValues = {
@@ -47,12 +49,15 @@ const EMPTY_USER_FORM: UserFormValues = {
   nombre: '',
   rol: '',
   area: null,
+  additional_area_ids: [],
   activo: true,
   manager_user_id: null,
+  direct_report_ids: [],
 }
 
 export function UserForm({
   defaultValues,
+  membershipAreaNames = [],
   onSubmit,
   onCancel,
   isSubmitting = false,
@@ -134,13 +139,26 @@ export function UserForm({
   })
 
   useEffect(() => {
+    const primaryId = areas.find((a) => a.nombre === (defaultValues?.area ?? null))?.id
+    const names =
+      membershipAreaNames.length > 0
+        ? membershipAreaNames
+        : defaultValues?.area
+          ? [defaultValues.area]
+          : []
+    const additional = areas
+      .filter((a) => names.includes(a.nombre) && a.id !== primaryId)
+      .map((a) => a.id)
+
     form.reset({
       email: defaultValues?.email ?? '',
       nombre: defaultValues?.nombre ?? '',
       rol: defaultValues?.rol ?? '',
       area: defaultValues?.area ?? null,
+      additional_area_ids: defaultValues?.additional_area_ids ?? additional,
       activo: defaultValues?.activo ?? true,
       manager_user_id: defaultValues?.manager_user_id ?? null,
+      direct_report_ids: defaultValues?.direct_report_ids ?? [],
     })
   }, [
     defaultValues?.email,
@@ -149,6 +167,10 @@ export function UserForm({
     defaultValues?.area,
     defaultValues?.activo,
     defaultValues?.manager_user_id,
+    defaultValues?.additional_area_ids,
+    defaultValues?.direct_report_ids,
+    membershipAreaNames,
+    areas,
     form,
   ])
 
@@ -247,40 +269,20 @@ export function UserForm({
         )}
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="area">Area</Label>
-        <Controller
-          name="area"
-          control={form.control}
-          render={({ field }) => (
-            <Select
-              value={field.value ?? NONE_AREA}
-              onValueChange={(value) => field.onChange(value === NONE_AREA ? null : value)}
-              disabled={loadingAreas}
-            >
-              <SelectTrigger id="area">
-                <SelectValue placeholder={loadingAreas ? 'Cargando areas...' : 'Area (opcional)'} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE_AREA}>Sin area</SelectItem>
-                {areaOptions.map((area) => (
-                  <SelectItem key={area.id} value={area.nombre}>
-                    {area.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        />
-        <p className="text-xs text-muted-foreground">
-          {currentAreaMissing
-            ? 'El area actual se conserva aunque no este activa en el catalogo.'
-            : 'Opcional. Viene del catalogo de areas.'}
-        </p>
-        {form.formState.errors.area && (
-          <p className="text-sm text-destructive">{form.formState.errors.area.message}</p>
-        )}
-      </div>
+      <AreaMembershipFields
+        areas={areaOptions}
+        primaryAreaNombre={form.watch('area') ?? null}
+        additionalAreaIds={form.watch('additional_area_ids') ?? []}
+        onPrimaryChange={(nombre) => form.setValue('area', nombre, { shouldDirty: true })}
+        onAdditionalChange={(ids) =>
+          form.setValue('additional_area_ids', ids, { shouldDirty: true })
+        }
+        loading={loadingAreas}
+        idPrefix="user-form"
+      />
+      {form.formState.errors.area && (
+        <p className="text-sm text-destructive">{form.formState.errors.area.message}</p>
+      )}
 
       {!isCreate && canEditManager ? (
         <div className="space-y-2">

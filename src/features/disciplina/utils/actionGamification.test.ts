@@ -106,4 +106,35 @@ describe('actionGamification', () => {
       2 * ACTION_GAMIFICATION_POINTS.overdue
     )
   })
+
+  it('suma 15 por perfil organizacional completo sin acumular por guardados', () => {
+    const metrics = buildActionGamificationMetrics(USER_ID, [], [], '2026-06-05', 0, {
+      profile_complete_points: 15,
+      ever_completed: true,
+    })
+
+    expect(metrics.rules.find((rule) => rule.key === 'orgProfileCompleted')?.points).toBe(15)
+    expect(metrics.totalPoints).toBe(15)
+  })
+
+  it('descuenta 15 cuando el perfil queda incompleto tras haber estado completo', () => {
+    const metrics = buildActionGamificationMetrics(USER_ID, [], [], '2026-06-05', 0, {
+      profile_complete_points: -15,
+      ever_completed: true,
+    })
+
+    expect(metrics.totalPoints).toBe(-15)
+    expect(metrics.penaltyPoints).toBe(-15)
+    expect(metrics.rules.find((rule) => rule.key === 'orgProfileCompleted')?.points).toBe(-15)
+  })
+
+  it('no otorga puntos si el perfil nunca se ha completado', () => {
+    const metrics = buildActionGamificationMetrics(USER_ID, [], [], '2026-06-05', 0, {
+      profile_complete_points: 0,
+      ever_completed: false,
+    })
+
+    expect(metrics.totalPoints).toBe(0)
+    expect(metrics.rules.find((rule) => rule.key === 'orgProfileCompleted')?.points).toBe(0)
+  })
 })

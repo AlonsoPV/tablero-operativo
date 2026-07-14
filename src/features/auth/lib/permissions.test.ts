@@ -3,6 +3,8 @@ import { ROUTES } from '@/constants'
 import {
   canAccessRouteByRole,
   canEditOrgHierarchyByRole,
+  canEditOrgUserHierarchy,
+  canEditOwnOrgProfileByRole,
   canManageAcademyModulesByRole,
   canManageSupportTicketsByRole,
   getDefaultRouteByRole,
@@ -63,11 +65,12 @@ describe('role route permissions', () => {
     expect(getDefaultRouteByRole(role)).toBe(ROUTES.KANBAN)
   })
 
-  it('keeps Analista limited to Kanban and AI assistant only', () => {
+  it('keeps Analista limited to Kanban, AI assistant and organigrama', () => {
     const role = 'Analista'
 
     expect(canAccessRouteByRole(role, ROUTES.KANBAN)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.ORG_CHART)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.DASHBOARD)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.DISCIPLINA)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.CALENDARIO)).toBe(false)
@@ -94,17 +97,106 @@ describe('role route permissions', () => {
     expect(canAccessRouteByRole('Analista', ROUTES.ORG_CHART, 'super_admin')).toBe(true)
     expect(canAccessRouteByRole('Analista', ROUTES.DASHBOARD, 'super_admin')).toBe(true)
     expect(canAccessRouteByRole('Analista', ROUTES.SETTINGS_USERS, 'super_admin')).toBe(true)
-    expect(canAccessRouteByRole('Analista', ROUTES.ORG_CHART, 'viewer')).toBe(false)
   })
 
-  it('allows hierarchy editing for admin, direction and app super_admin', () => {
-    expect(canEditOrgHierarchyByRole('Direccion')).toBe(true)
-    expect(canEditOrgHierarchyByRole('DG')).toBe(true)
+  it('restricts Kanban por Equipos exclusively to Super Admin', () => {
+    expect(canAccessRouteByRole('super_admin', ROUTES.TEAM_KANBAN)).toBe(true)
+    expect(canAccessRouteByRole('Analista', ROUTES.TEAM_KANBAN, 'super_admin')).toBe(true)
+    expect(canAccessRouteByRole('Direccion', ROUTES.TEAM_KANBAN)).toBe(false)
+    expect(canAccessRouteByRole('DG', ROUTES.TEAM_KANBAN)).toBe(false)
+    expect(canAccessRouteByRole('Sistemas', ROUTES.TEAM_KANBAN, 'admin')).toBe(false)
+    expect(canAccessRouteByRole('Operativo', ROUTES.TEAM_KANBAN)).toBe(false)
+    expect(canAccessRouteByRole('Analista', ROUTES.TEAM_KANBAN)).toBe(false)
+  })
+
+  it('allows Super Admin to view Organigrama without participating as a node', () => {
+    expect(canAccessRouteByRole('super_admin', ROUTES.ORG_CHART)).toBe(true)
+    expect(canEditOwnOrgProfileByRole('super_admin')).toBe(false)
+  })
+
+  it('allows Analista to view organigrama but not edit own org profile', () => {
+    expect(canAccessRouteByRole('Analista', ROUTES.ORG_CHART)).toBe(true)
+    expect(canAccessRouteByRole('Analista', ROUTES.ORG_CHART, 'viewer')).toBe(true)
+    expect(canEditOwnOrgProfileByRole('Analista')).toBe(false)
+  })
+
+  it('allows Dirección and Operativo to edit own org profile', () => {
+    expect(canEditOwnOrgProfileByRole('Direccion')).toBe(true)
+    expect(canEditOwnOrgProfileByRole('Operativo')).toBe(true)
+    expect(canEditOwnOrgProfileByRole('Operativo O2C')).toBe(true)
+    expect(canEditOwnOrgProfileByRole('super_admin')).toBe(false)
+  })
+
+  it('allows RH and Super Admin to edit anyone hierarchy; Direccion/Operativo only self', () => {
+    expect(canEditOrgHierarchyByRole('Direccion')).toBe(false)
+    expect(canEditOrgHierarchyByRole('DG')).toBe(false)
     expect(canEditOrgHierarchyByRole('Operativo')).toBe(false)
     expect(canEditOrgHierarchyByRole('Analista')).toBe(false)
     expect(canEditOrgHierarchyByRole('Operativo', 'super_admin')).toBe(true)
     expect(canEditOrgHierarchyByRole(null, 'super_admin')).toBe(true)
-    expect(canEditOrgHierarchyByRole('Operativo', 'admin')).toBe(true)
+    expect(canEditOrgHierarchyByRole('Operativo', 'admin')).toBe(false)
     expect(canEditOrgHierarchyByRole('Operativo', 'viewer')).toBe(false)
+    expect(canEditOrgHierarchyByRole('Operativo', null, 'RH')).toBe(true)
+    expect(canEditOrgHierarchyByRole('Operativo', null, 'Finanzas', ['RH', 'Finanzas'])).toBe(true)
+    expect(canEditOrgHierarchyByRole('Operativo', null, 'Operaciones', ['Finanzas'])).toBe(false)
+    expect(canEditOrgHierarchyByRole('super_admin')).toBe(true)
+  })
+
+  it('allows editing own hierarchy for Operativo/Direccion and RH editing anyone', () => {
+    expect(
+      canEditOrgUserHierarchy({
+        actorUserId: 'u1',
+        targetUserId: 'u1',
+        rol: 'Operativo',
+        area: 'Operaciones',
+      })
+    ).toBe(true)
+    expect(
+      canEditOrgUserHierarchy({
+        actorUserId: 'u1',
+        targetUserId: 'u1',
+        rol: 'Direccion',
+        area: 'Planeación',
+      })
+    ).toBe(true)
+    expect(
+      canEditOrgUserHierarchy({
+        actorUserId: 'u1',
+        targetUserId: 'u1',
+        rol: 'Analista',
+        area: 'Operaciones',
+      })
+    ).toBe(false)
+    expect(
+      canEditOrgUserHierarchy({
+        actorUserId: 'u1',
+        targetUserId: 'u1',
+        rol: 'super_admin',
+      })
+    ).toBe(false)
+    expect(
+      canEditOrgUserHierarchy({
+        actorUserId: 'u1',
+        targetUserId: 'u2',
+        rol: 'Operativo',
+        area: 'Operaciones',
+      })
+    ).toBe(false)
+    expect(
+      canEditOrgUserHierarchy({
+        actorUserId: 'u1',
+        targetUserId: 'u2',
+        rol: 'Operativo',
+        area: 'RH',
+      })
+    ).toBe(true)
+    expect(
+      canEditOrgUserHierarchy({
+        actorUserId: 'u1',
+        targetUserId: 'u2',
+        rol: 'Direccion',
+        area: 'Planeación',
+      })
+    ).toBe(false)
   })
 })

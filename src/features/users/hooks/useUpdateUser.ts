@@ -13,7 +13,7 @@ export function useUpdateUser() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateUserInput }) =>
       usersAdminService.update(id, input),
-    onSuccess: async (updatedUser) => {
+    onSuccess: async (updatedUser, variables) => {
       queryClient.setQueriesData<UserProfile[]>(
         {
           predicate: ({ queryKey }) =>
@@ -40,6 +40,14 @@ export function useUpdateUser() {
       queryClient.invalidateQueries({ queryKey: usersQueryKey })
       queryClient.invalidateQueries({ queryKey: ['users', 'current'] })
       queryClient.invalidateQueries({ queryKey: ['org-chart'] })
+      if ('manager_user_id' in variables.input || 'direct_report_ids' in variables.input) {
+        queryClient.invalidateQueries({
+          queryKey: ['disciplina', 'org-chart-score', updatedUser.id],
+        })
+        queryClient.invalidateQueries({
+          queryKey: ['disciplina', 'org-chart-scores-visible'],
+        })
+      }
     },
   })
 }

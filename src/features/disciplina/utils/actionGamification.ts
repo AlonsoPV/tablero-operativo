@@ -13,7 +13,25 @@ export const ACTION_GAMIFICATION_POINTS = {
   created: 3,
   assigned: 1,
   participationStreak: 5,
+  orgProfileCompleted: 15,
 } as const
+
+export interface OrgChartGamificationScore {
+  /** +15 completo | -15 incompleto tras haber estado completo | 0 nunca completado */
+  profile_complete_points: number
+  ever_completed?: boolean
+  /** @deprecated legacy compatibility */
+  reports_to_points?: number
+  /** @deprecated legacy compatibility */
+  supervises_points?: number
+}
+
+export function resolveOrgProfilePoints(score: OrgChartGamificationScore | null | undefined): number {
+  if (!score) return 0
+  if (typeof score.profile_complete_points === 'number') return score.profile_complete_points
+  // Compat filas antiguas (+4/+4) antes de migrar.
+  return (score.reports_to_points ?? 0) + (score.supervises_points ?? 0)
+}
 
 export type ActionGamificationTone = 'positive' | 'neutral' | 'warning' | 'negative'
 
@@ -26,6 +44,7 @@ export interface ActionGamificationRule {
     | 'created'
     | 'assigned'
     | 'participationStreak'
+    | 'orgProfileCompleted'
   label: string
   count: number
   pointsPerUnit: number
@@ -63,7 +82,8 @@ export function buildActionGamificationMetrics(
   actions: AccionDiaria[],
   comments: AccionComentario[],
   today: string,
-  academyModulesCompleted = 0
+  academyModulesCompleted = 0,
+  orgChartScore: OrgChartGamificationScore | null = null
 ): ActionGamificationMetrics {
   if (!userId) return emptyMetrics()
 
@@ -148,6 +168,21 @@ export function buildActionGamificationMetrics(
       points: calculateRulePoints(participationStreak, ACTION_GAMIFICATION_POINTS.participationStreak),
       helper: 'Dias seguidos creando, comentando o cerrando.',
       tone: participationStreak > 0 ? 'positive' : 'neutral',
+    },
+    {
+      key: 'orgProfileCompleted',
+      label: 'Perfil organizacional completado',
+      count: orgChartScore ? 1 : 0,
+      pointsPerUnit: ACTION_GAMIFICATION_POINTS.orgProfileCompleted,
+      points: resolveOrgProfilePoints(orgChartScore),
+      helper:
+        '+15 al completar Reporta a (y Supervisa a cuando aplique). Si queda incompleto: -15. Al completar de nuevo se restauran. No se acumula por editar varias veces.',
+      tone:
+        resolveOrgProfilePoints(orgChartScore) > 0
+          ? 'positive'
+          : resolveOrgProfilePoints(orgChartScore) < 0
+            ? 'negative'
+            : 'neutral',
     },
   ]
   const earnedPoints = rules.filter((rule) => rule.points > 0).reduce((sum, rule) => sum + rule.points, 0)

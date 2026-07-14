@@ -20,6 +20,7 @@ interface OrgChartUserPanelProps {
   users: OrgChartUser[]
   actionStats: OrgChartUserActionStats
   canEditHierarchy: boolean
+  canOpenUserAdmin?: boolean
   currentUserId?: string | null
   onClose?: () => void
 }
@@ -29,6 +30,7 @@ export function OrgChartUserPanel({
   users,
   actionStats,
   canEditHierarchy,
+  canOpenUserAdmin = false,
   currentUserId,
   onClose,
 }: OrgChartUserPanelProps) {
@@ -158,10 +160,11 @@ export function OrgChartUserPanel({
             user={user}
             users={users}
             currentUserId={currentUserId}
+            canManageAnyReports={canOpenUserAdmin}
           />
         ) : null}
 
-        {canEditHierarchy ? (
+        {canOpenUserAdmin ? (
           <Button asChild variant="outline" className="w-full">
             <Link to={`${ROUTES.SETTINGS_USERS}/${user.id}`}>Ver ficha completa en usuarios</Link>
           </Button>

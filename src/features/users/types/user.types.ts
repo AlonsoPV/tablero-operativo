@@ -12,7 +12,10 @@ export interface UserProfile {
   /** Correo de auth.users; se rellena en listados de administración. */
   email?: string | null
   rol: string
+  /** Área principal (usuarios.area). */
   area: string | null
+  /** Todas las áreas (principal + adicionales). */
+  areas?: string[]
   activo: boolean
   manager_user_id?: string | null
   created_at: string
@@ -25,6 +28,9 @@ export interface CreateUserInput {
   nombre: string
   rol: string
   area?: string | null
+  /** IDs de áreas adicionales (además del área principal por nombre). */
+  area_ids?: string[]
+  primary_area_id?: string | null
   activo?: boolean
 }
 
@@ -33,8 +39,12 @@ export interface UpdateUserInput {
   nombre?: string
   rol?: string
   area?: string | null
+  primary_area_id?: string | null
+  area_ids?: string[]
   activo?: boolean
   manager_user_id?: string | null
+  /** IDs de usuarios que reportan a este perfil. */
+  direct_report_ids?: string[]
 }
 
 /** Filtros del listado de usuarios. */

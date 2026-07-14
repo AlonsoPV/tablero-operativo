@@ -4,6 +4,7 @@ import {
   buildCommandChainRows,
   buildEscalationChain,
   buildOrgChartForest,
+  flattenOrgChartForest,
   getDirectReports,
   wouldCreateHierarchyCycle,
 } from './orgHierarchy'
@@ -68,5 +69,33 @@ describe('orgHierarchy', () => {
     ]
     const forest = buildOrgChartForest(users, { area: 'RH', soloActivos: false })
     expect(forest.map((node) => node.id)).toEqual(['e'])
+  })
+
+  it('filtra por área adicional en memberships', () => {
+    const users = [
+      user({
+        id: 'f',
+        nombre: 'Multi',
+        rol: 'Operativo',
+        area: 'Finanzas',
+        areas: ['Finanzas', 'RH'],
+        manager_user_id: null,
+      }),
+    ]
+    const forest = buildOrgChartForest(users, { area: 'RH', soloActivos: false })
+    expect(forest.map((node) => node.id)).toEqual(['f'])
+  })
+
+  it('aplana el bosque en orden jerárquico para la vista lista', () => {
+    const forest = buildOrgChartForest(sampleUsers)
+    const rows = flattenOrgChartForest(forest, sampleUsers)
+    expect(rows.map((row) => ({ id: row.id, depth: row.depth, reports: row.reportsCount }))).toEqual([
+      { id: 'a', depth: 0, reports: 1 },
+      { id: 'b', depth: 1, reports: 2 },
+      { id: 'c', depth: 2, reports: 0 },
+      { id: 'd', depth: 2, reports: 0 },
+    ])
+    expect(rows.find((row) => row.id === 'c')?.managerNombre).toBe('Lider')
+    expect(rows.find((row) => row.id === 'b')?.reportNombres).toEqual(['Ana', 'Luis'])
   })
 })
