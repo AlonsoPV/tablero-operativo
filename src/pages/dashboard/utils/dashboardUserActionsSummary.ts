@@ -3,6 +3,8 @@ import type { AccionComentario } from '@/types/accionComentario'
 import type { UserProfile } from '@/features/users/types/user.types'
 import {
   buildActionGamificationMetrics,
+  getUserOwnedActions,
+  getUserRelevantComments,
   type OrgChartGamificationScore,
 } from '@/features/disciplina/utils/actionGamification'
 import { isEnRetraso } from '@/features/operations/utils/accionUtils'
@@ -59,18 +61,21 @@ export function buildUserActionsSummaryRows(
   comentarios: AccionComentario[],
   today: string,
   areaFilter?: string,
-  orgChartScores: ReadonlyMap<string, OrgChartGamificationScore> = new Map()
+  orgChartScores: ReadonlyMap<string, OrgChartGamificationScore> = new Map(),
+  academyCompletedByAuthUserId: ReadonlyMap<string, number> = new Map()
 ): UserActionsSummaryRow[] {
   return filterUsersWithAssignedArea(users, areaFilter).map((user) => {
     const assignedOpenActions = acciones.filter(
       (accion) => accion.responsable === user.id && isOpenAction(accion)
     )
+    const personalActions = getUserOwnedActions(user.id, acciones, comentarios)
+    const personalComments = getUserRelevantComments(user.id, comentarios, personalActions)
     const gamificationPoints = buildActionGamificationMetrics(
       user.id,
-      acciones,
-      comentarios,
+      personalActions,
+      personalComments,
       today,
-      0,
+      academyCompletedByAuthUserId.get(user.user_id) ?? 0,
       orgChartScores.get(user.id) ?? null
     ).totalPoints
 

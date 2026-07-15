@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { supabase } from '@/lib/supabase/client'
 import type { AccionDiaria } from '@/types'
 import type { AccionComentario } from '@/types/accionComentario'
 import type { UserProfile } from '@/features/users/types/user.types'
@@ -38,6 +39,11 @@ import {
 } from '../utils/dashboardUserActionsSummary'
 
 type SummaryView = 'usuario' | 'area'
+
+type AcademyProgressCountRow = {
+  user_id: string
+  completed_count: number
+}
 
 interface DashboardUserActionsSummarySectionProps {
   users: UserProfile[]
@@ -336,9 +342,30 @@ export function DashboardUserActionsSummarySection({
     queryFn: () => orgChartScoreService.listVisible(),
     staleTime: 30_000,
   })
+  const { data: academyProgressCounts = [], isLoading: academyProgressLoading } = useQuery({
+    queryKey: ['academy', 'progress-counts-visible'],
+    queryFn: async (): Promise<AcademyProgressCountRow[]> => {
+      const { data, error } = await supabase.rpc('academy_progress_counts_visible')
+      if (error) {
+        if (
+          error.code === 'PGRST202' ||
+          error.message?.toLowerCase().includes('academy_progress_counts_visible')
+        ) {
+          return []
+        }
+        throw error
+      }
+      return (data ?? []) as AcademyProgressCountRow[]
+    },
+    staleTime: 30_000,
+  })
   const orgChartScoreMap = useMemo(
     () => new Map(orgChartScores.map((score) => [score.user_id, score])),
     [orgChartScores]
+  )
+  const academyProgressCountMap = useMemo(
+    () => new Map(academyProgressCounts.map((row) => [row.user_id, Number(row.completed_count) || 0])),
+    [academyProgressCounts]
   )
 
   const handleUserSort = (key: string) => {
@@ -362,8 +389,17 @@ export function DashboardUserActionsSummarySection({
   }
 
   const baseUserRows = useMemo(
-    () => buildUserActionsSummaryRows(users, acciones, comentarios, today, areaFilter, orgChartScoreMap),
-    [users, acciones, comentarios, today, areaFilter, orgChartScoreMap]
+    () =>
+      buildUserActionsSummaryRows(
+        users,
+        acciones,
+        comentarios,
+        today,
+        areaFilter,
+        orgChartScoreMap,
+        academyProgressCountMap
+      ),
+    [users, acciones, comentarios, today, areaFilter, orgChartScoreMap, academyProgressCountMap]
   )
 
   const userRows = useMemo(() => {
@@ -420,7 +456,7 @@ export function DashboardUserActionsSummarySection({
           action={<SummaryViewToggle view={view} onViewChange={setView} />}
         />
         <SectionCardBody className="space-y-4 p-4 md:p-6">
-          {isLoading || orgChartScoresLoading ? (
+          {isLoading || orgChartScoresLoading || academyProgressLoading ? (
             <DashboardUserActionsSkeleton columns={view === 'usuario' ? 5 : 6} />
           ) : baseUserRows.length === 0 ? (
             <div className="flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 bg-muted/10 px-4 py-10 text-center">
@@ -671,7 +707,8 @@ export function DashboardUserActionsSummarySection({
 
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 Abiertas: acciones no cerradas asignadas al usuario. Retraso: estado Retraso o fuera de fecha
-                compromiso. Bloqueadas: estado Bloqueado. Puntos: gamificación según filtros del dashboard.
+                compromiso. Bloqueadas: estado Bloqueado. Puntos: gamificación personal del periodo, academia y
+                perfil organizacional.
               </p>
             </>
           )}
