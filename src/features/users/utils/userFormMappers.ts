@@ -14,9 +14,17 @@ export function toUpdateUserInput(
     values.additional_area_ids ?? []
   )
 
+  const roleFields = values.primary_role_id && values.role_ids?.length
+    ? {
+        role_ids: values.role_ids,
+        primary_role_id: values.primary_role_id,
+      }
+    : {}
+
   return {
     nombre: values.nombre.trim(),
     rol: values.rol,
+    ...roleFields,
     area: values.area ?? null,
     primary_area_id: primaryAreaId,
     area_ids: areaIds,
@@ -32,10 +40,18 @@ export function toCreateUserInput(values: UserFormValues): CreateUserInput {
     throw new Error('Indica un correo válido para enviar la invitación.')
   }
 
+  const roleFields = values.primary_role_id && values.role_ids?.length
+    ? {
+        role_ids: values.role_ids,
+        primary_role_id: values.primary_role_id,
+      }
+    : {}
+
   return {
     email,
     nombre: values.nombre.trim(),
     rol: values.rol,
+    ...roleFields,
     area: values.area ?? null,
     activo: Boolean(values.activo),
   }

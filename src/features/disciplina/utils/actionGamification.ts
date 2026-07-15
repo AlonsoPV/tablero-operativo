@@ -17,7 +17,7 @@ export const ACTION_GAMIFICATION_POINTS = {
 } as const
 
 export interface OrgChartGamificationScore {
-  /** +15 completo | -15 incompleto tras haber estado completo | 0 nunca completado */
+  /** +15 con jerarquia | 0 sin jerarquia; quitarla revierte solo el bono ganado */
   profile_complete_points: number
   ever_completed?: boolean
   /** @deprecated legacy compatibility */
@@ -28,9 +28,9 @@ export interface OrgChartGamificationScore {
 
 export function resolveOrgProfilePoints(score: OrgChartGamificationScore | null | undefined): number {
   if (!score) return 0
-  if (typeof score.profile_complete_points === 'number') return score.profile_complete_points
+  if (typeof score.profile_complete_points === 'number') return Math.max(0, score.profile_complete_points)
   // Compat filas antiguas (+4/+4) antes de migrar.
-  return (score.reports_to_points ?? 0) + (score.supervises_points ?? 0)
+  return Math.max(0, (score.reports_to_points ?? 0) + (score.supervises_points ?? 0))
 }
 
 export type ActionGamificationTone = 'positive' | 'neutral' | 'warning' | 'negative'
@@ -172,11 +172,11 @@ export function buildActionGamificationMetrics(
     {
       key: 'orgProfileCompleted',
       label: 'Perfil organizacional completado',
-      count: orgChartScore ? 1 : 0,
+      count: resolveOrgProfilePoints(orgChartScore) > 0 ? 1 : 0,
       pointsPerUnit: ACTION_GAMIFICATION_POINTS.orgProfileCompleted,
       points: resolveOrgProfilePoints(orgChartScore),
       helper:
-        '+15 al completar Reporta a (y Supervisa a cuando aplique). Si queda incompleto: -15. Al completar de nuevo se restauran. No se acumula por editar varias veces.',
+        '+15 mientras la jerarquía tenga contenido. Al quitarla, se revierte únicamente ese bono y el saldo vuelve a 0. No se acumula por editar varias veces.',
       tone:
         resolveOrgProfilePoints(orgChartScore) > 0
           ? 'positive'

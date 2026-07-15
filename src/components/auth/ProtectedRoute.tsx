@@ -10,7 +10,8 @@ import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ROUTES } from '@/constants'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { useAppRole } from '@/features/auth/hooks/useAppRole'
-import { canAccessRouteByRole, getDefaultRouteByRole } from '@/features/auth/lib/permissions'
+import { canAccessRouteWithModules, getDefaultRouteWithModules } from '@/features/auth/lib/moduleAccess'
+import { useModuleAccess } from '@/features/auth/hooks/useModuleAccess'
 import { useAppStore } from '@/store'
 import { AuthLoader } from '@/features/auth/components/AuthLoader'
 import { Button } from '@/components/ui/button'
@@ -30,6 +31,7 @@ export function ProtectedRoute() {
     refetch,
   } = useAuth()
   const { data: appRole } = useAppRole()
+  const { data: moduleKeys, isLoading: modulesLoading } = useModuleAccess()
 
   useEffect(() => {
     if (authLoading || sessionStatus !== 'signed_out' || error?.type === 'network') return
@@ -62,6 +64,10 @@ export function ProtectedRoute() {
 
   if (profileStatus === 'loading') {
     return <AuthLoader message="Cargando tu perfil…" />
+  }
+
+  if (profileStatus === 'loaded' && modulesLoading) {
+    return <AuthLoader message="Cargando permisos…" />
   }
 
   if (profileStatus === 'timeout' || profileStatus === 'network_error') {
@@ -109,8 +115,21 @@ export function ProtectedRoute() {
     )
   }
 
-  if (profileStatus === 'loaded' && !canAccessRouteByRole(profile?.rol, location.pathname, appRole)) {
-    return <Navigate to={getDefaultRouteByRole(profile?.rol)} replace />
+  if (profileStatus === 'loaded' && !canAccessRouteWithModules(profile?.rol, location.pathname, appRole, moduleKeys)) {
+    const fallbackRoute = getDefaultRouteWithModules(profile?.rol, appRole, moduleKeys)
+    if (fallbackRoute && fallbackRoute !== location.pathname) {
+      return <Navigate to={fallbackRoute} replace />
+    }
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
+        <div className="max-w-md rounded-xl border bg-card p-6 text-center shadow-sm">
+          <h2 className="text-lg font-semibold">Sin secciones habilitadas</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Solicita a Super Admin que habilite al menos una sección para alguno de tus roles.
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return <Outlet />

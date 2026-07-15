@@ -175,6 +175,8 @@ export function UsersPage() {
                   ? {
                       nombre: editingUser.nombre,
                       rol: editingUser.rol,
+                      role_ids: editingUser.role_ids ?? [],
+                      primary_role_id: editingUser.primary_role_id ?? null,
                       area: editingUser.area ?? null,
                       activo: editingUser.activo,
                     }

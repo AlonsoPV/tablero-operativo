@@ -23,7 +23,7 @@ describe('orgGovernanceStats', () => {
     const stats = buildOrgGovernanceStats(users, new Map([
       ['j1', { profile_complete_points: 15 }],
       ['m1', { profile_complete_points: 15 }],
-      ['a1', { profile_complete_points: -15 }],
+      ['a1', { profile_complete_points: 0 }],
     ]), 4)
 
     expect(stats.eligibleUsers).toBe(3)

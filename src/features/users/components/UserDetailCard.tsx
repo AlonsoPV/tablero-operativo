@@ -80,7 +80,11 @@ export function UserDetailCard({
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Rol</dt>
             <dd className="mt-0.5">
-              <Badge variant="secondary">{user.rol}</Badge>
+              <div className="flex flex-wrap gap-1">
+                {(user.role_names?.length ? user.role_names : [user.rol]).map((role) => (
+                  <Badge key={role} variant="secondary">{role}</Badge>
+                ))}
+              </div>
             </dd>
           </div>
           <div>

@@ -159,6 +159,8 @@ export function UserDetailPage() {
               defaultValues={{
                 nombre: user.nombre,
                 rol: user.rol,
+                role_ids: user.role_ids ?? [],
+                primary_role_id: user.primary_role_id ?? null,
                 area: user.area ?? null,
                 activo: user.activo,
                 manager_user_id: user.manager_user_id ?? null,

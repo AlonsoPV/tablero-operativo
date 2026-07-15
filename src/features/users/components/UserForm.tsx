@@ -21,6 +21,8 @@ import { useAreas } from '@/features/catalogs/hooks/useAreas'
 import { wouldCreateHierarchyCycle } from '@/features/org-chart/utils/orgHierarchy'
 import type { OrgChartUser } from '@/features/org-chart/types/orgChart.types'
 import { AreaMembershipFields } from './AreaMembershipFields'
+import { useRouteAccess } from '@/features/auth/hooks/useRouteAccess'
+import { isAppSuperAdminByAppRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
 
 interface UserFormProps {
   defaultValues?: Partial<UserFormValues> | null
@@ -48,6 +50,8 @@ const EMPTY_USER_FORM: UserFormValues = {
   email: '',
   nombre: '',
   rol: '',
+  role_ids: [],
+  primary_role_id: null,
   area: null,
   additional_area_ids: [],
   activo: true,
@@ -69,6 +73,8 @@ export function UserForm({
   canEditManager = false,
 }: UserFormProps) {
   const { data: roles = [], isLoading: loadingRoles } = useRoles({ activo: true })
+  const { rol: actorRole, appRole } = useRouteAccess()
+  const canAssignMultipleRoles = isSuperAdminByRole(actorRole) || isAppSuperAdminByAppRole(appRole)
   const { data: areas = [], isLoading: loadingAreas } = useAreas({ activo: true })
   const formSchema = useMemo(
     () => (isCreate ? createUserFormSchema : updateUserFormSchema),
@@ -149,11 +155,19 @@ export function UserForm({
     const additional = areas
       .filter((a) => names.includes(a.nombre) && a.id !== primaryId)
       .map((a) => a.id)
+    const primaryRole = roles.find((role) => role.nombre === (defaultValues?.rol ?? ''))
+    const roleIds = defaultValues?.role_ids?.length
+      ? defaultValues.role_ids
+      : primaryRole
+        ? [primaryRole.id]
+        : []
 
     form.reset({
       email: defaultValues?.email ?? '',
       nombre: defaultValues?.nombre ?? '',
       rol: defaultValues?.rol ?? '',
+      role_ids: roleIds,
+      primary_role_id: defaultValues?.primary_role_id ?? primaryRole?.id ?? null,
       area: defaultValues?.area ?? null,
       additional_area_ids: defaultValues?.additional_area_ids ?? additional,
       activo: defaultValues?.activo ?? true,
@@ -164,6 +178,8 @@ export function UserForm({
     defaultValues?.email,
     defaultValues?.nombre,
     defaultValues?.rol,
+    defaultValues?.role_ids,
+    defaultValues?.primary_role_id,
     defaultValues?.area,
     defaultValues?.activo,
     defaultValues?.manager_user_id,
@@ -171,6 +187,7 @@ export function UserForm({
     defaultValues?.direct_report_ids,
     membershipAreaNames,
     areas,
+    roles,
     form,
   ])
 
@@ -187,7 +204,11 @@ export function UserForm({
       })
       return
     }
-    onSubmit(values)
+    onSubmit(
+      canAssignMultipleRoles
+        ? values
+        : { ...values, role_ids: [], primary_role_id: null }
+    )
   }
 
   return (
@@ -245,7 +266,20 @@ export function UserForm({
           name="rol"
           control={form.control}
           render={({ field }) => (
-            <Select value={field.value} onValueChange={field.onChange} disabled={loadingRoles}>
+            <Select
+              value={field.value}
+              onValueChange={(value) => {
+                field.onChange(value)
+                const selected = roles.find((role) => role.nombre === value)
+                if (!selected) return
+                form.setValue('primary_role_id', selected.id, { shouldDirty: true })
+                const current = form.getValues('role_ids') ?? []
+                if (!current.includes(selected.id)) {
+                  form.setValue('role_ids', [...current, selected.id], { shouldDirty: true })
+                }
+              }}
+              disabled={loadingRoles}
+            >
               <SelectTrigger id="rol">
                 <SelectValue placeholder={loadingRoles ? 'Cargando roles...' : 'Elige un rol'} />
               </SelectTrigger>
@@ -268,6 +302,42 @@ export function UserForm({
           <p className="text-sm text-destructive">{form.formState.errors.rol.message}</p>
         )}
       </div>
+
+      {canAssignMultipleRoles ? (
+        <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+          <div>
+            <Label>Roles adicionales</Label>
+            <p className="text-xs text-muted-foreground">
+              El acceso final será la combinación de todos los roles seleccionados.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {roles.map((role) => {
+              const primaryId = form.watch('primary_role_id')
+              const selected = (form.watch('role_ids') ?? []).includes(role.id)
+              return (
+                <label key={role.id} className="flex cursor-pointer items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    disabled={role.id === primaryId}
+                    onChange={(event) => {
+                      const current = form.getValues('role_ids') ?? []
+                      const next = event.target.checked
+                        ? [...new Set([...current, role.id])]
+                        : current.filter((id) => id !== role.id)
+                      form.setValue('role_ids', next, { shouldDirty: true })
+                    }}
+                    className="h-4 w-4 rounded border-input"
+                  />
+                  <span>{role.nombre}</span>
+                  {role.id === primaryId ? <span className="ml-auto text-xs text-primary">Principal</span> : null}
+                </label>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <AreaMembershipFields
         areas={areaOptions}

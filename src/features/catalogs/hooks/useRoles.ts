@@ -26,11 +26,22 @@ export function useRole(id: string | undefined | null) {
   })
 }
 
+export function useAppModules() {
+  return useQuery({
+    queryKey: [...KEY, 'modules'],
+    queryFn: () => rolesService.listModules(),
+    staleTime: CATALOG_STALE_TIME,
+  })
+}
+
 export function useCreateRole() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: CreateRoleInput) => rolesService.create(input),
-    onSuccess: () => invalidateCatalogQueries(qc, KEY),
+    onSuccess: () => {
+      invalidateCatalogQueries(qc, KEY)
+      qc.invalidateQueries({ queryKey: ['auth', 'module-access'] })
+    },
   })
 }
 
@@ -39,7 +50,10 @@ export function useUpdateRole() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateRoleInput }) =>
       rolesService.update(id, input),
-    onSuccess: () => invalidateCatalogQueries(qc, KEY),
+    onSuccess: () => {
+      invalidateCatalogQueries(qc, KEY)
+      qc.invalidateQueries({ queryKey: ['auth', 'module-access'] })
+    },
   })
 }
 
@@ -48,6 +62,9 @@ export function useToggleRoleStatus() {
   return useMutation({
     mutationFn: ({ id, activo }: { id: string; activo: boolean }) =>
       rolesService.setActivo(id, activo),
-    onSuccess: () => invalidateCatalogQueries(qc, KEY),
+    onSuccess: () => {
+      invalidateCatalogQueries(qc, KEY)
+      qc.invalidateQueries({ queryKey: ['auth', 'module-access'] })
+    },
   })
 }

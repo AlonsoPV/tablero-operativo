@@ -117,15 +117,25 @@ describe('actionGamification', () => {
     expect(metrics.totalPoints).toBe(15)
   })
 
-  it('descuenta 15 cuando el perfil queda incompleto tras haber estado completo', () => {
+  it('revierte solamente el bono y vuelve a 0 cuando se quita la jerarquía', () => {
+    const metrics = buildActionGamificationMetrics(USER_ID, [], [], '2026-06-05', 0, {
+      profile_complete_points: 0,
+      ever_completed: true,
+    })
+
+    expect(metrics.totalPoints).toBe(0)
+    expect(metrics.penaltyPoints).toBe(0)
+    expect(metrics.rules.find((rule) => rule.key === 'orgProfileCompleted')?.points).toBe(0)
+  })
+
+  it('normaliza a 0 las filas antiguas que todavía tengan -15', () => {
     const metrics = buildActionGamificationMetrics(USER_ID, [], [], '2026-06-05', 0, {
       profile_complete_points: -15,
       ever_completed: true,
     })
 
-    expect(metrics.totalPoints).toBe(-15)
-    expect(metrics.penaltyPoints).toBe(-15)
-    expect(metrics.rules.find((rule) => rule.key === 'orgProfileCompleted')?.points).toBe(-15)
+    expect(metrics.totalPoints).toBe(0)
+    expect(metrics.penaltyPoints).toBe(0)
   })
 
   it('no otorga puntos si el perfil nunca se ha completado', () => {

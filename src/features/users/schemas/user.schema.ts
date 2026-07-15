@@ -19,6 +19,8 @@ const commonUserFormSchema = z.object({
         .max(100, 'Como máximo 100 caracteres')
     ),
   rol: z.string().min(1, 'Elige un rol'),
+  role_ids: z.array(z.string().uuid()).optional(),
+  primary_role_id: z.string().uuid().nullable().optional(),
   area: z
     .union([z.string(), z.null(), z.undefined()])
     .transform((value) => {

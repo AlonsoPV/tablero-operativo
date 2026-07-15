@@ -24,20 +24,34 @@ export interface CatalogRole {
   nombre: string
   descripcion: string | null
   activo: boolean
+  system_key?: string | null
+  module_keys: string[]
   created_at: string
   updated_at: string
+}
+
+export interface AppModule {
+  key: string
+  nombre: string
+  descripcion: string | null
+  route: string
+  section: string
+  sort_order: number
+  activo: boolean
 }
 
 export interface CreateRoleInput {
   nombre: string
   descripcion?: string | null
   activo?: boolean
+  module_keys?: string[]
 }
 
 export interface UpdateRoleInput {
   nombre?: string
   descripcion?: string | null
   activo?: boolean
+  module_keys?: string[]
 }
 
 // ---- Areas ----
