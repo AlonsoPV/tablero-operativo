@@ -49,9 +49,12 @@ interface DashboardUserActionsSummarySectionProps {
   users: UserProfile[]
   acciones: AccionDiaria[]
   comentarios: AccionComentario[]
+  gamificationAcciones?: AccionDiaria[]
+  gamificationComentarios?: AccionComentario[]
   today: string
   areaFilter?: string
   isLoading?: boolean
+  isGamificationLoading?: boolean
 }
 
 function SortableHead({
@@ -328,9 +331,12 @@ export function DashboardUserActionsSummarySection({
   users,
   acciones,
   comentarios,
+  gamificationAcciones,
+  gamificationComentarios,
   today,
   areaFilter,
   isLoading,
+  isGamificationLoading,
 }: DashboardUserActionsSummarySectionProps) {
   const [view, setView] = useState<SummaryView>('usuario')
   const [search, setSearch] = useState('')
@@ -397,9 +403,21 @@ export function DashboardUserActionsSummarySection({
         today,
         areaFilter,
         orgChartScoreMap,
-        academyProgressCountMap
+        academyProgressCountMap,
+        gamificationAcciones ?? acciones,
+        gamificationComentarios ?? comentarios
       ),
-    [users, acciones, comentarios, today, areaFilter, orgChartScoreMap, academyProgressCountMap]
+    [
+      users,
+      acciones,
+      comentarios,
+      gamificationAcciones,
+      gamificationComentarios,
+      today,
+      areaFilter,
+      orgChartScoreMap,
+      academyProgressCountMap,
+    ]
   )
 
   const userRows = useMemo(() => {
@@ -456,7 +474,7 @@ export function DashboardUserActionsSummarySection({
           action={<SummaryViewToggle view={view} onViewChange={setView} />}
         />
         <SectionCardBody className="space-y-4 p-4 md:p-6">
-          {isLoading || orgChartScoresLoading || academyProgressLoading ? (
+          {isLoading || isGamificationLoading || orgChartScoresLoading || academyProgressLoading ? (
             <DashboardUserActionsSkeleton columns={view === 'usuario' ? 5 : 6} />
           ) : baseUserRows.length === 0 ? (
             <div className="flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 bg-muted/10 px-4 py-10 text-center">

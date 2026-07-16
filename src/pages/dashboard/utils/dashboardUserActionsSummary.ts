@@ -62,14 +62,16 @@ export function buildUserActionsSummaryRows(
   today: string,
   areaFilter?: string,
   orgChartScores: ReadonlyMap<string, OrgChartGamificationScore> = new Map(),
-  academyCompletedByAuthUserId: ReadonlyMap<string, number> = new Map()
+  academyCompletedByAuthUserId: ReadonlyMap<string, number> = new Map(),
+  gamificationActions: AccionDiaria[] = acciones,
+  gamificationComments: AccionComentario[] = comentarios
 ): UserActionsSummaryRow[] {
   return filterUsersWithAssignedArea(users, areaFilter).map((user) => {
     const assignedOpenActions = acciones.filter(
       (accion) => accion.responsable === user.id && isOpenAction(accion)
     )
-    const personalActions = getUserOwnedActions(user.id, acciones, comentarios)
-    const personalComments = getUserRelevantComments(user.id, comentarios, personalActions)
+    const personalActions = getUserOwnedActions(user.id, gamificationActions, gamificationComments)
+    const personalComments = getUserRelevantComments(user.id, gamificationComments, personalActions)
     const gamificationPoints = buildActionGamificationMetrics(
       user.id,
       personalActions,

@@ -160,6 +160,39 @@ describe('dashboardUserActionsSummary', () => {
     expect(rows[0].gamificationPoints).toBe(53)
   })
 
+  it('mantiene conteos visibles separados del historial de gamificacion', () => {
+    const users = [
+      user({ id: 'u1', user_id: 'auth-u1', nombre: 'Ana', area: 'Operaciones' }),
+    ]
+    const visibleActions = [
+      action({ id: 'visible-open', responsable: 'u1', estado: 'Pendiente' }),
+    ]
+    const historyActions = [
+      action({
+        id: 'history-done',
+        responsable: 'u1',
+        estado: 'Hecho',
+        completed_at: '2026-07-14T16:00:00',
+        updated_at: '2026-07-14T16:00:00',
+      }),
+    ]
+
+    const rows = buildUserActionsSummaryRows(
+      users,
+      visibleActions,
+      [],
+      '2026-07-15',
+      undefined,
+      new Map(),
+      new Map(),
+      historyActions,
+      []
+    )
+
+    expect(rows[0].abiertas).toBe(1)
+    expect(rows[0].gamificationPoints).toBe(11)
+  })
+
   it('buildAreaActionsSummaryRows agrega metricas por area', () => {
     const rows = buildAreaActionsSummaryRows([
       {
