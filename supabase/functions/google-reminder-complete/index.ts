@@ -1,12 +1,14 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { handleCorsPreflight, jsonResponse } from '../_shared/cors.ts'
 import { requireAuthUser } from '../_shared/requireUser.ts'
 
-declare global {
-  var Deno: {
-    env: { get(key: string): string | undefined }
-    serve: (handler: (req: Request) => Response | Promise<Response>) => void
-  }
+/** Sin `Database` generado, `ReturnType<typeof createClient>` tipa tablas desconocidas como `never`. */
+type AdminClient = SupabaseClient
+
+type ReminderGoogleLinks = {
+  id: string
+  google_calendar_event_id: string | null
+  google_task_id: string | null
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -84,25 +86,31 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: false, message: 'reminderId es requerido' }, 400)
     }
 
-    const adminClient = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), {
-      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
-    })
+    const adminClient: AdminClient = createClient(
+      env('SUPABASE_URL'),
+      env('SUPABASE_SERVICE_ROLE_KEY'),
+      {
+        auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+      }
+    )
 
-    const { data: usuario, error: usuarioError } = await adminClient
+    const { data: rawUsuario, error: usuarioError } = await adminClient
       .from('usuarios')
       .select('id')
       .eq('user_id', auth.data.user.id)
       .maybeSingle()
+    const usuario = rawUsuario as { id: string } | null
     if (usuarioError || !usuario?.id) {
       return jsonResponse({ ok: false, message: 'Perfil de usuario no encontrado' }, 403)
     }
 
-    const { data: reminder, error: reminderError } = await adminClient
+    const { data: rawReminder, error: reminderError } = await adminClient
       .from('calendar_reminders')
       .select('id,google_calendar_event_id,google_task_id')
       .eq('id', reminderId)
       .eq('user_id', usuario.id)
       .maybeSingle()
+    const reminder = rawReminder as ReminderGoogleLinks | null
     if (reminderError || !reminder) {
       return jsonResponse({ ok: false, message: 'Recordatorio no encontrado' }, 404)
     }

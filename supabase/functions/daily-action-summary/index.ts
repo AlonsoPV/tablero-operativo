@@ -1,12 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
-declare global {
-  var Deno: {
-    env: { get(key: string): string | undefined }
-    serve: (handler: (req: Request) => Response | Promise<Response>) => void
-  }
-}
-
 type Settings = {
   enabled: boolean
   send_time: string

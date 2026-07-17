@@ -1,13 +1,9 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { handleCorsPreflight, jsonResponse } from '../_shared/cors.ts'
 import { requireAuthUser } from '../_shared/requireUser.ts'
 
-declare global {
-  var Deno: {
-    env: { get(key: string): string | undefined }
-    serve: (handler: (req: Request) => Response | Promise<Response>) => void
-  }
-}
+/** Sin `Database` generado, `ReturnType<typeof createClient>` tipa tablas desconocidas como `never`. */
+type AdminClient = SupabaseClient
 
 type GoogleTarget = 'task' | 'gmail'
 type GoogleSource = 'accion' | 'recordatorio' | 'minuta'
@@ -158,16 +154,17 @@ function formatGoogleTaskDue(end: Date): string {
 }
 
 async function resolveTaskSchedule(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: AdminClient,
   input: GoogleSyncPayload,
   source: GoogleSource
 ): Promise<TaskSchedule> {
   if (source === 'accion' && input.actionId && UUID_RE.test(input.actionId)) {
-    const { data } = await adminClient
+    const { data: raw } = await adminClient
       .from('acciones_diarias')
       .select('created_at, fecha, hora_limite')
       .eq('id', input.actionId)
       .maybeSingle()
+    const data = raw as { created_at: string; fecha: string; hora_limite: string | null } | null
 
     if (data?.created_at && data.fecha) {
       const start = parseInstant(data.created_at)
@@ -177,11 +174,12 @@ async function resolveTaskSchedule(
   }
 
   if (source === 'recordatorio' && input.reminderId && UUID_RE.test(input.reminderId)) {
-    const { data } = await adminClient
+    const { data: raw } = await adminClient
       .from('calendar_reminders')
       .select('created_at, fecha_limite')
       .eq('id', input.reminderId)
       .maybeSingle()
+    const data = raw as { created_at: string; fecha_limite: string } | null
 
     if (data?.created_at && data.fecha_limite) {
       const start = parseInstant(data.created_at)
@@ -298,17 +296,17 @@ async function googleJson<T>(url: string, token: string, body: unknown): Promise
 }
 
 async function resolveUsuarios(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: AdminClient,
   ids: string[]
 ): Promise<ResolvedUsuario[]> {
   const uniqueIds = [...new Set(ids.filter((id) => UUID_RE.test(id)))]
   if (uniqueIds.length === 0) return []
 
-  const { data, error } = await adminClient
+  const { data: raw, error } = await adminClient
     .from('usuarios')
     .select('id,user_id,nombre,activo')
     .in('id', uniqueIds)
-    .returns<UsuarioEmailProfile[]>()
+  const data = (raw as UsuarioEmailProfile[] | null) ?? null
   if (error || !data) return []
 
   const users = await Promise.all(
@@ -334,7 +332,7 @@ async function resolveUsuarios(
 }
 
 async function linkReminderGoogleIds(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: AdminClient,
   authUserId: string,
   reminderId: string,
   target: GoogleTarget,
@@ -343,15 +341,15 @@ async function linkReminderGoogleIds(
   if (!externalId || !UUID_RE.test(reminderId)) return
   if (target !== 'task') return
 
-  const { data: usuario } = await adminClient
+  const { data: rawUsuario } = await adminClient
     .from('usuarios')
     .select('id')
     .eq('user_id', authUserId)
     .maybeSingle()
+  const usuario = rawUsuario as { id: string } | null
   if (!usuario?.id) return
 
-  const patch =
-    { google_task_id: externalId }
+  const patch = { google_task_id: externalId }
 
   await adminClient
     .from('calendar_reminders')
