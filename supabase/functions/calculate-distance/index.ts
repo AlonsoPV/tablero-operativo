@@ -9,15 +9,6 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-/** Stubs para el checker de TypeScript del repo (runtime = Deno en Supabase Edge). */
-declare global {
-  // eslint-disable-next-line no-var
-  var Deno: {
-    env: { get(key: string): string | undefined }
-    serve: (handler: (req: Request) => Response | Promise<Response>) => void
-  }
-}
-
 /** Sin `Database` generado, `ReturnType<typeof createClient>` tipa tablas desconocidas como `never`. */
 type AdminClient = SupabaseClient
 

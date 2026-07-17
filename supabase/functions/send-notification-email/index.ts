@@ -1,13 +1,5 @@
 import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js'
 
-/** Stubs para el checker de TypeScript del repo (runtime = Deno en Supabase Edge). */
-declare global {
-  var Deno: {
-    env: { get(key: string): string | undefined }
-    serve: (handler: (req: Request) => Response | Promise<Response>) => void
-  }
-}
-
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -95,7 +87,7 @@ type RecipientProfile = {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const FUNCTION_VERSION = 'gmail-from-diagnostics-20260717'
+const FUNCTION_VERSION = 'gmail-send-only-scope-20260717'
 
 function normalizePriority(value: unknown): 'Normal' | 'Alta' | 'Urgente' {
   return value === 'Alta' || value === 'Urgente' ? value : 'Normal'
@@ -378,6 +370,47 @@ function formatAddressHeader(input: {
   return displayName ? `${mimeHeader(displayName)} <${email}>` : email
 }
 
+function compactJson(value: unknown, maxLength = 700): string {
+  try {
+    return JSON.stringify(value).slice(0, maxLength)
+  } catch {
+    return ''
+  }
+}
+
+function googleApiErrorMessage(input: {
+  context: string
+  status: number
+  statusText: string
+  data: Record<string, unknown>
+  fallback: string
+  extra?: string
+}): string {
+  const error = input.data?.error
+  const errorObject = error && typeof error === 'object' ? error as Record<string, unknown> : null
+  const message =
+    (typeof input.data?.error_description === 'string' && input.data.error_description.trim()) ||
+    (typeof input.data?.error === 'string' && input.data.error.trim()) ||
+    (typeof errorObject?.message === 'string' && errorObject.message.trim()) ||
+    input.statusText ||
+    input.fallback
+  const code =
+    (typeof input.data?.error === 'string' && input.data.error.trim()) ||
+    (typeof errorObject?.status === 'string' && errorObject.status.trim()) ||
+    null
+  const details = Array.isArray(errorObject?.details)
+    ? ` | details=${compactJson(errorObject.details, 500)}`
+    : ''
+  const raw = compactJson(input.data, 500)
+  return [
+    `${input.context} ${input.status}: ${message}`,
+    code ? `code=${code}` : '',
+    input.extra ?? '',
+    details,
+    raw ? `raw=${raw}` : '',
+  ].filter(Boolean).join(' | ')
+}
+
 async function googleAccessToken(): Promise<string> {
   const response = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -389,9 +422,15 @@ async function googleAccessToken(): Promise<string> {
       grant_type: 'refresh_token',
     }),
   })
-  const data = await response.json().catch(() => ({}))
+  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>
   if (!response.ok || typeof data?.access_token !== 'string') {
-    throw new Error(data?.error_description || data?.error || 'No se pudo obtener token de Google')
+    throw new Error(googleApiErrorMessage({
+      context: 'Google OAuth',
+      status: response.status,
+      statusText: response.statusText,
+      data,
+      fallback: 'No se pudo obtener token de Google',
+    }))
   }
   return data.access_token
 }
@@ -440,18 +479,15 @@ async function sendWithGoogleMail(input: {
   text: string
 }): Promise<{ provider: 'gmail'; id: string | null; account: string | null; from: string | null }> {
   const token = await googleAccessToken()
-  const profileResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  const profile = await profileResponse.json().catch(() => ({}))
-  const account = typeof profile?.emailAddress === 'string' ? profile.emailAddress : null
   const configuredFrom = optionalEnv('GOOGLE_GMAIL_FROM') || optionalEnv('NOTIFICATION_EMAIL_FROM')
   const configuredFromEmail = emailFromAddressHeader(configuredFrom)
-  const fromEmail = account || configuredFromEmail
-  if (!fromEmail) throw new Error('No se pudo resolver la cuenta Gmail remitente')
+  if (!configuredFromEmail) {
+    throw new Error('No se pudo resolver GOOGLE_GMAIL_FROM o NOTIFICATION_EMAIL_FROM')
+  }
+  const account = configuredFromEmail
   const from = formatAddressHeader({
     configured: configuredFrom,
-    fallbackEmail: fromEmail,
+    fallbackEmail: configuredFromEmail,
     defaultDisplayName: 'Scrumban EMX',
   })
   const raw = gmailRawMessage({
@@ -471,15 +507,18 @@ async function sendWithGoogleMail(input: {
     },
     body: JSON.stringify({ raw: base64Url(raw) }),
   })
-  const result = await response.json().catch(() => ({}))
+  const result = (await response.json().catch(() => ({}))) as Record<string, unknown>
   if (!response.ok) {
-    const message = result?.error?.message || response.statusText || 'No se pudo enviar correo por Gmail'
-    const detail = Array.isArray(result?.error?.details)
-      ? ` Detalle: ${JSON.stringify(result.error.details).slice(0, 500)}`
-      : ''
-    throw new Error(`Gmail ${response.status}: ${message}${detail} | account=${account ?? 'unknown'} | from=${from}`)
+    throw new Error(googleApiErrorMessage({
+      context: 'Gmail send',
+      status: response.status,
+      statusText: response.statusText,
+      data: result,
+      fallback: 'No se pudo enviar correo por Gmail',
+      extra: `account=${account ?? 'unknown'} | from=${from}`,
+    }))
   }
-  return { provider: 'gmail', id: result?.id ?? null, account, from }
+  return { provider: 'gmail', id: typeof result?.id === 'string' ? result.id : null, account, from }
 }
 
 Deno.serve(async (req) => {
@@ -499,7 +538,7 @@ Deno.serve(async (req) => {
   }
 
   const auth = await requireAuthUser(req)
-  if (!auth.ok) return auth.response
+  if (auth.ok === false) return auth.response
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')

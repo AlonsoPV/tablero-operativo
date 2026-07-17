@@ -3,15 +3,6 @@ import { handleCorsPreflight, jsonResponse } from '../_shared/cors.ts'
 import { requireAuthUser } from '../_shared/requireUser.ts'
 import { canInviteUsers } from '../_shared/invitePermissions.ts'
 
-/** Stubs para el checker de TypeScript del repo (runtime = Deno en Supabase Edge). */
-declare global {
-  // eslint-disable-next-line no-var
-  var Deno: {
-    env: { get(key: string): string | undefined }
-    serve: (handler: (req: Request) => Response | Promise<Response>) => void
-  }
-}
-
 type InviteUserPayload = {
   email?: string
   nombre?: string
@@ -35,7 +26,7 @@ Deno.serve(async (req) => {
   }
 
   const auth = await requireAuthUser(req)
-  if (!auth.ok) {
+  if (auth.ok === false) {
     const payload = await auth.response.json().catch(() => ({})) as { error?: string }
     const message =
       payload.error === 'Sesión inválida'
