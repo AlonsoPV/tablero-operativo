@@ -4,7 +4,7 @@
  */
 
 import type { RealtimeChannel } from '@supabase/supabase-js'
-import { supabase } from '@/lib/supabase/client'
+import { SUPABASE_ANON_KEY, SUPABASE_URL, supabase } from '@/lib/supabase/client'
 import type { Notificacion } from '@/types'
 
 const TABLE = 'notificaciones'
@@ -22,6 +22,7 @@ type NotificationEmailResult = {
   skipped?: boolean
   reason?: string
   message?: string
+  error?: string
   provider?: string
   email_id?: string | null
 }
@@ -36,23 +37,56 @@ type CreateNotificacionOptions = {
 }
 
 function notificationEmailDetail(result: NotificationEmailResult | null | undefined): string {
-  return [result?.reason, result?.message].filter(Boolean).join(': ')
+  return [result?.reason, result?.message ?? result?.error].filter(Boolean).join(': ')
+}
+
+async function currentAccessToken(): Promise<string> {
+  const { data, error } = await supabase.auth.getSession()
+  if (error) throw error
+  const token = data.session?.access_token
+  if (!token) throw new Error('Sesion no disponible para enviar correo de notificacion')
+  return token
+}
+
+async function invokeNotificationEmail(input: CreateNotificacionInput): Promise<NotificationEmailResult | null> {
+  const baseUrl = SUPABASE_URL.replace(/\/+$/, '')
+  if (!baseUrl || !SUPABASE_ANON_KEY) {
+    throw new Error('Supabase no esta configurado para enviar correos de notificacion')
+  }
+
+  const token = await currentAccessToken()
+  const response = await fetch(`${baseUrl}/functions/v1/send-notification-email`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: SUPABASE_ANON_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      usuario_id: input.usuario_id,
+      tipo: input.tipo,
+      prioridad: input.prioridad ?? 'Normal',
+      payload: input.payload ?? null,
+    }),
+  })
+
+  const data = (await response.json().catch(() => null)) as NotificationEmailResult | null
+  if (!response.ok) {
+    const detail =
+      notificationEmailDetail(data) ||
+      response.statusText ||
+      `HTTP ${response.status}`
+    throw new Error(detail)
+  }
+
+  return data
 }
 
 export async function sendNotificationEmail(
   input: CreateNotificacionInput,
   options: SendNotificationEmailOptions = {}
 ): Promise<NotificationEmailResult | null> {
-  const { data, error } = await supabase.functions.invoke<NotificationEmailResult>('send-notification-email', {
-    body: {
-      usuario_id: input.usuario_id,
-      tipo: input.tipo,
-      prioridad: input.prioridad ?? 'Normal',
-      payload: input.payload ?? null,
-    },
-  })
-
-  if (error) throw error
+  const data = await invokeNotificationEmail(input)
   if (data?.skipped === true) {
     const detail = notificationEmailDetail(data) || 'Correo omitido por la funcion de notificaciones'
     console.warn(
