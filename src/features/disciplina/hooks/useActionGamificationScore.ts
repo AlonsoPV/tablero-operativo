@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { addCalendarDays, todayWallClockCDMX } from '@/lib/dateUtils'
 import { useAcciones } from '@/features/operations/hooks'
+import { useAcademyProgress } from '@/features/academy'
 import { accionComentariosService } from '@/services/accionComentarios.service'
 import { orgChartScoreService } from '../services/orgChartScore.service'
 import {
@@ -52,14 +53,26 @@ export function useActionGamificationScore(
     enabled: Boolean(userId && enabled),
     staleTime: 30_000,
   })
+  const {
+    completedCount: academyModulesCompleted,
+    isLoading: loadingAcademyProgress,
+  } = useAcademyProgress()
   const metrics = useMemo(
-    () => buildActionGamificationMetrics(userId, personalActions, personalComments, today, 0, orgChartScore),
-    [orgChartScore, personalActions, personalComments, today, userId]
+    () =>
+      buildActionGamificationMetrics(
+        userId,
+        personalActions,
+        personalComments,
+        today,
+        academyModulesCompleted,
+        orgChartScore
+      ),
+    [academyModulesCompleted, orgChartScore, personalActions, personalComments, today, userId]
   )
 
   return {
     metrics,
-    isLoading: loadingActions || loadingComments || loadingOrgChartScore,
+    isLoading: loadingActions || loadingComments || loadingOrgChartScore || loadingAcademyProgress,
     isError: actionsError || commentsError || orgChartScoreError,
   }
 }

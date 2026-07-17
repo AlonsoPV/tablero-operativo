@@ -19,11 +19,13 @@ import { CatalogTableLayout } from '../components/CatalogTableLayout'
 import { CatalogRowActions } from '../components/CatalogRowActions'
 import { ConfirmActivateDialog } from '../components/ConfirmActivateDialog'
 import { RoleForm } from '../components/RoleForm'
-import { useRoles, useCreateRole, useUpdateRole, useToggleRoleStatus } from '../hooks/useRoles'
+import { useRoles, useCreateRole, useUpdateRole, useToggleRoleStatus, useAppModules } from '../hooks/useRoles'
 import type { CatalogRole } from '../types/catalogs.types'
 import type { CatalogFilter } from '../types/catalogs.types'
 import type { RoleFormValues } from '../schemas/role.schema'
 import { toast } from 'sonner'
+import { useRouteAccess } from '@/features/auth/hooks/useRouteAccess'
+import { isAppSuperAdminByAppRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
 
 const DEFAULT_FILTER: CatalogFilter = {}
 
@@ -34,6 +36,9 @@ export function RolesPage() {
   const [confirmToggle, setConfirmToggle] = useState<CatalogRole | null>(null)
 
   const { data: items = [], isLoading, isError, error } = useRoles(filter)
+  const { data: modules = [] } = useAppModules()
+  const { rol, appRole } = useRouteAccess()
+  const canEdit = isSuperAdminByRole(rol) || isAppSuperAdminByAppRole(appRole)
   const createRole = useCreateRole()
   const updateRole = useUpdateRole()
   const toggleStatus = useToggleRoleStatus()
@@ -98,8 +103,8 @@ export function RolesPage() {
     <div className="space-y-6">
       <CatalogPageHeader
         title="Roles"
-        description="Catálogo de roles visibles del sistema. Preparado para permisos por rol."
-        onAdd={handleCreate}
+        description="Define el nombre de cada rol y las secciones del tablero a las que puede acceder."
+        onAdd={canEdit ? handleCreate : undefined}
         addLabel="Crear rol"
       />
 
@@ -123,6 +128,7 @@ export function RolesPage() {
               <TableHead>Nombre</TableHead>
               <TableHead>Descripción</TableHead>
               <TableHead>Estatus</TableHead>
+              <TableHead>Secciones</TableHead>
               <TableHead className="w-[70px]">Acciones</TableHead>
             </TableRow>
           </TableHeader>
@@ -136,13 +142,16 @@ export function RolesPage() {
                 <TableCell>
                   <CatalogStatusBadge activo={row.activo} />
                 </TableCell>
+                <TableCell className="text-muted-foreground">
+                  {row.module_keys.length} habilitadas
+                </TableCell>
                 <TableCell>
-                  <CatalogRowActions
+                  {canEdit ? <CatalogRowActions
                     item={row}
                     onEdit={handleEdit}
                     onToggleActivo={setConfirmToggle}
                     resourceLabel="rol"
-                  />
+                  /> : <span className="text-xs text-muted-foreground">Solo lectura</span>}
                 </TableCell>
               </TableRow>
             ))}
@@ -151,7 +160,7 @@ export function RolesPage() {
       </CatalogTableLayout>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent aria-describedby={undefined}>
+        <DialogContent aria-describedby={undefined} className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar rol' : 'Nuevo rol'}</DialogTitle>
           </DialogHeader>
@@ -162,12 +171,15 @@ export function RolesPage() {
                     nombre: editing.nombre,
                     descripcion: editing.descripcion ?? undefined,
                     activo: editing.activo,
+                    module_keys: editing.module_keys,
                   }
                 : undefined
             }
             onSubmit={handleFormSubmit}
             onCancel={() => setFormOpen(false)}
             isSubmitting={createRole.isPending || updateRole.isPending}
+            modules={modules}
+            lockName={editing?.system_key === 'super_admin'}
           />
         </DialogContent>
       </Dialog>

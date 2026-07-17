@@ -169,6 +169,12 @@ export function AccionFormDialog({
   const [submitFooterErrors, setSubmitFooterErrors] = useState<string[] | null>(null)
   const [manualEmailPending, setManualEmailPending] = useState(false)
   const [livePrioridad, setLivePrioridad] = useState<string | undefined>()
+  const { data: checklistUsers = [] } = useQuery({
+    queryKey: [...usersQueryKey, { activo: true }],
+    queryFn: () => usersAdminService.list({ activo: true }),
+    enabled: open,
+    staleTime: 60_000,
+  })
 
   useEffect(() => {
     if (open && !isEdit) {
@@ -315,6 +321,45 @@ export function AccionFormDialog({
           ? err.message
           : 'No se pudo enviar la notificación al responsable. Si persiste, revisa permisos o contacta al administrador.'
       )
+    }
+  }
+
+  async function notifyCheckpointResponsable(input: {
+    usuarioId: string
+    accionId: string
+    tituloAccion: string
+    descripcionAccion: string
+    checkpointText: string
+    checkpointId?: string
+    previousUsuarioId?: string | null
+  }) {
+    if (!input.usuarioId || !input.accionId || input.usuarioId === input.previousUsuarioId) return
+    try {
+      await notificacionesService.create({
+        usuario_id: input.usuarioId,
+        tipo: 'check_responsable',
+        prioridad: 'Alta',
+        payload: {
+          titulo: 'Te asignaron un check por validar',
+          titulo_accion: input.tituloAccion.trim() || undefined,
+          descripcion_accion: flattenDescripcionForForm(input.descripcionAccion ?? '').trim().slice(0, 2000) || undefined,
+          mensaje: input.checkpointText.trim().slice(0, 500),
+          checklist: [input.checkpointText.trim()].filter(Boolean),
+          checkpoint_id: input.checkpointId ?? null,
+          accion_id: input.accionId,
+          responsable_id: input.usuarioId,
+          responsable_nombre: userNameById(input.usuarioId) ?? undefined,
+          asignador_id: currentUser?.id ?? null,
+          asignador_nombre: currentUser?.nombre ?? null,
+          fecha_asignacion: new Date().toISOString(),
+        },
+      }, {
+        throwOnEmailError: true,
+        throwOnEmailSkipped: true,
+      })
+    } catch (err) {
+      console.warn('[checklist] No se pudo crear notificacion de responsable de check:', err)
+      toast.error(err instanceof Error ? err.message : 'No se pudo notificar al responsable del check')
     }
   }
 
@@ -613,15 +658,31 @@ export function AccionFormDialog({
 
           if (checklistDrafts.length > 0) {
             deferredOps.push(
-              accionCheckpointsService.insertMany(
-                createdId,
-                checklistDrafts.map((d, i) => ({
-                  texto: d.texto.trim(),
-                  orden: i,
-                  obligatorio: d.obligatorio,
-                })),
-                currentUser?.id ?? null
-              )
+              (async () => {
+                await accionCheckpointsService.insertMany(
+                  createdId,
+                  checklistDrafts.map((d, i) => ({
+                    texto: d.texto.trim(),
+                    orden: i,
+                    obligatorio: d.obligatorio,
+                    responsable_id: d.responsable_id ?? null,
+                  })),
+                  currentUser?.id ?? null
+                )
+                await Promise.all(
+                  checklistDrafts
+                    .filter((draft) => draft.responsable_id)
+                    .map((draft) =>
+                      notifyCheckpointResponsable({
+                        usuarioId: draft.responsable_id!,
+                        accionId: createdId,
+                        tituloAccion: payload.titulo_accion ?? '',
+                        descripcionAccion: payload.descripcion_accion ?? '',
+                        checkpointText: draft.texto,
+                      })
+                    )
+                )
+              })()
             )
           }
 
@@ -780,6 +841,7 @@ export function AccionFormDialog({
                       items={checklistDrafts}
                       onChange={setChecklistDrafts}
                       disabled={createAccion.isPending}
+                      users={checklistUsers}
                     />
                   </div>
                   <AccionFormSection
@@ -909,8 +971,20 @@ export function AccionFormDialog({
                 readOnly={!canAttemptChecklistContribution && !canManageChecklistStructure}
                 canEditStructure={canManageChecklistStructure}
                 canAddPoint={canAttemptChecklistContribution}
-                canToggle={canAttemptChecklistContribution}
+                canToggle={canManageChecklistStructure || isActionResponsible}
                 responsableNames={responsableNames}
+                users={checklistUsers}
+                onResponsableAssigned={(input) =>
+                  notifyCheckpointResponsable({
+                    usuarioId: input.usuarioId,
+                    accionId: accion.id,
+                    tituloAccion: accion.titulo_accion ?? '',
+                    descripcionAccion: accion.descripcion_accion ?? '',
+                    checkpointText: input.checkpointText,
+                    checkpointId: input.checkpointId,
+                    previousUsuarioId: input.previousUsuarioId,
+                  })
+                }
               />
             </div>
             <div

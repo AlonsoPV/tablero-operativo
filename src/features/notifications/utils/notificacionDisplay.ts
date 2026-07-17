@@ -50,6 +50,10 @@ export function notificacionEventoLabel(tipo: string, payload: NotificacionPaylo
     const name = payload.asignador_nombre?.trim()
     return name ? `Te asignó: ${name}` : null
   }
+  if (tipo === 'check_responsable') {
+    const name = payload.asignador_nombre?.trim()
+    return name ? `Check asignado por: ${name}` : null
+  }
   if (tipo === 'comentario' || tipo === 'comentario_asignado') {
     const name = payload.autor_nombre?.trim()
     return name ? `Comentó: ${name}` : null

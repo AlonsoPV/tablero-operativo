@@ -54,7 +54,7 @@ export function useUpdateAccionCheckpoint() {
     }: {
       id: string
       accionId: string
-      patch: Partial<Pick<AccionCheckpoint, 'texto' | 'orden' | 'obligatorio'>>
+      patch: Partial<Pick<AccionCheckpoint, 'texto' | 'orden' | 'obligatorio' | 'responsable_id'>>
     }) => accionCheckpointsService.update(id, patch),
     onSuccess: (_void, vars) => {
       invalidateCheckpointQueries(qc, vars.accionId)

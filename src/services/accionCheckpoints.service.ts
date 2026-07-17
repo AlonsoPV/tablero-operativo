@@ -8,13 +8,14 @@ import type { AccionCheckpoint } from '@/types'
 
 const TABLE = 'accion_checkpoints'
 const CHECKPOINT_SELECT =
-  'id,accion_id,texto,orden,obligatorio,activo,completado,checked_at,checked_by,created_at,updated_at'
+  'id,accion_id,texto,orden,obligatorio,activo,completado,checked_at,checked_by,responsable_id,created_by,created_at,updated_at'
 
 export type AccionCheckpointInsert = {
   accion_id: string
   texto: string
   orden: number
   obligatorio?: boolean
+  responsable_id?: string | null
   created_by?: string | null
 }
 
@@ -30,6 +31,13 @@ function normalizeCheckpointError(error: unknown): Error {
     )
   }
   return error instanceof Error ? error : new Error('No se pudo guardar el checklist.')
+}
+
+function isMissingRpcError(error: unknown, functionName: string): boolean {
+  if (!error || typeof error !== 'object') return false
+  const e = error as { code?: string; message?: string }
+  const message = e.message?.toLowerCase() ?? ''
+  return e.code === 'PGRST202' || message.includes(`could not find the function public.${functionName}`)
 }
 
 export const accionCheckpointsService = {
@@ -126,6 +134,7 @@ export const accionCheckpointsService = {
       p_texto: row.texto.trim(),
       p_orden: row.orden,
       p_obligatorio: row.obligatorio ?? true,
+      p_responsable_id: row.responsable_id ?? null,
     })
     if (error) throw normalizeCheckpointError(error)
   },
@@ -141,6 +150,7 @@ export const accionCheckpointsService = {
       texto: r.texto.trim(),
       orden: r.orden ?? i,
       obligatorio: r.obligatorio ?? true,
+      responsable_id: r.responsable_id ?? null,
       created_by: r.created_by ?? createdByUsuarioId ?? null,
       activo: true,
       completado: false,
@@ -157,12 +167,13 @@ export const accionCheckpointsService = {
 
   async update(
     id: string,
-    patch: Partial<Pick<AccionCheckpoint, 'texto' | 'orden' | 'obligatorio'>>
+    patch: Partial<Pick<AccionCheckpoint, 'texto' | 'orden' | 'obligatorio' | 'responsable_id'>>
   ): Promise<void> {
     const body: Record<string, unknown> = {}
     if (patch.texto !== undefined) body.texto = String(patch.texto).trim()
     if (patch.orden !== undefined) body.orden = patch.orden
     if (patch.obligatorio !== undefined) body.obligatorio = patch.obligatorio
+    if (patch.responsable_id !== undefined) body.responsable_id = patch.responsable_id
     if (Object.keys(body).length === 0) return
     const { error } = await supabase.from(TABLE).update(body).eq('id', id)
     if (error) throw normalizeCheckpointError(error)
@@ -172,7 +183,23 @@ export const accionCheckpointsService = {
     const { error } = await supabase.rpc('delete_accion_checkpoint', {
       p_checkpoint_id: id,
     })
-    if (error) throw normalizeCheckpointError(error)
+    if (!error) return
+
+    if (!isMissingRpcError(error, 'delete_accion_checkpoint')) {
+      throw normalizeCheckpointError(error)
+    }
+
+    const { error: deleteError } = await supabase
+      .from(TABLE)
+      .delete()
+      .eq('id', id)
+      .eq('activo', true)
+      .eq('completado', false)
+    if (deleteError) {
+      throw new Error(
+        'Falta aplicar la migracion delete_accion_checkpoint en Supabase o no tienes permiso para eliminar este check.'
+      )
+    }
   },
 
   async setCompletado(

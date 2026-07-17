@@ -46,6 +46,7 @@ const TIPO_LABELS: Record<string, string> = {
   comentario: 'Comentario en acción',
   comentario_asignado: 'Comentario con etiqueta',
   responsable: 'Acción asignada',
+  check_responsable: 'Check asignado',
   estado: 'Acción con cambio de estado',
   evidencia: 'Acción con evidencia',
   bloqueo: 'Acción bloqueada',
@@ -59,6 +60,7 @@ const TIPO_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   comentario: MessageSquare,
   comentario_asignado: UserPlus,
   responsable: UserPlus,
+  check_responsable: UserPlus,
   estado: Bell,
   evidencia: Bell,
   bloqueo: AlertCircle,
@@ -76,7 +78,7 @@ function getContextLabel(tipo: string, hasAccionContext: boolean, hasTicketConte
   if (tipo === 'comentario' || tipo === 'comentario_asignado') return 'Comentario'
   if (tipo === 'ticket_comentario') return 'Comentario en ticket'
   if (hasTicketContext || tipo.startsWith('ticket_')) return 'Ticket'
-  if (hasAccionContext || ['responsable', 'estado', 'evidencia', 'bloqueo'].includes(tipo)) return 'Acción'
+  if (hasAccionContext || ['responsable', 'check_responsable', 'estado', 'evidencia', 'bloqueo'].includes(tipo)) return 'Acción'
   if (tipo === 'recordatorio_calendario') return 'Recordatorio'
   return 'Notificación'
 }

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import type { AccionDiaria } from '@/types'
+import type { AccionComentario } from '@/types/accionComentario'
 import type { UserProfile } from '@/features/users/types/user.types'
 import {
   buildAreaActionsSummaryRows,
@@ -18,6 +20,61 @@ function user(partial: Partial<UserProfile> & Pick<UserProfile, 'id' | 'nombre'>
     created_at: '2026-01-01',
     updated_at: '2026-01-01',
     ...partial,
+  }
+}
+
+function action(partial: Partial<AccionDiaria> & Pick<AccionDiaria, 'id'>): AccionDiaria {
+  return {
+    fecha: '2026-07-15',
+    titulo_accion: 'Accion',
+    descripcion_accion: 'Descripcion',
+    responsable: 'otro',
+    created_by: 'otro',
+    updated_by: null,
+    hora_limite: '17:00',
+    evidencia_esperada: 'Evidencia',
+    evidencia_cargada: false,
+    evidencia_adjunta: null,
+    estado: 'Pendiente',
+    kpi_afectado: null,
+    gap_id: null,
+    tipo_accion: 'operativa',
+    story_points: 0,
+    catalog_kpi_id: null,
+    okr_impactado: null,
+    proceso: null,
+    area: null,
+    cliente_id: null,
+    prioridad: 'P2_Media',
+    causa_raiz: null,
+    responsable_bloqueo: null,
+    escalado: false,
+    fecha_escalamiento: null,
+    notas_escalamiento: null,
+    repeticion: false,
+    verificador_dato: null,
+    verificador_gobierno: null,
+    completed_at: null,
+    completed_by: null,
+    verified_at: null,
+    verified_by: null,
+    created_at: '2026-07-15T10:00:00Z',
+    updated_at: '2026-07-15T10:00:00Z',
+    sprint_id: null,
+    ...partial,
+  }
+}
+
+function comment(partial: Partial<AccionComentario> = {}): AccionComentario {
+  return {
+    id: partial.id ?? 'c1',
+    accion_id: partial.accion_id ?? 'a1',
+    contenido: 'Seguimiento',
+    created_by: partial.created_by ?? 'otro',
+    asignado: partial.asignado ?? null,
+    etiquetas: partial.etiquetas ?? [],
+    adjuntos: [],
+    created_at: partial.created_at ?? '2026-07-15T12:00:00Z',
   }
 }
 
@@ -56,6 +113,84 @@ describe('dashboardUserActionsSummary', () => {
       area: 'Operaciones',
       abiertas: 0,
     })
+  })
+
+  it('calcula puntos con acciones personales, academia y perfil organizacional', () => {
+    const users = [
+      user({ id: 'u1', user_id: 'auth-u1', nombre: 'Ana', area: 'Operaciones' }),
+    ]
+    const acciones = [
+      action({
+        id: 'own-done',
+        responsable: 'u1',
+        estado: 'Hecho',
+        completed_at: '2026-07-15T16:00:00',
+        updated_at: '2026-07-15T16:00:00',
+      }),
+      action({
+        id: 'other-done',
+        responsable: 'otro',
+        estado: 'Hecho',
+        completed_at: '2026-07-15T16:00:00',
+        updated_at: '2026-07-15T16:00:00',
+      }),
+      action({
+        id: 'other-overdue',
+        responsable: 'otro',
+        fecha: '2026-07-01',
+      }),
+    ]
+    const comentarios = [
+      comment({ id: 'own-comment', accion_id: 'own-done', created_by: 'u1' }),
+      comment({ id: 'other-comment', accion_id: 'other-done', created_by: 'otro' }),
+    ]
+    const orgScores = new Map([['u1', { profile_complete_points: 15 }]])
+    const academyCounts = new Map([['auth-u1', 2]])
+
+    const rows = buildUserActionsSummaryRows(
+      users,
+      acciones,
+      comentarios,
+      '2026-07-15',
+      undefined,
+      orgScores,
+      academyCounts
+    )
+
+    expect(rows[0].gamificationPoints).toBe(53)
+  })
+
+  it('mantiene conteos visibles separados del historial de gamificacion', () => {
+    const users = [
+      user({ id: 'u1', user_id: 'auth-u1', nombre: 'Ana', area: 'Operaciones' }),
+    ]
+    const visibleActions = [
+      action({ id: 'visible-open', responsable: 'u1', estado: 'Pendiente' }),
+    ]
+    const historyActions = [
+      action({
+        id: 'history-done',
+        responsable: 'u1',
+        estado: 'Hecho',
+        completed_at: '2026-07-14T16:00:00',
+        updated_at: '2026-07-14T16:00:00',
+      }),
+    ]
+
+    const rows = buildUserActionsSummaryRows(
+      users,
+      visibleActions,
+      [],
+      '2026-07-15',
+      undefined,
+      new Map(),
+      new Map(),
+      historyActions,
+      []
+    )
+
+    expect(rows[0].abiertas).toBe(1)
+    expect(rows[0].gamificationPoints).toBe(11)
   })
 
   it('buildAreaActionsSummaryRows agrega metricas por area', () => {

@@ -27,6 +27,17 @@ function isMissingRpcError(error: unknown): boolean {
   return e.code === 'PGRST202' || message.includes('could not find the function')
 }
 
+function isMissingRelationError(error: unknown, relationName?: string): boolean {
+  if (!error || typeof error !== 'object') return false
+  const e = error as { code?: string; message?: string }
+  const message = e.message?.toLowerCase() ?? ''
+  return (
+    e.code === 'PGRST205' ||
+    message.includes('could not find the table') ||
+    (relationName ? message.includes(relationName.toLowerCase()) : false)
+  )
+}
+
 function isNoRowsUpdateError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const e = error as { code?: string; message?: string }
@@ -41,6 +52,63 @@ function normalizeAreas(profile: UserProfile): UserProfile {
         ? [profile.area]
         : []
   return { ...profile, areas }
+}
+
+async function enrichProfilesWithRoles(profiles: UserProfile[]): Promise<UserProfile[]> {
+  if (profiles.length === 0) return profiles
+  const ids = profiles.map((profile) => profile.id)
+  const { data, error } = await supabase
+    .from('usuario_catalog_roles')
+    .select('user_id,role_id,is_primary,catalog_roles(nombre)')
+    .in('user_id', ids)
+
+  if (error || !data) {
+    if (!isMissingRelationError(error, 'usuario_catalog_roles')) {
+      console.warn('[users] No se pudieron enriquecer roles multiples:', error)
+    }
+    return profiles
+  }
+  type RoleRow = {
+    user_id: string
+    role_id: string
+    is_primary: boolean
+    catalog_roles: { nombre: string } | Array<{ nombre: string }> | null
+  }
+  const grouped = new Map<string, RoleRow[]>()
+  for (const row of data as unknown as RoleRow[]) {
+    grouped.set(row.user_id, [...(grouped.get(row.user_id) ?? []), row])
+  }
+  return profiles.map((profile) => {
+    const rows = grouped.get(profile.id) ?? []
+    const names = rows.map((row) => {
+      const role = Array.isArray(row.catalog_roles) ? row.catalog_roles[0] : row.catalog_roles
+      return role?.nombre ?? ''
+    }).filter(Boolean)
+    return {
+      ...profile,
+      role_ids: rows.map((row) => row.role_id),
+      role_names: names.length > 0 ? names : [profile.rol],
+      primary_role_id: rows.find((row) => row.is_primary)?.role_id ?? null,
+    }
+  })
+}
+
+async function setRolesViaRpc(
+  userId: string,
+  roleIds: string[],
+  primaryRoleId: string
+): Promise<void> {
+  const { error } = await supabase.rpc('settings_users_set_roles', {
+    p_user_id: userId,
+    p_role_ids: roleIds,
+    p_primary_role_id: primaryRoleId,
+  })
+  if (error) {
+    if (isMissingRpcError(error)) {
+      throw new Error('Falta aplicar la migración de roles múltiples en Supabase.')
+    }
+    throw error
+  }
 }
 
 function profileFromRpcRow(data: unknown): UserProfile | null {
@@ -166,7 +234,7 @@ function applyUserFilters(list: UserProfile[], filter: UsersFilter): UserProfile
   let next = list.map(normalizeAreas)
 
   if (filter.rol != null && filter.rol !== '') {
-    next = next.filter((u) => u.rol === filter.rol)
+    next = next.filter((u) => u.rol === filter.rol || (u.role_names ?? []).includes(filter.rol!))
   }
   if (filter.area != null && filter.area !== '') {
     next = next.filter((u) => userMatchesArea(u, filter.area!))
@@ -202,10 +270,10 @@ async function listVisibleUsersCatalog(filter: UsersFilter): Promise<UserProfile
   const { data, error } = await query
   if (error) throw error
 
-  return applyUserFilters(
+  const profiles = await enrichProfilesWithRoles(
     ((data ?? []) as Omit<UserProfile, 'email'>[]).map((u) => ({ ...u, email: null })),
-    { ...filter, activo: null }
   )
+  return applyUserFilters(profiles, { ...filter, activo: null })
 }
 
 /** Mensajes del API (a veces en inglés) → texto claro para quien administra usuarios. */
@@ -272,7 +340,7 @@ export const usersAdminService = {
       throw error
     }
 
-    return applyUserFilters((data ?? []) as UserProfile[], filter)
+    return applyUserFilters(await enrichProfilesWithRoles((data ?? []) as UserProfile[]), filter)
   },
 
   async getById(id: string): Promise<UserProfile | null> {
@@ -282,7 +350,7 @@ export const usersAdminService = {
 
     if (!rpcError && rpcData != null) {
       const row = (Array.isArray(rpcData) ? rpcData[0] : rpcData) as UserProfile | undefined
-      if (row) return row
+      if (row) return (await enrichProfilesWithRoles([row]))[0]
     }
 
     if (rpcError && !isMissingRpcError(rpcError) && !isUnauthorizedListError(rpcError)) {
@@ -295,7 +363,8 @@ export const usersAdminService = {
       .eq('id', id)
       .maybeSingle()
     if (error) throw error
-    return data as UserProfile | null
+    if (!data) return null
+    return (await enrichProfilesWithRoles([data as UserProfile]))[0]
   },
 
   /** Obtiene el email de auth.users para un user_id. Requiere ser el propio usuario o admin. */
@@ -311,6 +380,7 @@ export const usersAdminService = {
     const hasManagerField = 'manager_user_id' in input
     const hasAreasField = 'primary_area_id' in input || 'area_ids' in input
     const hasReportsField = 'direct_report_ids' in input
+    const hasRolesField = Boolean(input.primary_role_id && input.role_ids?.length)
     const payload: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     }
@@ -318,7 +388,7 @@ export const usersAdminService = {
     if (input.nombre !== undefined) {
       payload.nombre = input.nombre.trim()
     }
-    if (input.rol !== undefined) {
+    if (input.rol !== undefined && !hasRolesField) {
       payload.rol = input.rol
     }
     if ('area' in input && !hasAreasField) {
@@ -366,6 +436,11 @@ export const usersAdminService = {
     } else if (hasReportsField) {
       await setDirectReportsViaRpc(id, input.direct_report_ids ?? [])
       await refreshOrgChartScore(id)
+      profile = await this.getById(id)
+    }
+
+    if (hasRolesField) {
+      await setRolesViaRpc(id, input.role_ids!, input.primary_role_id!)
       profile = await this.getById(id)
     }
 
@@ -426,6 +501,11 @@ export const usersAdminService = {
     if (data && data.ok === false && typeof data.message === 'string') {
       throw new Error(mapInviteUserFacingMessage(data.message))
     }
-    return data?.profile ?? null
+    const profile = data?.profile ?? null
+    if (profile && input.primary_role_id && input.role_ids?.length) {
+      await setRolesViaRpc(profile.id, input.role_ids, input.primary_role_id)
+      return this.getById(profile.id)
+    }
+    return profile
   },
 }

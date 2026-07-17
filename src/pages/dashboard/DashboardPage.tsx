@@ -125,6 +125,7 @@ export function DashboardPage() {
 
   const filterForQuery = useMemo(() => ({ ...filter }), [filter])
   const currentPeriod = useMemo(() => currentPeriodFromFilter(filterForQuery, today), [filterForQuery, today])
+  const gamificationHistoryStart = useMemo(() => addDays(today, -90), [today])
   const previousFilterForQuery = useMemo(
     () => previousFilterFromPeriod(filterForQuery, currentPeriod),
     [currentPeriod, filterForQuery]
@@ -137,13 +138,27 @@ export function DashboardPage() {
     refetch: retryAcciones,
   } = useAcciones(filterForQuery)
   const { data: previousAcciones = [], isLoading: previousAccionesLoading } = useAcciones(previousFilterForQuery)
+  const { data: gamificationAcciones = [], isLoading: gamificationAccionesLoading } = useAcciones({
+    fecha_min: gamificationHistoryStart,
+  })
   const accionIds = useMemo(() => acciones.map((a) => a.id), [acciones])
+  const gamificationAccionIds = useMemo(
+    () => gamificationAcciones.map((accion) => accion.id),
+    [gamificationAcciones]
+  )
   const { data: commentCounts = {} } = useCommentCounts(accionIds)
   const { data: checklistProgressByAccionId = {} } = useChecklistProgressByAccionIds(accionIds)
   const { data: accionComentarios = [], isLoading: comentariosLoading } = useQuery({
     queryKey: ['dashboard', 'accion-comentarios', accionIds],
     queryFn: () => accionComentariosService.listByAccionIds(accionIds),
     enabled: accionIds.length > 0,
+    staleTime: 5 * 60_000,
+    retry: 1,
+  })
+  const { data: gamificationComentarios = [], isLoading: gamificationComentariosLoading } = useQuery({
+    queryKey: ['dashboard', 'gamification-comentarios', gamificationAccionIds],
+    queryFn: () => accionComentariosService.listByAccionIds(gamificationAccionIds),
+    enabled: gamificationAccionIds.length > 0,
     staleTime: 5 * 60_000,
     retry: 1,
   })
@@ -407,9 +422,12 @@ export function DashboardPage() {
             users={users}
             acciones={acciones}
             comentarios={accionComentarios}
+            gamificationAcciones={gamificationAcciones}
+            gamificationComentarios={gamificationComentarios}
             today={today}
             areaFilter={filter.area}
             isLoading={isLoading || comentariosLoading}
+            isGamificationLoading={gamificationAccionesLoading || gamificationComentariosLoading}
           />
         ) : null}
 

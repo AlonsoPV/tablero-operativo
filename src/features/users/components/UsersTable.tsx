@@ -90,7 +90,11 @@ export function UsersTable({
                 {user.email ?? '—'}
               </TableCell>
               <TableCell>
-                <Badge variant="secondary">{user.rol}</Badge>
+                <div className="flex flex-wrap gap-1">
+                  {(user.role_names?.length ? user.role_names : [user.rol]).map((role) => (
+                    <Badge key={role} variant="secondary">{role}</Badge>
+                  ))}
+                </div>
               </TableCell>
               <TableCell className="text-muted-foreground">{user.area ?? '—'}</TableCell>
               <TableCell>
