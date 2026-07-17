@@ -1,12 +1,81 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { handleCorsPreflight, jsonResponse } from '../_shared/cors.ts'
-import { requireAuthUser } from '../_shared/requireUser.ts'
+import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js'
 
 /** Stubs para el checker de TypeScript del repo (runtime = Deno en Supabase Edge). */
 declare global {
   var Deno: {
     env: { get(key: string): string | undefined }
     serve: (handler: (req: Request) => Response | Promise<Response>) => void
+  }
+}
+
+const corsHeaders: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Max-Age': '86400',
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json; charset=utf-8',
+    },
+  })
+}
+
+function handleCorsPreflight(req: Request): Response | null {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders })
+  }
+  return null
+}
+
+type RequireUserOk = { user: User; token: string }
+type RequireUserResult =
+  | { ok: true; data: RequireUserOk }
+  | { ok: false; response: Response }
+
+async function requireAuthUser(req: Request): Promise<RequireUserResult> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: 'Configuracion de servidor incompleta' }, 500),
+    }
+  }
+
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader?.startsWith('Bearer ')) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: 'No autorizado' }, 401),
+    }
+  }
+
+  const token = authHeader.slice(7)
+  const adminClient = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  })
+
+  const { data: userData, error: userError } = await adminClient.auth.getUser(token)
+  if (userError || !userData.user) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: 'Sesion invalida' }, 401),
+    }
+  }
+
+  return {
+    ok: true,
+    data: { user: userData.user, token },
   }
 }
 
@@ -26,7 +95,7 @@ type RecipientProfile = {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const FUNCTION_VERSION = 'notification-email-logs-20260707-provider-skip'
+const FUNCTION_VERSION = 'gmail-from-diagnostics-20260717'
 
 function normalizePriority(value: unknown): 'Normal' | 'Alta' | 'Urgente' {
   return value === 'Alta' || value === 'Urgente' ? value : 'Normal'
@@ -167,6 +236,8 @@ function subjectForNotification(tipo: string, prioridad: string, payload: Record
     explicitTitle ||
     (tipo === 'responsable'
       ? 'Te asignaron una accion'
+      : tipo === 'check_responsable'
+        ? 'Te asignaron un check por validar'
       : tipo === 'comentario_asignado'
         ? 'Te etiquetaron en un comentario'
         : tipo === 'comentario'
@@ -277,6 +348,36 @@ function mimeHeader(value: string): string {
   return `=?UTF-8?B?${base64(value)}?=`
 }
 
+function emailFromAddressHeader(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  if (!trimmed) return null
+  const match = trimmed.match(/<([^<>@\s]+@[^<>@\s]+\.[^<>@\s]+)>/)
+  if (match?.[1]) return match[1].trim()
+  if (/^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$/.test(trimmed)) return trimmed
+  return null
+}
+
+function displayNameFromAddressHeader(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  if (!trimmed) return null
+  const match = trimmed.match(/^(.+?)\s*<[^<>]+>$/)
+  return match?.[1]?.trim().replace(/^"|"$/g, '') || null
+}
+
+function formatAddressHeader(input: {
+  configured?: string | null
+  fallbackEmail: string
+  defaultDisplayName?: string
+}): string {
+  const configuredEmail = emailFromAddressHeader(input.configured)
+  const displayName =
+    displayNameFromAddressHeader(input.configured) ||
+    (configuredEmail && configuredEmail !== input.configured?.trim() ? null : undefined) ||
+    input.defaultDisplayName
+  const email = input.fallbackEmail.trim()
+  return displayName ? `${mimeHeader(displayName)} <${email}>` : email
+}
+
 async function googleAccessToken(): Promise<string> {
   const response = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -337,14 +438,22 @@ async function sendWithGoogleMail(input: {
   subject: string
   html: string
   text: string
-}): Promise<{ provider: 'gmail'; id: string | null; account: string | null }> {
+}): Promise<{ provider: 'gmail'; id: string | null; account: string | null; from: string | null }> {
   const token = await googleAccessToken()
   const profileResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
     headers: { Authorization: `Bearer ${token}` },
   })
   const profile = await profileResponse.json().catch(() => ({}))
   const account = typeof profile?.emailAddress === 'string' ? profile.emailAddress : null
-  const from = optionalEnv('GOOGLE_GMAIL_FROM') || optionalEnv('NOTIFICATION_EMAIL_FROM') || 'me'
+  const configuredFrom = optionalEnv('GOOGLE_GMAIL_FROM') || optionalEnv('NOTIFICATION_EMAIL_FROM')
+  const configuredFromEmail = emailFromAddressHeader(configuredFrom)
+  const fromEmail = account || configuredFromEmail
+  if (!fromEmail) throw new Error('No se pudo resolver la cuenta Gmail remitente')
+  const from = formatAddressHeader({
+    configured: configuredFrom,
+    fallbackEmail: fromEmail,
+    defaultDisplayName: 'Scrumban EMX',
+  })
   const raw = gmailRawMessage({
     from,
     to: input.to,
@@ -364,9 +473,13 @@ async function sendWithGoogleMail(input: {
   })
   const result = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error(result?.error?.message || 'No se pudo enviar correo por Gmail')
+    const message = result?.error?.message || response.statusText || 'No se pudo enviar correo por Gmail'
+    const detail = Array.isArray(result?.error?.details)
+      ? ` Detalle: ${JSON.stringify(result.error.details).slice(0, 500)}`
+      : ''
+    throw new Error(`Gmail ${response.status}: ${message}${detail} | account=${account ?? 'unknown'} | from=${from}`)
   }
-  return { provider: 'gmail', id: result?.id ?? null, account }
+  return { provider: 'gmail', id: result?.id ?? null, account, from }
 }
 
 Deno.serve(async (req) => {

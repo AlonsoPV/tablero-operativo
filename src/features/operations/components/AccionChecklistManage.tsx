@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Checklist en edición/seguimiento: datos en servidor; cada cambio persiste al instante.
  * Puntos completados: no se editan ni eliminan (trazabilidad); solo se puede desmarcar el check.
  */
@@ -7,7 +7,8 @@ import { useCallback, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ListChecks, Plus, Trash2, ChevronUp, ChevronDown } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { CheckCircle2, CircleDashed, ListChecks, Plus, Trash2, ChevronUp, ChevronDown, UserRound } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatDateTimeCDMX } from '@/lib/dateUtils'
 import type { AccionCheckpoint } from '@/types'
@@ -31,6 +32,7 @@ import {
 
 const MAX_LEN = ACCION_CHECKLIST_MAX_LEN
 const MIN_LEN = ACCION_CHECKLIST_MIN_LEN
+const NONE_RESPONSABLE = '__none__'
 
 function auditSummary(
   c: AccionCheckpoint,
@@ -38,7 +40,7 @@ function auditSummary(
 ): { line: string; title: string } | null {
   if (!c.completado || !c.checked_at) return null
   const who = c.checked_by
-    ? responsableNames[c.checked_by] ?? `Usuario (${c.checked_by.slice(0, 8)}…)`
+    ? responsableNames[c.checked_by] ?? `Usuario (${c.checked_by.slice(0, 8)}...)`
     : 'Usuario no registrado'
   const when = formatDateTimeCDMX(c.checked_at)
   return {
@@ -58,6 +60,22 @@ export interface AccionChecklistManageProps {
   canToggle?: boolean
   /** Nombres para mostrar auditoría de `checked_by` (mismo mapa que responsables del diálogo). */
   responsableNames?: Record<string, string>
+  users?: { id: string; nombre: string; rol?: string | null; area?: string | null }[]
+  onResponsableAssigned?: (input: {
+    usuarioId: string
+    checkpointText: string
+    checkpointId?: string
+    previousUsuarioId?: string | null
+  }) => Promise<void> | void
+}
+
+function responsableLabel(
+  userId: string | null | undefined,
+  responsableNames: Record<string, string>,
+  users: { id: string; nombre: string }[]
+) {
+  if (!userId) return 'Sin responsable especifico'
+  return responsableNames[userId] ?? users.find((user) => user.id === userId)?.nombre ?? 'Usuario asignado'
 }
 
 export function AccionChecklistManage({
@@ -69,6 +87,8 @@ export function AccionChecklistManage({
   canAddPoint,
   canToggle,
   responsableNames = {},
+  users = [],
+  onResponsableAssigned,
 }: AccionChecklistManageProps) {
   const { data: checkpoints = [], isLoading } = useAccionCheckpoints(accionId)
   const insertCp = useInsertAccionCheckpoint()
@@ -77,6 +97,7 @@ export function AccionChecklistManage({
   const toggleCp = useToggleAccionCheckpoint()
 
   const [draft, setDraft] = useState('')
+  const [draftResponsableId, setDraftResponsableId] = useState<string | null>(null)
 
   const sorted = useMemo(
     () => [...checkpoints].sort((a, b) => a.orden - b.orden || a.created_at.localeCompare(b.created_at)),
@@ -110,14 +131,22 @@ export function AccionChecklistManage({
         texto: t,
         orden: maxOrden + 1,
         obligatorio: true,
+        responsable_id: draftResponsableId,
         created_by: currentUsuarioId,
       })
+      if (draftResponsableId) {
+        await onResponsableAssigned?.({
+          usuarioId: draftResponsableId,
+          checkpointText: t,
+        })
+      }
       setDraft('')
+      setDraftResponsableId(null)
       toast.success('Punto agregado')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'No se pudo agregar el punto')
     }
-  }, [currentUsuarioId, draft, accionId, maxOrden, insertCp, sorted])
+  }, [currentUsuarioId, draft, draftResponsableId, accionId, maxOrden, insertCp, onResponsableAssigned, sorted])
 
   const removePoint = async (c: AccionCheckpoint) => {
     if (c.completado) {
@@ -162,6 +191,24 @@ export function AccionChecklistManage({
     }
   }
 
+  const saveResponsable = async (c: AccionCheckpoint, responsableId: string | null) => {
+    if (c.completado || responsableId === (c.responsable_id ?? null)) return
+    try {
+      await updateCp.mutateAsync({ id: c.id, accionId, patch: { responsable_id: responsableId } })
+      if (responsableId) {
+        await onResponsableAssigned?.({
+          usuarioId: responsableId,
+          checkpointText: c.texto,
+          checkpointId: c.id,
+          previousUsuarioId: c.responsable_id ?? null,
+        })
+      }
+      toast.success(responsableId ? 'Responsable del check actualizado' : 'Responsable del check removido')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo actualizar el responsable del check')
+    }
+  }
+
   const onToggle = async (c: AccionCheckpoint, checked: boolean) => {
     try {
       await toggleCp.mutateAsync({
@@ -196,7 +243,7 @@ export function AccionChecklistManage({
       bodyClassName="space-y-3 pb-1 pt-0 sm:space-y-3"
     >
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">Cargando puntos…</p>
+          <p className="text-sm text-muted-foreground">Cargando puntos...</p>
         ) : (
           <>
             <AccionChecklistProgress completados={completados} total={total} />
@@ -219,20 +266,20 @@ export function AccionChecklistManage({
             )}
 
             {mayAddPoint && (
-            <div className="rounded-lg border border-dashed border-border/70 bg-background/50 p-2.5 sm:p-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="checkpoint-add-edit" className="text-xs font-medium text-foreground/80">
-                  Nuevo punto
-                </Label>
-                <div className="flex items-center gap-2">
+            <div className="rounded-lg border border-dashed border-border/70 bg-muted/10 p-3">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="checkpoint-add-edit" className="text-xs font-semibold text-foreground/80">
+                    Indicacion
+                  </Label>
                   <Input
                     id="checkpoint-add-edit"
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
-                    placeholder="Describe qué debe validarse…"
+                    placeholder="Describe que debe validarse"
                     maxLength={MAX_LEN}
                     disabled={structureBusy}
-                    className="h-9 min-w-0 flex-1 text-sm"
+                    className="h-10 min-w-0 bg-background text-sm"
                     aria-invalid={draftTooShort}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
@@ -241,24 +288,53 @@ export function AccionChecklistManage({
                       }
                     }}
                   />
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant={canAdd ? 'default' : 'outline'}
-                    className="h-9 w-9 shrink-0"
-                    disabled={!canAdd}
-                    onClick={() => void addPoint()}
-                    aria-label="Agregar punto al checklist"
-                    title="Agregar punto"
-                  >
-                    <Plus className="h-4 w-4" aria-hidden />
-                  </Button>
+                  <p className={cn('text-[11px] leading-snug', draftTooShort ? 'text-destructive' : 'text-muted-foreground')}>
+                    {draftTooShort
+                      ? `Escribe al menos ${MIN_LEN} caracteres o borra el texto.`
+                      : `Min. ${MIN_LEN} caracteres · ${draftTrim.length}/${MAX_LEN}`}
+                  </p>
                 </div>
-                <p className={cn('text-[11px] leading-snug', draftTooShort ? 'text-destructive' : 'text-muted-foreground')}>
-                  {draftTooShort
-                    ? `Escribe al menos ${MIN_LEN} caracteres o borra el texto.`
-                    : `Mín. ${MIN_LEN} caracteres · ${draftTrim.length}/${MAX_LEN}`}
-                </p>
+                <div className="pt-6">
+                  <Label htmlFor="checkpoint-add-responsable" className="sr-only">
+                    Responsable del check
+                  </Label>
+                  <Select
+                    value={draftResponsableId ?? NONE_RESPONSABLE}
+                    onValueChange={(value) => setDraftResponsableId(value === NONE_RESPONSABLE ? null : value)}
+                    disabled={structureBusy}
+                  >
+                    <SelectTrigger
+                      id="checkpoint-add-responsable"
+                      className="h-10 w-10 justify-center bg-background px-0 [&>svg:last-child]:ml-0 [&>svg:last-child]:h-3.5 [&>svg:last-child]:w-3.5"
+                      title={`Responsable: ${responsableLabel(draftResponsableId, responsableNames, users)}`}
+                    >
+                      <UserRound className={cn('h-4 w-4', draftResponsableId ? 'text-primary' : 'text-muted-foreground')} aria-hidden />
+                      <span className="sr-only">
+                        <SelectValue placeholder="Sin responsable especifico" />
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NONE_RESPONSABLE}>Sin responsable especifico</SelectItem>
+                      {users.map((user) => (
+                        <SelectItem key={user.id} value={user.id}>
+                          {user.nombre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant={canAdd ? 'default' : 'outline'}
+                  className="mt-6 h-10 w-10 shrink-0"
+                  disabled={!canAdd}
+                  onClick={() => void addPoint()}
+                  aria-label="Agregar punto al checklist"
+                  title="Agregar punto"
+                >
+                  <Plus className="h-4 w-4" aria-hidden />
+                </Button>
               </div>
             </div>
             )}
@@ -268,62 +344,121 @@ export function AccionChecklistManage({
                 {sorted.map((c, index) => {
                   const audit = auditSummary(c, responsableNames)
                   const showStructureActions = !c.completado && mayEditStructure
+                  const canToggleCheckpoint = mayToggle || c.responsable_id === currentUsuarioId
+                  const ownerName = responsableLabel(c.responsable_id, responsableNames, users)
                   return (
                     <li
                       key={c.id}
                       className={cn(
-                        'grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-2 gap-y-1 rounded-md border px-2 py-2 transition-colors sm:flex sm:gap-2.5 sm:px-2.5',
+                        'grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border px-2.5 py-2 transition-colors sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]',
                         c.completado
-                          ? 'border-emerald-500/25 bg-emerald-500/[0.06]'
-                          : 'border-border/55 bg-background/90 hover:border-border/80'
+                          ? 'border-emerald-500/30 bg-emerald-500/[0.07]'
+                          : 'border-border/60 bg-background/95 hover:border-border'
                       )}
                     >
                       <input
                         type="checkbox"
                         checked={c.completado}
-                        disabled={!mayToggle || toggleBusy}
+                        disabled={!canToggleCheckpoint || toggleBusy}
                         onChange={(e) => void onToggle(c, e.target.checked)}
-                        className="mt-0.5 h-4 w-4 shrink-0 rounded border-input text-primary focus:ring-2 focus:ring-ring focus:ring-offset-1"
+                        className="h-4 w-4 shrink-0 rounded border-input text-primary focus:ring-2 focus:ring-ring focus:ring-offset-1"
                         aria-label={c.completado ? 'Desmarcar validación' : 'Marcar como validado'}
                       />
                       <div className="min-w-0 flex-1 space-y-1">
-                        {c.completado || !mayEditStructure ? (
-                          <p className="text-sm font-medium leading-snug text-foreground [overflow-wrap:anywhere]">
-                            {c.texto}
-                          </p>
-                        ) : (
-                          <Input
-                            key={`${c.id}-${c.updated_at}`}
-                            defaultValue={c.texto}
-                            disabled={structureBusy}
-                            maxLength={MAX_LEN}
-                            className="h-8 min-w-0 px-2 text-sm font-medium"
-                            onBlur={(e) => void saveTexto(c, e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                            }}
-                          />
-                        )}
-                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] leading-tight text-muted-foreground sm:text-[11px]">
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                           <span
                             className={cn(
-                              'inline-flex shrink-0 rounded px-1.5 py-0.5 font-semibold uppercase tracking-wide',
+                              'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full',
                               c.completado
                                 ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200'
                                 : 'bg-muted text-foreground/65'
                             )}
+                            title={c.completado ? 'Validado' : 'Pendiente'}
+                            aria-label={c.completado ? 'Validado' : 'Pendiente'}
                           >
-                            {c.completado ? 'Validado' : 'Pendiente'}
+                            {c.completado ? (
+                              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                            ) : (
+                              <CircleDashed className="h-3.5 w-3.5" aria-hidden />
+                            )}
                           </span>
-                          {audit ? (
-                            <span className="min-w-0 [overflow-wrap:anywhere]" title={audit.title}>
-                              {audit.line}
-                            </span>
-                          ) : null}
+                          {c.completado || !mayEditStructure ? (
+                            <p className="min-w-0 flex-1 text-sm font-medium leading-snug text-foreground [overflow-wrap:anywhere]">
+                              {c.texto}
+                            </p>
+                          ) : (
+                            <Input
+                              key={`${c.id}-${c.updated_at}`}
+                              defaultValue={c.texto}
+                              disabled={structureBusy}
+                              maxLength={MAX_LEN}
+                              className="h-8 min-w-[160px] flex-1 bg-background px-2 text-sm font-medium"
+                              onBlur={(e) => void saveTexto(c, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                              }}
+                            />
+                          )}
                         </div>
+                        {audit ? (
+                          <p className="min-w-0 text-[10px] leading-tight text-muted-foreground [overflow-wrap:anywhere]" title={audit.title}>
+                            {audit.line}
+                          </p>
+                        ) : null}
                       </div>
+                      {mayEditStructure && !c.completado ? (
+                        <div className="flex items-center justify-end">
+                          <Label className="sr-only">
+                            Responsable del check
+                          </Label>
+                          <Select
+                            value={c.responsable_id ?? NONE_RESPONSABLE}
+                            onValueChange={(value) => void saveResponsable(c, value === NONE_RESPONSABLE ? null : value)}
+                            disabled={structureBusy}
+                          >
+                            <SelectTrigger
+                              className={cn(
+                                'h-8 justify-center gap-1.5 bg-background px-2 [&>svg:last-child]:ml-0 [&>svg:last-child]:h-3 [&>svg:last-child]:w-3',
+                                c.responsable_id ? 'w-[8.5rem] border-primary/35 text-primary' : 'w-8 px-0 text-muted-foreground'
+                              )}
+                              title={`Responsable: ${ownerName}`}
+                            >
+                              <UserRound className={cn('h-3.5 w-3.5', c.responsable_id ? 'text-primary' : 'text-muted-foreground')} aria-hidden />
+                              {c.responsable_id ? (
+                                <span className="min-w-0 truncate text-[11px] font-medium">
+                                  {ownerName}
+                                </span>
+                              ) : null}
+                              <span className="sr-only">
+                                <SelectValue placeholder="Sin responsable especifico" />
+                              </span>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={NONE_RESPONSABLE}>Sin responsable especifico</SelectItem>
+                              {users.map((user) => (
+                                <SelectItem key={user.id} value={user.id}>
+                                  {user.nombre}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : (
+                        <div
+                          className={cn(
+                            'flex items-center justify-end gap-1 rounded-md px-2 py-1 text-[11px]',
+                            c.responsable_id
+                              ? 'max-w-[8.5rem] bg-primary/10 font-medium text-primary'
+                              : 'w-8 bg-muted/20 text-muted-foreground'
+                          )}
+                          title={`Responsable: ${ownerName}`}
+                        >
+                          <UserRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                          {c.responsable_id ? <span className="min-w-0 truncate">{ownerName}</span> : null}
+                        </div>
+                      )}
                       {showStructureActions ? (
-                        <div className="col-span-2 flex shrink-0 items-center justify-end gap-0 sm:col-span-1 sm:justify-start">
+                        <div className="col-start-2 flex shrink-0 items-center justify-start gap-0 rounded-md bg-muted/20 p-0.5 sm:col-span-1 sm:col-start-auto sm:justify-end sm:bg-muted/10">
                           <Button
                             type="button"
                             variant="ghost"

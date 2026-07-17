@@ -26,7 +26,23 @@ type NotificationEmailResult = {
   email_id?: string | null
 }
 
-export async function sendNotificationEmail(input: CreateNotificacionInput): Promise<void> {
+type SendNotificationEmailOptions = {
+  throwOnSkipped?: boolean
+}
+
+type CreateNotificacionOptions = {
+  throwOnEmailError?: boolean
+  throwOnEmailSkipped?: boolean
+}
+
+function notificationEmailDetail(result: NotificationEmailResult | null | undefined): string {
+  return [result?.reason, result?.message].filter(Boolean).join(': ')
+}
+
+export async function sendNotificationEmail(
+  input: CreateNotificacionInput,
+  options: SendNotificationEmailOptions = {}
+): Promise<NotificationEmailResult | null> {
   const { data, error } = await supabase.functions.invoke<NotificationEmailResult>('send-notification-email', {
     body: {
       usuario_id: input.usuario_id,
@@ -38,16 +54,19 @@ export async function sendNotificationEmail(input: CreateNotificacionInput): Pro
 
   if (error) throw error
   if (data?.skipped === true) {
+    const detail = notificationEmailDetail(data) || 'Correo omitido por la funcion de notificaciones'
     console.warn(
       '[notificaciones] La notificacion se creo, pero el correo fue omitido.',
-      data.reason ?? data.message ?? 'sin detalle'
+      detail
     )
-    return
+    if (options.throwOnSkipped) throw new Error(detail)
+    return data
   }
   if (data?.ok === false) {
-    const detail = [data.reason, data.message].filter(Boolean).join(': ')
+    const detail = notificationEmailDetail(data)
     throw new Error(detail || 'No se pudo enviar el correo de notificacion')
   }
+  return data ?? null
 }
 
 export const notificacionesService = {
@@ -61,7 +80,7 @@ export const notificacionesService = {
    * leer filas donde `usuario_id` es el usuario actual; al notificar al responsable, el insert es válido
    * pero el RETURNING fallaría con 403 en PostgREST.
    */
-  async create(input: CreateNotificacionInput): Promise<void> {
+  async create(input: CreateNotificacionInput, options: CreateNotificacionOptions = {}): Promise<void> {
     const { error } = await supabase.from(TABLE).insert({
       usuario_id: input.usuario_id,
       tipo: input.tipo,
@@ -71,12 +90,13 @@ export const notificacionesService = {
     if (error) throw error
 
     try {
-      await sendNotificationEmail(input)
+      await sendNotificationEmail(input, { throwOnSkipped: options.throwOnEmailSkipped })
     } catch (emailError) {
       console.warn(
         '[notificaciones] La notificacion se creo, pero no se pudo enviar el correo.',
         emailError
       )
+      if (options.throwOnEmailError) throw emailError
     }
   },
 

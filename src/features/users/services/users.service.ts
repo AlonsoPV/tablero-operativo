@@ -27,6 +27,17 @@ function isMissingRpcError(error: unknown): boolean {
   return e.code === 'PGRST202' || message.includes('could not find the function')
 }
 
+function isMissingRelationError(error: unknown, relationName?: string): boolean {
+  if (!error || typeof error !== 'object') return false
+  const e = error as { code?: string; message?: string }
+  const message = e.message?.toLowerCase() ?? ''
+  return (
+    e.code === 'PGRST205' ||
+    message.includes('could not find the table') ||
+    (relationName ? message.includes(relationName.toLowerCase()) : false)
+  )
+}
+
 function isNoRowsUpdateError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const e = error as { code?: string; message?: string }
@@ -51,7 +62,12 @@ async function enrichProfilesWithRoles(profiles: UserProfile[]): Promise<UserPro
     .select('user_id,role_id,is_primary,catalog_roles(nombre)')
     .in('user_id', ids)
 
-  if (error || !data) return profiles
+  if (error || !data) {
+    if (!isMissingRelationError(error, 'usuario_catalog_roles')) {
+      console.warn('[users] No se pudieron enriquecer roles multiples:', error)
+    }
+    return profiles
+  }
   type RoleRow = {
     user_id: string
     role_id: string

@@ -17,7 +17,7 @@ export function useModuleAccess() {
       return (data ?? []) as string[]
     },
     enabled: Boolean(user?.id && isAuthenticated),
+    retry: (failureCount, error) => !isMissingRpc(error as { code?: string; message?: string }) && failureCount < 2,
     staleTime: 60 * 1000,
   })
 }
-

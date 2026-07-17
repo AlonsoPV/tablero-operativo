@@ -86,6 +86,7 @@ export interface AccionCheckpoint {
   completado: boolean
   checked_at: string | null
   checked_by: string | null
+  responsable_id?: string | null
   created_by?: string | null
   created_at: string
   updated_at: string
