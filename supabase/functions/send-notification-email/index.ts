@@ -662,10 +662,10 @@ Deno.serve(async (req) => {
       payload,
     })
     return jsonResponse({
-      ok: true,
-      skipped: true,
+      ok: false,
+      skipped: false,
       reason: 'email_provider_failed',
       message,
-    })
+    }, 502)
   }
 })
