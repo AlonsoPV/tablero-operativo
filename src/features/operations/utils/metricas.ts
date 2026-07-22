@@ -3,6 +3,9 @@
  */
 
 import type { AccionDiaria } from '@/types'
+import type { Priority } from '@/features/catalogs/types/catalogs.types'
+import { priorityColorFor } from './priorityColors'
+import { findPriorityForAccion } from './resolveAccionPrioridad'
 import { isEnRetraso } from './accionUtils'
 
 export interface MetricasAcciones {
@@ -12,6 +15,15 @@ export interface MetricasAcciones {
   retraso: number
   eficienciaPorcentaje: number
 }
+
+export type KanbanHealthMetrics = {
+  rojos: number
+  vencidas: number
+  bloqueadas: number
+  abiertas: number
+}
+
+const ESTADOS_CERRADOS = new Set(['Hecho', 'Verificado'])
 
 export function metricasFromAcciones(acciones: AccionDiaria[]): MetricasAcciones {
   const total = acciones.length
@@ -28,5 +40,23 @@ export function metricasFromAcciones(acciones: AccionDiaria[]): MetricasAcciones
     bloqueadas,
     retraso,
     eficienciaPorcentaje,
+  }
+}
+
+/** Resumen operativo para las tarjetas del Kanban corporativo / por equipos. */
+export function kanbanHealthFromAcciones(
+  acciones: AccionDiaria[],
+  priorities: Priority[] = []
+): KanbanHealthMetrics {
+  const open = acciones.filter((accion) => !ESTADOS_CERRADOS.has(accion.estado))
+
+  return {
+    rojos: open.filter((accion) => {
+      const priority = findPriorityForAccion(accion, priorities)
+      return priorityColorFor(priority?.nombre ?? accion.prioridad, priority?.color) === 'rojo'
+    }).length,
+    vencidas: open.filter((accion) => isEnRetraso(accion)).length,
+    bloqueadas: open.filter((accion) => accion.estado === 'Bloqueado').length,
+    abiertas: open.length,
   }
 }

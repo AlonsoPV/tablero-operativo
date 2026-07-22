@@ -14,11 +14,13 @@ import {
   KanbanBoard,
   KanbanHeader,
   KanbanToolbar,
+  KanbanMetricsRow,
   hasKanbanActiveFilters,
   AccionesControlTable,
   AccionFormDialog,
   KanbanNextDeadline,
   EnviardianManifestoBanner,
+  kanbanHealthFromAcciones,
 } from '@/features/operations'
 import type { KanbanViewMode } from '@/features/operations'
 import { useUsers } from '@/features/users/hooks/useUsers'
@@ -26,6 +28,7 @@ import {
   dropdownOptionsByCatalogKeyQueryKey,
   fetchDropdownOptionsByCatalogKey,
 } from '@/features/catalogs/hooks/useDropdownOptions'
+import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
 import type { AccionDiaria, ActionStatus } from '@/types'
 import type { AccionesFilter } from '@/services/acciones.service'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
@@ -105,6 +108,7 @@ export function KanbanPage() {
   const { data: checklistProgressByAccionId = {} } = useChecklistProgressByAccionIds(accionIds)
   const { data: commentCounts = {} } = useCommentCounts(accionesDisplay.map((a) => a.id))
   const { data: users = [] } = useUsers({ activo: true })
+  const { data: priorities = [] } = usePriorities({ activo: true })
   const [editingAccion, setEditingAccion] = useState<AccionDiaria | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const accionIdFromUrl = searchParams.get('accion')
@@ -181,6 +185,11 @@ export function KanbanPage() {
     })
     return sorted[0]
   }, [accionesDisplay])
+
+  const healthMetrics = useMemo(
+    () => kanbanHealthFromAcciones(accionesDisplay, priorities),
+    [accionesDisplay, priorities]
+  )
 
   const filterEstadoSingle = useMemo((): ActionStatus | undefined => {
     if (filter.estado != null && !Array.isArray(filter.estado)) return filter.estado
@@ -275,6 +284,8 @@ export function KanbanPage() {
           visible
         />
       ) : null}
+
+      {!accionesError ? <KanbanMetricsRow metrics={healthMetrics} /> : null}
 
       <section
         id="kanban-content"

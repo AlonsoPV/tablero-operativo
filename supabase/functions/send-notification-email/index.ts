@@ -210,6 +210,13 @@ async function logNotificationEmail(
 function actionUrl(payload: Record<string, unknown> | null | undefined): string {
   const accionId = textFromPayload(payload, 'accion_id')
   if (accionId) return `${appBaseUrl()}/kanban?accion=${encodeURIComponent(accionId)}`
+  const equipoAccionId = textFromPayload(payload, 'equipo_accion_id')
+  if (equipoAccionId) {
+    const areaId = textFromPayload(payload, 'area_id')
+    const params = new URLSearchParams({ accion: equipoAccionId })
+    if (areaId) params.set('area', areaId)
+    return `${appBaseUrl()}/kanban-equipos?${params.toString()}`
+  }
   const reminderDue = textFromPayload(payload, 'fecha_limite')
   if (reminderDue) {
     const date = Number.isFinite(new Date(reminderDue).getTime())
@@ -228,8 +235,12 @@ function subjectForNotification(tipo: string, prioridad: string, payload: Record
     explicitTitle ||
     (tipo === 'responsable'
       ? 'Te asignaron una accion'
+      : tipo === 'team_responsable'
+        ? 'Te asignaron una accion de equipo'
       : tipo === 'check_responsable'
         ? 'Te asignaron un check por validar'
+      : tipo === 'team_check_responsable'
+        ? 'Te asignaron un check de equipo'
       : tipo === 'comentario_asignado'
         ? 'Te etiquetaron en un comentario'
         : tipo === 'comentario'
@@ -250,6 +261,7 @@ function buildEmailHtml(input: {
   const description = normalizeActionDescription(textFromPayload(input.payload, 'descripcion_accion'))
   const message = textFromPayload(input.payload, 'mensaje')
   const responsible = textFromPayload(input.payload, 'responsable_nombre')
+  const area = textFromPayload(input.payload, 'area_nombre')
   const dueDate = textFromPayload(input.payload, 'fecha_compromiso')
   const checklist = stringListFromPayload(input.payload, 'checklist')
   const actor =
@@ -259,6 +271,7 @@ function buildEmailHtml(input: {
 
   const lines = [
     actionTitle ? `<p><strong>Accion:</strong> ${escapeHtml(actionTitle)}</p>` : '',
+    area ? `<p><strong>Area:</strong> ${escapeHtml(area)}</p>` : '',
     responsible ? `<p><strong>Responsable:</strong> ${escapeHtml(responsible)}</p>` : '',
     dueDate ? `<p><strong>Fecha compromiso:</strong> ${escapeHtml(dueDate)}</p>` : '',
     actor ? `<p><strong>Origen:</strong> ${escapeHtml(actor)}</p>` : '',
@@ -305,6 +318,7 @@ function buildEmailText(input: {
   const message = textFromPayload(input.payload, 'mensaje')
   const description = normalizeActionDescription(textFromPayload(input.payload, 'descripcion_accion'))
   const responsible = textFromPayload(input.payload, 'responsable_nombre')
+  const area = textFromPayload(input.payload, 'area_nombre')
   const dueDate = textFromPayload(input.payload, 'fecha_compromiso')
   const checklist = stringListFromPayload(input.payload, 'checklist')
 
@@ -313,6 +327,7 @@ function buildEmailText(input: {
     '',
     `Hola ${input.recipientName}, tienes una nueva notificacion.`,
     actionTitle ? `Accion: ${actionTitle}` : '',
+    area ? `Area: ${area}` : '',
     responsible ? `Responsable: ${responsible}` : '',
     dueDate ? `Fecha compromiso: ${dueDate}` : '',
     message ? `Mensaje: ${message}` : '',

@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { AccionForm } from '@/features/operations/components/AccionForm'
 import { AccionChecklistEditor, type LocalCheckpointDraft } from '@/features/operations/components/AccionChecklistEditor'
 import type { AccionCreateInput, AccionFormInput } from '@/features/operations/schemas/accion.schema'
+import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
+import { notificacionesService } from '@/services/notificaciones.service'
 import type { TeamBoard } from './types'
 import { teamKanbanService } from './service'
 
@@ -27,9 +29,68 @@ function teamPriority(value: string | undefined): 'Baja' | 'Media' | 'Alta' | 'C
 }
 
 export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, board, onDone }: Props) {
+  const { data: currentUser } = useCurrentUser()
   const [checklist, setChecklist] = useState<LocalCheckpointDraft[]>([])
   const [errors, setErrors] = useState<string[]>([])
   const formId = 'team-action-form'
+  const memberName = (id: string | null | undefined) =>
+    id ? board.members.find((member) => member.id === id)?.nombre ?? undefined : undefined
+  const notifyTeamAssignee = async (input: {
+    usuarioId: string
+    actionId: string
+    title: string
+    description: string
+    dueAt: string | null
+    priority: string
+  }) => {
+    if (!input.usuarioId || input.usuarioId === currentUser?.id) return
+    await notificacionesService.create({
+      usuario_id: input.usuarioId,
+      tipo: 'team_responsable',
+      prioridad: input.priority === 'Critica' ? 'Urgente' : input.priority === 'Alta' ? 'Alta' : 'Normal',
+      payload: {
+        titulo: 'Te asignaron una accion de equipo',
+        titulo_accion: input.title,
+        descripcion_accion: input.description,
+        equipo_accion_id: input.actionId,
+        area_id: areaId,
+        area_nombre: areaName,
+        responsable_id: input.usuarioId,
+        responsable_nombre: memberName(input.usuarioId),
+        fecha_compromiso: input.dueAt ?? undefined,
+        asignador_id: currentUser?.id ?? null,
+        asignador_nombre: currentUser?.nombre ?? null,
+      },
+    })
+  }
+  const notifyTeamCheckpointResponsable = async (input: {
+    usuarioId: string
+    actionId: string
+    actionTitle: string
+    description: string
+    checkpointText: string
+  }) => {
+    if (!input.usuarioId || input.usuarioId === currentUser?.id) return
+    await notificacionesService.create({
+      usuario_id: input.usuarioId,
+      tipo: 'team_check_responsable',
+      prioridad: 'Alta',
+      payload: {
+        titulo: 'Te asignaron un check de equipo',
+        titulo_accion: input.actionTitle,
+        descripcion_accion: input.description,
+        mensaje: input.checkpointText,
+        checklist: [input.checkpointText],
+        equipo_accion_id: input.actionId,
+        area_id: areaId,
+        area_nombre: areaName,
+        responsable_id: input.usuarioId,
+        responsable_nombre: memberName(input.usuarioId),
+        asignador_id: currentUser?.id ?? null,
+        asignador_nombre: currentUser?.nombre ?? null,
+      },
+    })
+  }
   const mutation = useMutation({
     mutationFn: (values: AccionCreateInput) => teamKanbanService.create({
       areaId,
@@ -40,14 +101,41 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
       dueAt: values.fecha ? new Date(`${values.fecha}T${values.hora_limite}:00`).toISOString() : null,
       evidence: Boolean(values.evidencia_esperada?.trim()),
       evidenceText: values.evidencia_esperada,
-      checklist: checklist.map((item) => item.texto.trim()).filter(Boolean),
+      checklist: checklist
+        .map((item) => ({ text: item.texto.trim(), responsable_id: item.responsable_id ?? null }))
+        .filter((item) => item.text),
       storyPoints: values.story_points,
       actionType: values.tipo_accion,
       gapIds: values.gap_ids,
       catalogKpiIds: values.catalog_kpi_ids,
     }),
-    onSuccess: async () => {
+    onSuccess: async (created, values) => {
       toast.success('Accion de equipo creada')
+      const title = values.titulo_accion?.trim() || values.descripcion_accion.slice(0, 70)
+      await notifyTeamAssignee({
+        usuarioId: values.responsable,
+        actionId: created.id,
+        title,
+        description: values.descripcion_accion,
+        dueAt: created.fecha_limite,
+        priority: created.prioridad,
+      }).catch((error) => {
+        console.warn('[team-kanban] No se pudo notificar al responsable:', error)
+        toast.error(error instanceof Error ? error.message : 'No se pudo notificar al responsable')
+      })
+      await Promise.allSettled(
+        checklist
+          .filter((item) => item.responsable_id)
+          .map((item) =>
+            notifyTeamCheckpointResponsable({
+              usuarioId: item.responsable_id!,
+              actionId: created.id,
+              actionTitle: title,
+              description: values.descripcion_accion,
+              checkpointText: item.texto.trim(),
+            })
+          )
+      )
       setChecklist([])
       setErrors([])
       onOpenChange(false)

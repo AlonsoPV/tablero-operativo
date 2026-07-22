@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
@@ -22,6 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
+import { notificacionesService } from '@/services/notificaciones.service'
 import { teamKanbanService } from './service'
 import { EMPTY_TEAM_FILTERS, type TeamAction, type TeamArea, type TeamBoard, type TeamFilters } from './types'
 import { TeamActionFormDialog } from './TeamActionFormDialog'
@@ -80,6 +82,7 @@ function formatDueDate(value: string) {
 
 export function TeamKanbanPage() {
   const qc = useQueryClient()
+  const [searchParams] = useSearchParams()
   const { data: currentUser, isLoading: userLoading } = useCurrentUser()
   const [areaId, setAreaId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -91,6 +94,7 @@ export function TeamKanbanPage() {
   const statusNavRef = useRef<HTMLDivElement>(null)
 
   const areas = useQuery({ queryKey: qk.areas, queryFn: teamKanbanService.areas })
+  const areaParam = searchParams.get('area')
   const membershipAreaNames = useMemo(() => {
     const names = [
       ...(currentUser?.areas ?? []),
@@ -122,9 +126,13 @@ export function TeamKanbanPage() {
       if (areaId) setAreaId(null)
       return
     }
+    if (areaParam && visibleAreas.some((area) => area.id === areaParam)) {
+      if (areaId !== areaParam) setAreaId(areaParam)
+      return
+    }
     if (areaId && visibleAreas.some((area) => area.id === areaId)) return
     setAreaId(visibleAreas[0].id)
-  }, [visibleAreas, areaId])
+  }, [visibleAreas, areaId, areaParam])
 
   useEffect(() => {
     setFilters(EMPTY_TEAM_FILTERS)
@@ -189,6 +197,31 @@ export function TeamKanbanPage() {
     await qc.invalidateQueries({ queryKey: qk.areas })
   }
 
+  const memberName = (id: string | null | undefined) =>
+    id ? board.data?.members.find((member) => member.id === id)?.nombre : undefined
+
+  const notifyTeamReassignment = async (action: TeamAction, usuarioId: string) => {
+    if (!usuarioId || usuarioId === currentUser?.id) return
+    await notificacionesService.create({
+      usuario_id: usuarioId,
+      tipo: 'team_responsable',
+      prioridad: action.prioridad === 'Critica' ? 'Urgente' : action.prioridad === 'Alta' ? 'Alta' : 'Normal',
+      payload: {
+        titulo: 'Te reasignaron una accion de equipo',
+        titulo_accion: action.titulo,
+        descripcion_accion: action.descripcion ?? undefined,
+        equipo_accion_id: action.id,
+        area_id: action.area_id,
+        area_nombre: selectedArea?.nombre ?? undefined,
+        responsable_id: usuarioId,
+        responsable_nombre: memberName(usuarioId),
+        fecha_compromiso: action.fecha_limite ?? undefined,
+        asignador_id: currentUser?.id ?? null,
+        asignador_nombre: currentUser?.nombre ?? null,
+      },
+    })
+  }
+
   const update = useMutation({
     mutationFn: ({
       id,
@@ -200,7 +233,15 @@ export function TeamKanbanPage() {
       assignee?: string
       priority?: string
     }) => teamKanbanService.update(id, p),
-    onSuccess: refresh,
+    onSuccess: async (action, vars) => {
+      if (vars.assignee && vars.assignee !== currentUser?.id) {
+        await notifyTeamReassignment(action, vars.assignee).catch((error) => {
+          console.warn('[team-kanban] No se pudo notificar reasignacion:', error)
+          toast.error(error instanceof Error ? error.message : 'No se pudo notificar la reasignacion')
+        })
+      }
+      await refresh()
+    },
     onError: (e) => toast.error(e.message),
   })
 
@@ -542,15 +583,6 @@ function AreaSelector({
               )}
             >
               <span>{area.nombre}</span>
-              <Badge
-                variant={selected ? 'secondary' : 'outline'}
-                className={cn(
-                  'border-0 text-[10px]',
-                  selected && 'bg-primary-foreground/20 text-primary-foreground'
-                )}
-              >
-                {area.is_leader ? 'Lider' : 'Integrante'}
-              </Badge>
               <span
                 className={cn(
                   'rounded-full px-1.5 py-0.5 text-[10px] tabular-nums',
