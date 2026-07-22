@@ -74,7 +74,7 @@ export function canAccessRouteWithModules(
 ) {
   // La regla de seguridad del Kanban por Equipos siempre prevalece sobre el catalogo de modulos.
   if (pathname === ROUTES.TEAM_KANBAN || pathname.startsWith(`${ROUTES.TEAM_KANBAN}/`)) {
-    return canAccessRouteByRole(rol, pathname, appRole)
+    return canAccessRouteByRole(rol, pathname, appRole) || moduleKeys?.includes('team_kanban') === true
   }
 
   if (isAnalystByRole(rol)) return canAccessRouteByRole(rol, pathname, appRole)
