@@ -65,20 +65,21 @@ describe('role route permissions', () => {
     expect(getDefaultRouteByRole(role)).toBe(ROUTES.KANBAN)
   })
 
-  it('keeps Analista limited to Kanban, AI assistant and organigrama', () => {
+  it('keeps Analista limited to Kanban por Equipos, Disciplina and Calendario', () => {
     const role = 'Analista'
 
-    expect(canAccessRouteByRole(role, ROUTES.KANBAN)).toBe(true)
-    expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(true)
-    expect(canAccessRouteByRole(role, ROUTES.ORG_CHART)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.TEAM_KANBAN)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.DISCIPLINA)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.CALENDARIO)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.KANBAN)).toBe(false)
+    expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(false)
+    expect(canAccessRouteByRole(role, ROUTES.ORG_CHART)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.DASHBOARD)).toBe(false)
-    expect(canAccessRouteByRole(role, ROUTES.DISCIPLINA)).toBe(false)
-    expect(canAccessRouteByRole(role, ROUTES.CALENDARIO)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.ACADEMIA)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.TICKETS)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_PROFILE)).toBe(false)
     expect(usesOperationalDashboardByRole(role)).toBe(false)
-    expect(getDefaultRouteByRole(role)).toBe(ROUTES.KANBAN)
+    expect(getDefaultRouteByRole(role)).toBe(ROUTES.TEAM_KANBAN)
   })
 
   it('keeps executive roles on the executive dashboard experience', () => {
@@ -93,20 +94,22 @@ describe('role route permissions', () => {
     expect(canManageSupportTicketsByRole('Operativo')).toBe(false)
   })
 
-  it('allows app super_admin full route access even with Analista business role', () => {
-    expect(canAccessRouteByRole('Analista', ROUTES.ORG_CHART, 'super_admin')).toBe(true)
-    expect(canAccessRouteByRole('Analista', ROUTES.DASHBOARD, 'super_admin')).toBe(true)
-    expect(canAccessRouteByRole('Analista', ROUTES.SETTINGS_USERS, 'super_admin')).toBe(true)
+  it('keeps Analista limited even if app_role is elevated accidentally', () => {
+    expect(canAccessRouteByRole('Analista', ROUTES.TEAM_KANBAN, 'super_admin')).toBe(true)
+    expect(canAccessRouteByRole('Analista', ROUTES.DISCIPLINA, 'super_admin')).toBe(true)
+    expect(canAccessRouteByRole('Analista', ROUTES.ORG_CHART, 'super_admin')).toBe(false)
+    expect(canAccessRouteByRole('Analista', ROUTES.DASHBOARD, 'super_admin')).toBe(false)
+    expect(canAccessRouteByRole('Analista', ROUTES.SETTINGS_USERS, 'super_admin')).toBe(false)
   })
 
-  it('restricts Kanban por Equipos exclusively to Super Admin', () => {
+  it('allows Kanban por Equipos to Super Admin and Direccion', () => {
     expect(canAccessRouteByRole('super_admin', ROUTES.TEAM_KANBAN)).toBe(true)
     expect(canAccessRouteByRole('Analista', ROUTES.TEAM_KANBAN, 'super_admin')).toBe(true)
-    expect(canAccessRouteByRole('Direccion', ROUTES.TEAM_KANBAN)).toBe(false)
+    expect(canAccessRouteByRole('Direccion', ROUTES.TEAM_KANBAN)).toBe(true)
     expect(canAccessRouteByRole('DG', ROUTES.TEAM_KANBAN)).toBe(false)
     expect(canAccessRouteByRole('Sistemas', ROUTES.TEAM_KANBAN, 'admin')).toBe(false)
     expect(canAccessRouteByRole('Operativo', ROUTES.TEAM_KANBAN)).toBe(false)
-    expect(canAccessRouteByRole('Analista', ROUTES.TEAM_KANBAN)).toBe(false)
+    expect(canAccessRouteByRole('Analista', ROUTES.TEAM_KANBAN)).toBe(true)
   })
 
   it('allows Super Admin to view Organigrama without participating as a node', () => {
@@ -114,9 +117,9 @@ describe('role route permissions', () => {
     expect(canEditOwnOrgProfileByRole('super_admin')).toBe(false)
   })
 
-  it('allows Analista to view organigrama but not edit own org profile', () => {
-    expect(canAccessRouteByRole('Analista', ROUTES.ORG_CHART)).toBe(true)
-    expect(canAccessRouteByRole('Analista', ROUTES.ORG_CHART, 'viewer')).toBe(true)
+  it('keeps Analista out of organigrama and profile editing', () => {
+    expect(canAccessRouteByRole('Analista', ROUTES.ORG_CHART)).toBe(false)
+    expect(canAccessRouteByRole('Analista', ROUTES.ORG_CHART, 'viewer')).toBe(false)
     expect(canEditOwnOrgProfileByRole('Analista')).toBe(false)
   })
 

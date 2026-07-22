@@ -3,6 +3,7 @@ import {
   canAccessRouteByRole,
   getDefaultRouteByRole,
   isAppSuperAdminByAppRole,
+  isAnalystByRole,
   isSuperAdminByRole,
 } from './permissions'
 
@@ -71,12 +72,14 @@ export function canAccessRouteWithModules(
   appRole: string | null | undefined,
   moduleKeys: string[] | null | undefined
 ) {
-  if (isAppSuperAdminByAppRole(appRole) || isSuperAdminByRole(rol)) return true
-
-  // La regla de seguridad previa para Kanban por Equipos siempre prevalece.
+  // La regla de seguridad del Kanban por Equipos siempre prevalece sobre el catalogo de modulos.
   if (pathname === ROUTES.TEAM_KANBAN || pathname.startsWith(`${ROUTES.TEAM_KANBAN}/`)) {
     return canAccessRouteByRole(rol, pathname, appRole)
   }
+
+  if (isAnalystByRole(rol)) return canAccessRouteByRole(rol, pathname, appRole)
+
+  if (isAppSuperAdminByAppRole(appRole) || isSuperAdminByRole(rol)) return true
   const moduleKey = moduleKeyForPath(pathname)
   if (moduleKeys && moduleKey) return moduleKeys.includes(moduleKey)
   return canAccessRouteByRole(rol, pathname, appRole)

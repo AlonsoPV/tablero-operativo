@@ -18,9 +18,9 @@ const DIRECTION_ROLE = 'Direccion'
 const SUPER_ADMIN_ROLE = 'super_admin'
 
 const STRICT_ANALYST_ALLOWED_ROUTES = [
-  ROUTES.KANBAN,
-  ROUTES.AI_ASSIST,
-  ROUTES.ORG_CHART,
+  ROUTES.TEAM_KANBAN,
+  ROUTES.DISCIPLINA,
+  ROUTES.CALENDARIO,
 ] as const
 
 const ANALYST_ALLOWED_ROUTES = [
@@ -40,6 +40,7 @@ const ANALYST_ALLOWED_ROUTES = [
 const DIRECTION_ALLOWED_ROUTES = [
   ROUTES.DASHBOARD,
   ...ANALYST_ALLOWED_ROUTES,
+  ROUTES.TEAM_KANBAN,
   ROUTES.SETTINGS_USERS,
   ROUTES.SETTINGS_USERS_DETAIL,
   ROUTES.ORG_CHART,
@@ -222,14 +223,14 @@ export function canAccessRouteByRole(
   appRole?: string | null | undefined
 ): boolean {
   if (routeMatches(pathname, ROUTES.TEAM_KANBAN)) {
-    return isSuperAdminByRole(rol) || isAppSuperAdminByAppRole(appRole)
+    return isSuperAdminByRole(rol) || isDirectionByRole(rol) || isAnalystByRole(rol) || isAppSuperAdminByAppRole(appRole)
   }
-
-  if (isAppAdminByAppRole(appRole)) return true
 
   if (isAnalystByRole(rol)) {
     return STRICT_ANALYST_ALLOWED_ROUTES.some((route) => routeMatches(pathname, route))
   }
+
+  if (isAppAdminByAppRole(appRole)) return true
 
   if (isDirectionByRole(rol)) {
     return DIRECTION_ALLOWED_ROUTES.some((route) => routeMatches(pathname, route))
@@ -249,7 +250,7 @@ export function canAccessRouteByRole(
 }
 
 export function getDefaultRouteByRole(rol: string | null | undefined): string {
-  if (isAnalystByRole(rol)) return ROUTES.KANBAN
+  if (isAnalystByRole(rol)) return ROUTES.TEAM_KANBAN
   if (isOperativeByRole(rol)) return ROUTES.KANBAN
   return ROUTES.KANBAN
 }
