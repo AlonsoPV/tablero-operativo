@@ -117,7 +117,9 @@ export function isAnalystByRole(rol: string | null | undefined): boolean {
 }
 
 export function isDirectionByRole(rol: string | null | undefined): boolean {
-  return normalizeRole(rol) === normalizeRole(DIRECTION_ROLE)
+  const normalized = normalizeRole(rol)
+  const direction = normalizeRole(DIRECTION_ROLE)
+  return normalized === direction || normalized.startsWith(`${direction} `)
 }
 
 export function usesOperationalDashboardByRole(rol: string | null | undefined): boolean {

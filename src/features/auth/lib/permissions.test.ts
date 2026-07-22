@@ -17,6 +17,7 @@ describe('role route permissions', () => {
     const role = 'Direccion'
 
     expect(isDirectionByRole(role)).toBe(true)
+    expect(isDirectionByRole('Dirección general')).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.DASHBOARD)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.KANBAN)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.ACADEMIA)).toBe(true)
@@ -106,6 +107,7 @@ describe('role route permissions', () => {
     expect(canAccessRouteByRole('super_admin', ROUTES.TEAM_KANBAN)).toBe(true)
     expect(canAccessRouteByRole('Analista', ROUTES.TEAM_KANBAN, 'super_admin')).toBe(true)
     expect(canAccessRouteByRole('Direccion', ROUTES.TEAM_KANBAN)).toBe(true)
+    expect(canAccessRouteByRole('Direccion general', ROUTES.TEAM_KANBAN)).toBe(true)
     expect(canAccessRouteByRole('DG', ROUTES.TEAM_KANBAN)).toBe(false)
     expect(canAccessRouteByRole('Sistemas', ROUTES.TEAM_KANBAN, 'admin')).toBe(false)
     expect(canAccessRouteByRole('Operativo', ROUTES.TEAM_KANBAN)).toBe(false)
