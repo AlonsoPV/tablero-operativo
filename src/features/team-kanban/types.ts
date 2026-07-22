@@ -7,6 +7,12 @@ export type TeamAction = {
   fecha_limite: string | null; evidencia_requerida: boolean; checklist: Array<{ text: string; done?: boolean }>
   bloqueada: boolean; escalada: boolean; completed_at: string | null; created_at: string
 }
-export type TeamBoard = { isLeader: boolean; states: TeamState[]; members: TeamMember[]; actions: TeamAction[] }
+export type TeamBoard = {
+  isLeader: boolean
+  canManage?: boolean
+  states: TeamState[]
+  members: TeamMember[]
+  actions: TeamAction[]
+}
 export type TeamFilters = { search:string; priority:string; stateId:string; dateFrom:string; dateTo:string }
 export const EMPTY_TEAM_FILTERS:TeamFilters={search:'',priority:'all',stateId:'all',dateFrom:'',dateTo:''}

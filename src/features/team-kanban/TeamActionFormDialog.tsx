@@ -75,7 +75,14 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
           userOptions={board.members}
           areaOptions={[{ id: areaId, nombre: areaName }]}
           lockedAreaName={areaName}
-          validationExtras={<AccionChecklistEditor items={checklist} onChange={setChecklist} disabled={mutation.isPending} />}
+          validationExtras={
+            <AccionChecklistEditor
+              items={checklist}
+              onChange={setChecklist}
+              disabled={mutation.isPending}
+              users={board.members}
+            />
+          }
         />
       </div>
       <div className="shrink-0 border-t border-border/60 bg-card px-3 py-3 sm:px-5">
