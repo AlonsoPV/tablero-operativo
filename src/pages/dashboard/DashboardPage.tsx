@@ -37,6 +37,7 @@ import { DashboardScoreAndRoadmapSection } from './components/DashboardScoreAndR
 import { DashboardHeader } from './components/DashboardHeader'
 import { DashboardActionsSection } from './components/DashboardActionsSection'
 import { DashboardUserActionsSummarySection } from './components/DashboardUserActionsSummarySection'
+import { DashboardUserLoginChartSection } from './components/DashboardUserLoginChartSection'
 import { DashboardExecutivePanel } from './components/DashboardExecutivePanel'
 import { useOperationalDashboardMetrics } from './hooks/useOperationalDashboardMetrics'
 import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
@@ -510,7 +511,7 @@ export function DashboardPage() {
           </section>
         ) : null}
 
-        <div id="dashboard-section-actions" className="dashboard-section-actions scroll-mt-4">
+        <div id="dashboard-section-actions" className="dashboard-section-actions min-w-0 w-full scroll-mt-4">
           {accionesError ? (
             <SectionCard>
               <SectionCardHeader
@@ -553,6 +554,8 @@ export function DashboardPage() {
             />
           )}
         </div>
+
+        <DashboardUserLoginChartSection />
 
         {false ? (
         <section

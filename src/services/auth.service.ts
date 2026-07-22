@@ -64,6 +64,14 @@ export const authService = {
       password,
     })
     if (error) throw new Error(mapAuthError(error))
+
+    // El acceso ya fue concedido: un fallo de telemetria nunca debe impedir
+    // que el usuario entre (por ejemplo, durante el despliegue de la migracion).
+    const { error: activityError } = await supabase.rpc('record_user_login_event')
+    if (activityError) {
+      console.warn('No se pudo registrar la actividad de inicio de sesion.', activityError)
+    }
+
     return data
   },
 

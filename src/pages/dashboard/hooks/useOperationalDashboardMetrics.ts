@@ -3,6 +3,10 @@ import type { AccionDiaria } from '@/types'
 import type { UserProfile } from '@/features/users/types/user.types'
 import type { Priority, Status } from '@/features/catalogs/types/catalogs.types'
 import { findPriorityForAccion } from '@/features/operations/utils/resolveAccionPrioridad'
+import {
+  priorityColorFor,
+  type PriorityColor,
+} from '@/features/operations/utils/priorityColors'
 
 const DAY_MS = 86_400_000
 const CLOSED_FALLBACK = new Set(['hecho', 'verificado', 'cerrado', 'realizado'])
@@ -43,11 +47,15 @@ export type DashboardAgingBucket = {
 export type OperationalDashboardMetrics = {
   today: string
   totalFiltered: number
+  totalActions: AccionDiaria[]
   openActions: AccionDiaria[]
   closedActions: AccionDiaria[]
   redClosedActions: AccionDiaria[]
   overdueActions: AccionDiaria[]
   blockedActions: AccionDiaria[]
+  redActions: AccionDiaria[]
+  yellowActions: AccionDiaria[]
+  greenActions: AccionDiaria[]
   redOpenActions: AccionDiaria[]
   dueTodayActions: AccionDiaria[]
   avgOpenAgeDays: DashboardMetric
@@ -134,11 +142,13 @@ function isBlocked(action: AccionDiaria, statusesByKey: Map<string, Status>): bo
   return BLOCKED_FALLBACK.has(key)
 }
 
-function isRedPriority(action: AccionDiaria, priorities: Priority[]): boolean {
+function priorityColorForAction(action: AccionDiaria, priorities: Priority[]): PriorityColor {
   const priority = findPriorityForAccion(action, priorities)
-  const label = clean(priority?.nombre ?? action.prioridad)
-  const color = clean(priority?.color)
-  return label.includes('rojo') || label.includes('red') || label.includes('crit') || label.includes('p1') || color.includes('rojo') || color.includes('red')
+  return priorityColorFor(priority?.nombre ?? action.prioridad, priority?.color)
+}
+
+function isRedPriority(action: AccionDiaria, priorities: Priority[]): boolean {
+  return priorityColorForAction(action, priorities) === 'rojo'
 }
 
 function areaForAction(action: AccionDiaria, usersById: Map<string, UserProfile>): string {
@@ -194,7 +204,15 @@ function calculateCoreMetrics(
   const statusesByKey = statusByKey(statuses)
   const openActions = actions.filter((action) => !isClosed(action, statusesByKey))
   const closedActions = actions.filter((action) => isClosed(action, statusesByKey))
-  const redActions = actions.filter((action) => isRedPriority(action, priorities))
+  const actionsByPriorityColor = {
+    rojo: [] as AccionDiaria[],
+    amarillo: [] as AccionDiaria[],
+    verde: [] as AccionDiaria[],
+  }
+  for (const action of actions) {
+    actionsByPriorityColor[priorityColorForAction(action, priorities)].push(action)
+  }
+  const redActions = actionsByPriorityColor.rojo
   const redClosedActions = redActions.filter((action) => isClosed(action, statusesByKey))
   const overdueActions = openActions.filter((action) => action.fecha < today)
   const blockedActions = openActions.filter((action) => isBlocked(action, statusesByKey))
@@ -212,6 +230,9 @@ function calculateCoreMetrics(
     closedActions,
     overdueActions,
     blockedActions,
+    redActions,
+    yellowActions: actionsByPriorityColor.amarillo,
+    greenActions: actionsByPriorityColor.verde,
     redOpenActions,
     dueTodayActions,
     avgOpenAgeDays,
@@ -294,11 +315,15 @@ export function useOperationalDashboardMetrics(input: {
     return {
       today: input.today,
       totalFiltered: input.actions.length,
+      totalActions: input.actions,
       openActions: current.openActions,
       closedActions: currentPeriodCore.closedActions,
       redClosedActions: currentPeriodCore.closedActions.filter((action) => isRedPriority(action, input.priorities)),
       overdueActions: current.overdueActions,
       blockedActions: current.blockedActions,
+      redActions: current.redActions,
+      yellowActions: current.yellowActions,
+      greenActions: current.greenActions,
       redOpenActions: current.redOpenActions,
       dueTodayActions: current.dueTodayActions,
       avgOpenAgeDays: valueMetric(current.avgOpenAgeDays, previous.avgOpenAgeDays, false),
