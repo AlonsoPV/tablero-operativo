@@ -27,11 +27,12 @@ type RecoveryPhase = 'checking' | 'ready' | 'invalid'
  * Tope de espera solo para mostrar UI (sesión recovery en URL a veces llega lento).
  * No invalida el enlace de Supabase: si el token es válido y tarda más, el usuario puede recargar la página.
  */
-const MAX_WAIT_MS = 60_000
+const MAX_WAIT_MS = 12_000
 const POLL_MS = 400
 
 export function ResetPasswordPage() {
   const [phase, setPhase] = useState<RecoveryPhase>('checking')
+  const [invalidReason, setInvalidReason] = useState<string | null>(null)
 
   const form = useForm<ResetPasswordFormValues>({
     resolver: zodResolver(resetPasswordFormSchema),
@@ -43,10 +44,21 @@ export function ResetPasswordPage() {
     let intervalId = 0
     const started = Date.now()
 
+    const stopPolling = () => {
+      if (intervalId) window.clearInterval(intervalId)
+    }
+
     const markReady = () => {
       if (cancelled) return
-      if (intervalId) window.clearInterval(intervalId)
+      stopPolling()
       setPhase('ready')
+    }
+
+    const markInvalid = (message?: string) => {
+      if (cancelled) return
+      stopPolling()
+      setInvalidReason(message ?? null)
+      setPhase('invalid')
     }
 
     const tick = () => {
@@ -57,25 +69,70 @@ export function ResetPasswordPage() {
           return
         }
         if (Date.now() - started >= MAX_WAIT_MS) {
-          if (intervalId) window.clearInterval(intervalId)
-          setPhase('invalid')
+          markInvalid()
         }
       })
     }
 
-    void supabase.auth.getSession().then(({ data }) => {
-      if (!cancelled && data.session) markReady()
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!cancelled && (event === 'PASSWORD_RECOVERY' || session)) markReady()
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!cancelled && session) markReady()
-    })
+    const initializeRecoverySession = async () => {
+      const currentUrl = new URL(window.location.href)
+      const code = currentUrl.searchParams.get('code')
+      const queryError = currentUrl.searchParams.get('error_description') || currentUrl.searchParams.get('error')
+      const hash = new URLSearchParams(currentUrl.hash.replace(/^#/, ''))
+      const accessToken = hash.get('access_token')
+      const refreshToken = hash.get('refresh_token')
+      const hashError = hash.get('error_description') || hash.get('error')
 
-    intervalId = window.setInterval(tick, POLL_MS)
+      if (queryError || hashError) {
+        markInvalid(queryError ?? hashError ?? undefined)
+        return
+      }
+
+      const { data: existingSession } = await supabase.auth.getSession()
+      if (cancelled) return
+      if (existingSession.session) {
+        markReady()
+        return
+      }
+
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        if (cancelled) return
+        if (error) {
+          markInvalid(error.message)
+          return
+        }
+        markReady()
+        return
+      }
+
+      if (accessToken && refreshToken) {
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        })
+        if (cancelled) return
+        if (error) {
+          markInvalid(error.message)
+          return
+        }
+        markReady()
+        return
+      }
+
+      intervalId = window.setInterval(tick, POLL_MS)
+      tick()
+    }
+
+    void initializeRecoverySession()
 
     return () => {
       cancelled = true
-      if (intervalId) window.clearInterval(intervalId)
+      stopPolling()
       subscription.unsubscribe()
     }
   }, [])
@@ -117,6 +174,11 @@ export function ResetPasswordPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
+            {invalidReason ? (
+              <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {invalidReason}
+              </p>
+            ) : null}
             <Button asChild>
               <Link to={ROUTES.FORGOT_PASSWORD}>Pedir otro enlace</Link>
             </Button>
