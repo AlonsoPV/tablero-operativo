@@ -23,7 +23,7 @@ Para productivo de Scrumban usa:
 |----------|--------|
 | `VITE_SUPABASE_URL` | `https://xhpasmjzuwifmjhrsumb.supabase.co` |
 | `VITE_SUPABASE_ANON_KEY` | Clave `anon` `public` del proyecto `xhpasmjzuwifmjhrsumb` |
-| `VITE_APP_URL` | URL publica del deploy productivo de Vercel |
+| `VITE_APP_URL` | `https://scrumbanemx.vercel.app` |
 
 **Importante:** las variables que empiezan por `VITE_` se inyectan en **tiempo de build**. Después de crear o cambiar variables, ejecuta un **nuevo deploy** (Redeploy).
 

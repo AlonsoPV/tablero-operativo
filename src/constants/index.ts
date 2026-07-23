@@ -1,6 +1,7 @@
 export const APP_NAME = 'SCRUMBAN'
+export const PRODUCTION_APP_BASE_URL = 'https://scrumbanemx.vercel.app'
 export const APP_BASE_URL = (
-  import.meta.env.VITE_APP_URL?.trim() || 'https://scrumbanemx.vercel.app'
+  import.meta.env.VITE_APP_URL?.trim() || PRODUCTION_APP_BASE_URL
 ).replace(/\/+$/, '')
 
 /** Rutas según módulos de lovable-spec §5 */
@@ -48,6 +49,21 @@ export const ROUTES = {
   SETTINGS_CATALOGS_GAPS: '/settings/catalogs/gaps',
   SETTINGS_ACADEMY_MODULES: '/settings/academy/modules',
 } as const
+
+export function getRuntimeAppBaseUrl() {
+  if (typeof window === 'undefined') return APP_BASE_URL
+
+  const { hostname, origin } = window.location
+  if (hostname === new URL(PRODUCTION_APP_BASE_URL).hostname) {
+    return origin.replace(/\/+$/, '')
+  }
+
+  return APP_BASE_URL
+}
+
+export function getPasswordResetRedirectUrl() {
+  return `${getRuntimeAppBaseUrl()}${ROUTES.RESET_PASSWORD}`
+}
 
 /** Exportar minutas, acciones y recordatorios a Google Calendar / Tasks / Gmail. */
 export const GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED =

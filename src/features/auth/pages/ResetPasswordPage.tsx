@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { APP_BASE_URL, ROUTES } from '@/constants'
+import { ROUTES, getRuntimeAppBaseUrl } from '@/constants'
 import { supabase } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
@@ -86,7 +86,7 @@ export function ResetPasswordPage() {
       if (error) throw error
       toast.success('Contraseña guardada. Inicia sesión con la nueva.')
       await supabase.auth.signOut()
-      window.location.assign(APP_BASE_URL)
+      window.location.assign(getRuntimeAppBaseUrl())
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No pudimos guardar la contraseña. Inténtalo de nuevo.')
     }

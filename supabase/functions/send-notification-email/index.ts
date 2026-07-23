@@ -129,7 +129,7 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#039;')
 }
 
-const DEFAULT_APP_BASE_URL = 'https://dev-tablero-operativo.vercel.app'
+const DEFAULT_APP_BASE_URL = 'https://scrumbanemx.vercel.app'
 
 function normalizeAppBaseUrl(value: string | undefined): string | null {
   const trimmed = value?.trim().replace(/\/+$/, '')
