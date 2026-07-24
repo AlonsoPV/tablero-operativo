@@ -353,9 +353,6 @@ export function AccionFormDialog({
           asignador_nombre: currentUser?.nombre ?? null,
           fecha_asignacion: new Date().toISOString(),
         },
-      }, {
-        throwOnEmailError: true,
-        throwOnEmailSkipped: true,
       })
     } catch (err) {
       console.warn('[checklist] No se pudo crear notificacion de responsable de check:', err)

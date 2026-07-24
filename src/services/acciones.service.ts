@@ -421,12 +421,32 @@ export const accionesService = {
         .insert(stripPrioridadIdIfUnavailable(cleanPayload)))
     }
     if (error) throw error
-    try {
-      return await this.getById(actionId)
-    } catch (readError) {
-      console.warn('[acciones] create: inserted but read-back failed:', readError)
-      return cleanPayload as AccionDiaria
-    }
+    const now = new Date().toISOString()
+    return {
+      evidencia_cargada: false,
+      evidencia_adjunta: null,
+      kpi_afectado: null,
+      okr_impactado: null,
+      proceso: null,
+      area: null,
+      cliente_id: null,
+      causa_raiz: null,
+      responsable_bloqueo: null,
+      escalado: false,
+      fecha_escalamiento: null,
+      notas_escalamiento: null,
+      repeticion: false,
+      verificador_dato: null,
+      verificador_gobierno: null,
+      completed_at: null,
+      completed_by: null,
+      verified_at: null,
+      verified_by: null,
+      created_at: now,
+      updated_at: now,
+      ...cleanPayload,
+      id: actionId,
+    } as AccionDiaria
   },
 
   async update(id: string, payload: Partial<AccionDiaria>) {
@@ -484,8 +504,10 @@ export const accionesService = {
       if (closeError) throw closeError
 
       const updated = await this.getById(id)
-      await maybeInsertGapActionLog(prev, updated)
-      await maybeNotifyAssignerOnDone(prev, updated)
+      void Promise.allSettled([
+        maybeInsertGapActionLog(prev, updated),
+        maybeNotifyAssignerOnDone(prev, updated),
+      ])
       return updated
     }
 
@@ -516,8 +538,10 @@ export const accionesService = {
     const updated = data as unknown as AccionDiaria
 
     if (prev && nextEstado !== undefined) {
-      await maybeInsertGapActionLog(prev, updated)
-      await maybeNotifyAssignerOnDone(prev, updated)
+      void Promise.allSettled([
+        maybeInsertGapActionLog(prev, updated),
+        maybeNotifyAssignerOnDone(prev, updated),
+      ])
     }
 
     return updated

@@ -1,13 +1,5 @@
--- Corrige permisos de checklist y tablas puente de O2C para edicion de acciones.
--- - set_accion_checkpoint_completado devolvia 400 cuando el usuario tenia permiso
---   funcional pero no estaba contemplado por el RPC mas reciente.
--- - accion_gaps / accion_catalog_kpis devolvian 403 para Direccion o usuarios con
---   permiso completo de accion porque la politica seguia limitada a creador,
---   responsable o app admin.
-
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.accion_checkpoints TO authenticated;
-GRANT SELECT, INSERT, DELETE ON TABLE public.accion_gaps TO authenticated;
-GRANT SELECT, INSERT, DELETE ON TABLE public.accion_catalog_kpis TO authenticated;
+-- Restaura y blinda el cierre automatico a Hecho cuando todos los checks
+-- activos de una accion quedan completados.
 
 CREATE OR REPLACE FUNCTION public.can_auto_close_accion_from_completed_checklist_as(
   p_accion_id uuid,
@@ -45,7 +37,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.can_auto_close_accion_from_completed_checklist_as(uuid, uuid) IS
-  'Permite el cierre automatico a Hecho cuando todos los checks activos estan completos y el usuario valido o era responsable de un check.';
+  'Permite cierre automatico a Hecho cuando todos los checks activos estan completos y el usuario valido o era responsable de un check.';
 
 REVOKE ALL ON FUNCTION public.can_auto_close_accion_from_completed_checklist_as(uuid, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.can_auto_close_accion_from_completed_checklist_as(uuid, uuid) TO authenticated;
@@ -239,30 +231,5 @@ COMMENT ON FUNCTION public.set_accion_checkpoint_completado(uuid, boolean) IS
 
 REVOKE ALL ON FUNCTION public.set_accion_checkpoint_completado(uuid, boolean) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.set_accion_checkpoint_completado(uuid, boolean) TO authenticated;
-
-DROP POLICY IF EXISTS accion_gaps_insert_responsable_creator_admin ON public.accion_gaps;
-DROP POLICY IF EXISTS accion_gaps_delete_responsable_creator_admin ON public.accion_gaps;
-DROP POLICY IF EXISTS accion_catalog_kpis_insert_responsable_creator_admin ON public.accion_catalog_kpis;
-DROP POLICY IF EXISTS accion_catalog_kpis_delete_responsable_creator_admin ON public.accion_catalog_kpis;
-
-CREATE POLICY accion_gaps_insert_manage_accion ON public.accion_gaps
-  FOR INSERT
-  TO authenticated
-  WITH CHECK (public.can_manage_accion_full(accion_id));
-
-CREATE POLICY accion_gaps_delete_manage_accion ON public.accion_gaps
-  FOR DELETE
-  TO authenticated
-  USING (public.can_manage_accion_full(accion_id));
-
-CREATE POLICY accion_catalog_kpis_insert_manage_accion ON public.accion_catalog_kpis
-  FOR INSERT
-  TO authenticated
-  WITH CHECK (public.can_manage_accion_full(accion_id));
-
-CREATE POLICY accion_catalog_kpis_delete_manage_accion ON public.accion_catalog_kpis
-  FOR DELETE
-  TO authenticated
-  USING (public.can_manage_accion_full(accion_id));
 
 NOTIFY pgrst, 'reload schema';
