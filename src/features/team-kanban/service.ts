@@ -16,7 +16,26 @@ export const teamKanbanService = {
     const { data, error } = await supabase.rpc('team_kanban_board', { p_area_id: areaId })
     return unwrap(data, error) as unknown as TeamBoard
   },
-  async create(input: { areaId: string; title: string; description: string; assignee: string; priority: string; dueAt: string | null; evidence: boolean; evidenceText?: string; checklist: Array<{ text: string; responsable_id?: string | null }>; storyPoints?: number; actionType?: string; gapIds?: string[]; catalogKpiIds?: string[] }) {
+  async create(input: {
+    areaId: string
+    title: string
+    description: string
+    assignee: string
+    priority: string
+    dueAt: string | null
+    evidence: boolean
+    evidenceText?: string | null
+    checklist: Array<{ text: string; responsable_id?: string | null }>
+    storyPoints?: number
+    actionType?: string
+    gapIds?: string[]
+    catalogKpiIds?: string[]
+    isFrequent?: boolean
+    recurrenceType?: 'diaria' | 'semanal' | 'quincenal' | 'mensual' | null
+    recurrenceWeekday?: number | null
+    recurrenceMonthDay?: number | null
+    recurrenceStart?: string | null
+  }) {
     const { data, error } = await supabase.rpc('team_kanban_create_action', {
       p_area_id: input.areaId, p_title: input.title, p_description: input.description,
       p_assignee: input.assignee, p_priority: input.priority, p_due_at: input.dueAt,
@@ -27,6 +46,11 @@ export const teamKanbanService = {
       p_evidence_text: input.evidenceText ?? null, p_story_points: input.storyPoints ?? 0,
       p_tipo_accion: input.actionType ?? 'operativa', p_gap_ids: input.gapIds ?? [],
       p_catalog_kpi_ids: input.catalogKpiIds ?? [],
+      p_es_frecuente: input.isFrequent ?? false,
+      p_frecuencia_tipo: input.recurrenceType ?? null,
+      p_frecuencia_dia_semana: input.recurrenceWeekday ?? null,
+      p_frecuencia_dia_mes: input.recurrenceMonthDay ?? null,
+      p_frecuencia_inicio: input.recurrenceStart ?? null,
     })
     if (error) throw new Error(error.message)
     return unwrap(data, null) as TeamAction

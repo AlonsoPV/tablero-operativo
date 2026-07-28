@@ -19,6 +19,11 @@ export interface UserActionsSummaryRow {
   retraso: number
   bloqueadas: number
   gamificationPoints: number
+  gamificationEarnedPoints: number
+  gamificationPossiblePoints: number
+  gamificationFulfillmentPercent: number
+  gamificationAwardScore: number
+  workloadBand: string
 }
 
 export interface AreaActionsSummaryRow {
@@ -28,10 +33,27 @@ export interface AreaActionsSummaryRow {
   retraso: number
   bloqueadas: number
   gamificationPoints: number
+  gamificationEarnedPoints: number
+  gamificationPossiblePoints: number
+  gamificationFulfillmentPercent: number
+  gamificationAwardScore: number
 }
 
-export type UserSummarySortKey = 'nombre' | 'abiertas' | 'retraso' | 'bloqueadas' | 'gamificationPoints'
-export type AreaSummarySortKey = 'area' | 'usuarios' | 'abiertas' | 'retraso' | 'bloqueadas' | 'gamificationPoints'
+export type UserSummarySortKey =
+  | 'nombre'
+  | 'abiertas'
+  | 'retraso'
+  | 'bloqueadas'
+  | 'gamificationFulfillmentPercent'
+  | 'gamificationAwardScore'
+export type AreaSummarySortKey =
+  | 'area'
+  | 'usuarios'
+  | 'abiertas'
+  | 'retraso'
+  | 'bloqueadas'
+  | 'gamificationFulfillmentPercent'
+  | 'gamificationAwardScore'
 export type SummarySortDir = 'asc' | 'desc'
 
 function isOpenAction(accion: AccionDiaria) {
@@ -79,7 +101,7 @@ export function buildUserActionsSummaryRows(
       today,
       academyCompletedByAuthUserId.get(user.user_id) ?? 0,
       orgChartScores.get(user.id) ?? null
-    ).totalPoints
+    )
 
     return {
       userId: user.id,
@@ -90,7 +112,12 @@ export function buildUserActionsSummaryRows(
         (accion) => accion.estado === 'Retraso' || isEnRetraso(accion)
       ).length,
       bloqueadas: assignedOpenActions.filter((accion) => accion.estado === 'Bloqueado').length,
-      gamificationPoints,
+      gamificationPoints: gamificationPoints.totalPoints,
+      gamificationEarnedPoints: gamificationPoints.earnedPoints,
+      gamificationPossiblePoints: gamificationPoints.possiblePoints,
+      gamificationFulfillmentPercent: gamificationPoints.fulfillmentPercent,
+      gamificationAwardScore: gamificationPoints.awardScore,
+      workloadBand: gamificationPoints.workloadBand,
     }
   })
 }
@@ -108,6 +135,10 @@ export function buildAreaActionsSummaryRows(
       retraso: 0,
       bloqueadas: 0,
       gamificationPoints: 0,
+      gamificationEarnedPoints: 0,
+      gamificationPossiblePoints: 0,
+      gamificationFulfillmentPercent: 0,
+      gamificationAwardScore: 0,
     }
 
     existing.usuarios += 1
@@ -115,6 +146,16 @@ export function buildAreaActionsSummaryRows(
     existing.retraso += row.retraso
     existing.bloqueadas += row.bloqueadas
     existing.gamificationPoints += row.gamificationPoints
+    existing.gamificationEarnedPoints += row.gamificationEarnedPoints
+    existing.gamificationPossiblePoints += row.gamificationPossiblePoints
+    existing.gamificationFulfillmentPercent = calculateFulfillmentPercent(
+      existing.gamificationEarnedPoints,
+      existing.gamificationPossiblePoints
+    )
+    existing.gamificationAwardScore = Math.round(
+      ((existing.gamificationAwardScore * (existing.usuarios - 1)) + row.gamificationAwardScore) /
+        existing.usuarios
+    )
     byArea.set(row.area, existing)
   }
 
@@ -174,6 +215,10 @@ export interface ActionsSummaryTotals {
   retraso: number
   bloqueadas: number
   gamificationPoints: number
+  gamificationEarnedPoints: number
+  gamificationPossiblePoints: number
+  gamificationFulfillmentPercent: number
+  gamificationAwardScore: number
 }
 
 export function summarizeUserActionsRows(rows: UserActionsSummaryRow[]): ActionsSummaryTotals {
@@ -184,8 +229,28 @@ export function summarizeUserActionsRows(rows: UserActionsSummaryRow[]): Actions
       retraso: totals.retraso + row.retraso,
       bloqueadas: totals.bloqueadas + row.bloqueadas,
       gamificationPoints: totals.gamificationPoints + row.gamificationPoints,
+      gamificationEarnedPoints: totals.gamificationEarnedPoints + row.gamificationEarnedPoints,
+      gamificationPossiblePoints: totals.gamificationPossiblePoints + row.gamificationPossiblePoints,
+      gamificationFulfillmentPercent: calculateFulfillmentPercent(
+        totals.gamificationEarnedPoints + row.gamificationEarnedPoints,
+        totals.gamificationPossiblePoints + row.gamificationPossiblePoints
+      ),
+      gamificationAwardScore: Math.round(
+        ((totals.gamificationAwardScore * totals.count) + row.gamificationAwardScore) /
+          (totals.count + 1)
+      ),
     }),
-    { count: 0, abiertas: 0, retraso: 0, bloqueadas: 0, gamificationPoints: 0 }
+    {
+      count: 0,
+      abiertas: 0,
+      retraso: 0,
+      bloqueadas: 0,
+      gamificationPoints: 0,
+      gamificationEarnedPoints: 0,
+      gamificationPossiblePoints: 0,
+      gamificationFulfillmentPercent: 0,
+      gamificationAwardScore: 0,
+    }
   )
 }
 
@@ -197,8 +262,28 @@ export function summarizeAreaActionsRows(rows: AreaActionsSummaryRow[]): Actions
       retraso: totals.retraso + row.retraso,
       bloqueadas: totals.bloqueadas + row.bloqueadas,
       gamificationPoints: totals.gamificationPoints + row.gamificationPoints,
+      gamificationEarnedPoints: totals.gamificationEarnedPoints + row.gamificationEarnedPoints,
+      gamificationPossiblePoints: totals.gamificationPossiblePoints + row.gamificationPossiblePoints,
+      gamificationFulfillmentPercent: calculateFulfillmentPercent(
+        totals.gamificationEarnedPoints + row.gamificationEarnedPoints,
+        totals.gamificationPossiblePoints + row.gamificationPossiblePoints
+      ),
+      gamificationAwardScore: Math.round(
+        ((totals.gamificationAwardScore * totals.count) + row.gamificationAwardScore) /
+          (totals.count + 1)
+      ),
     }),
-    { count: 0, abiertas: 0, retraso: 0, bloqueadas: 0, gamificationPoints: 0 }
+    {
+      count: 0,
+      abiertas: 0,
+      retraso: 0,
+      bloqueadas: 0,
+      gamificationPoints: 0,
+      gamificationEarnedPoints: 0,
+      gamificationPossiblePoints: 0,
+      gamificationFulfillmentPercent: 0,
+      gamificationAwardScore: 0,
+    }
   )
 }
 
@@ -215,6 +300,10 @@ export interface SummaryTotals {
   retraso: number
   bloqueadas: number
   gamificationPoints: number
+  gamificationEarnedPoints: number
+  gamificationPossiblePoints: number
+  gamificationFulfillmentPercent: number
+  gamificationAwardScore: number
 }
 
 export function computeUserSummaryTotals(rows: UserActionsSummaryRow[]): SummaryTotals {
@@ -225,8 +314,28 @@ export function computeUserSummaryTotals(rows: UserActionsSummaryRow[]): Summary
       retraso: totals.retraso + row.retraso,
       bloqueadas: totals.bloqueadas + row.bloqueadas,
       gamificationPoints: totals.gamificationPoints + row.gamificationPoints,
+      gamificationEarnedPoints: totals.gamificationEarnedPoints + row.gamificationEarnedPoints,
+      gamificationPossiblePoints: totals.gamificationPossiblePoints + row.gamificationPossiblePoints,
+      gamificationFulfillmentPercent: calculateFulfillmentPercent(
+        totals.gamificationEarnedPoints + row.gamificationEarnedPoints,
+        totals.gamificationPossiblePoints + row.gamificationPossiblePoints
+      ),
+      gamificationAwardScore: Math.round(
+        ((totals.gamificationAwardScore * totals.count) + row.gamificationAwardScore) /
+          (totals.count + 1)
+      ),
     }),
-    { count: 0, abiertas: 0, retraso: 0, bloqueadas: 0, gamificationPoints: 0 }
+    {
+      count: 0,
+      abiertas: 0,
+      retraso: 0,
+      bloqueadas: 0,
+      gamificationPoints: 0,
+      gamificationEarnedPoints: 0,
+      gamificationPossiblePoints: 0,
+      gamificationFulfillmentPercent: 0,
+      gamificationAwardScore: 0,
+    }
   )
 }
 
@@ -238,8 +347,28 @@ export function computeAreaSummaryTotals(rows: AreaActionsSummaryRow[]): Summary
       retraso: totals.retraso + row.retraso,
       bloqueadas: totals.bloqueadas + row.bloqueadas,
       gamificationPoints: totals.gamificationPoints + row.gamificationPoints,
+      gamificationEarnedPoints: totals.gamificationEarnedPoints + row.gamificationEarnedPoints,
+      gamificationPossiblePoints: totals.gamificationPossiblePoints + row.gamificationPossiblePoints,
+      gamificationFulfillmentPercent: calculateFulfillmentPercent(
+        totals.gamificationEarnedPoints + row.gamificationEarnedPoints,
+        totals.gamificationPossiblePoints + row.gamificationPossiblePoints
+      ),
+      gamificationAwardScore: Math.round(
+        ((totals.gamificationAwardScore * totals.count) + row.gamificationAwardScore) /
+          (totals.count + 1)
+      ),
     }),
-    { count: 0, abiertas: 0, retraso: 0, bloqueadas: 0, gamificationPoints: 0 }
+    {
+      count: 0,
+      abiertas: 0,
+      retraso: 0,
+      bloqueadas: 0,
+      gamificationPoints: 0,
+      gamificationEarnedPoints: 0,
+      gamificationPossiblePoints: 0,
+      gamificationFulfillmentPercent: 0,
+      gamificationAwardScore: 0,
+    }
   )
 }
 
@@ -253,8 +382,10 @@ export function userSummarySortLabel(sortKey: UserSummarySortKey): string {
       return 'retrasos'
     case 'bloqueadas':
       return 'bloqueadas'
-    case 'gamificationPoints':
-      return 'puntos'
+    case 'gamificationFulfillmentPercent':
+      return 'cumplimiento'
+    case 'gamificationAwardScore':
+      return 'score ajustado'
   }
 }
 
@@ -270,7 +401,14 @@ export function areaSummarySortLabel(sortKey: AreaSummarySortKey): string {
       return 'retrasos'
     case 'bloqueadas':
       return 'bloqueadas'
-    case 'gamificationPoints':
-      return 'puntos'
+    case 'gamificationFulfillmentPercent':
+      return 'cumplimiento'
+    case 'gamificationAwardScore':
+      return 'score ajustado'
   }
+}
+
+function calculateFulfillmentPercent(earnedPoints: number, possiblePoints: number) {
+  if (possiblePoints <= 0) return 0
+  return Math.round((earnedPoints / possiblePoints) * 100)
 }

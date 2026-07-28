@@ -12,6 +12,7 @@ import {
   Clock3,
   FolderOpen,
   Plus,
+  Repeat2,
   SlidersHorizontal,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -78,6 +79,18 @@ function formatDueDate(value: string) {
     day: '2-digit',
     month: 'short',
   })
+}
+
+function formatRecurrence(action: TeamAction) {
+  if (!action.es_frecuente || !action.frecuencia_tipo) return null
+  if (action.frecuencia_tipo === 'diaria') return 'Diaria'
+  if (action.frecuencia_tipo === 'semanal') {
+    const days = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom']
+    const index = Math.max(1, Math.min(7, Number(action.frecuencia_dia_semana ?? 1))) - 1
+    return `Semanal ${days[index]}`
+  }
+  if (action.frecuencia_tipo === 'quincenal') return `Quincenal dia ${action.frecuencia_dia_mes ?? '-'}`
+  return `Mensual dia ${action.frecuencia_dia_mes ?? '-'}`
 }
 
 export function TeamKanbanPage() {
@@ -692,6 +705,7 @@ function ActionCard({
   const overdue = isOverdue(action, board)
   const critical = action.prioridad === 'Critica' && isOpenAction(action, board)
   const canManage = board.canManage ?? board.isLeader
+  const recurrence = formatRecurrence(action)
 
   return (
     <Card
@@ -711,8 +725,14 @@ function ActionCard({
             {action.prioridad}
           </Badge>
         </div>
-        {(overdue || action.bloqueada || action.escalada) && (
+        {(overdue || action.bloqueada || action.escalada || recurrence) && (
           <div className="flex flex-wrap gap-1">
+            {recurrence ? (
+              <Badge variant="outline" className="border-sky-200 bg-sky-50 text-[10px] text-sky-800">
+                <Repeat2 className="mr-1 h-3 w-3" />
+                {recurrence}
+              </Badge>
+            ) : null}
             {overdue ? (
               <Badge variant="outline" className="border-orange-300 bg-orange-50 text-[10px] text-orange-800">
                 Vencida

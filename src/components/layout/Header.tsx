@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Menu, User, LogOut, Settings, MapPinned, Trophy, Moon, Sun } from 'lucide-react'
+import { Menu, User, LogOut, Settings, MapPinned, Percent, Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -18,7 +18,7 @@ import { hasPlanAccionAccess } from '@/features/plan-accion/lib/planAccionAccess
 import { APP_NAME, ROUTES } from '@/constants'
 import { cn } from '@/lib/utils'
 
-const DISCIPLINE_SCORE_LABEL = 'Score'
+const DISCIPLINE_SCORE_LABEL = 'Cumplimiento'
 
 export function Header() {
   const navigate = useNavigate()
@@ -92,7 +92,7 @@ export function Header() {
           <div className="flex min-w-0 items-center gap-1 sm:gap-1.5">
             {showDisciplineScore ? (
               <DisciplineScoreHeaderChip
-                points={gamificationMetrics.totalPoints}
+                percent={gamificationMetrics.fulfillmentPercent}
                 loading={gamificationLoading}
               />
             ) : null}
@@ -148,34 +148,29 @@ export function Header() {
   )
 }
 
-function DisciplineScoreHeaderChip({ points, loading }: { points: number; loading: boolean }) {
-  const value = loading ? '...' : `${formatSignedPoints(points)} pts`
+function DisciplineScoreHeaderChip({ percent, loading }: { percent: number; loading: boolean }) {
+  const value = loading ? '...' : `${percent}%`
 
   return (
     <Link
       to={ROUTES.DISCIPLINA}
       className={cn(
         'hidden shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors hover:bg-muted/40 sm:inline-flex',
-        scoreChipClass(points)
+        scoreChipClass(percent)
       )}
       title={DISCIPLINE_SCORE_LABEL}
       aria-label={`${DISCIPLINE_SCORE_LABEL}: ${value}`}
     >
-      <Trophy className="h-3 w-3 shrink-0" aria-hidden />
+      <Percent className="h-3 w-3 shrink-0" aria-hidden />
       <span className="hidden whitespace-nowrap md:inline">{DISCIPLINE_SCORE_LABEL}</span>
       <span className="whitespace-nowrap tabular-nums">{value}</span>
     </Link>
   )
 }
 
-function formatSignedPoints(value: number) {
-  if (value > 0) return `+${value}`
-  return String(value)
-}
-
-function scoreChipClass(points: number) {
-  if (points >= 70) return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'
-  if (points > 0) return 'border-amber-500/30 bg-amber-500/10 text-amber-700'
-  if (points < 0) return 'border-destructive/30 bg-destructive/10 text-destructive'
+function scoreChipClass(percent: number) {
+  if (percent >= 85) return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'
+  if (percent >= 60) return 'border-amber-500/30 bg-amber-500/10 text-amber-700'
+  if (percent > 0) return 'border-destructive/30 bg-destructive/10 text-destructive'
   return 'border-border bg-muted/40 text-muted-foreground'
 }

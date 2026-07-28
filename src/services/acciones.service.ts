@@ -208,6 +208,8 @@ export interface AccionesFilter {
    * No filtra por `fecha` (límite operativo); se combina con excluir_estados (p. ej. Verificado).
    */
   calendario_creadas_hasta?: string // YYYY-MM-DD
+  /** Acciones creadas desde este día inclusive (YYYY-MM-DD, según `created_at`). */
+  created_at_min?: string
   estado?: ActionStatus | ActionStatus[]
   /** Estados a excluir (ej. Verificado para calendario: mostrar solo activas). */
   excluir_estados?: ActionStatus[]
@@ -286,6 +288,9 @@ function buildAccionesListQuery(filter: AccionesFilter = {}) {
   }
   if (filter.calendario_creadas_hasta) {
     q = q.lte('created_at', `${filter.calendario_creadas_hasta}T23:59:59.999Z`)
+  }
+  if (filter.created_at_min) {
+    q = q.gte('created_at', `${filter.created_at_min}T00:00:00`)
   }
   if (filter.fecha_min) q = q.gte('fecha', filter.fecha_min)
   if (filter.fecha_max) q = q.lte('fecha', filter.fecha_max)

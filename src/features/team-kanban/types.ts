@@ -4,7 +4,9 @@ export type TeamMember = { id: string; nombre: string }
 export type TeamAction = {
   id: string; area_id: string; estado_id: string; titulo: string; descripcion: string | null
   prioridad: 'Baja' | 'Media' | 'Alta' | 'Critica'; asignado_a: string; lider_id: string; asignado_nombre: string
-  fecha_limite: string | null; evidencia_requerida: boolean; checklist: Array<{ text: string; done?: boolean }>
+  fecha_limite: string | null; evidencia_requerida: boolean; checklist: Array<{ text: string; done?: boolean; responsable_id?: string | null }>
+  es_frecuente?: boolean; frecuencia_tipo?: 'diaria' | 'semanal' | 'quincenal' | 'mensual' | null
+  frecuencia_dia_semana?: number | null; frecuencia_dia_mes?: number | null; frecuencia_inicio?: string | null
   bloqueada: boolean; escalada: boolean; completed_at: string | null; created_at: string
 }
 export type TeamBoard = {

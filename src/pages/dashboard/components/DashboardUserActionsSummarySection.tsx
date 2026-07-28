@@ -8,6 +8,7 @@ import {
   Ban,
   Building2,
   CircleDot,
+  Percent,
   Trophy,
   UserRound,
   UsersRound,
@@ -154,11 +155,13 @@ function SummaryStat({
   value,
   icon: Icon,
   tone = 'default',
+  suffix = '',
 }: {
   label: string
   value: number
   icon: typeof CircleDot
   tone?: 'default' | 'warning' | 'danger' | 'accent'
+  suffix?: string
 }) {
   return (
     <div className="rounded-xl border border-border/60 bg-muted/15 px-3 py-3">
@@ -181,7 +184,7 @@ function SummaryStat({
           tone === 'danger' && value > 0 && 'text-destructive'
         )}
       >
-        {value}
+        {value}{suffix}
       </p>
     </div>
   )
@@ -195,7 +198,7 @@ function SummaryTotalsBar({
   totals: ActionsSummaryTotals
 }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
       <SummaryStat
         label={view === 'usuario' ? 'Usuarios' : 'Áreas'}
         value={totals.count}
@@ -204,7 +207,14 @@ function SummaryTotalsBar({
       <SummaryStat label="Abiertas" value={totals.abiertas} icon={CircleDot} />
       <SummaryStat label="En retraso" value={totals.retraso} icon={AlertTriangle} tone="warning" />
       <SummaryStat label="Bloqueadas" value={totals.bloqueadas} icon={Ban} tone="danger" />
-      <SummaryStat label="Puntos" value={totals.gamificationPoints} icon={Trophy} tone="accent" />
+      <SummaryStat
+        label="Cumplimiento"
+        value={totals.gamificationFulfillmentPercent}
+        icon={Percent}
+        tone="accent"
+        suffix="%"
+      />
+      <SummaryStat label="Score premio" value={totals.gamificationAwardScore} icon={Trophy} tone="accent" />
     </div>
   )
 }
@@ -263,11 +273,11 @@ function UserMobileCard({ row }: { row: UserActionsSummaryRow }) {
           <p className="truncate text-xs text-muted-foreground">{row.area}</p>
         </div>
         <span className="inline-flex items-center gap-1 text-sm font-semibold tabular-nums">
-          <Trophy className="h-3.5 w-3.5 text-amber-500" aria-hidden />
-          {row.gamificationPoints}
+          <Percent className="h-3.5 w-3.5 text-amber-500" aria-hidden />
+          {row.gamificationFulfillmentPercent}%
         </span>
       </div>
-      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+      <div className="mt-3 grid grid-cols-4 gap-2 text-center">
         <div className="rounded-lg bg-muted/30 px-2 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Abiertas</p>
           <p className="mt-0.5 text-sm font-semibold tabular-nums">{row.abiertas}</p>
@@ -284,7 +294,15 @@ function UserMobileCard({ row }: { row: UserActionsSummaryRow }) {
             {row.bloqueadas}
           </p>
         </div>
+        <div className="rounded-lg bg-muted/30 px-2 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Premio</p>
+          <p className="mt-0.5 text-sm font-semibold tabular-nums">{row.gamificationAwardScore}</p>
+        </div>
       </div>
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        {row.workloadBand} · {row.gamificationEarnedPoints}/{row.gamificationPossiblePoints} pts posibles · neto{' '}
+        {row.gamificationPoints}
+      </p>
     </article>
   )
 }
@@ -301,11 +319,11 @@ function AreaMobileCard({ row }: { row: AreaActionsSummaryRow }) {
           <p className="text-xs text-muted-foreground">{row.usuarios} usuario{row.usuarios !== 1 ? 's' : ''}</p>
         </div>
         <span className="inline-flex items-center gap-1 text-sm font-semibold tabular-nums">
-          <Trophy className="h-3.5 w-3.5 text-amber-500" aria-hidden />
-          {row.gamificationPoints}
+          <Percent className="h-3.5 w-3.5 text-amber-500" aria-hidden />
+          {row.gamificationFulfillmentPercent}%
         </span>
       </div>
-      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+      <div className="mt-3 grid grid-cols-4 gap-2 text-center">
         <div className="rounded-lg bg-muted/30 px-2 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Abiertas</p>
           <p className="mt-0.5 text-sm font-semibold tabular-nums">{row.abiertas}</p>
@@ -322,7 +340,14 @@ function AreaMobileCard({ row }: { row: AreaActionsSummaryRow }) {
             {row.bloqueadas}
           </p>
         </div>
+        <div className="rounded-lg bg-muted/30 px-2 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Premio</p>
+          <p className="mt-0.5 text-sm font-semibold tabular-nums">{row.gamificationAwardScore}</p>
+        </div>
       </div>
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        {row.gamificationEarnedPoints}/{row.gamificationPossiblePoints} pts posibles · neto {row.gamificationPoints}
+      </p>
     </article>
   )
 }
@@ -470,12 +495,12 @@ export function DashboardUserActionsSummarySection({
           icon={UsersRound}
           eyebrow="Usuarios"
           title="Carga operativa por usuario"
-          subtitle="Backlog abierto, retrasos, bloqueos y puntos de gamificación. Solo usuarios con área asignada."
+          subtitle="Backlog abierto, retrasos, bloqueos y cumplimiento de gamificación ajustado por carga."
           action={<SummaryViewToggle view={view} onViewChange={setView} />}
         />
         <SectionCardBody className="space-y-4 p-4 md:p-6">
           {isLoading || isGamificationLoading || orgChartScoresLoading || academyProgressLoading ? (
-            <DashboardUserActionsSkeleton columns={view === 'usuario' ? 5 : 6} />
+            <DashboardUserActionsSkeleton columns={view === 'usuario' ? 6 : 7} />
           ) : baseUserRows.length === 0 ? (
             <div className="flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 bg-muted/10 px-4 py-10 text-center">
               <UsersRound className="h-9 w-9 text-muted-foreground/40" aria-hidden />
@@ -517,7 +542,7 @@ export function DashboardUserActionsSummarySection({
                   </div>
 
                   <div className="hidden overflow-x-auto rounded-xl border border-border/60 md:block">
-                    <table className="w-full min-w-[720px] text-sm">
+                    <table className="w-full min-w-[920px] text-sm">
                       <thead>
                         <tr className="border-b border-border/50 bg-muted/30 text-left text-muted-foreground">
                           <SortableHead
@@ -551,8 +576,15 @@ export function DashboardUserActionsSummarySection({
                             onSort={handleUserSort}
                           />
                           <SortableHead
-                            label="Puntos"
-                            sortKey="gamificationPoints"
+                            label="Cumpl."
+                            sortKey="gamificationFulfillmentPercent"
+                            activeKey={userSortKey}
+                            sortDir={sortDir}
+                            onSort={handleUserSort}
+                          />
+                          <SortableHead
+                            label="Premio"
+                            sortKey="gamificationAwardScore"
                             activeKey={userSortKey}
                             sortDir={sortDir}
                             onSort={handleUserSort}
@@ -593,16 +625,28 @@ export function DashboardUserActionsSummarySection({
                               <td className="px-4 py-3 text-right align-middle">
                                 <MetricCell value={row.bloqueadas} tone="danger" />
                               </td>
-                              <td className="px-4 py-3 text-right align-middle md:px-6">
+                              <td className="px-4 py-3 text-right align-middle">
                                 <span
                                   className={cn(
                                     'inline-flex items-center justify-end gap-1.5 font-semibold tabular-nums',
-                                    row.gamificationPoints < 0 ? 'text-destructive' : 'text-foreground'
+                                    fulfillmentTone(row.gamificationFulfillmentPercent)
                                   )}
                                 >
-                                  <Trophy className="h-3.5 w-3.5 text-amber-500" aria-hidden />
-                                  {row.gamificationPoints}
+                                  <Percent className="h-3.5 w-3.5 text-amber-500" aria-hidden />
+                                  {row.gamificationFulfillmentPercent}%
                                 </span>
+                                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                  {row.gamificationEarnedPoints}/{row.gamificationPossiblePoints} pts · neto{' '}
+                                  {row.gamificationPoints}
+                                </p>
+                              </td>
+                              <td className="px-4 py-3 text-right align-middle md:px-6">
+                                <div className="inline-flex flex-col items-end gap-0.5">
+                                  <span className="font-semibold tabular-nums text-foreground">
+                                    {row.gamificationAwardScore}
+                                  </span>
+                                  <span className="text-[11px] text-muted-foreground">{row.workloadBand}</span>
+                                </div>
                               </td>
                             </tr>
                           )
@@ -620,7 +664,7 @@ export function DashboardUserActionsSummarySection({
                   </div>
 
                   <div className="hidden overflow-x-auto rounded-xl border border-border/60 md:block">
-                    <table className="w-full min-w-[760px] text-sm">
+                    <table className="w-full min-w-[960px] text-sm">
                       <thead>
                         <tr className="border-b border-border/50 bg-muted/30 text-left text-muted-foreground">
                           <SortableHead
@@ -661,8 +705,15 @@ export function DashboardUserActionsSummarySection({
                             onSort={handleAreaSort}
                           />
                           <SortableHead
-                            label="Puntos"
-                            sortKey="gamificationPoints"
+                            label="Cumpl."
+                            sortKey="gamificationFulfillmentPercent"
+                            activeKey={areaSortKey}
+                            sortDir={sortDir}
+                            onSort={handleAreaSort}
+                          />
+                          <SortableHead
+                            label="Premio"
+                            sortKey="gamificationAwardScore"
                             activeKey={areaSortKey}
                             sortDir={sortDir}
                             onSort={handleAreaSort}
@@ -703,16 +754,23 @@ export function DashboardUserActionsSummarySection({
                               <td className="px-4 py-3 text-right align-middle">
                                 <MetricCell value={row.bloqueadas} tone="danger" />
                               </td>
-                              <td className="px-4 py-3 text-right align-middle md:px-6">
+                              <td className="px-4 py-3 text-right align-middle">
                                 <span
                                   className={cn(
                                     'inline-flex items-center justify-end gap-1.5 font-semibold tabular-nums',
-                                    row.gamificationPoints < 0 ? 'text-destructive' : 'text-foreground'
+                                    fulfillmentTone(row.gamificationFulfillmentPercent)
                                   )}
                                 >
-                                  <Trophy className="h-3.5 w-3.5 text-amber-500" aria-hidden />
-                                  {row.gamificationPoints}
+                                  <Percent className="h-3.5 w-3.5 text-amber-500" aria-hidden />
+                                  {row.gamificationFulfillmentPercent}%
                                 </span>
+                                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                  {row.gamificationEarnedPoints}/{row.gamificationPossiblePoints} pts · neto{' '}
+                                  {row.gamificationPoints}
+                                </p>
+                              </td>
+                              <td className="px-4 py-3 text-right align-middle md:px-6">
+                                <span className="font-semibold tabular-nums text-foreground">{row.gamificationAwardScore}</span>
                               </td>
                             </tr>
                           )
@@ -725,8 +783,9 @@ export function DashboardUserActionsSummarySection({
 
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 Abiertas: acciones no cerradas asignadas al usuario. Retraso: estado Retraso o fuera de fecha
-                compromiso. Bloqueadas: estado Bloqueado. Puntos: gamificación personal del periodo, academia y
-                perfil organizacional.
+                compromiso. Bloqueadas: estado Bloqueado. Cumplimiento: puntos ganados sobre puntos positivos
+                posibles; las penalizaciones quedan como neto operativo. Premio: score ajustado por cierre, retrasos,
+                colaboración, racha y carga asignada.
               </p>
             </>
           )}
@@ -734,4 +793,10 @@ export function DashboardUserActionsSummarySection({
       </SectionCard>
     </section>
   )
+}
+
+function fulfillmentTone(percent: number) {
+  if (percent >= 85) return 'text-emerald-700 dark:text-emerald-300'
+  if (percent >= 60) return 'text-amber-700 dark:text-amber-300'
+  return 'text-destructive'
 }

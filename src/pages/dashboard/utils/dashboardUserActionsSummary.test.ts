@@ -9,6 +9,7 @@ import {
   hasAssignedArea,
   summarizeAreaActionsRows,
   summarizeUserActionsRows,
+  type UserActionsSummaryRow,
 } from './dashboardUserActionsSummary'
 
 function user(partial: Partial<UserProfile> & Pick<UserProfile, 'id' | 'nombre'>): UserProfile {
@@ -75,6 +76,21 @@ function comment(partial: Partial<AccionComentario> = {}): AccionComentario {
     etiquetas: partial.etiquetas ?? [],
     adjuntos: [],
     created_at: partial.created_at ?? '2026-07-15T12:00:00Z',
+  }
+}
+
+function summaryRow(partial: Partial<UserActionsSummaryRow> & Pick<UserActionsSummaryRow, 'userId' | 'nombre' | 'area'>): UserActionsSummaryRow {
+  return {
+    abiertas: 0,
+    retraso: 0,
+    bloqueadas: 0,
+    gamificationPoints: 0,
+    gamificationEarnedPoints: 0,
+    gamificationPossiblePoints: 0,
+    gamificationFulfillmentPercent: 0,
+    gamificationAwardScore: 0,
+    workloadBand: 'Sin carga',
+    ...partial,
   }
 }
 
@@ -195,7 +211,7 @@ describe('dashboardUserActionsSummary', () => {
 
   it('buildAreaActionsSummaryRows agrega metricas por area', () => {
     const rows = buildAreaActionsSummaryRows([
-      {
+      summaryRow({
         userId: 'u1',
         nombre: 'Ana',
         area: 'Operaciones',
@@ -203,8 +219,12 @@ describe('dashboardUserActionsSummary', () => {
         retraso: 1,
         bloqueadas: 0,
         gamificationPoints: 10,
-      },
-      {
+        gamificationEarnedPoints: 10,
+        gamificationPossiblePoints: 10,
+        gamificationFulfillmentPercent: 100,
+        gamificationAwardScore: 80,
+      }),
+      summaryRow({
         userId: 'u2',
         nombre: 'Luis',
         area: 'Operaciones',
@@ -212,8 +232,12 @@ describe('dashboardUserActionsSummary', () => {
         retraso: 0,
         bloqueadas: 1,
         gamificationPoints: 5,
-      },
-      {
+        gamificationEarnedPoints: 5,
+        gamificationPossiblePoints: 10,
+        gamificationFulfillmentPercent: 50,
+        gamificationAwardScore: 60,
+      }),
+      summaryRow({
         userId: 'u3',
         nombre: 'Cara',
         area: 'RH',
@@ -221,7 +245,11 @@ describe('dashboardUserActionsSummary', () => {
         retraso: 0,
         bloqueadas: 0,
         gamificationPoints: 2,
-      },
+        gamificationEarnedPoints: 2,
+        gamificationPossiblePoints: 4,
+        gamificationFulfillmentPercent: 50,
+        gamificationAwardScore: 55,
+      }),
     ])
 
     expect(rows).toHaveLength(2)
@@ -241,7 +269,7 @@ describe('dashboardUserActionsSummary', () => {
 
   it('summarizeUserActionsRows agrega totales visibles', () => {
     const totals = summarizeUserActionsRows([
-      {
+      summaryRow({
         userId: 'u1',
         nombre: 'Ana',
         area: 'Operaciones',
@@ -249,8 +277,12 @@ describe('dashboardUserActionsSummary', () => {
         retraso: 1,
         bloqueadas: 0,
         gamificationPoints: 10,
-      },
-      {
+        gamificationEarnedPoints: 10,
+        gamificationPossiblePoints: 10,
+        gamificationFulfillmentPercent: 100,
+        gamificationAwardScore: 80,
+      }),
+      summaryRow({
         userId: 'u2',
         nombre: 'Luis',
         area: 'RH',
@@ -258,10 +290,14 @@ describe('dashboardUserActionsSummary', () => {
         retraso: 0,
         bloqueadas: 1,
         gamificationPoints: 5,
-      },
+        gamificationEarnedPoints: 5,
+        gamificationPossiblePoints: 10,
+        gamificationFulfillmentPercent: 50,
+        gamificationAwardScore: 60,
+      }),
     ])
 
-    expect(totals).toEqual({
+    expect(totals).toMatchObject({
       count: 2,
       abiertas: 5,
       retraso: 1,
@@ -272,7 +308,7 @@ describe('dashboardUserActionsSummary', () => {
 
   it('summarizeAreaActionsRows agrega totales por area', () => {
     const totals = summarizeAreaActionsRows(buildAreaActionsSummaryRows([
-      {
+      summaryRow({
         userId: 'u1',
         nombre: 'Ana',
         area: 'Operaciones',
@@ -280,8 +316,12 @@ describe('dashboardUserActionsSummary', () => {
         retraso: 1,
         bloqueadas: 0,
         gamificationPoints: 4,
-      },
-      {
+        gamificationEarnedPoints: 4,
+        gamificationPossiblePoints: 8,
+        gamificationFulfillmentPercent: 50,
+        gamificationAwardScore: 55,
+      }),
+      summaryRow({
         userId: 'u2',
         nombre: 'Luis',
         area: 'Operaciones',
@@ -289,7 +329,11 @@ describe('dashboardUserActionsSummary', () => {
         retraso: 0,
         bloqueadas: 1,
         gamificationPoints: 2,
-      },
+        gamificationEarnedPoints: 2,
+        gamificationPossiblePoints: 2,
+        gamificationFulfillmentPercent: 100,
+        gamificationAwardScore: 70,
+      }),
     ]))
 
     expect(totals).toMatchObject({

@@ -38,6 +38,7 @@ import { DashboardHeader } from './components/DashboardHeader'
 import { DashboardActionsSection } from './components/DashboardActionsSection'
 import { DashboardUserActionsSummarySection } from './components/DashboardUserActionsSummarySection'
 import { DashboardUserLoginChartSection } from './components/DashboardUserLoginChartSection'
+import { DashboardRedUploadsByWeekSection } from './components/DashboardRedUploadsByWeekSection'
 import { DashboardExecutivePanel } from './components/DashboardExecutivePanel'
 import { useOperationalDashboardMetrics } from './hooks/useOperationalDashboardMetrics'
 import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
@@ -127,6 +128,7 @@ export function DashboardPage() {
   const filterForQuery = useMemo(() => ({ ...filter }), [filter])
   const currentPeriod = useMemo(() => currentPeriodFromFilter(filterForQuery, today), [filterForQuery, today])
   const gamificationHistoryStart = useMemo(() => addDays(today, -90), [today])
+  const redUploadsHistoryStart = useMemo(() => addDays(today, -(7 * 8 - 1)), [today])
   const previousFilterForQuery = useMemo(
     () => previousFilterFromPeriod(filterForQuery, currentPeriod),
     [currentPeriod, filterForQuery]
@@ -142,6 +144,19 @@ export function DashboardPage() {
   const { data: gamificationAcciones = [], isLoading: gamificationAccionesLoading } = useAcciones({
     fecha_min: gamificationHistoryStart,
   })
+  const redUploadsFilter = useMemo(
+    (): AccionesFilter => ({
+      created_at_min: redUploadsHistoryStart,
+      ...(filter.area ? { area: filter.area } : {}),
+      ...(filter.responsable ? { responsable: filter.responsable } : {}),
+      ...(filter.created_by ? { created_by: filter.created_by } : {}),
+    }),
+    [filter.area, filter.created_by, filter.responsable, redUploadsHistoryStart]
+  )
+  const {
+    data: redUploadAcciones = [],
+    isLoading: redUploadAccionesLoading,
+  } = useAcciones(redUploadsFilter)
   const accionIds = useMemo(() => acciones.map((a) => a.id), [acciones])
   const gamificationAccionIds = useMemo(
     () => gamificationAcciones.map((accion) => accion.id),
@@ -556,6 +571,15 @@ export function DashboardPage() {
         </div>
 
         <DashboardUserLoginChartSection />
+
+        <DashboardRedUploadsByWeekSection
+          actions={redUploadAcciones}
+          users={users}
+          priorities={priorities}
+          today={today}
+          isLoading={redUploadAccionesLoading}
+          onDrillDown={handleDrillDown}
+        />
 
         {false ? (
         <section
