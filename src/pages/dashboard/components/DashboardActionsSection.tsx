@@ -54,10 +54,16 @@ export function DashboardActionsSection({
   }, [acciones, showAll, hasMore])
 
   const subtitle = subtitleOverride ?? `${total} accion${total !== 1 ? 'es' : ''} · ${fechaResumen}`
+  const isDrillDown = Boolean(onClearDrillDown)
 
   return (
     <div id="dashboard-actions-section" className="dashboard-actions-section">
-      <SectionCard className="overflow-hidden">
+      <SectionCard
+        className={cn(
+          'overflow-hidden',
+          isDrillDown && 'flex min-h-[calc(100dvh-3rem)] flex-col'
+        )}
+      >
         <SectionCardHeader
           className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
           icon={ClipboardList}
@@ -93,8 +99,14 @@ export function DashboardActionsSection({
             </div>
           }
         />
-        <SectionCardBody className="p-0">
-          <div className="relative">
+        <SectionCardBody className={cn('p-0', isDrillDown && 'flex min-h-0 flex-1 flex-col')}>
+          <div
+            className={cn(
+              'relative',
+              isDrillDown &&
+                'flex min-h-0 flex-1 flex-col [&_.acciones-control-table-mobile]:h-full [&_.acciones-control-table]:h-full'
+            )}
+          >
             <AccionesControlTable
               acciones={accionesVisibles}
               isLoading={isLoading}

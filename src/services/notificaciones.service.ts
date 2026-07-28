@@ -34,6 +34,7 @@ type SendNotificationEmailOptions = {
 type CreateNotificacionOptions = {
   throwOnEmailError?: boolean
   throwOnEmailSkipped?: boolean
+  awaitEmail?: boolean
 }
 
 function notificationEmailDetail(result: NotificationEmailResult | null | undefined): string {
@@ -123,14 +124,22 @@ export const notificacionesService = {
     })
     if (error) throw error
 
-    try {
-      await sendNotificationEmail(input, { throwOnSkipped: options.throwOnEmailSkipped })
-    } catch (emailError) {
-      console.warn(
-        '[notificaciones] La notificacion se creo, pero no se pudo enviar el correo.',
-        emailError
-      )
-      if (options.throwOnEmailError) throw emailError
+    const sendEmail = async () => {
+      try {
+        await sendNotificationEmail(input, { throwOnSkipped: options.throwOnEmailSkipped })
+      } catch (emailError) {
+        console.warn(
+          '[notificaciones] La notificacion se creo, pero no se pudo enviar el correo.',
+          emailError
+        )
+        if (options.throwOnEmailError) throw emailError
+      }
+    }
+
+    if (options.awaitEmail || options.throwOnEmailError || options.throwOnEmailSkipped) {
+      await sendEmail()
+    } else {
+      void sendEmail()
     }
   },
 

@@ -43,6 +43,8 @@ import {
 } from 'lucide-react'
 
 const TIPO_LABELS: Record<string, string> = {
+  team_responsable: 'Accion de equipo asignada',
+  team_check_responsable: 'Check de equipo asignado',
   comentario: 'Comentario en acción',
   comentario_asignado: 'Comentario con etiqueta',
   responsable: 'Acción asignada',
@@ -57,6 +59,8 @@ const TIPO_LABELS: Record<string, string> = {
 }
 
 const TIPO_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  team_responsable: UserPlus,
+  team_check_responsable: UserPlus,
   comentario: MessageSquare,
   comentario_asignado: UserPlus,
   responsable: UserPlus,
@@ -78,6 +82,7 @@ function getContextLabel(tipo: string, hasAccionContext: boolean, hasTicketConte
   if (tipo === 'comentario' || tipo === 'comentario_asignado') return 'Comentario'
   if (tipo === 'ticket_comentario') return 'Comentario en ticket'
   if (hasTicketContext || tipo.startsWith('ticket_')) return 'Ticket'
+  if (tipo === 'team_responsable' || tipo === 'team_check_responsable') return 'Equipo'
   if (hasAccionContext || ['responsable', 'check_responsable', 'estado', 'evidencia', 'bloqueo'].includes(tipo)) return 'Acción'
   if (tipo === 'recordatorio_calendario') return 'Recordatorio'
   return 'Notificación'
@@ -109,6 +114,7 @@ function NotificacionItem({
   const Icon = TIPO_ICONS[n.tipo] ?? Bell
   const payload = parseNotificacionPayload(n.payload as Record<string, unknown> | null)
   const accionId = payload.accion_id
+  const equipoAccionId = payload.equipo_accion_id
   const ticketId = payload.ticket_id
   const tipoLabel = payload.titulo ?? getTipoLabel(n.tipo)
   const tituloAccion = resolveAccionTitulo(payload, accionMeta)
@@ -123,6 +129,9 @@ function NotificacionItem({
   const headline = tituloAccion || tituloTicket || tipoLabel
   const summaryDetail = getSummaryDetail({ comentarioPreview, eventoLabel, tipoLabel })
   const kanbanLink = accionId ? `${ROUTES.KANBAN}?accion=${accionId}` : null
+  const teamKanbanLink = equipoAccionId
+    ? `${ROUTES.TEAM_KANBAN}?accion=${equipoAccionId}${payload.area_id ? `&area=${payload.area_id}` : ''}`
+    : null
   const ticketLink = ticketId ? `${ROUTES.TICKETS}?ticket=${ticketId}` : null
 
   return (
@@ -172,9 +181,9 @@ function NotificacionItem({
           ) : null}
         </div>
 
-        {kanbanLink ? (
+        {kanbanLink || teamKanbanLink ? (
           <Link
-            to={kanbanLink}
+            to={kanbanLink ?? teamKanbanLink!}
             onClick={(e) => e.stopPropagation()}
             className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10 hover:underline"
           >
@@ -182,7 +191,7 @@ function NotificacionItem({
             <ExternalLink className="h-3 w-3" />
           </Link>
         ) : null}
-        {!kanbanLink && ticketLink ? (
+        {!kanbanLink && !teamKanbanLink && ticketLink ? (
           <Link
             to={ticketLink}
             onClick={(e) => e.stopPropagation()}
@@ -272,16 +281,16 @@ function NotificacionItem({
                   <span className="ml-1.5 font-semibold text-amber-600">{n.prioridad}</span>
                 )}
               </p>
-              {kanbanLink ? (
+              {kanbanLink || teamKanbanLink ? (
                 <Link
-                  to={kanbanLink}
+                  to={kanbanLink ?? teamKanbanLink!}
                   className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                 >
                   Ir a acción
                   <ExternalLink className="h-3 w-3" />
                 </Link>
               ) : null}
-              {!kanbanLink && ticketLink ? (
+              {!kanbanLink && !teamKanbanLink && ticketLink ? (
                 <Link
                   to={ticketLink}
                   className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"

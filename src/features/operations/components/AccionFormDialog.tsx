@@ -43,9 +43,15 @@ import {
   isAcceptedFile,
 } from '@/services/accionEvidencias.service'
 import { accionesService } from '@/services/acciones.service'
+import { accionFechaCompromisoCambiosService } from '@/services/accionFechaCompromisoCambios.service'
 import { accionCheckpointsService } from '@/services/accionCheckpoints.service'
 import type { AccionDiaria, ActionStatus } from '@/types'
 import { DEFAULT_PRIORITY_NOMBRE } from '../utils/priorityLabels'
+import {
+  FECHA_COMPROMISO_CHANGE_REASONS,
+  isFechaCompromisoChangeReasonKey,
+  type FechaCompromisoChangeReasonKey,
+} from '../constants/fechaCompromisoChangeReasons'
 import type { AccionCreateInput, AccionFormInput } from '../schemas/accion.schema'
 import { flattenDescripcionForForm } from '../utils/descripcionAccionTriada'
 import { toast } from 'sonner'
@@ -169,6 +175,8 @@ export function AccionFormDialog({
   const [submitFooterErrors, setSubmitFooterErrors] = useState<string[] | null>(null)
   const [manualEmailPending, setManualEmailPending] = useState(false)
   const [livePrioridad, setLivePrioridad] = useState<string | undefined>()
+  const [fechaCompromisoReason, setFechaCompromisoReason] =
+    useState<FechaCompromisoChangeReasonKey | ''>('')
   const { data: checklistUsers = [] } = useQuery({
     queryKey: [...usersQueryKey, { activo: true }],
     queryFn: () => usersAdminService.list({ activo: true }),
@@ -185,6 +193,7 @@ export function AccionFormDialog({
 
   useEffect(() => {
     setSubmitFooterErrors(null)
+    setFechaCompromisoReason('')
   }, [open, accion?.id])
 
   useEffect(() => {
@@ -353,9 +362,6 @@ export function AccionFormDialog({
           asignador_nombre: currentUser?.nombre ?? null,
           fecha_asignacion: new Date().toISOString(),
         },
-      }, {
-        throwOnEmailError: true,
-        throwOnEmailSkipped: true,
       })
     } catch (err) {
       console.warn('[checklist] No se pudo crear notificacion de responsable de check:', err)
@@ -535,6 +541,19 @@ export function AccionFormDialog({
       priorities.find((p) => p.nombre === prioridad)?.id ??
       (accionLive ? resolveAccionPrioridadId(accionLive, priorities) : null)
     const estado = (values.estado ?? 'Pendiente') as ActionStatus
+    const changesFechaCompromiso =
+      isEdit &&
+      !!accionLive &&
+      !accionLive.repeticion &&
+      !isEditProtectedReadonly &&
+      !!values.fecha &&
+      values.fecha !== accionLive.fecha
+    if (changesFechaCompromiso && !isFechaCompromisoChangeReasonKey(fechaCompromisoReason)) {
+      const message = 'Selecciona primero el motivo del cambio de fecha compromiso.'
+      setSubmitFooterErrors([message])
+      toast.error(message)
+      return
+    }
     const payload: Partial<AccionDiaria> =
       isEditProtectedReadonly && accionLive
         ? {
@@ -572,6 +591,32 @@ export function AccionFormDialog({
         { id: accionLive.id, payload },
         {
           onSuccess: () => {
+            if (changesFechaCompromiso && isFechaCompromisoChangeReasonKey(fechaCompromisoReason)) {
+              void accionFechaCompromisoCambiosService
+                .create({
+                  origen: 'kanban',
+                  accionId: accionLive.id,
+                  accionTitulo: payload.titulo_accion ?? accionLive.titulo_accion ?? 'Accion sin titulo',
+                  motivoKey: fechaCompromisoReason,
+                  fechaAnterior: accionLive.fecha,
+                  fechaNueva: fecha,
+                  changedBy: currentUser?.id ?? null,
+                  changedByNombre: currentUser?.nombre ?? null,
+                })
+                .then(() => {
+                  qc.invalidateQueries({
+                    queryKey: ['dashboard', 'fecha-compromiso-cambios'],
+                    refetchType: 'active',
+                  })
+                })
+                .catch((e) => {
+                  toast.error(
+                    e instanceof Error
+                      ? e.message
+                      : 'La accion se actualizo, pero no se pudo registrar el motivo del cambio.'
+                  )
+                })
+            }
             if (cambiaResponsable && nuevoResponsable) {
               void notifyResponsable(nuevoResponsable, accionLive.id, {
                 titulo_accion: payload.titulo_accion ?? accionLive.titulo_accion ?? '',
@@ -957,6 +1002,42 @@ export function AccionFormDialog({
                 </>
               ) : undefined
             }
+            deadlineExtras={({ fecha }) => {
+              const show =
+                isEdit &&
+                !!accionLive &&
+                !accionLive.repeticion &&
+                !isEditProtectedReadonly &&
+                !!fecha &&
+                fecha !== accionLive.fecha
+              if (!show) return null
+
+              return (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/25 dark:text-amber-100">
+                  <p className="text-xs font-semibold">Motivo requerido antes de cambiar la fecha compromiso</p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {FECHA_COMPROMISO_CHANGE_REASONS.map((reason) => (
+                      <button
+                        key={reason.key}
+                        type="button"
+                        onClick={() => setFechaCompromisoReason(reason.key)}
+                        className={cn(
+                          'rounded-md border px-3 py-2 text-left text-xs transition',
+                          fechaCompromisoReason === reason.key
+                            ? 'border-amber-500 bg-background shadow-sm ring-1 ring-amber-400'
+                            : 'border-amber-200/80 bg-background/60 hover:border-amber-400'
+                        )}
+                      >
+                        <span className="block font-medium text-foreground">{reason.label}</span>
+                        <span className="mt-0.5 block leading-snug text-muted-foreground">
+                          {reason.description}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+            }}
           />
         {isEdit && accion && (
           <div className="accion-form-dialog-edit-extras mt-4 space-y-4 sm:mt-6 sm:space-y-5">

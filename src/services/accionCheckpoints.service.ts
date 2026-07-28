@@ -26,6 +26,10 @@ function normalizeCheckpointError(error: unknown): Error {
     'code' in error &&
     (error as { code?: string }).code === '42501'
   ) {
+    const message = 'message' in error ? String((error as { message?: unknown }).message ?? '') : ''
+    if (message.toLowerCase().includes('area')) {
+      return new Error(message)
+    }
     return new Error(
       'No tienes permiso para modificar este checklist. La persona asignada puede marcar checks y agregar puntos; la estructura la editan quien administra la accion, Direccion o super_admin.'
     )

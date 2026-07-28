@@ -73,7 +73,7 @@ function sanitizeText(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value.trim() : fallback
 }
 
-const DEFAULT_APP_BASE_URL = 'https://dev-tablero-operativo.vercel.app'
+const DEFAULT_APP_BASE_URL = 'https://scrumbanemx.vercel.app'
 
 function normalizeAppBaseUrl(value: string | undefined): string | null {
   const trimmed = value?.trim().replace(/\/+$/, '')

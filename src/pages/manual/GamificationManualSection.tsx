@@ -1,6 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CircleMinus, CirclePlus, ListChecks, Pencil, ShieldCheck, Trophy } from 'lucide-react'
+import {
+  CircleMinus,
+  CirclePlus,
+  Gauge,
+  ListChecks,
+  Pencil,
+  Percent,
+  Scale,
+  ShieldCheck,
+  Trophy,
+  Users,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -37,6 +48,20 @@ function PointsBadge({ points }: { points: number }) {
     </span>
   )
 }
+
+const awardWeights = [
+  { label: 'Cumplimiento', value: '40%', detail: 'Puntos ganados sobre puntos positivos posibles.' },
+  { label: 'Tasa de cierre', value: '25%', detail: 'Acciones asignadas que llegaron a cierre.' },
+  { label: 'Sin retrasos', value: '15%', detail: 'Premia evitar acciones vencidas o en Retraso.' },
+  { label: 'Colaboracion', value: '10%', detail: 'Comentarios y seguimiento relevante.' },
+  { label: 'Racha', value: '10%', detail: 'Actividad constante creando, comentando o cerrando.' },
+]
+
+const workloadBands = [
+  { label: 'Carga baja', value: '1-5 acciones' },
+  { label: 'Carga media', value: '6-15 acciones' },
+  { label: 'Carga alta', value: '16+ acciones' },
+]
 
 export function GamificationManualSection() {
   const queryClient = useQueryClient()
@@ -101,6 +126,162 @@ export function GamificationManualSection() {
         </CardHeader>
 
         <CardContent className="p-0">
+          <div className="border-b bg-card px-5 py-5 sm:px-6">
+            <div className="grid gap-3 lg:grid-cols-3">
+              <div className="rounded-xl border border-border/70 bg-muted/15 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Percent className="h-4 w-4 text-amber-600" aria-hidden />
+                  Cumplimiento
+                </div>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  La lectura principal es puntos ganados sobre puntos positivos posibles. Si un usuario gana 80 de
+                  80 puntos posibles, su cumplimiento es 100%, aunque tenga penalizaciones visibles en el neto.
+                </p>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-muted/15 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Scale className="h-4 w-4 text-emerald-600" aria-hidden />
+                  Neto operativo
+                </div>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Las penalizaciones no reducen el porcentaje de cumplimiento; se muestran como saldo neto para
+                  evidenciar retrasos, riesgos o disciplina operativa pendiente.
+                </p>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-muted/15 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Trophy className="h-4 w-4 text-amber-600" aria-hidden />
+                  Premios justos
+                </div>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Para reconocimientos, usa el score ajustado dentro de bandas de carga. Los puntos brutos quedan
+                  como contexto o desempate, no como criterio unico.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+              <div className="rounded-xl border border-border/70 bg-background p-4">
+                <div className="flex items-center gap-2">
+                  <Gauge className="h-4 w-4 text-primary" aria-hidden />
+                  <h3 className="text-sm font-semibold text-foreground">Score ajustado para premios</h3>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-5">
+                  {awardWeights.map((item) => (
+                    <div key={item.label} className="rounded-lg border border-border/60 bg-muted/20 p-3">
+                      <p className="text-lg font-semibold tabular-nums text-foreground">{item.value}</p>
+                      <p className="mt-1 text-xs font-medium text-foreground">{item.label}</p>
+                      <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{item.detail}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border/70 bg-background p-4">
+                <div className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-primary" aria-hidden />
+                  <h3 className="text-sm font-semibold text-foreground">Bandas de carga</h3>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {workloadBands.map((band) => (
+                    <div
+                      key={band.label}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2"
+                    >
+                      <span className="text-sm font-medium text-foreground">{band.label}</span>
+                      <span className="text-xs font-semibold tabular-nums text-muted-foreground">{band.value}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                  Compara usuarios dentro de su misma banda para evitar que una carga dispareja defina los premios.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-4">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-amber-600" aria-hidden />
+                <h3 className="text-sm font-semibold text-foreground">Consideracion para premios</h3>
+              </div>
+              <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
+                <p>
+                  La gamificacion no premia solo quien junta mas puntos, porque la carga de trabajo puede ser
+                  diferente entre usuarios. El sistema separa <strong className="text-foreground">actividad</strong>,{' '}
+                  <strong className="text-foreground">cumplimiento</strong> y{' '}
+                  <strong className="text-foreground">premios</strong>.
+                </p>
+                <p>
+                  Cada usuario puede ganar puntos por acciones positivas como crear acciones, recibir asignaciones,
+                  cerrar en tiempo, comentar seguimientos, completar academia, mantener racha y tener perfil
+                  organizacional completo. Tambien puede tener penalizaciones por acciones en retraso.
+                </p>
+                <div className="rounded-lg border border-border/70 bg-background p-3">
+                  <p className="font-medium text-foreground">Dato principal para evaluar desempeno</p>
+                  <p className="mt-1 font-mono text-xs text-muted-foreground">
+                    Cumplimiento = puntos ganados / puntos positivos posibles
+                  </p>
+                </div>
+                <div className="grid gap-2 rounded-lg border border-border/70 bg-background p-3 sm:grid-cols-5">
+                  {[
+                    ['Puntos ganados', '80'],
+                    ['Puntos posibles', '80'],
+                    ['Penalizacion', '-20'],
+                    ['Neto operativo', '60'],
+                    ['Cumplimiento', '100%'],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{value}</p>
+                    </div>
+                  ))}
+                </div>
+                <p>
+                  En este ejemplo, el usuario si cumplio el 100% de lo que podia ganar, pero el neto muestra que tuvo
+                  retrasos que deben corregirse.
+                </p>
+                <p>
+                  Para premios, no se recomienda usar solo puntos brutos ni solo puntos netos. Se usa un{' '}
+                  <strong className="text-foreground">score ajustado para premios</strong>: 40% cumplimiento, 25% tasa
+                  de cierre, 15% sin retrasos, 10% colaboracion y 10% racha.
+                </p>
+                <p>
+                  Ademas, los usuarios se comparan por banda de carga: baja de 1 a 5 acciones, media de 6 a 15
+                  acciones y alta de 16 o mas acciones. Asi, alguien con 4 acciones no compite directamente contra
+                  alguien con 25 acciones; cada usuario compite contra personas con una carga parecida.
+                </p>
+                <ul className="grid gap-2 sm:grid-cols-2">
+                  {[
+                    'Se revisa el cumplimiento de gamificacion.',
+                    'Se revisa el score ajustado para premios.',
+                    'Se compara al usuario dentro de su banda de carga.',
+                    'Los puntos netos se usan como contexto o desempate.',
+                    'Los retrasos no borran el cumplimiento, pero si afectan el score premio y muestran riesgo operativo.',
+                  ].map((item) => (
+                    <li key={item} className="flex gap-2 rounded-lg border border-border/60 bg-background px-3 py-2">
+                      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="rounded-lg border border-border/70 bg-background p-3">
+                    <p className="font-medium text-foreground">Mejor cumplimiento</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Mayor porcentaje de cumplimiento dentro de su banda.
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border/70 bg-background p-3">
+                    <p className="font-medium text-foreground">Mejor score premio</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Mejor combinacion de cierre, cumplimiento, colaboracion, racha y cero retrasos.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="grid gap-px border-b bg-border sm:grid-cols-3">
             <div className="flex items-center gap-3 bg-card px-5 py-4">
               <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">

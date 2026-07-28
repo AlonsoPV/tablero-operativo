@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+﻿import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   AlertTriangle,
@@ -12,6 +12,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Target,
+  Trophy,
   Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -156,7 +157,7 @@ export function DisciplinaPage() {
             </p>
           </div>
           <div className="grid min-w-0 grid-cols-3 gap-2 lg:min-w-[420px]">
-            <HeroMetric label="Puntaje" value={`${formatSignedPoints(personalMetrics.totalPoints)} pts`} tone={personalMetrics.levelTone} />
+            <HeroMetric label="Cumplimiento" value={`${personalMetrics.fulfillmentPercent}%`} tone={personalMetrics.levelTone} />
             <HeroMetric label="Racha" value={`${personalMetrics.participationStreak} dia${personalMetrics.participationStreak === 1 ? '' : 's'}`} />
             <HeroMetric label="Retrasos" value={String(personalMetrics.overdue)} tone={personalMetrics.overdue > 0 ? 'negative' : 'neutral'} />
           </div>
@@ -210,8 +211,8 @@ export function DisciplinaPage() {
                 className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
                 titleId="disciplina-acciones-heading"
                 eyebrow="Disciplina"
-                title="Tu puntaje explicado"
-                subtitle="Puntaje actual, balance y detalle por cada actividad."
+                title="Tu cumplimiento explicado"
+                subtitle="Porcentaje ganado sobre puntos posibles, neto operativo y criterio de premios."
                 icon={Target}
               />
               <SectionCardBody className="space-y-4 p-3 sm:space-y-5 sm:p-4 md:p-6">
@@ -278,6 +279,7 @@ function DisciplinaScoreExplained({
     <div className="space-y-3">
       <ScoreHeroPanel metrics={metrics} />
       <ScoreImpactPanel metrics={metrics} />
+      <ScoreAwardStrategyPanel metrics={metrics} />
       <ScoreActivitySection
         activePositive={activePositive}
         activeNegative={activeNegative}
@@ -322,50 +324,45 @@ function ScoreHeroPanel({ metrics }: { metrics: PersonalMetrics }) {
     <section aria-labelledby="disciplina-score-hero">
       <ScoreSectionLabel
         step="1"
-        title="Puntaje actual"
-        subtitle="Resultado neto del periodo evaluado"
+        title="Cumplimiento actual"
+        subtitle="Puntos ganados sobre puntos positivos posibles"
       />
       <div className={cn('overflow-hidden rounded-xl border p-3 sm:p-4', toneSurface(netoTone))}>
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] lg:items-center">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Total acumulado
+              Cumplimiento de gamificacion
             </p>
             <p
               className={cn(
                 'mt-0.5 text-3xl font-bold tabular-nums tracking-tight sm:text-4xl',
-                metrics.totalPoints >= 0
-                  ? 'text-emerald-700 dark:text-emerald-300'
-                  : 'text-destructive'
+                fulfillmentTextTone(metrics.fulfillmentPercent)
               )}
             >
-              {formatSignedPoints(metrics.totalPoints)}
-              <span className="ml-1 text-lg font-semibold text-muted-foreground sm:text-xl">pts</span>
+              {metrics.fulfillmentPercent}%
             </p>
             <p className="mt-1.5 inline-flex rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-xs font-medium text-foreground">
               Nivel: {metrics.level}
             </p>
           </div>
           <div className="rounded-xl border border-border/60 bg-background/90 px-3 py-2.5 sm:px-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Formula del puntaje</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Formula de cumplimiento</p>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-semibold tabular-nums sm:text-base">
               <span className="text-emerald-700 dark:text-emerald-300">+{metrics.earnedPoints}</span>
-              <span className="text-muted-foreground">−</span>
-              <span className="text-destructive">{penaltyAbs}</span>
+              <span className="text-muted-foreground">/</span>
+              <span className="text-foreground">{metrics.possiblePoints}</span>
               <span className="text-muted-foreground">=</span>
-              <span
-                className={cn(
-                  metrics.totalPoints >= 0
-                    ? 'text-emerald-700 dark:text-emerald-300'
-                    : 'text-destructive'
-                )}
-              >
-                {formatSignedPoints(metrics.totalPoints)}
-              </span>
+              <span className={fulfillmentTextTone(metrics.fulfillmentPercent)}>{metrics.fulfillmentPercent}%</span>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <MiniScoreStat label="Ganados" value={`+${metrics.earnedPoints}`} tone="good" />
-              <MiniScoreStat label="Perdidos" value={`-${penaltyAbs}`} tone={penaltyAbs > 0 ? 'risk' : 'neutral'} />
+              <MiniScoreStat label="Posibles" value={String(metrics.possiblePoints)} tone="neutral" />
+              <MiniScoreStat
+                label="Neto"
+                value={`${formatSignedPoints(metrics.totalPoints)} pts`}
+                tone={metrics.totalPoints < 0 ? 'risk' : 'neutral'}
+              />
+              <MiniScoreStat label="Penalizacion" value={`-${penaltyAbs}`} tone={penaltyAbs > 0 ? 'risk' : 'neutral'} />
             </div>
           </div>
         </div>
@@ -417,6 +414,31 @@ function ScoreImpactPanel({ metrics }: { metrics: PersonalMetrics }) {
         <p className="text-sm font-bold tabular-nums text-destructive sm:text-right">
           {overdueRule.count} x {formatSignedPoints(overdueRule.pointsPerUnit)} = {formatSignedPoints(overdueRule.points)} pts
         </p>
+      </div>
+    </section>
+  )
+}
+
+function ScoreAwardStrategyPanel({ metrics }: { metrics: PersonalMetrics }) {
+  return (
+    <section aria-labelledby="disciplina-award-strategy">
+      <div className="grid gap-2 rounded-xl border border-border/60 bg-background px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Trophy className="h-4 w-4 text-amber-500" aria-hidden />
+            <p id="disciplina-award-strategy" className="text-sm font-semibold text-foreground">
+              Criterio recomendado para premios
+            </p>
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Compite dentro de tu banda ({metrics.workloadBand}) con score ajustado: 40% cumplimiento, 25% cierre,
+            15% sin retrasos, 10% colaboracion y 10% racha.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:min-w-[13rem]">
+          <MiniScoreStat label="Premio" value={String(metrics.awardScore)} tone={metrics.awardScore >= 70 ? 'good' : 'warn'} />
+          <MiniScoreStat label="Carga" value={String(metrics.assigned)} tone="neutral" />
+        </div>
       </div>
     </section>
   )
@@ -745,6 +767,12 @@ function scoreToneToMetricTone(tone: ActionGamificationTone): MetricTone {
   if (tone === 'warning') return 'warn'
   if (tone === 'negative') return 'risk'
   return 'neutral'
+}
+
+function fulfillmentTextTone(percent: number) {
+  if (percent >= 85) return 'text-emerald-700 dark:text-emerald-300'
+  if (percent >= 60) return 'text-amber-700 dark:text-amber-300'
+  return 'text-destructive'
 }
 
 function formatSignedPoints(value: number) {

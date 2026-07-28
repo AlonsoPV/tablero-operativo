@@ -3,7 +3,7 @@
  * Búsqueda, fecha, presets (vista dashboard) y selects avanzados.
  */
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import {
@@ -23,7 +23,7 @@ import { useStatuses } from '@/features/catalogs/hooks/useStatuses'
 import { priorityDisplayLabel } from '../utils/priorityLabels'
 import { statusCatalogByKey, statusCatalogLabel } from '../utils/statusCatalog'
 import { Label } from '@/components/ui/label'
-import { Search, X, SlidersHorizontal } from 'lucide-react'
+import { Check, ChevronDown, Search, X, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const FILTER_FIELD_ACTIVE =
@@ -109,6 +109,135 @@ const DEFAULT_FILTER_SELECT_CLASS =
 /** Dropdown amplio y desplazable para ver nombres completos en filtros Kanban. */
 const KANBAN_FILTER_SELECT_CONTENT_CLASS =
   'z-[200] max-h-[min(18rem,72dvh)] min-w-[var(--radix-select-trigger-width)] [&>*:nth-child(2)]:!h-auto [&>*:nth-child(2)]:max-h-[min(17rem,68dvh)]'
+
+function normalizeEstadoFilter(estado: AccionesFilter['estado']): ActionStatus[] {
+  if (estado == null) return []
+  return Array.isArray(estado) ? [...estado] : [estado]
+}
+
+function EstadoMultiSelect({
+  id,
+  options,
+  value,
+  onChange,
+  triggerClassName,
+  active,
+}: {
+  id: string
+  options: { value: string; label: string }[]
+  value: ActionStatus[]
+  onChange: (next: ActionStatus[] | undefined) => void
+  triggerClassName: string
+  active: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const statusOptions = options.filter((option) => option.value !== ALL_FILTER_VALUE)
+  const selectedLabels = statusOptions
+    .filter((option) => value.includes(option.value as ActionStatus))
+    .map((option) => option.label)
+
+  const triggerLabel =
+    selectedLabels.length === 0
+      ? 'Estado'
+      : selectedLabels.length === 1
+        ? selectedLabels[0]
+        : `${selectedLabels.length} estados`
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  const toggle = (status: ActionStatus) => {
+    const next = value.includes(status)
+      ? value.filter((item) => item !== status)
+      : [...value, status]
+    onChange(next.length > 0 ? next : undefined)
+  }
+
+  return (
+    <div ref={rootRef} className="relative min-w-0">
+      <button
+        type="button"
+        id={id}
+        className={cn(
+          'kanban-toolbar-estado flex w-full items-center justify-between gap-2 px-3 text-left',
+          triggerClassName,
+          active && 'text-foreground'
+        )}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="min-w-0 truncate">{triggerLabel}</span>
+        <ChevronDown className={cn('h-4 w-4 shrink-0 opacity-50', open && 'rotate-180')} aria-hidden />
+      </button>
+
+      {open ? (
+        <div
+          className={cn(
+            'absolute z-[200] mt-1 w-full min-w-[14rem] overflow-hidden rounded-lg border border-border bg-popover shadow-lg',
+            KANBAN_FILTER_SELECT_CONTENT_CLASS
+          )}
+          role="listbox"
+          aria-multiselectable="true"
+          aria-label="Estados"
+        >
+          <div className="flex items-center justify-between gap-2 border-b border-border/60 px-2 py-1.5">
+            <p className="text-[11px] font-medium text-muted-foreground">Selecciona uno o más</p>
+            {value.length > 0 ? (
+              <button
+                type="button"
+                className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-primary hover:bg-primary/10"
+                onClick={() => onChange(undefined)}
+              >
+                Limpiar
+              </button>
+            ) : null}
+          </div>
+          <ul className="max-h-[min(17rem,68dvh)] overflow-y-auto p-1">
+            {statusOptions.map((option) => {
+              const checked = value.includes(option.value as ActionStatus)
+              return (
+                <li key={option.value}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={checked}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors',
+                      checked ? 'bg-primary/10' : 'hover:bg-muted/60'
+                    )}
+                    onClick={() => toggle(option.value as ActionStatus)}
+                  >
+                    <span
+                      className={cn(
+                        'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+                        checked
+                          ? 'border-primary bg-primary text-primary-foreground'
+                          : 'border-border bg-background'
+                      )}
+                    >
+                      {checked ? <Check className="h-3 w-3" aria-hidden /> : null}
+                    </span>
+                    <span className="min-w-0 flex-1 whitespace-normal leading-snug">{option.label}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 export function createKanbanDefaultFilter(userId?: string): AccionesFilter {
   return userId ? { responsable: userId } : {}
@@ -198,9 +327,7 @@ export function KanbanToolbar({
   const hasFilters = hasKanbanActiveFilters(filter)
   const activeFilterCount = countKanbanActiveFilters(filter)
 
-  const estadoValue = Array.isArray(filter.estado)
-    ? (filter.estado[0] ?? 'all')
-    : (filter.estado ?? 'all')
+  const estadoValues = normalizeEstadoFilter(filter.estado)
   const prioridadValue = Array.isArray(filter.prioridad_id)
     ? (filter.prioridad_id[0] ?? 'all')
     : (filter.prioridad_id ?? (Array.isArray(filter.prioridad) ? (filter.prioridad[0] ?? 'all') : (filter.prioridad ?? 'all')))
@@ -208,7 +335,7 @@ export function KanbanToolbar({
   const creadaPorValue = filter.created_by ?? ALL_FILTER_VALUE
   const responsableValue = filter.responsable ?? ALL_FILTER_VALUE
 
-  const estadoActive = estadoValue !== ALL_FILTER_VALUE
+  const estadoActive = estadoValues.length > 0
   const prioridadActive = prioridadValue !== ALL_FILTER_VALUE
   const areaActive = areaValue !== ALL_FILTER_VALUE
   const creadaPorActive = creadaPorValue !== ALL_FILTER_VALUE
@@ -236,29 +363,14 @@ export function KanbanToolbar({
   const advancedSelects = (compact = false) => (
     <>
       <KanbanToolbarField label="Estado" htmlFor="kanban-filter-estado" active={estadoActive} compact={compact}>
-        <Select
-          value={estadoValue}
-          onValueChange={(v) =>
-            onFilterChange({ estado: v === 'all' ? undefined : (v as ActionStatus) })
-          }
-        >
-          <SelectTrigger id="kanban-filter-estado" className={cn('kanban-toolbar-estado', selectTriggerClass(estadoActive))}>
-            <SelectValue placeholder="Estado">
-              {kanbanFilterTriggerLabel(
-                estadoValue,
-                'Estado',
-                estadoOptions.find((o) => o.value === estadoValue)?.label
-              )}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent className={KANBAN_FILTER_SELECT_CONTENT_CLASS} position="popper">
-            {estadoOptions.map((o) => (
-              <SelectItem key={o.value} value={o.value} className="whitespace-normal">
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <EstadoMultiSelect
+          id="kanban-filter-estado"
+          options={estadoOptions}
+          value={estadoValues}
+          active={estadoActive}
+          triggerClassName={selectTriggerClass(estadoActive)}
+          onChange={(next) => onFilterChange({ estado: next })}
+        />
       </KanbanToolbarField>
       <KanbanToolbarField label="Prioridad" htmlFor="kanban-filter-prioridad" active={prioridadActive} compact={compact}>
         <Select

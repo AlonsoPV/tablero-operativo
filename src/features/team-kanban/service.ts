@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase/client'
-import type { TeamArea, TeamBoard } from './types'
+import type { TeamAction, TeamArea, TeamBoard } from './types'
 
 function unwrap<T>(data: T | null, error: { message: string } | null): T {
   if (error) throw new Error(error.message)
@@ -16,23 +16,70 @@ export const teamKanbanService = {
     const { data, error } = await supabase.rpc('team_kanban_board', { p_area_id: areaId })
     return unwrap(data, error) as unknown as TeamBoard
   },
-  async create(input: { areaId: string; title: string; description: string; assignee: string; priority: string; dueAt: string | null; evidence: boolean; evidenceText?: string; checklist: string[]; storyPoints?: number; actionType?: string; gapIds?: string[]; catalogKpiIds?: string[] }) {
-    const { error } = await supabase.rpc('team_kanban_create_action', {
+  async create(input: {
+    areaId: string
+    title: string
+    description: string
+    assignee: string
+    priority: string
+    dueAt: string | null
+    evidence: boolean
+    evidenceText?: string | null
+    checklist: Array<{ text: string; responsable_id?: string | null }>
+    storyPoints?: number
+    actionType?: string
+    gapIds?: string[]
+    catalogKpiIds?: string[]
+    isFrequent?: boolean
+    recurrenceType?: 'diaria' | 'semanal' | 'quincenal' | 'mensual' | null
+    recurrenceWeekday?: number | null
+    recurrenceMonthDay?: number | null
+    recurrenceStart?: string | null
+  }) {
+    const { data, error } = await supabase.rpc('team_kanban_create_action', {
       p_area_id: input.areaId, p_title: input.title, p_description: input.description,
       p_assignee: input.assignee, p_priority: input.priority, p_due_at: input.dueAt,
-      p_evidence: input.evidence, p_checklist: input.checklist.filter(Boolean).map((text) => ({ text, done: false })),
+      p_evidence: input.evidence,
+      p_checklist: input.checklist
+        .map((item) => ({ text: item.text.trim(), done: false, responsable_id: item.responsable_id ?? null }))
+        .filter((item) => item.text),
       p_evidence_text: input.evidenceText ?? null, p_story_points: input.storyPoints ?? 0,
       p_tipo_accion: input.actionType ?? 'operativa', p_gap_ids: input.gapIds ?? [],
       p_catalog_kpi_ids: input.catalogKpiIds ?? [],
+      p_es_frecuente: input.isFrequent ?? false,
+      p_frecuencia_tipo: input.recurrenceType ?? null,
+      p_frecuencia_dia_semana: input.recurrenceWeekday ?? null,
+      p_frecuencia_dia_mes: input.recurrenceMonthDay ?? null,
+      p_frecuencia_inicio: input.recurrenceStart ?? null,
     })
     if (error) throw new Error(error.message)
+    return unwrap(data, null) as TeamAction
   },
-  async update(actionId: string, patch: { stateId?: string; assignee?: string; priority?: string; blocked?: boolean }) {
-    const { error } = await supabase.rpc('team_kanban_update_action', {
+  async update(
+    actionId: string,
+    patch: { stateId?: string; assignee?: string; priority?: string; blocked?: boolean; dueAt?: string | null }
+  ) {
+    const { data, error } = await supabase.rpc('team_kanban_update_action', {
       p_action_id: actionId, p_state_id: patch.stateId ?? null, p_assignee: patch.assignee ?? null,
-      p_priority: patch.priority ?? null, p_blocked: patch.blocked ?? null,
+      p_priority: patch.priority ?? null, p_blocked: patch.blocked ?? null, p_due_at: patch.dueAt ?? null,
     })
     if (error) throw new Error(error.message)
+    return unwrap(data, null) as TeamAction
+  },
+  /** Genera las ocurrencias vencidas de las series activas del area. Idempotente. */
+  async syncFrequent(areaId: string) {
+    const { data, error } = await supabase.rpc('team_kanban_sync_frequent_actions', { p_area_id: areaId })
+    if (error) throw new Error(error.message)
+    return (data as number | null) ?? 0
+  },
+  async closeSeries(input: { actionId: string; closePending: boolean; reason?: string }) {
+    const { data, error } = await supabase.rpc('team_kanban_close_frequent_series', {
+      p_action_id: input.actionId,
+      p_close_pending: input.closePending,
+      p_reason: input.reason ?? null,
+    })
+    if (error) throw new Error(error.message)
+    return (data ?? { ocurrencias_cerradas: 0 }) as { serie_id: string; ocurrencias_cerradas: number }
   },
   async escalate(actionId: string, reason: string) {
     const { data, error } = await supabase.rpc('team_kanban_escalate', { p_action_id: actionId, p_reason: reason })

@@ -71,6 +71,13 @@ export interface ActionGamificationMetrics {
   participationDays: string[]
   earnedPoints: number
   penaltyPoints: number
+  possiblePoints: number
+  fulfillmentPercent: number
+  awardScore: number
+  workloadBand: 'Sin carga' | 'Carga baja' | 'Carga media' | 'Carga alta'
+  collaborationScore: number
+  noOverdueScore: number
+  consistencyScore: number
   totalPoints: number
   level: string
   levelTone: ActionGamificationTone
@@ -188,7 +195,20 @@ export function buildActionGamificationMetrics(
   const earnedPoints = rules.filter((rule) => rule.points > 0).reduce((sum, rule) => sum + rule.points, 0)
   const penaltyPoints = rules.filter((rule) => rule.points < 0).reduce((sum, rule) => sum + rule.points, 0)
   const totalPoints = earnedPoints + penaltyPoints
-  const level = getScoreLevel(totalPoints)
+  const possiblePoints = calculatePossiblePoints(rules, closedUserActions.length)
+  const fulfillmentPercent = percentage(earnedPoints, possiblePoints)
+  const collaborationScore = calculateCollaborationScore(commentsMade.length, userActions.length)
+  const noOverdueScore = calculateNoOverdueScore(overdue.length)
+  const consistencyScore = Math.min(100, participationStreak * 20)
+  const awardScore = calculateAwardScore({
+    fulfillmentPercent,
+    closeRate: percentage(closedAssigned.length, assigned.length),
+    noOverdueScore,
+    collaborationScore,
+    consistencyScore,
+  })
+  const workloadBand = getWorkloadBand(assigned.length)
+  const level = getScoreLevel(fulfillmentPercent, awardScore)
 
   return {
     assigned: assigned.length,
@@ -208,9 +228,16 @@ export function buildActionGamificationMetrics(
     participationDays: [...participationDays].sort().reverse(),
     earnedPoints,
     penaltyPoints,
+    possiblePoints,
+    fulfillmentPercent,
+    awardScore,
+    workloadBand,
+    collaborationScore,
+    noOverdueScore,
+    consistencyScore,
     totalPoints,
     level,
-    levelTone: getLevelTone(totalPoints),
+    levelTone: getLevelTone(fulfillmentPercent, awardScore, penaltyPoints),
     rules,
   }
 }
@@ -262,6 +289,13 @@ function emptyMetrics(): ActionGamificationMetrics {
     participationDays: [],
     earnedPoints: 0,
     penaltyPoints: 0,
+    possiblePoints: 0,
+    fulfillmentPercent: 0,
+    awardScore: 0,
+    workloadBand: 'Sin carga',
+    collaborationScore: 0,
+    noOverdueScore: 100,
+    consistencyScore: 0,
     totalPoints: 0,
     level: 'Sin actividad',
     levelTone: 'neutral',
@@ -301,6 +335,56 @@ function percentage(part: number, total: number) {
   return Math.round((part / total) * 100)
 }
 
+function calculatePossiblePoints(rules: ActionGamificationRule[], closedUserActions: number) {
+  return rules.reduce((sum, rule) => {
+    if (rule.pointsPerUnit < 0) return sum
+    if (rule.key === 'onTimeClosed') {
+      return sum + closedUserActions * rule.pointsPerUnit
+    }
+    return sum + Math.max(0, rule.points)
+  }, 0)
+}
+
+function calculateCollaborationScore(commentsMade: number, userActions: number) {
+  if (commentsMade <= 0) return 0
+  const expectedComments = Math.max(1, Math.min(userActions, 5))
+  return Math.min(100, percentage(commentsMade, expectedComments))
+}
+
+function calculateNoOverdueScore(overdue: number) {
+  if (overdue <= 0) return 100
+  return Math.max(0, 100 - overdue * 25)
+}
+
+function calculateAwardScore({
+  fulfillmentPercent,
+  closeRate,
+  noOverdueScore,
+  collaborationScore,
+  consistencyScore,
+}: {
+  fulfillmentPercent: number
+  closeRate: number
+  noOverdueScore: number
+  collaborationScore: number
+  consistencyScore: number
+}) {
+  return Math.round(
+    fulfillmentPercent * 0.4 +
+      closeRate * 0.25 +
+      noOverdueScore * 0.15 +
+      collaborationScore * 0.1 +
+      consistencyScore * 0.1
+  )
+}
+
+function getWorkloadBand(assigned: number): ActionGamificationMetrics['workloadBand'] {
+  if (assigned <= 0) return 'Sin carga'
+  if (assigned <= 5) return 'Carga baja'
+  if (assigned <= 15) return 'Carga media'
+  return 'Carga alta'
+}
+
 function addDay(days: Set<string>, value: string | null | undefined) {
   const day = toDayKey(value)
   if (day) days.add(day)
@@ -321,17 +405,16 @@ function calculateParticipationStreak(days: Set<string>, today: string) {
   return streak
 }
 
-function getScoreLevel(points: number) {
-  if (points >= 140) return 'Alto desempeno'
-  if (points >= 70) return 'Confiable'
-  if (points > 0) return 'En avance'
-  if (points < 0) return 'En recuperacion'
+function getScoreLevel(fulfillmentPercent: number, awardScore: number) {
+  if (awardScore >= 85 && fulfillmentPercent >= 90) return 'Alto desempeno'
+  if (awardScore >= 70 && fulfillmentPercent >= 75) return 'Confiable'
+  if (fulfillmentPercent > 0 || awardScore > 0) return 'En avance'
   return 'Sin actividad'
 }
 
-function getLevelTone(points: number): ActionGamificationTone {
-  if (points >= 70) return 'positive'
-  if (points > 0) return 'warning'
-  if (points < 0) return 'negative'
+function getLevelTone(fulfillmentPercent: number, awardScore: number, penaltyPoints: number): ActionGamificationTone {
+  if (penaltyPoints < 0 && fulfillmentPercent < 70) return 'negative'
+  if (awardScore >= 70 && fulfillmentPercent >= 75) return 'positive'
+  if (fulfillmentPercent > 0 || awardScore > 0) return 'warning'
   return 'neutral'
 }
