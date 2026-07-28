@@ -178,6 +178,9 @@ function ActionsPriorityPie({
           <p className="mt-2 text-center text-[11px] text-muted-foreground">
             Selecciona la gráfica para ver el detalle
           </p>
+          <p className="mt-1 text-center text-[11px] font-medium text-muted-foreground">
+            Porcentajes sobre {total} accion{total === 1 ? '' : 'es'}
+          </p>
         </div>
 
         <div className="space-y-2.5">
@@ -192,6 +195,7 @@ function ActionsPriorityPie({
                   segment.surface
                 )}
                 onClick={() => onDrillDown({ title: segment.label, actions: segment.actions })}
+                title={`${segment.label}: ${segment.value} de ${total} acciones (${percentage}% del total)`}
               >
                 <span className="flex items-center gap-2.5">
                   <span className={cn('h-3 w-3 shrink-0 rounded-full shadow-sm ring-4 ring-background/70', segment.dot)} />
@@ -246,6 +250,9 @@ function OverdueBreakdownPie({
 }) {
   const [view, setView] = useState<'priority' | 'area'>('priority')
   const total = metrics.overdueActions.length
+  const totalActions = metrics.totalFiltered
+  // Las rebanadas reparten las vencidas; el encabezado ancla ese subconjunto al total filtrado.
+  const shareOfAllActions = totalActions > 0 ? Math.round((total / totalActions) * 100) : 0
   const overdueIds = new Set(metrics.overdueActions.map((action) => action.id))
   const prioritySegments: PieBreakdownSegment[] = [
     {
@@ -355,18 +362,25 @@ function OverdueBreakdownPie({
           <p className="mt-2 text-center text-[11px] text-muted-foreground">
             {view === 'priority' ? 'Segmentadas por semáforo' : 'Principales áreas afectadas'}
           </p>
+          <p className="mt-1 text-center text-[11px] font-medium text-muted-foreground">
+            {total} de {totalActions} accion{totalActions === 1 ? '' : 'es'} · {shareOfAllActions}% del
+            total
+          </p>
         </div>
 
         {segments.length > 0 ? (
           <div className="grid gap-2 sm:grid-cols-2">
             {segments.map((segment) => {
               const percentage = total > 0 ? Math.round((segment.value / total) * 100) : 0
+              const percentageOfAll =
+                totalActions > 0 ? Math.round((segment.value / totalActions) * 100) : 0
               return (
                 <button
                   key={segment.label}
                   type="button"
                   className="group rounded-xl border border-border/60 bg-background/70 px-3 py-2.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-sm"
                   onClick={() => onDrillDown({ title: `Vencidas · ${segment.label}`, actions: segment.actions })}
+                  title={`${segment.label}: ${segment.value} de ${total} vencidas (${percentage}%) · ${percentageOfAll}% del total de acciones`}
                 >
                   <span className="flex items-center gap-2.5">
                     <span

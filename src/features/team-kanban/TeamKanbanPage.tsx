@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  CircleSlash,
   Clock3,
   FolderOpen,
   Plus,
@@ -19,16 +20,30 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { notificacionesService } from '@/services/notificaciones.service'
+import { accionFechaCompromisoCambiosService } from '@/services/accionFechaCompromisoCambios.service'
+import {
+  FECHA_COMPROMISO_CHANGE_REASONS,
+  type FechaCompromisoChangeReasonKey,
+} from '@/features/operations/constants/fechaCompromisoChangeReasons'
 import { teamKanbanService } from './service'
-import { EMPTY_TEAM_FILTERS, type TeamAction, type TeamArea, type TeamBoard, type TeamFilters } from './types'
+import {
+  EMPTY_TEAM_FILTERS,
+  type TeamAction,
+  type TeamArea,
+  type TeamBoard,
+  type TeamFilters,
+  type TeamSeries,
+} from './types'
 import { TeamActionFormDialog } from './TeamActionFormDialog'
 import { TeamKanbanFilters } from './TeamKanbanFilters'
+import { formatRecurrenceLabel, upcomingOccurrenceDate } from './utils/recurrence'
 
 const qk = {
   areas: ['team-kanban', 'areas'] as const,
@@ -81,16 +96,39 @@ function formatDueDate(value: string) {
   })
 }
 
+function pad2(value: number) {
+  return String(value).padStart(2, '0')
+}
+
+function localDateInputFromIso(value: string | null | undefined) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+}
+
+function localTimeInputFromIso(value: string | null | undefined) {
+  if (!value) return '09:00'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '09:00'
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+}
+
 function formatRecurrence(action: TeamAction) {
-  if (!action.es_frecuente || !action.frecuencia_tipo) return null
-  if (action.frecuencia_tipo === 'diaria') return 'Diaria'
-  if (action.frecuencia_tipo === 'semanal') {
-    const days = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom']
-    const index = Math.max(1, Math.min(7, Number(action.frecuencia_dia_semana ?? 1))) - 1
-    return `Semanal ${days[index]}`
-  }
-  if (action.frecuencia_tipo === 'quincenal') return `Quincenal dia ${action.frecuencia_dia_mes ?? '-'}`
-  return `Mensual dia ${action.frecuencia_dia_mes ?? '-'}`
+  if (!action.es_frecuente) return null
+  return formatRecurrenceLabel(action)
+}
+
+function formatIsoDate(value: string) {
+  return new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString('es-MX', {
+    day: '2-digit',
+    month: 'short',
+  })
+}
+
+function todayIso() {
+  const now = new Date()
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
 }
 
 export function TeamKanbanPage() {
@@ -100,6 +138,7 @@ export function TeamKanbanPage() {
   const [areaId, setAreaId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [escalating, setEscalating] = useState<TeamAction | null>(null)
+  const [closingSeries, setClosingSeries] = useState<{ id: string; titulo: string } | null>(null)
   const [filtersExpanded, setFiltersExpanded] = useState(false)
   const [filters, setFilters] = useState<TeamFilters>(EMPTY_TEAM_FILTERS)
   const [activeStateId, setActiveStateId] = useState<string | null>(null)
@@ -130,7 +169,13 @@ export function TeamKanbanPage() {
 
   const board = useQuery({
     queryKey: qk.board(areaId ?? ''),
-    queryFn: () => teamKanbanService.board(areaId!),
+    queryFn: async () => {
+      // Al abrir el tablero se materializan las ocurrencias vencidas de cada serie.
+      await teamKanbanService.syncFrequent(areaId!).catch((error) => {
+        console.warn('[team-kanban] No se pudieron generar acciones frecuentes:', error)
+      })
+      return teamKanbanService.board(areaId!)
+    },
     enabled: Boolean(areaId),
   })
 
@@ -245,8 +290,41 @@ export function TeamKanbanPage() {
       blocked?: boolean
       assignee?: string
       priority?: string
+      dueAt?: string | null
+      dueChange?: {
+        reasonKey: FechaCompromisoChangeReasonKey
+        previousDate: string
+        nextDate: string
+        title: string
+      }
     }) => teamKanbanService.update(id, p),
     onSuccess: async (action, vars) => {
+      if (vars.dueChange) {
+        await accionFechaCompromisoCambiosService
+          .create({
+            origen: 'team_kanban',
+            accionId: action.id,
+            accionTitulo: vars.dueChange.title || action.titulo || 'Accion de equipo sin titulo',
+            motivoKey: vars.dueChange.reasonKey,
+            fechaAnterior: vars.dueChange.previousDate,
+            fechaNueva: vars.dueChange.nextDate,
+            changedBy: currentUser?.id ?? null,
+            changedByNombre: currentUser?.nombre ?? null,
+          })
+          .then(() =>
+            qc.invalidateQueries({
+              queryKey: ['dashboard', 'fecha-compromiso-cambios'],
+              refetchType: 'active',
+            })
+          )
+          .catch((error) => {
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : 'La fecha se actualizo, pero no se pudo registrar el motivo.'
+            )
+          })
+      }
       if (vars.assignee && vars.assignee !== currentUser?.id) {
         await notifyTeamReassignment(action, vars.assignee).catch((error) => {
           console.warn('[team-kanban] No se pudo notificar reasignacion:', error)
@@ -380,6 +458,12 @@ export function TeamKanbanPage() {
       ) : board.data ? (
         <div className="space-y-4">
           <MetricsRow metrics={metrics} />
+
+          <FrequentSeriesPanel
+            series={board.data.series ?? []}
+            canManage={board.data.canManage ?? board.data.isLeader}
+            onClose={(serie) => setClosingSeries({ id: serie.id, titulo: serie.titulo })}
+          />
 
           {filtersExpanded ? (
             <TeamKanbanFilters
@@ -530,18 +614,44 @@ export function TeamKanbanPage() {
                           onMove={(stateId) => update.mutate({ id: action.id, stateId })}
                           onAssign={(assignee) => update.mutate({ id: action.id, assignee })}
                           onPriority={(priority) => update.mutate({ id: action.id, priority })}
+                          onDueDateChange={({ dueAt, reasonKey, previousDate, nextDate }) =>
+                            update.mutate({
+                              id: action.id,
+                              dueAt,
+                              dueChange: {
+                                reasonKey,
+                                previousDate,
+                                nextDate,
+                                title: action.titulo,
+                              },
+                            })
+                          }
                           onBlock={() =>
                             update.mutate({ id: action.id, blocked: !action.bloqueada })
                           }
                           onEscalate={() => setEscalating(action)}
+                          onCloseSeries={() =>
+                            setClosingSeries({ id: action.id, titulo: action.titulo })
+                          }
                         />
                       ))}
                       {stateActions.length === 0 ? (
-                        <div className="flex min-h-[180px] flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-background/40 px-4 text-center">
-                          <p className="text-sm font-medium text-muted-foreground">Cola vacia</p>
-                          <p className="mt-1 text-xs leading-relaxed text-muted-foreground/80">
-                            Mueve o crea acciones en este estatus.
+                        <div className="flex min-h-[180px] flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-muted/10 px-4 py-8 text-center">
+                          <FolderOpen className="mb-2 h-8 w-8 text-muted-foreground opacity-60" aria-hidden />
+                          <p className="text-sm font-medium text-muted-foreground">
+                            Sin acciones en {state.nombre}
                           </p>
+                          <p className="mt-0.5 text-xs text-muted-foreground/80">
+                            Arrastra aquí o crea una nueva
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setCreateOpen(true)}
+                            className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          >
+                            <Plus className="h-3.5 w-3.5" aria-hidden />
+                            Nueva acción
+                          </button>
                         </div>
                       ) : null}
                     </div>
@@ -564,6 +674,11 @@ export function TeamKanbanPage() {
         />
       ) : null}
       <EscalateDialog action={escalating} onClose={() => setEscalating(null)} onDone={refresh} />
+      <CloseSeriesDialog
+        target={closingSeries}
+        onClose={() => setClosingSeries(null)}
+        onDone={refresh}
+      />
     </div>
   )
 }
@@ -685,32 +800,173 @@ function MetricsRow({
   )
 }
 
+function FrequentSeriesPanel({
+  series,
+  canManage,
+  onClose,
+}: {
+  series: TeamSeries[]
+  canManage: boolean
+  onClose: (serie: TeamSeries) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const active = series.filter((serie) => serie.serie_activa)
+  if (!series.length) return null
+  const visible = expanded ? series : active
+
+  return (
+    <section className="rounded-xl border border-sky-200/80 bg-sky-50/50 p-3 shadow-sm sm:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Repeat2 className="h-4 w-4 text-sky-700" aria-hidden />
+          <h2 className="text-sm font-semibold text-sky-900">Acciones frecuentes</h2>
+          <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-sky-800">
+            {active.length} activa{active.length === 1 ? '' : 's'}
+          </span>
+        </div>
+        {series.length > active.length ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs text-sky-800"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? 'Ver solo activas' : `Ver cerradas (${series.length - active.length})`}
+          </Button>
+        ) : null}
+      </div>
+
+      <p className="mt-1 text-[11px] leading-relaxed text-sky-900/70">
+        Cada vez que se cumple la fecha de la frecuencia se genera una acción nueva en el tablero.
+      </p>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {visible.map((serie) => {
+          const label = formatRecurrenceLabel(serie)
+          const next = serie.serie_activa ? upcomingOccurrenceDate(serie, todayIso()) : null
+          return (
+            <div
+              key={serie.id}
+              className={cn(
+                'rounded-lg border bg-background p-3 shadow-sm',
+                serie.serie_activa ? 'border-sky-200' : 'border-border/60 opacity-75'
+              )}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="min-w-0 truncate text-[13px] font-semibold text-foreground">
+                  {serie.titulo}
+                </p>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'shrink-0 text-[10px]',
+                    serie.serie_activa
+                      ? 'border-sky-200 bg-sky-50 text-sky-800'
+                      : 'border-border/70 text-muted-foreground'
+                  )}
+                >
+                  {serie.serie_activa ? label ?? 'Frecuente' : 'Cerrada'}
+                </Badge>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {serie.asignado_nombre || 'Sin asignar'}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                <span className="tabular-nums">{serie.ocurrencias_total} generadas</span>
+                <span className="tabular-nums">{serie.ocurrencias_abiertas} abiertas</span>
+                {next ? (
+                  <span className="inline-flex items-center gap-1 font-medium text-sky-800">
+                    <CalendarClock className="h-3 w-3" aria-hidden />
+                    Próxima {formatIsoDate(next)}
+                  </span>
+                ) : null}
+              </div>
+              {canManage && serie.serie_activa ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="mt-2 h-7 px-2 text-xs text-destructive hover:bg-destructive/10"
+                  onClick={() => onClose(serie)}
+                >
+                  <CircleSlash className="mr-1 h-3.5 w-3.5" />
+                  Cerrar recurrencia
+                </Button>
+              ) : null}
+              {!serie.serie_activa && serie.serie_cierre_motivo ? (
+                <p className="mt-2 line-clamp-2 text-[11px] italic text-muted-foreground">
+                  {serie.serie_cierre_motivo}
+                </p>
+              ) : null}
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 function ActionCard({
   action,
   board,
   onMove,
   onAssign,
   onPriority,
+  onDueDateChange,
   onBlock,
   onEscalate,
+  onCloseSeries,
 }: {
   action: TeamAction
   board: TeamBoard
   onMove: (s: string) => void
   onAssign: (s: string) => void
   onPriority: (s: string) => void
+  onDueDateChange: (input: {
+    dueAt: string
+    reasonKey: FechaCompromisoChangeReasonKey
+    previousDate: string
+    nextDate: string
+  }) => void
   onBlock: () => void
   onEscalate: () => void
+  onCloseSeries: () => void
 }) {
   const overdue = isOverdue(action, board)
   const critical = action.prioridad === 'Critica' && isOpenAction(action, board)
   const canManage = board.canManage ?? board.isLeader
   const recurrence = formatRecurrence(action)
+  const isRecurring = Boolean(action.serie_id) || Boolean(action.es_frecuente)
+  const [dueReason, setDueReason] = useState<FechaCompromisoChangeReasonKey | ''>('')
+  const [dueDate, setDueDate] = useState(localDateInputFromIso(action.fecha_limite))
+  const [dueTime, setDueTime] = useState(localTimeInputFromIso(action.fecha_limite))
+  const canChangeDueDate = canManage && !isRecurring
+  const originalDueDate = localDateInputFromIso(action.fecha_limite)
+  const dueDateChanged = Boolean(dueDate) && dueDate !== originalDueDate
+
+  useEffect(() => {
+    setDueReason('')
+    setDueDate(localDateInputFromIso(action.fecha_limite))
+    setDueTime(localTimeInputFromIso(action.fecha_limite))
+  }, [action.id, action.fecha_limite])
+
+  const submitDueDateChange = () => {
+    if (!dueReason || !dueDate || !dueDateChanged) return
+    onDueDateChange({
+      dueAt: new Date(`${dueDate}T${dueTime || '09:00'}:00`).toISOString(),
+      reasonKey: dueReason,
+      previousDate: originalDueDate,
+      nextDate: dueDate,
+    })
+  }
+  const recurrenceTitle = recurrence
+    ? `Acción recurrente · ${recurrence}${action.ocurrencia_fecha ? ` · periodo ${formatIsoDate(action.ocurrencia_fecha)}` : ''}`
+    : 'Acción recurrente'
 
   return (
     <Card
       className={cn(
         'group rounded-xl border-border/70 bg-card shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md',
+        isRecurring && 'border-l-4 border-l-sky-400',
         action.bloqueada && 'border-amber-300 ring-1 ring-amber-200',
         overdue && !action.bloqueada && 'border-orange-300 ring-1 ring-orange-200',
         critical && !overdue && !action.bloqueada && 'border-red-200'
@@ -718,9 +974,20 @@ function ActionCard({
     >
       <CardHeader className="space-y-2 p-3.5 pb-2">
         <div className="flex items-start justify-between gap-2">
-          <CardTitle className="text-[13px] font-semibold leading-snug tracking-tight text-foreground">
-            {action.titulo}
-          </CardTitle>
+          <div className="flex min-w-0 items-start gap-1.5">
+            {isRecurring ? (
+              <span
+                className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-sky-100 text-sky-700 ring-1 ring-sky-200"
+                title={recurrenceTitle}
+                aria-label={recurrenceTitle}
+              >
+                <Repeat2 className="h-3.5 w-3.5" aria-hidden />
+              </span>
+            ) : null}
+            <CardTitle className="text-[13px] font-semibold leading-snug tracking-tight text-foreground">
+              {action.titulo}
+            </CardTitle>
+          </div>
           <Badge className={`${priorityTone[action.prioridad]} shrink-0 border-0 text-[10px]`}>
             {action.prioridad}
           </Badge>
@@ -731,6 +998,7 @@ function ActionCard({
               <Badge variant="outline" className="border-sky-200 bg-sky-50 text-[10px] text-sky-800">
                 <Repeat2 className="mr-1 h-3 w-3" />
                 {recurrence}
+                {action.ocurrencia_fecha ? ` · ${formatIsoDate(action.ocurrencia_fecha)}` : ''}
               </Badge>
             ) : null}
             {overdue ? (
@@ -839,6 +1107,54 @@ function ActionCard({
           </div>
         ) : null}
 
+        {canChangeDueDate ? (
+          <div className="space-y-2 rounded-lg border border-border/60 bg-muted/15 p-2.5">
+            <Label className="text-[11px] text-muted-foreground">Cambio de fecha compromiso</Label>
+            <Select
+              value={dueReason || undefined}
+              onValueChange={(value) => setDueReason(value as FechaCompromisoChangeReasonKey)}
+            >
+              <SelectTrigger className="h-9 border-border/70 bg-background text-xs">
+                <SelectValue placeholder="Primero selecciona motivo" />
+              </SelectTrigger>
+              <SelectContent>
+                {FECHA_COMPROMISO_CHANGE_REASONS.map((reason) => (
+                  <SelectItem key={reason.key} value={reason.key}>
+                    {reason.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="grid grid-cols-[minmax(0,1fr)_5.75rem] gap-2">
+              <Input
+                type="date"
+                min={todayIso()}
+                value={dueDate}
+                onChange={(event) => setDueDate(event.target.value)}
+                disabled={!dueReason}
+                className="h-9 border-border/70 bg-background text-xs"
+              />
+              <Input
+                type="time"
+                value={dueTime}
+                onChange={(event) => setDueTime(event.target.value)}
+                disabled={!dueReason}
+                className="h-9 border-border/70 bg-background text-xs"
+              />
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 w-full text-xs"
+              disabled={!dueReason || !dueDateChanged}
+              onClick={submitDueDateChange}
+            >
+              Actualizar fecha
+            </Button>
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap gap-1 border-t border-border/50 pt-2">
           <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onBlock}>
             <Ban className="mr-1 h-3.5 w-3.5" />
@@ -850,6 +1166,17 @@ function ActionCard({
               Escalar
             </Button>
           ) : null}
+          {canManage && action.serie_id ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10"
+              onClick={onCloseSeries}
+            >
+              <CircleSlash className="mr-1 h-3.5 w-3.5" />
+              Cerrar recurrencia
+            </Button>
+          ) : null}
           {action.escalada ? (
             <Badge variant="outline" className="text-[10px]">
               <CheckCircle2 className="mr-1 h-3 w-3" />
@@ -859,6 +1186,82 @@ function ActionCard({
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function CloseSeriesDialog({
+  target,
+  onClose,
+  onDone,
+}: {
+  target: { id: string; titulo: string } | null
+  onClose: () => void
+  onDone: () => Promise<void>
+}) {
+  const [reason, setReason] = useState('')
+  const [closePending, setClosePending] = useState(true)
+  const mutation = useMutation({
+    mutationFn: () =>
+      teamKanbanService.closeSeries({ actionId: target!.id, closePending, reason }),
+    onSuccess: async (result) => {
+      toast.success(
+        result.ocurrencias_cerradas > 0
+          ? `Recurrencia cerrada · ${result.ocurrencias_cerradas} accion${result.ocurrencias_cerradas === 1 ? '' : 'es'} pendiente${result.ocurrencias_cerradas === 1 ? '' : 's'} cerrada${result.ocurrencias_cerradas === 1 ? '' : 's'}`
+          : 'Recurrencia cerrada'
+      )
+      setReason('')
+      setClosePending(true)
+      onClose()
+      await onDone()
+    },
+    onError: (e) => toast.error(e.message),
+  })
+
+  return (
+    <Dialog
+      open={Boolean(target)}
+      onOpenChange={(v) => {
+        if (!v) onClose()
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Cerrar recurrencia</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          «{target?.titulo}» dejara de generar acciones nuevas. Las acciones ya cerradas se
+          conservan en el historial.
+        </p>
+        <label className="flex items-start gap-2 rounded-lg border border-border/70 bg-muted/30 p-3 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4"
+            checked={closePending}
+            onChange={(e) => setClosePending(e.target.checked)}
+          />
+          <span>
+            Cerrar tambien las acciones pendientes de esta serie
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              Si lo dejas sin marcar, las acciones abiertas siguen en el tablero hasta que el
+              equipo las complete.
+            </span>
+          </span>
+        </label>
+        <div>
+          <Label>Motivo (opcional)</Label>
+          <textarea
+            className="mt-1 min-h-24 w-full rounded-md border bg-background p-2 text-sm"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            maxLength={500}
+            placeholder="Ej. El reporte semanal se integro al tablero automatico."
+          />
+        </div>
+        <Button variant="destructive" disabled={mutation.isPending} onClick={() => mutation.mutate()}>
+          {mutation.isPending ? 'Cerrando...' : 'Cerrar recurrencia'}
+        </Button>
+      </DialogContent>
+    </Dialog>
   )
 }
 

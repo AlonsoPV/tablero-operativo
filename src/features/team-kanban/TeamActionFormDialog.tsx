@@ -1,12 +1,17 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation } from '@tanstack/react-query'
+import { CalendarClock, Check, FileCheck, Repeat2, Target } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AccionForm } from '@/features/operations/components/AccionForm'
+import { AccionFormField } from '@/features/operations/components/AccionFormSection'
+import { AccionFormBlock } from '@/features/operations/components/form/AccionFormBlock'
+import { EvidenceOptionPicker } from '@/features/operations/components/form/EvidenceOptionPicker'
+import { useDropdownOptionsByKey } from '@/features/catalogs/hooks/useDropdownOptions'
 import { AccionChecklistEditor, type LocalCheckpointDraft } from '@/features/operations/components/AccionChecklistEditor'
 import type { AccionCreateInput, AccionFormInput } from '@/features/operations/schemas/accion.schema'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
@@ -25,6 +30,30 @@ type Props = {
 
 type TeamActionMode = 'single' | 'frequent'
 type FrequencyType = 'diaria' | 'semanal' | 'quincenal' | 'mensual'
+
+const inputBase =
+  'rounded-md border border-input bg-background shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
+const textareaBase =
+  'flex min-h-[6rem] w-full resize-y rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm leading-relaxed transition-colors placeholder:text-muted-foreground focus:bg-background focus:outline-none focus:ring-2 focus:ring-ring/50 focus:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50'
+
+/** Mismo contrato que AccionForm: valor interno para «Otro (especificar)». */
+const EVIDENCIA_OTRO_INTERNAL = '__evidencia_otro__'
+
+const modeOptions = [
+  {
+    value: 'single' as const,
+    label: 'Única',
+    hint: 'Se ejecuta una vez y se cierra.',
+    icon: Target,
+  },
+  {
+    value: 'frequent' as const,
+    label: 'Frecuente',
+    hint: 'Genera una acción por periodo.',
+    icon: Repeat2,
+  },
+]
 
 const weekdays = [
   { value: 1, label: 'Lunes' },
@@ -59,6 +88,10 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
   const [mode, setMode] = useState<TeamActionMode>('single')
   const [checklist, setChecklist] = useState<LocalCheckpointDraft[]>([])
   const [errors, setErrors] = useState<string[]>([])
+  const [frequentBlocksOpen, setFrequentBlocksOpen] = useState({
+    principal: true,
+    validacion: true,
+  })
   const [frequentForm, setFrequentForm] = useState({
     title: '',
     description: '',
@@ -70,7 +103,11 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
     weekday: isoWeekdayFromDate(todayInputValue()),
     monthDay: new Date().getDate(),
     evidenceRequired: true,
+    evidenceText: '',
   })
+  const [evidenceSelect, setEvidenceSelect] = useState('')
+  const { data: evidenciaOpciones = [], isLoading: evidenciaLoading } =
+    useDropdownOptionsByKey('evidencia_esperada')
   const formId = 'team-action-form'
   const frequentFormId = 'team-frequent-action-form'
   const memberName = (id: string | null | undefined) =>
@@ -205,7 +242,7 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
         priority: frequentForm.priority,
         dueAt,
         evidence: frequentForm.evidenceRequired,
-        evidenceText: null,
+        evidenceText: frequentForm.evidenceRequired ? frequentForm.evidenceText.trim() : null,
         checklist: validationItems.length > 0
           ? validationItems
           : [{ text: 'Registrar actualizacion del periodo', responsable_id: frequentForm.assignee }],
@@ -218,7 +255,7 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
       })
     },
     onSuccess: async (created) => {
-      toast.success('Accion frecuente creada')
+      toast.success('Recurrencia programada: se genera una accion por periodo')
       void notifyTeamAssignee({
         usuarioId: created.asignado_a,
         actionId: created.id,
@@ -245,15 +282,37 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
       )
       setChecklist([])
       setErrors([])
-      setFrequentForm((current) => ({ ...current, title: '', description: '', assignee: '' }))
+      setEvidenceSelect('')
+      setFrequentForm((current) => ({
+        ...current,
+        title: '',
+        description: '',
+        assignee: '',
+        evidenceText: '',
+      }))
       onOpenChange(false)
       await onDone()
     },
     onError: (error) => toast.error(error.message),
   })
 
+  const catalogHasOtro = evidenciaOpciones.some(
+    (option) => option.value.trim().toLowerCase() === 'otro'
+  )
+  const evidenceNeedsFreeText =
+    evidenceSelect === EVIDENCIA_OTRO_INTERNAL ||
+    evidenciaOpciones.find((option) => option.value === evidenceSelect)?.value.trim().toLowerCase() ===
+      'otro'
+
   const defaults: Partial<AccionFormInput> = { area: areaName, descripcion_modo: 'simple' }
   const isSubmitting = mutation.isPending || frequentMutation.isPending
+  const assigneeName = board.members.find((member) => member.id === frequentForm.assignee)?.nombre
+  const frequencyLabel = ({
+    diaria: 'Diaria',
+    semanal: 'Semanal',
+    quincenal: 'Quincenal',
+    mensual: 'Mensual',
+  } as const)[frequentForm.frequencyType]
 
   const handleFrequentSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -264,197 +323,392 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
     if (['mensual', 'quincenal'].includes(frequentForm.frequencyType) && !frequentForm.monthDay) {
       nextErrors.push('Dia de referencia requerido')
     }
+    if (frequentForm.evidenceRequired && frequentForm.evidenceText.trim().length < 5) {
+      nextErrors.push('Indica que evidencia se requiere (min. 5 caracteres)')
+    }
     setErrors(nextErrors)
     if (nextErrors.length === 0) frequentMutation.mutate()
   }
 
-  return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="accion-form-dialog !flex flex-col gap-0 overflow-hidden p-0 fixed left-0 right-0 top-0 z-50 h-[100dvh] max-h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 rounded-none border-x-0 border-t-0 sm:left-[50%] sm:right-auto sm:top-[50%] sm:h-auto sm:max-h-[min(90dvh,900px)] sm:w-[calc(100vw-2rem)] sm:max-w-2xl sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:border">
-      <DialogTitle className="sr-only">Nueva accion de equipo</DialogTitle>
-      <div className="shrink-0 border-b border-border/60 bg-card px-3 py-2.5 pr-11 sm:px-4 sm:py-3 sm:pr-12">
-        <h2 className="text-sm font-semibold sm:text-base">Nueva accion</h2>
-        <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">{areaName} - Kanban por Equipos</p>
-        <div className="mt-3 grid grid-cols-2 rounded-lg border border-border/70 bg-muted/30 p-1 text-xs">
-          <button
-            type="button"
-            className={`rounded-md px-3 py-1.5 font-medium transition ${mode === 'single' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}`}
-            onClick={() => setMode('single')}
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="accion-form-dialog !flex flex-col gap-0 overflow-hidden p-0 fixed left-0 right-0 top-0 z-50 h-[100dvh] max-h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 rounded-none border-x-0 border-t-0 sm:left-[50%] sm:right-auto sm:top-[50%] sm:h-auto sm:max-h-[min(90dvh,900px)] sm:w-[calc(100vw-2rem)] sm:max-w-2xl sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:border">
+        <DialogTitle className="sr-only">Nueva accion de equipo</DialogTitle>
+        <div className="shrink-0 border-b border-border/60 bg-card px-3 py-2.5 pr-11 sm:px-4 sm:py-3 sm:pr-12">
+          <h2 className="text-sm font-semibold sm:text-base">Nueva acción</h2>
+          <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">
+            {areaName} · Kanban por Equipos
+          </p>
+          <div
+            role="radiogroup"
+            aria-label="Tipo de acción"
+            className="mt-3 grid grid-cols-2 gap-2"
           >
-            Accion unica
-          </button>
-          <button
-            type="button"
-            className={`rounded-md px-3 py-1.5 font-medium transition ${mode === 'frequent' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}`}
-            onClick={() => setMode('frequent')}
-          >
-            Accion frecuente
-          </button>
+            {modeOptions.map((option) => {
+              const active = mode === option.value
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => setMode(option.value)}
+                  className={cn(
+                    'flex items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                    active
+                      ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20'
+                      : 'border-border/70 bg-muted/20 hover:border-primary/40 hover:bg-muted/40'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
+                      active ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground'
+                    )}
+                  >
+                    <option.icon className="h-4 w-4" aria-hidden />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-1 text-[13px] font-semibold leading-tight text-foreground">
+                      {option.label}
+                      {active ? <Check className="h-3.5 w-3.5 text-primary" aria-hidden /> : null}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+                      {option.hint}
+                    </span>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
         </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 sm:px-5 sm:py-4 md:px-6 md:py-5">
-        {mode === 'single' ? (
-          <AccionForm
-            formId={formId}
-            defaultValues={defaults}
-            onSubmit={(values) => { setErrors([]); mutation.mutate(values) }}
-            onSubmitInvalid={setErrors}
-            onCancel={() => onOpenChange(false)}
-            isSubmitting={isSubmitting}
-            userOptions={board.members}
-            areaOptions={[{ id: areaId, nombre: areaName }]}
-            lockedAreaName={areaName}
-            validationExtras={
-              <AccionChecklistEditor
-                items={checklist}
-                onChange={setChecklist}
-                disabled={isSubmitting}
-                users={board.members}
-              />
-            }
-          />
-        ) : (
-          <form id={frequentFormId} className="space-y-5" onSubmit={handleFrequentSubmit}>
-            <section className="space-y-3">
-              <div>
-                <p className="text-xs font-semibold uppercase text-muted-foreground">1. Informacion principal</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">Define el compromiso recurrente, responsable y calendario.</p>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="frequent-title">Titulo</Label>
-                  <Input
-                    id="frequent-title"
-                    value={frequentForm.title}
-                    onChange={(event) => setFrequentForm((current) => ({ ...current, title: event.target.value }))}
-                    placeholder="Ej. Actualizar avance de entregas"
-                    maxLength={120}
-                  />
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="frequent-description">Indicacion para el responsable</Label>
-                  <textarea
-                    id="frequent-description"
-                    className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    value={frequentForm.description}
-                    onChange={(event) => setFrequentForm((current) => ({ ...current, description: event.target.value }))}
-                    placeholder="Describe que actualizacion debe capturar en cada periodo."
-                    maxLength={600}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Responsable</Label>
-                  <Select value={frequentForm.assignee} onValueChange={(value) => setFrequentForm((current) => ({ ...current, assignee: value }))}>
-                    <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
-                    <SelectContent>
-                      {board.members.map((member) => <SelectItem key={member.id} value={member.id}>{member.nombre}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Prioridad</Label>
-                  <Select value={frequentForm.priority} onValueChange={(value) => setFrequentForm((current) => ({ ...current, priority: value as typeof frequentForm.priority }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {['Baja', 'Media', 'Alta', 'Critica'].map((priority) => <SelectItem key={priority} value={priority}>{priority}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="frequent-date">Primer vencimiento</Label>
-                  <Input
-                    id="frequent-date"
-                    type="date"
-                    value={frequentForm.dueDate}
-                    onChange={(event) => setFrequentForm((current) => ({
-                      ...current,
-                      dueDate: event.target.value,
-                      weekday: current.frequencyType === 'semanal' ? isoWeekdayFromDate(event.target.value) : current.weekday,
-                      monthDay: ['mensual', 'quincenal'].includes(current.frequencyType)
-                        ? new Date(`${event.target.value}T12:00:00`).getDate()
-                        : current.monthDay,
-                    }))}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="frequent-time">Hora limite</Label>
-                  <Input
-                    id="frequent-time"
-                    type="time"
-                    value={frequentForm.dueTime}
-                    onChange={(event) => setFrequentForm((current) => ({ ...current, dueTime: event.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Frecuencia</Label>
-                  <Select value={frequentForm.frequencyType} onValueChange={(value) => setFrequentForm((current) => ({ ...current, frequencyType: value as FrequencyType }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="diaria">Diaria</SelectItem>
-                      <SelectItem value="semanal">Semanal</SelectItem>
-                      <SelectItem value="quincenal">Quincenal</SelectItem>
-                      <SelectItem value="mensual">Mensual</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {frequentForm.frequencyType === 'semanal' ? (
-                  <div className="space-y-1.5">
-                    <Label>Dia de envio</Label>
-                    <Select value={String(frequentForm.weekday)} onValueChange={(value) => setFrequentForm((current) => ({ ...current, weekday: Number(value) }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {weekdays.map((day) => <SelectItem key={day.value} value={String(day.value)}>{day.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ) : null}
-                {['mensual', 'quincenal'].includes(frequentForm.frequencyType) ? (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="frequent-month-day">Dia de referencia</Label>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 sm:px-5 sm:py-4 md:px-6 md:py-5">
+          {mode === 'single' ? (
+            <AccionForm
+              formId={formId}
+              defaultValues={defaults}
+              onSubmit={(values) => { setErrors([]); mutation.mutate(values) }}
+              onSubmitInvalid={setErrors}
+              onCancel={() => onOpenChange(false)}
+              isSubmitting={isSubmitting}
+              userOptions={board.members}
+              areaOptions={[{ id: areaId, nombre: areaName }]}
+              lockedAreaName={areaName}
+              hideImpactStep
+              validationExtras={
+                <AccionChecklistEditor
+                  items={checklist}
+                  onChange={setChecklist}
+                  disabled={isSubmitting}
+                  users={board.members}
+                />
+              }
+            />
+          ) : (
+            <form
+              id={frequentFormId}
+              className="accion-form space-y-3 sm:space-y-4"
+              onSubmit={handleFrequentSubmit}
+              data-accion-form-mode="create"
+            >
+              <AccionFormBlock
+                blockId="team-frequent-block-principal"
+                step={1}
+                title="Información principal"
+                subtitle="Define el compromiso recurrente, quién lo ejecutará y el calendario."
+                icon={CalendarClock}
+                expanded={frequentBlocksOpen.principal}
+                onToggle={() => setFrequentBlocksOpen((current) => ({
+                  ...current,
+                  principal: !current.principal,
+                }))}
+                collapsedSummary={[
+                  frequentForm.title.trim() || null,
+                  assigneeName || null,
+                  frequencyLabel,
+                ].filter(Boolean).join(' · ') || undefined}
+              >
+                <fieldset className="space-y-4" disabled={isSubmitting}>
+                  <AccionFormField label="Título de la acción" htmlFor="frequent-title" required>
                     <Input
-                      id="frequent-month-day"
-                      type="number"
-                      min={1}
-                      max={31}
-                      value={frequentForm.monthDay}
-                      onChange={(event) => setFrequentForm((current) => ({ ...current, monthDay: Number(event.target.value) }))}
+                      id="frequent-title"
+                      value={frequentForm.title}
+                      onChange={(event) => setFrequentForm((current) => ({ ...current, title: event.target.value }))}
+                      placeholder="Ej. Actualizar avance de entregas"
+                      maxLength={120}
+                      className={`${inputBase} h-10`}
+                    />
+                    <p className="text-xs text-muted-foreground">{frequentForm.title.length}/120</p>
+                  </AccionFormField>
+
+                  <AccionFormField label="Descripción" htmlFor="frequent-description" required>
+                    <textarea
+                      id="frequent-description"
+                      value={frequentForm.description}
+                      onChange={(event) => setFrequentForm((current) => ({
+                        ...current,
+                        description: event.target.value,
+                      }))}
+                      placeholder="Describe qué actualización debe capturar el responsable en cada periodo."
+                      rows={4}
+                      className={`${textareaBase} max-h-[min(40vh,360px)] overflow-y-auto whitespace-pre-wrap break-words`}
+                    />
+                  </AccionFormField>
+
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-start">
+                    <AccionFormField
+                      label="Responsable de ejecutar"
+                      htmlFor="frequent-assignee"
+                      hint="Persona que ejecuta y cierra cada periodo."
+                      hintAsIcon
+                      required
+                    >
+                      <Select
+                        value={frequentForm.assignee || undefined}
+                        onValueChange={(value) => setFrequentForm((current) => ({ ...current, assignee: value }))}
+                      >
+                        <SelectTrigger id="frequent-assignee" className={`${inputBase} h-10`}>
+                          <SelectValue placeholder="Seleccionar" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {board.members.map((member) => (
+                            <SelectItem key={member.id} value={member.id}>{member.nombre}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </AccionFormField>
+
+                    <AccionFormField label="Prioridad" htmlFor="frequent-priority" required>
+                      <Select
+                        value={frequentForm.priority}
+                        onValueChange={(value) => setFrequentForm((current) => ({
+                          ...current,
+                          priority: value as typeof frequentForm.priority,
+                        }))}
+                      >
+                        <SelectTrigger id="frequent-priority" className={`${inputBase} h-10`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {['Baja', 'Media', 'Alta', 'Critica'].map((priority) => (
+                            <SelectItem key={priority} value={priority}>{priority}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </AccionFormField>
+                  </div>
+
+                  <AccionFormField
+                    label="Primer vencimiento y hora límite"
+                    htmlFor="frequent-date"
+                    hint="Fecha y hora del primer ciclo."
+                    hintAsIcon
+                    required
+                  >
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <Input
+                        id="frequent-date"
+                        type="date"
+                        value={frequentForm.dueDate}
+                        onChange={(event) => setFrequentForm((current) => ({
+                          ...current,
+                          dueDate: event.target.value,
+                          weekday: current.frequencyType === 'semanal'
+                            ? isoWeekdayFromDate(event.target.value)
+                            : current.weekday,
+                          monthDay: ['mensual', 'quincenal'].includes(current.frequencyType)
+                            ? new Date(`${event.target.value}T12:00:00`).getDate()
+                            : current.monthDay,
+                        }))}
+                        className={`${inputBase} h-10`}
+                      />
+                      <Input
+                        id="frequent-time"
+                        type="time"
+                        value={frequentForm.dueTime}
+                        onChange={(event) => setFrequentForm((current) => ({
+                          ...current,
+                          dueTime: event.target.value,
+                        }))}
+                        step={60}
+                        className={`${inputBase} h-10`}
+                      />
+                    </div>
+                  </AccionFormField>
+
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-start">
+                    <AccionFormField label="Frecuencia" htmlFor="frequent-frequency" required>
+                      <Select
+                        value={frequentForm.frequencyType}
+                        onValueChange={(value) => setFrequentForm((current) => ({
+                          ...current,
+                          frequencyType: value as FrequencyType,
+                        }))}
+                      >
+                        <SelectTrigger id="frequent-frequency" className={`${inputBase} h-10`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="diaria">Diaria</SelectItem>
+                          <SelectItem value="semanal">Semanal</SelectItem>
+                          <SelectItem value="quincenal">Quincenal</SelectItem>
+                          <SelectItem value="mensual">Mensual</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </AccionFormField>
+
+                    {frequentForm.frequencyType === 'semanal' ? (
+                      <AccionFormField label="Día de envío" htmlFor="frequent-weekday" required>
+                        <Select
+                          value={String(frequentForm.weekday)}
+                          onValueChange={(value) => setFrequentForm((current) => ({
+                            ...current,
+                            weekday: Number(value),
+                          }))}
+                        >
+                          <SelectTrigger id="frequent-weekday" className={`${inputBase} h-10`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {weekdays.map((day) => (
+                              <SelectItem key={day.value} value={String(day.value)}>{day.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </AccionFormField>
+                    ) : null}
+
+                    {['mensual', 'quincenal'].includes(frequentForm.frequencyType) ? (
+                      <AccionFormField label="Día de referencia" htmlFor="frequent-month-day" required>
+                        <Input
+                          id="frequent-month-day"
+                          type="number"
+                          min={1}
+                          max={31}
+                          value={frequentForm.monthDay}
+                          onChange={(event) => setFrequentForm((current) => ({
+                            ...current,
+                            monthDay: Number(event.target.value),
+                          }))}
+                          className={`${inputBase} h-10`}
+                        />
+                      </AccionFormField>
+                    ) : null}
+                  </div>
+                </fieldset>
+              </AccionFormBlock>
+
+              <AccionFormBlock
+                blockId="team-frequent-block-validacion"
+                step={2}
+                title="Evidencia y validación"
+                subtitle="Qué comprobará el cierre de cada periodo."
+                icon={FileCheck}
+                expanded={frequentBlocksOpen.validacion}
+                onToggle={() => setFrequentBlocksOpen((current) => ({
+                  ...current,
+                  validacion: !current.validacion,
+                }))}
+                collapsedSummary={
+                  frequentForm.evidenceRequired
+                    ? `${frequentForm.evidenceText.trim() || 'Evidencia requerida'} · checklist`
+                    : 'Checklist de validación'
+                }
+              >
+                <div className="space-y-4">
+                  <label className="flex items-start gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-3 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded border-input"
+                      checked={frequentForm.evidenceRequired}
+                      onChange={(event) => setFrequentForm((current) => ({
+                        ...current,
+                        evidenceRequired: event.target.checked,
+                      }))}
+                      disabled={isSubmitting}
+                    />
+                    <span>
+                      <span className="block font-medium text-foreground">
+                        Requiere apoyo documental al actualizar
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        El responsable deberá adjuntar evidencia al cerrar cada ciclo.
+                      </span>
+                    </span>
+                  </label>
+
+                  {frequentForm.evidenceRequired ? (
+                    <AccionFormField
+                      label="¿Qué evidencia debe adjuntar en cada periodo?"
+                      required
+                      hint="Se copia tal cual a cada acción que genere la recurrencia."
+                    >
+                      {evidenciaOpciones.length > 0 ? (
+                        <EvidenceOptionPicker
+                          options={evidenciaOpciones.map((option) => ({
+                            id: option.id,
+                            value: option.value,
+                            label: option.label,
+                          }))}
+                          selectedValue={evidenceSelect}
+                          otherInternalValue={catalogHasOtro ? undefined : EVIDENCIA_OTRO_INTERNAL}
+                          disabled={isSubmitting}
+                          onSelect={(value, label) => {
+                            setEvidenceSelect(value)
+                            setFrequentForm((current) => ({
+                              ...current,
+                              evidenceText: value === EVIDENCIA_OTRO_INTERNAL ? '' : label,
+                            }))
+                          }}
+                        />
+                      ) : evidenciaLoading ? (
+                        <p className="text-xs text-muted-foreground">Cargando catálogo de evidencia…</p>
+                      ) : null}
+                      {evidenceNeedsFreeText || evidenciaOpciones.length === 0 ? (
+                        <Input
+                          id="frequent-evidence-text"
+                          value={frequentForm.evidenceText}
+                          onChange={(event) => setFrequentForm((current) => ({
+                            ...current,
+                            evidenceText: event.target.value,
+                          }))}
+                          placeholder="Especificar (mín. 5 caracteres)"
+                          maxLength={200}
+                          disabled={isSubmitting}
+                          className={`${inputBase} mt-2 h-10`}
+                        />
+                      ) : null}
+                    </AccionFormField>
+                  ) : null}
+
+                  <div className="space-y-4 border-t border-border/50 pt-4">
+                    <AccionChecklistEditor
+                      items={checklist}
+                      onChange={setChecklist}
+                      disabled={isSubmitting}
+                      users={board.members}
                     />
                   </div>
-                ) : null}
-              </div>
-            </section>
-
-            <section className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-3">
-              <div>
-                <p className="text-xs font-semibold uppercase text-muted-foreground">3. Evidencia y validacion</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">El responsable capturara la actualizacion de cada periodo y cerrara los puntos de validacion.</p>
-              </div>
-              <label className="flex items-center gap-2 rounded-md border border-border/70 bg-background px-3 py-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={frequentForm.evidenceRequired}
-                  onChange={(event) => setFrequentForm((current) => ({ ...current, evidenceRequired: event.target.checked }))}
-                />
-                Requiere apoyo documental al actualizar
-              </label>
-              <AccionChecklistEditor
-                items={checklist}
-                onChange={setChecklist}
-                disabled={isSubmitting}
-                users={board.members}
-              />
-            </section>
-          </form>
-        )}
-      </div>
-      <div className="shrink-0 border-t border-border/60 bg-card px-3 py-3 sm:px-5">
-        {errors.length > 0 ? <p className="mb-2 text-xs text-destructive">{errors.join(' - ')}</p> : null}
-        <div className="grid grid-cols-2 gap-2">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button type="submit" form={mode === 'single' ? formId : frequentFormId} disabled={isSubmitting}>
-            {isSubmitting ? 'Creando...' : mode === 'frequent' ? 'Crear frecuente' : 'Crear accion'}
-          </Button>
+                </div>
+              </AccionFormBlock>
+            </form>
+          )}
         </div>
-      </div>
-    </DialogContent>
-  </Dialog>
+        <div className="shrink-0 border-t border-border/60 bg-card px-3 py-3 sm:px-5">
+          {errors.length > 0 ? <p className="mb-2 text-xs text-destructive">{errors.join(' - ')}</p> : null}
+          <div className="grid grid-cols-2 gap-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+            <Button type="submit" form={mode === 'single' ? formId : frequentFormId} disabled={isSubmitting}>
+              {isSubmitting
+                ? 'Creando...'
+                : mode === 'frequent'
+                  ? 'Programar recurrencia'
+                  : 'Crear acción'}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
 }

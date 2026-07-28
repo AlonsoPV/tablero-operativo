@@ -132,6 +132,9 @@ export interface AccionFormProps {
   onSubmitInvalid?: (messages: string[]) => void
   /** Checklist borrador y adjuntos opcionales (bloque 3, solo creación). */
   validationExtras?: ReactNode
+  deadlineExtras?: (values: { fecha: string | undefined; hora_limite: string | undefined }) => ReactNode
+  /** Oculta el bloque de impacto/planeación (p. ej. Kanban por Equipos). */
+  hideImpactStep?: boolean
   onPrioridadChange?: (prioridad: string | undefined) => void
   accionPrioridadId?: string | null
   userOptions?: Array<{ id: string; nombre: string }>
@@ -149,6 +152,8 @@ export function AccionForm({
   formId,
   onSubmitInvalid,
   validationExtras,
+  deadlineExtras,
+  hideImpactStep = false,
   onPrioridadChange,
   accionPrioridadId,
   userOptions,
@@ -252,6 +257,8 @@ export function AccionForm({
   const watchedGapIds = form.watch('gap_ids')
   const watchedCatalogKpiIds = form.watch('catalog_kpi_ids')
   const selectedStoryPoints = form.watch('story_points') ?? 0
+  const watchedFecha = form.watch('fecha')
+  const watchedHoraLimite = form.watch('hora_limite')
   const gapIds = useMemo(() => watchedGapIds ?? [], [watchedGapIds])
   const catalogKpiIds = useMemo(() => watchedCatalogKpiIds ?? [], [watchedCatalogKpiIds])
   const prioridadSeleccionada = form.watch('prioridad')
@@ -588,11 +595,13 @@ export function AccionForm({
               className={`${inputBase} h-10`}
             />
           </div>
+          {deadlineExtras?.({ fecha: watchedFecha, hora_limite: watchedHoraLimite })}
         </AccionFormField>
         </fieldset>
         )}
       </AccionFormBlock>
 
+      {!hideImpactStep ? (
       <AccionFormBlock
         blockId={`${fid}-block-impacto`}
         step={2}
@@ -747,10 +756,11 @@ export function AccionForm({
         </fieldset>
         )}
       </AccionFormBlock>
+      ) : null}
 
       <AccionFormBlock
         blockId={`${fid}-block-validacion`}
-        step={3}
+        step={hideImpactStep ? 2 : 3}
         title="Evidencia y validación"
         subtitle="Qué comprobará el cierre."
         icon={FileCheck}

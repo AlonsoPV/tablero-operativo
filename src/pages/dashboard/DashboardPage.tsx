@@ -39,6 +39,7 @@ import { DashboardActionsSection } from './components/DashboardActionsSection'
 import { DashboardUserActionsSummarySection } from './components/DashboardUserActionsSummarySection'
 import { DashboardUserLoginChartSection } from './components/DashboardUserLoginChartSection'
 import { DashboardRedUploadsByWeekSection } from './components/DashboardRedUploadsByWeekSection'
+import { DashboardFechaCompromisoChangesSection } from './components/DashboardFechaCompromisoChangesSection'
 import { DashboardExecutivePanel } from './components/DashboardExecutivePanel'
 import { useOperationalDashboardMetrics } from './hooks/useOperationalDashboardMetrics'
 import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
@@ -580,6 +581,8 @@ export function DashboardPage() {
           isLoading={redUploadAccionesLoading}
           onDrillDown={handleDrillDown}
         />
+
+        <DashboardFechaCompromisoChangesSection />
 
         {false ? (
         <section

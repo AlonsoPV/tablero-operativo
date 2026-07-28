@@ -8,6 +8,8 @@ import {
   Ban,
   Building2,
   CircleDot,
+  Crown,
+  Medal,
   Percent,
   Trophy,
   UserRound,
@@ -40,6 +42,7 @@ import {
 } from '../utils/dashboardUserActionsSummary'
 
 type SummaryView = 'usuario' | 'area'
+const TOP_GAMIFICATION_LIMIT = 3
 
 type AcademyProgressCountRow = {
   user_id: string
@@ -254,6 +257,216 @@ function SummaryViewToggle({
   )
 }
 
+const PODIUM_STYLES = [
+  {
+    icon: Crown,
+    card: 'border-amber-300/70 bg-gradient-to-br from-amber-50 via-background to-background dark:border-amber-500/30 dark:from-amber-950/25',
+    badge: 'bg-amber-400 text-amber-950',
+    bar: 'bg-amber-400',
+    accent: 'text-amber-600 dark:text-amber-400',
+  },
+  {
+    icon: Medal,
+    card: 'border-slate-300/70 bg-gradient-to-br from-slate-50 via-background to-background dark:border-slate-600/40 dark:from-slate-900/40',
+    badge: 'bg-slate-300 text-slate-900',
+    bar: 'bg-slate-400',
+    accent: 'text-slate-500 dark:text-slate-300',
+  },
+  {
+    icon: Medal,
+    card: 'border-orange-300/60 bg-gradient-to-br from-orange-50 via-background to-background dark:border-orange-700/40 dark:from-orange-950/20',
+    badge: 'bg-orange-300 text-orange-950',
+    bar: 'bg-orange-400',
+    accent: 'text-orange-600 dark:text-orange-400',
+  },
+]
+
+function PodiumStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: number
+  tone?: 'warning' | 'danger'
+}) {
+  return (
+    <div className="rounded-lg bg-background/70 px-1.5 py-1.5 ring-1 ring-border/50">
+      <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p
+        className={cn(
+          'mt-0.5 text-sm font-bold tabular-nums',
+          tone === 'warning' && value > 0 && 'text-orange-600',
+          tone === 'danger' && value > 0 && 'text-destructive'
+        )}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
+
+function TopPerformerCard({
+  row,
+  rank,
+  leaderScore,
+}: {
+  row: UserActionsSummaryRow
+  rank: number
+  leaderScore: number
+}) {
+  const style = PODIUM_STYLES[rank - 1] ?? PODIUM_STYLES[2]
+  const RankIcon = style.icon
+  const relative =
+    leaderScore > 0
+      ? Math.max(0, Math.min(100, Math.round((row.gamificationAwardScore / leaderScore) * 100)))
+      : 0
+  const gap = leaderScore - row.gamificationAwardScore
+
+  return (
+    <article
+      className={cn(
+        'rounded-2xl border p-4 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md',
+        style.card,
+        rank === 1 && 'sm:col-span-2 lg:col-span-1'
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <div className="relative shrink-0">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary ring-1 ring-primary/15">
+            {initialsFromDisplayName(row.nombre)}
+          </div>
+          <span
+            className={cn(
+              'absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold shadow-sm ring-2 ring-background',
+              style.badge
+            )}
+          >
+            {rank}
+          </span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-foreground">{row.nombre}</p>
+          <p className="truncate text-xs text-muted-foreground">{row.area}</p>
+        </div>
+        <RankIcon className={cn('h-5 w-5 shrink-0', style.accent)} aria-hidden />
+      </div>
+
+      <div className="mt-3 flex items-end justify-between gap-2">
+        <div>
+          <p className="text-3xl font-bold leading-none tabular-nums tracking-tight">
+            {row.gamificationAwardScore}
+          </p>
+          <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Score premio
+          </p>
+        </div>
+        <span
+          className={cn(
+            'inline-flex items-center gap-1 rounded-full bg-background/80 px-2 py-1 text-xs font-bold tabular-nums ring-1 ring-border/60',
+            fulfillmentTone(row.gamificationFulfillmentPercent)
+          )}
+        >
+          <Percent className="h-3 w-3" aria-hidden />
+          {row.gamificationFulfillmentPercent}%
+        </span>
+      </div>
+
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+        <div className={cn('h-full rounded-full', style.bar)} style={{ width: `${relative}%` }} />
+      </div>
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        {rank === 1 || gap <= 0 ? (
+          <span className={cn('font-semibold', style.accent)}>Lidera el ranking</span>
+        ) : (
+          `${gap} pts detrás del 1.º`
+        )}
+      </p>
+
+      <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
+        <PodiumStat label="Abiertas" value={row.abiertas} />
+        <PodiumStat label="Retraso" value={row.retraso} tone="warning" />
+        <PodiumStat label="Bloq." value={row.bloqueadas} tone="danger" />
+      </div>
+
+      <p className="mt-2 truncate text-[11px] text-muted-foreground">
+        {row.workloadBand} · {row.gamificationEarnedPoints}/{row.gamificationPossiblePoints} pts
+      </p>
+    </article>
+  )
+}
+
+function TopPerformersPodium({ rows }: { rows: UserActionsSummaryRow[] }) {
+  const leaderScore = rows[0]?.gamificationAwardScore ?? 0
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {rows.map((row, index) => (
+        <TopPerformerCard key={row.userId} row={row} rank={index + 1} leaderScore={leaderScore} />
+      ))}
+    </div>
+  )
+}
+
+function RankingScopeToggle({
+  showAll,
+  totalUsers,
+  onChange,
+}: {
+  showAll: boolean
+  totalUsers: number
+  onChange: (showAll: boolean) => void
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Alcance del ranking"
+      className="inline-flex items-center gap-0.5 rounded-lg border border-border/70 bg-muted/25 p-0.5"
+    >
+      <button
+        type="button"
+        role="radio"
+        aria-checked={!showAll}
+        onClick={() => onChange(false)}
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          showAll
+            ? 'text-muted-foreground hover:text-foreground'
+            : 'bg-background text-foreground shadow-sm ring-1 ring-amber-300/50'
+        )}
+      >
+        <Trophy className={cn('h-3.5 w-3.5', !showAll && 'text-amber-500')} aria-hidden />
+        Podio
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={showAll}
+        onClick={() => onChange(true)}
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          showAll
+            ? 'bg-background text-foreground shadow-sm ring-1 ring-primary/25'
+            : 'text-muted-foreground hover:text-foreground'
+        )}
+      >
+        <UsersRound className={cn('h-3.5 w-3.5', showAll && 'text-primary')} aria-hidden />
+        Todos
+        <span
+          className={cn(
+            'rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums',
+            showAll ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+          )}
+        >
+          {totalUsers}
+        </span>
+      </button>
+    </div>
+  )
+}
+
 function UserMobileCard({ row }: { row: UserActionsSummaryRow }) {
   const isCritical = row.retraso > 0 || row.bloqueadas > 0
 
@@ -365,9 +578,10 @@ export function DashboardUserActionsSummarySection({
 }: DashboardUserActionsSummarySectionProps) {
   const [view, setView] = useState<SummaryView>('usuario')
   const [search, setSearch] = useState('')
-  const [userSortKey, setUserSortKey] = useState<UserSummarySortKey>('abiertas')
+  const [userSortKey, setUserSortKey] = useState<UserSummarySortKey>('gamificationAwardScore')
   const [areaSortKey, setAreaSortKey] = useState<AreaSummarySortKey>('abiertas')
   const [sortDir, setSortDir] = useState<SummarySortDir>('desc')
+  const [showAllUserRows, setShowAllUserRows] = useState(false)
   const { data: orgChartScores = [], isLoading: orgChartScoresLoading } = useQuery({
     queryKey: ['disciplina', 'org-chart-scores-visible'],
     queryFn: () => orgChartScoreService.listVisible(),
@@ -445,7 +659,7 @@ export function DashboardUserActionsSummarySection({
     ]
   )
 
-  const userRows = useMemo(() => {
+  const allUserRows = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase()
     const filtered = normalizedSearch
       ? baseUserRows.filter(
@@ -457,6 +671,14 @@ export function DashboardUserActionsSummarySection({
 
     return [...filtered].sort((a, b) => compareUserSummaryRows(a, b, userSortKey, sortDir))
   }, [baseUserRows, search, userSortKey, sortDir])
+
+  const isDefaultGamificationRanking =
+    userSortKey === 'gamificationAwardScore' && sortDir === 'desc' && search.trim() === ''
+  const isTopGamificationLimited = view === 'usuario' && isDefaultGamificationRanking && !showAllUserRows
+  const userRows = useMemo(
+    () => (isTopGamificationLimited ? allUserRows.slice(0, TOP_GAMIFICATION_LIMIT) : allUserRows),
+    [allUserRows, isTopGamificationLimited]
+  )
 
   const areaRows = useMemo(() => {
     const rows = buildAreaActionsSummaryRows(baseUserRows)
@@ -514,12 +736,31 @@ export function DashboardUserActionsSummarySection({
               <SummaryTotalsBar view={view} totals={totals} />
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-muted-foreground">
-                  {view === 'usuario'
-                    ? `${rows.length} usuario${rows.length !== 1 ? 's' : ''} visible${rows.length !== 1 ? 's' : ''}`
-                    : `${rows.length} área${rows.length !== 1 ? 's' : ''} visible${rows.length !== 1 ? 's' : ''}`}
-                  {search.trim() ? ` · filtro “${search.trim()}”` : null}
-                </p>
+                <div className="space-y-1">
+                  <p
+                    className={cn(
+                      'flex items-center gap-1.5 text-xs text-muted-foreground',
+                      isTopGamificationLimited && 'text-sm font-semibold text-foreground'
+                    )}
+                  >
+                    {isTopGamificationLimited ? (
+                      <Trophy className="h-4 w-4 shrink-0 text-amber-500" aria-hidden />
+                    ) : null}
+                    {view === 'usuario'
+                      ? isTopGamificationLimited
+                        ? `Podio por score premio · top ${Math.min(TOP_GAMIFICATION_LIMIT, allUserRows.length)} de ${allUserRows.length}`
+                        : `${rows.length} usuario${rows.length !== 1 ? 's' : ''} visible${rows.length !== 1 ? 's' : ''}`
+                      : `${rows.length} área${rows.length !== 1 ? 's' : ''} visible${rows.length !== 1 ? 's' : ''}`}
+                    {search.trim() ? ` · filtro “${search.trim()}”` : null}
+                  </p>
+                  {view === 'usuario' && isDefaultGamificationRanking && allUserRows.length > TOP_GAMIFICATION_LIMIT ? (
+                    <RankingScopeToggle
+                      showAll={showAllUserRows}
+                      totalUsers={allUserRows.length}
+                      onChange={setShowAllUserRows}
+                    />
+                  ) : null}
+                </div>
                 <Input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
@@ -533,6 +774,8 @@ export function DashboardUserActionsSummarySection({
                 <div className="rounded-xl border border-dashed border-border/70 bg-muted/10 px-4 py-8 text-center text-sm text-muted-foreground">
                   {filteredEmptyMessage}
                 </div>
+              ) : view === 'usuario' && isTopGamificationLimited ? (
+                <TopPerformersPodium rows={userRows} />
               ) : view === 'usuario' ? (
                 <>
                   <div className="grid gap-3 md:hidden">

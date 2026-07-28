@@ -1,3 +1,8 @@
+-- Asegura columnas de evidencia por si la tabla nació sin ellas (CREATE TABLE IF NOT EXISTS).
+ALTER TABLE public.acciones_equipo
+  ADD COLUMN IF NOT EXISTS evidencia_requerida boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS evidencia_esperada text;
+
 ALTER TABLE public.acciones_equipo
   ADD COLUMN IF NOT EXISTS es_frecuente boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS frecuencia_tipo text,

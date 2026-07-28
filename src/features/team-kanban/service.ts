@@ -55,13 +55,31 @@ export const teamKanbanService = {
     if (error) throw new Error(error.message)
     return unwrap(data, null) as TeamAction
   },
-  async update(actionId: string, patch: { stateId?: string; assignee?: string; priority?: string; blocked?: boolean }) {
+  async update(
+    actionId: string,
+    patch: { stateId?: string; assignee?: string; priority?: string; blocked?: boolean; dueAt?: string | null }
+  ) {
     const { data, error } = await supabase.rpc('team_kanban_update_action', {
       p_action_id: actionId, p_state_id: patch.stateId ?? null, p_assignee: patch.assignee ?? null,
-      p_priority: patch.priority ?? null, p_blocked: patch.blocked ?? null,
+      p_priority: patch.priority ?? null, p_blocked: patch.blocked ?? null, p_due_at: patch.dueAt ?? null,
     })
     if (error) throw new Error(error.message)
     return unwrap(data, null) as TeamAction
+  },
+  /** Genera las ocurrencias vencidas de las series activas del area. Idempotente. */
+  async syncFrequent(areaId: string) {
+    const { data, error } = await supabase.rpc('team_kanban_sync_frequent_actions', { p_area_id: areaId })
+    if (error) throw new Error(error.message)
+    return (data as number | null) ?? 0
+  },
+  async closeSeries(input: { actionId: string; closePending: boolean; reason?: string }) {
+    const { data, error } = await supabase.rpc('team_kanban_close_frequent_series', {
+      p_action_id: input.actionId,
+      p_close_pending: input.closePending,
+      p_reason: input.reason ?? null,
+    })
+    if (error) throw new Error(error.message)
+    return (data ?? { ocurrencias_cerradas: 0 }) as { serie_id: string; ocurrencias_cerradas: number }
   },
   async escalate(actionId: string, reason: string) {
     const { data, error } = await supabase.rpc('team_kanban_escalate', { p_action_id: actionId, p_reason: reason })

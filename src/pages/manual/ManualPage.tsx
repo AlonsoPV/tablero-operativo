@@ -334,6 +334,33 @@ const glossary = [
   },
 ]
 
+const commitmentDateChangeCategories = [
+  {
+    title: '📅 Planeación del trabajo',
+    classification: 'La estimación o la fecha acordada no fueron realistas.',
+    when: 'La fecha o el esfuerzo se calcularon mal desde el inicio.',
+    includes: 'Tiempo insuficiente, demasiadas actividades asignadas, mala estimación.',
+  },
+  {
+    title: '🤝 Dependencias',
+    classification: 'Se esperaba a otra persona, área, cliente o proveedor.',
+    when: 'No pudiste continuar porque dependías de otra persona, área, cliente o proveedor.',
+    includes: 'Otra área, cliente, proveedor, autorizaciones o información pendiente.',
+  },
+  {
+    title: '🛠️ Recursos o capacidad',
+    classification: 'Faltaban herramientas, accesos, personal o existió una sobrecarga de trabajo.',
+    when: 'Tenías la intención de avanzar, pero algo te lo impidió.',
+    includes: 'Fallas técnicas, herramientas, accesos, materiales, sistemas o recursos.',
+  },
+  {
+    title: '🔄 Cambios en el compromiso',
+    classification: 'El alcance o la prioridad cambiaron después de iniciado.',
+    when: 'El compromiso original cambió después de haber iniciado.',
+    includes: 'Cambio de alcance, nueva prioridad o cualquier otra causa con comentario obligatorio.',
+  },
+]
+
 export function ManualPage() {
   const [activeTab, setActiveTab] = useState<'tablero' | 'gamificacion'>('tablero')
   const { data: currentUser } = useCurrentUser()
@@ -460,6 +487,80 @@ export function ManualPage() {
             </Card>
           ))}
         </div>
+      </section>
+
+      <section className="space-y-4" aria-labelledby="manual-fecha-compromiso-title">
+        <div className="max-w-3xl space-y-2">
+          <h2 id="manual-fecha-compromiso-title" className="text-2xl font-semibold tracking-tight">
+            Cambio de fecha compromiso
+          </h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Cuando una acción necesita cambiar su fecha compromiso, registra el motivo con una categoría clara. Esto
+            permite distinguir entre mala planeación, dependencias externas, falta de recursos o cambios reales del
+            compromiso.
+          </p>
+        </div>
+
+        <Card className="overflow-hidden rounded-xl border-border/70 shadow-sm">
+          <CardHeader className="border-b bg-muted/20 p-5">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <CalendarDays className="h-5 w-5 text-primary" aria-hidden />
+              Catálogo de motivos
+            </CardTitle>
+            <CardDescription>
+              Selecciona la categoría que mejor explique por qué cambió la fecha acordada.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                  <tr>
+                    <th scope="col" className="w-[28%] px-5 py-3 font-semibold">Categoría</th>
+                    <th scope="col" className="w-[36%] px-5 py-3 font-semibold">¿Cuándo seleccionarla?</th>
+                    <th scope="col" className="px-5 py-3 font-semibold">Incluye</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/70">
+                  {commitmentDateChangeCategories.map((category) => (
+                    <tr key={category.title} className="align-top odd:bg-muted/[0.12]">
+                      <td className="px-5 py-4">
+                        <p className="font-semibold text-foreground">{category.title}</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{category.classification}</p>
+                      </td>
+                      <td className="px-5 py-4 text-muted-foreground">{category.when}</td>
+                      <td className="px-5 py-4 text-muted-foreground">{category.includes}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="grid gap-3 p-4 md:hidden">
+              {commitmentDateChangeCategories.map((category) => (
+                <article key={category.title} className="rounded-lg border border-border/70 bg-muted/10 p-4">
+                  <h3 className="font-semibold text-foreground">{category.title}</h3>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">{category.classification}</p>
+                  <dl className="mt-3 space-y-2 text-sm">
+                    <div>
+                      <dt className="font-medium text-foreground">¿Cuándo seleccionarla?</dt>
+                      <dd className="mt-0.5 text-muted-foreground">{category.when}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-foreground">Incluye</dt>
+                      <dd className="mt-0.5 text-muted-foreground">{category.includes}</dd>
+                    </div>
+                  </dl>
+                </article>
+              ))}
+            </div>
+
+            <div className="border-t bg-amber-500/[0.06] px-5 py-4 text-sm leading-6 text-muted-foreground">
+              Si el motivo es <strong className="text-foreground">Cambios en el compromiso</strong>, agrega un
+              comentario obligatorio explicando qué cambió en alcance, prioridad o contexto.
+            </div>
+          </CardContent>
+        </Card>
       </section>
 
       <section className="space-y-4" aria-labelledby="manual-sections-title">
