@@ -109,7 +109,10 @@ export function statusCatalogColor(status: ActionStatus, map: Partial<Record<Act
   return map[status]?.color ?? null
 }
 
-export function orderedActionStatuses(statuses: Status[], fallbackOrder: ActionStatus[]): ActionStatus[] {
+export function orderedActionStatuses(
+  statuses: Status[],
+  fallbackOrder: readonly ActionStatus[]
+): ActionStatus[] {
   const indexed = new Map(fallbackOrder.map((status, index) => [status, index]))
   const catalogByKey = new Map<ActionStatus, Status>()
 
@@ -139,7 +142,7 @@ export function orderedActionStatuses(statuses: Status[], fallbackOrder: ActionS
 
 export function activeEstadoFilterOptions(
   statuses: Status[],
-  fallbackOrder: ActionStatus[],
+  fallbackOrder: readonly ActionStatus[],
   allLabel = 'Todos los estados'
 ): { value: string; label: string }[] {
   const statusByKey = statusCatalogByKey(statuses)
