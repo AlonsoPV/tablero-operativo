@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase/client'
 import type { Area, CreateAreaInput, UpdateAreaInput, CatalogFilter } from '../types/catalogs.types'
+import { updateCatalogRow } from './catalogUpdate'
 
 const TABLE = 'areas'
 
@@ -28,8 +29,9 @@ export const areasService = {
       nombre: input.nombre.trim(),
       descripcion: input.descripcion?.trim() ?? null,
       activo: input.activo ?? true,
-    }).select().single()
+    }).select('*').maybeSingle()
     if (error) throw error
+    if (!data) throw new Error('No se pudo crear el área. Verifica permisos de Super Admin.')
     return data as Area
   },
 
@@ -37,9 +39,7 @@ export const areasService = {
     const payload: Record<string, unknown> = { ...input }
     if (payload.nombre !== undefined) payload.nombre = (payload.nombre as string).trim()
     if (payload.descripcion !== undefined) payload.descripcion = (payload.descripcion as string)?.trim() ?? null
-    const { data, error } = await supabase.from(TABLE).update(payload).eq('id', id).select().single()
-    if (error) throw error
-    return data as Area
+    return updateCatalogRow<Area>(TABLE, id, payload, 'Área')
   },
 
   async setActivo(id: string, activo: boolean): Promise<Area> {

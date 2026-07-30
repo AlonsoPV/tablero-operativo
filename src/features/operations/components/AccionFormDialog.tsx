@@ -30,7 +30,6 @@ import {
   canManageActionsByRole,
   isAnalystByRole,
   isDirectionByRole,
-  isOperativeByRole,
   isSuperAdminByRole,
 } from '@/features/auth/lib/permissions'
 import { usersAdminService } from '@/features/users/services/users.service'
@@ -56,7 +55,7 @@ import type { AccionCreateInput, AccionFormInput } from '../schemas/accion.schem
 import { flattenDescripcionForForm } from '../utils/descripcionAccionTriada'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { CheckCircle2, Download, ExternalLink, Paperclip, FileText, Image, Mail, Trash2 } from 'lucide-react'
+import { CheckCircle2, Download, ExternalLink, Loader2, Paperclip, FileText, Image, Mail, Save, Trash2, X } from 'lucide-react'
 import {
   AccionChecklistEditor,
   type LocalCheckpointDraft,
@@ -69,14 +68,6 @@ import {
 } from '@/features/catalogs/hooks/useDropdownOptions'
 import { areasQueryKey, fetchAreas } from '@/features/catalogs/hooks/useAreas'
 import { fetchPriorities, prioritiesQueryKey, usePriorities } from '@/features/catalogs/hooks/usePriorities'
-import { catalogKpisService } from '@/features/catalogs/services/kpis.service'
-import { kpiQueryKeys } from '@/features/kpi/kpiQueryKeys'
-import { listGaps } from '@/features/kpi/services/gaps.service'
-import {
-  fetchAccionCatalogKpiIds,
-  fetchAccionGapIds,
-  syncAccionO2cLinks,
-} from '@/services/accionLinks.service'
 
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { validateFutureDateTimeCDMX } from '@/lib/futureDateValidation'
@@ -147,26 +138,6 @@ export function AccionFormDialog({
   // bloquear el click por caches o ids locales desfasados tras cambios de usuario.
   const canAttemptChecklistContribution = !!currentUser?.id && !isAnalyst
   const isMutating = createAccion.isPending || updateAccion.isPending || deleteAccion.isPending
-  const canViewO2cImpactFields =
-    !isAnalyst && !isDirectionByRole(currentUser?.rol) && !isOperativeByRole(currentUser?.rol)
-
-  const o2cLinksQuery = useQuery({
-    queryKey: ['accion-o2c-links', accion?.id] as const,
-    queryFn: async () => {
-      if (!accion?.id) return { gap_ids: [] as string[], catalog_kpi_ids: [] as string[] }
-      const [fromGaps, fromKpis] = await Promise.all([
-        fetchAccionGapIds(accion.id),
-        fetchAccionCatalogKpiIds(accion.id),
-      ])
-      const gapSet = new Set(fromGaps)
-      if (accion.gap_id) gapSet.add(accion.gap_id)
-      const kpiSet = new Set(fromKpis)
-      if (accion.catalog_kpi_id) kpiSet.add(accion.catalog_kpi_id)
-      return { gap_ids: [...gapSet], catalog_kpi_ids: [...kpiSet] }
-    },
-    enabled: open && !!accion?.id && canViewO2cImpactFields,
-    staleTime: 60_000,
-  })
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [pendingNewEvidencias, setPendingNewEvidencias] = useState<File[]>([])
   const [dragOverNew, setDragOverNew] = useState(false)
@@ -224,20 +195,8 @@ export function AccionFormDialog({
         queryFn: () => usersAdminService.list({ activo: true }),
       }),
     ]
-    if (canViewO2cImpactFields) {
-      prefetches.push(
-        qc.prefetchQuery({
-          queryKey: [...kpiQueryKeys.gaps, JSON.stringify(isEdit ? {} : { activo: true })],
-          queryFn: () => listGaps(isEdit ? {} : { activo: true }),
-        }),
-        qc.prefetchQuery({
-          queryKey: ['catalogs', 'kpis', isEdit ? {} : { activo: true }],
-          queryFn: () => catalogKpisService.list(isEdit ? {} : { activo: true }),
-        })
-      )
-    }
     void Promise.allSettled(prefetches)
-  }, [canViewO2cImpactFields, isEdit, open, qc])
+  }, [open, qc])
 
   function userNameById(userId: string | null | undefined): string | null {
     if (!userId) return null
@@ -466,18 +425,12 @@ export function AccionFormDialog({
         descripcion_para_que: '',
         hora_limite: '17:00',
         prioridad: undefined,
-        gap_ids: [],
-        catalog_kpi_ids: [],
         tipo_accion: 'operativa',
         story_points: 0,
         sprint_id: null,
         responsable_bloqueo: null,
       }
     }
-    const merged = o2cLinksQuery.data
-    const gap_ids = merged?.gap_ids ?? (accionLive.gap_id ? [accionLive.gap_id] : [])
-    const catalog_kpi_ids =
-      merged?.catalog_kpi_ids ?? (accionLive.catalog_kpi_id ? [accionLive.catalog_kpi_id] : [])
     const prioridadResuelta = resolveAccionPrioridadNombre(accionLive, priorities)
     return {
       fecha: accionLive.fecha,
@@ -493,8 +446,6 @@ export function AccionFormDialog({
       estado: accionLive.estado,
       prioridad: prioridadResuelta || accionLive.prioridad,
       area: accionLive.area ?? undefined,
-      gap_ids,
-      catalog_kpi_ids,
       tipo_accion: accionLive.tipo_accion ?? 'operativa',
       story_points:
         typeof accionLive.story_points === 'number' && Number.isFinite(accionLive.story_points)
@@ -503,7 +454,7 @@ export function AccionFormDialog({
       sprint_id: accionLive.sprint_id ?? null,
       responsable_bloqueo: accionLive.responsable_bloqueo ?? null,
     }
-  }, [accionLive, defaultFecha, o2cLinksQuery.data, priorities])
+  }, [accionLive, defaultFecha, priorities])
 
   const handleSubmit = (values: AccionCreateInput) => {
     setSubmitFooterErrors(null)
@@ -514,10 +465,6 @@ export function AccionFormDialog({
       toast.error(message)
       return
     }
-    const originalGapIds = defaultValues?.gap_ids ?? []
-    const originalCatalogKpiIds = defaultValues?.catalog_kpi_ids ?? []
-    const gapIds = isEditProtectedReadonly ? originalGapIds : (values.gap_ids ?? [])
-    const catalogKpiIds = isEditProtectedReadonly ? originalCatalogKpiIds : (values.catalog_kpi_ids ?? [])
     const fecha = isEditProtectedReadonly && accionLive ? accionLive.fecha : (values.fecha ?? todayISO())
     if (!isEdit) {
       const futureError = validateFutureDateTimeCDMX(
@@ -575,10 +522,10 @@ export function AccionFormDialog({
             area: values.area ?? null,
             tipo_accion: values.tipo_accion ?? 'operativa',
             story_points: values.story_points ?? 0,
-            gap_id: values.gap_id ?? null,
-            catalog_kpi_id: values.catalog_kpi_id ?? null,
             sprint_id: values.sprint_id ?? null,
             responsable_bloqueo: values.responsable_bloqueo ?? null,
+            // Los vínculos con brechas/KPIs se administran fuera de este formulario:
+            // no se envían para no borrar los que ya tiene la acción.
             ...(isEdit
               ? { updated_by: currentUser?.id ?? null }
               : { created_by: currentUser?.id ?? null }),
@@ -630,28 +577,6 @@ export function AccionFormDialog({
             toast.success('Accion actualizada correctamente')
             onOpenChange(false)
             onSuccess?.()
-
-            if (!isEditProtectedReadonly) {
-              void syncAccionO2cLinks(accionLive.id, {
-                gapIds,
-                catalogKpiIds,
-              })
-                .then(() =>
-                  Promise.allSettled([
-                    qc.invalidateQueries({ queryKey: ['accion-o2c-links', accionLive.id] }),
-                    qc.invalidateQueries({ queryKey: kpiQueryKeys.gapAcciones, refetchType: 'active' }),
-                    qc.invalidateQueries({ queryKey: kpiQueryKeys.gaps, refetchType: 'active' }),
-                    qc.invalidateQueries({ queryKey: kpiQueryKeys.catalogKpiAccionImpact, refetchType: 'active' }),
-                  ])
-                )
-                .catch((e) => {
-                  toast.error(
-                    e instanceof Error
-                      ? e.message
-                      : 'No se pudieron guardar los vinculos con brechas/KPIs'
-                  )
-                })
-            }
           },
           onError: (e) =>
             toast.error(e instanceof Error ? e.message : 'Error al actualizar'),
@@ -681,25 +606,6 @@ export function AccionFormDialog({
           qc.invalidateQueries({ queryKey: ACCION_CHECKPOINTS_KEY, refetchType: 'active' })
 
           const deferredOps: Promise<unknown>[] = []
-
-          deferredOps.push(
-            (async () => {
-              try {
-                await syncAccionO2cLinks(createdId, { gapIds, catalogKpiIds })
-                await Promise.allSettled([
-                  qc.invalidateQueries({ queryKey: kpiQueryKeys.gapAcciones, refetchType: 'active' }),
-                  qc.invalidateQueries({ queryKey: kpiQueryKeys.gaps, refetchType: 'active' }),
-                  qc.invalidateQueries({ queryKey: kpiQueryKeys.catalogKpiAccionImpact, refetchType: 'active' }),
-                ])
-              } catch (e) {
-                toast.error(
-                  e instanceof Error
-                    ? e.message
-                    : 'No se pudieron guardar los vínculos con brechas/KPIs'
-                )
-              }
-            })()
-          )
 
           if (checklistDrafts.length > 0) {
             deferredOps.push(
@@ -806,10 +712,10 @@ export function AccionFormDialog({
   const showEmailButton = isEdit && !!accion
   const showMarkDoneButton = canMarkActionDone
   const isManualNotificationPending = manualEmailPending
-  const footerButtonCount =
-    2 + (showEmailButton ? 1 : 0) + (showMarkDoneButton ? 1 : 0) + (canDeleteAccion ? 1 : 0)
-  const footerActionsGridClass =
-    footerButtonCount === 3 ? 'grid-cols-3' : footerButtonCount >= 4 ? 'grid-cols-2' : 'grid-cols-2'
+  const hasLeadingFooterActions =
+    canDeleteAccion || showMarkDoneButton || showEmailButton
+  const iconButtonClass =
+    'h-10 w-10 shrink-0 px-0 sm:h-9 sm:w-9'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -863,7 +769,7 @@ export function AccionFormDialog({
           className="accion-form-dialog-body flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-3 py-3 sm:px-5 sm:py-4 md:px-6 md:py-5"
         >
           <AccionForm
-            key={`${accionLive?.id ?? 'new'}-${isEdit ? (o2cLinksQuery.isFetched ? 'o2c' : 'pending') : 'create'}-${defaultValues?.prioridad ?? ''}`}
+            key={`${accionLive?.id ?? 'new'}-${isEdit ? 'edit' : 'create'}-${defaultValues?.prioridad ?? ''}`}
             formId={formBaseId}
             defaultValues={defaultValues}
             onSubmit={handleSubmit}
@@ -877,6 +783,9 @@ export function AccionFormDialog({
               accionLive
                 ? resolveAccionPrioridadId(accionLive, priorities) ?? accionLive.prioridad_id ?? null
                 : null
+            }
+            asignadorNombre={
+              isEdit ? userNameById(accionLive?.created_by) : currentUser?.nombre ?? null
             }
             validationExtras={
               !isEdit ? (
@@ -1119,22 +1028,26 @@ export function AccionFormDialog({
           <div
             id={`${formBaseId}-dialog-footer-actions`}
             className={cn(
-              'accion-form-dialog-footer-actions grid w-full gap-2',
-              footerActionsGridClass
+              'accion-form-dialog-footer-actions flex w-full items-center gap-2',
+              hasLeadingFooterActions ? 'justify-between' : 'justify-end'
             )}
           >
+            {hasLeadingFooterActions ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             {canDeleteAccion ? (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button
                     type="button"
                     variant="destructive"
+                    size="icon"
                     id={`${formBaseId}-delete`}
-                    className="accion-form-dialog-delete h-10 w-full gap-1.5 px-2 text-xs sm:h-9 sm:text-sm"
+                    className={cn('accion-form-dialog-delete', iconButtonClass)}
                     disabled={isMutating || isManualNotificationPending}
+                    aria-label="Eliminar acción"
+                    title="Eliminar acción"
                   >
-                    <Trash2 className="h-4 w-4 shrink-0" />
-                    <span className="truncate">Eliminar</span>
+                    <Trash2 className="h-4 w-4" aria-hidden />
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
@@ -1162,66 +1075,84 @@ export function AccionFormDialog({
               <Button
                 type="button"
                 variant="outline"
+                size="icon"
                 id={`${formBaseId}-mark-done`}
-                className="accion-form-dialog-mark-done h-10 w-full gap-1.5 px-2 text-xs sm:h-9 sm:text-sm"
+                className={cn(
+                  'accion-form-dialog-mark-done border-green-200 bg-green-50 text-green-700 hover:bg-green-100 hover:text-green-800',
+                  'dark:border-green-800 dark:bg-green-950/50 dark:text-green-400 dark:hover:bg-green-950/70',
+                  iconButtonClass
+                )}
                 onClick={handleMarkActionDone}
                 disabled={isMutating || isManualNotificationPending}
+                aria-label="Marcar como realizado"
                 title="Pasar esta accion a realizada"
               >
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                <span className="truncate">Realizado</span>
+                <CheckCircle2 className="h-4 w-4" aria-hidden />
               </Button>
             ) : null}
             {showEmailButton ? (
               <Button
                 type="button"
                 variant="outline"
+                size="icon"
                 id={`${formBaseId}-send-email`}
-                className="accion-form-dialog-send-email h-10 w-full gap-1.5 px-2 text-xs sm:h-9 sm:text-sm"
+                className={cn('accion-form-dialog-send-email', iconButtonClass)}
                 onClick={handleSendActionEmail}
                 disabled={isManualNotificationPending || isMutating || !accion.responsable}
+                aria-label={manualEmailPending ? 'Enviando correo' : 'Enviar correo al responsable'}
                 title={
                   accion.responsable
                     ? `Enviar correo a ${responsableNames[accion.responsable] ?? 'responsable asignado'}`
                     : 'Asigna un responsable para enviar correo'
                 }
               >
-                <Mail className="h-4 w-4 shrink-0" />
-                <span className="truncate">{manualEmailPending ? 'Enviando…' : 'Correo'}</span>
+                {manualEmailPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <Mail className="h-4 w-4" aria-hidden />
+                )}
               </Button>
             ) : null}
+              </div>
+            ) : null}
+            <div className="flex shrink-0 items-center gap-1.5">
             <Button
               type="button"
               variant="outline"
+              size="icon"
               id={`${formBaseId}-cancel`}
-              className="accion-form-dialog-cancel h-10 w-full px-2 text-xs sm:h-9 sm:text-sm"
+              className={cn('accion-form-dialog-cancel', iconButtonClass)}
               onClick={() => onOpenChange(false)}
               disabled={isMutating || isManualNotificationPending}
+              aria-label="Cancelar"
+              title="Cancelar"
             >
-              Cancelar
+              <X className="h-4 w-4" aria-hidden />
             </Button>
             <Button
               type="submit"
               form={formBaseId}
               id={`${formBaseId}-submit`}
               variant="default"
-              className="accion-form-dialog-submit h-10 w-full px-2 text-xs sm:h-9 sm:text-sm"
+              size="icon"
+              className={cn('accion-form-dialog-submit', iconButtonClass)}
               disabled={isMutating || isManualNotificationPending || isEditProtectedReadonly}
+              aria-label={
+                createAccion.isPending || updateAccion.isPending ? 'Guardando acción' : 'Guardar acción'
+              }
               title={
                 isEditProtectedReadonly
                   ? 'Solo quien asignó/creó la acción, Dirección o super_admin pueden guardar cambios generales.'
-                  : undefined
+                  : 'Guardar acción'
               }
             >
               {createAccion.isPending || updateAccion.isPending ? (
-                'Guardando…'
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               ) : (
-                <>
-                  <span className="sm:hidden">Guardar</span>
-                  <span className="hidden sm:inline">Guardar acción</span>
-                </>
+                <Save className="h-4 w-4" aria-hidden />
               )}
             </Button>
+            </div>
           </div>
         </div>
       </DialogContent>

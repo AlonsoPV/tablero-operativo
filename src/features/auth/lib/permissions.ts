@@ -79,6 +79,8 @@ function normalizeRole(rol: string | null | undefined): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLocaleLowerCase('es-MX')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
 }
 
 function routeMatches(pathname: string, route: string): boolean {
@@ -119,7 +121,7 @@ export function isAnalystByRole(rol: string | null | undefined): boolean {
 export function isDirectionByRole(rol: string | null | undefined): boolean {
   const normalized = normalizeRole(rol)
   const direction = normalizeRole(DIRECTION_ROLE)
-  return normalized === direction || normalized.startsWith(`${direction} `)
+  return normalized === direction || normalized.startsWith(`${direction}_`)
 }
 
 export function usesOperationalDashboardByRole(rol: string | null | undefined): boolean {

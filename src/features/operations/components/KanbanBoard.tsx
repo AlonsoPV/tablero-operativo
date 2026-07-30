@@ -26,9 +26,8 @@ import {
 } from '@dnd-kit/core'
 import { cn } from '@/lib/utils'
 import type { AccionDiaria, ActionStatus } from '@/types'
-import type { Priority } from '@/features/catalogs/types/catalogs.types'
+import type { Priority, Status } from '@/features/catalogs/types/catalogs.types'
 import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
-import { useStatuses } from '@/features/catalogs/hooks/useStatuses'
 import { useUpdateAccionEstado } from '../hooks/useAccionMutations'
 import { useCommentCounts } from '../hooks/useCommentCounts'
 import { useActionEstadoPermissions } from '../hooks/useActionEstadoPermissions'
@@ -38,7 +37,7 @@ import {
   getAutoEstadoPorFechaCompromiso,
   isEnRetraso,
 } from '../utils/accionUtils'
-import { accionEstadoLabel, getAccionDisplayEstado } from '../utils/accionEstadoDisplay'
+import { getAccionDisplayEstado } from '../utils/accionEstadoDisplay'
 import {
   AlertCircle,
   Clock,
@@ -156,9 +155,13 @@ const COLUMN_STYLES: Record<ActionStatus, { border: string; bg: string; icon: st
 }
 
 
-function kanbanCardStatusLabel(accion: AccionDiaria, overdue: boolean): string {
+function kanbanCardStatusLabel(
+  accion: AccionDiaria,
+  overdue: boolean,
+  statusByKey: StatusCatalogMap
+): string {
   if (overdue) return 'Vencido'
-  return accionEstadoLabel(getAccionDisplayEstado(accion))
+  return statusCatalogLabel(getAccionDisplayEstado(accion), statusByKey)
 }
 
 function kanbanCardStatusTone(status: string): string | undefined {
@@ -172,13 +175,15 @@ function KanbanCardMeta({
   responsableName,
   checklistProgress,
   overdue,
+  statusByKey,
 }: {
   accion: AccionDiaria
   responsableName: string
   checklistProgress?: { total: number; completed: number }
   overdue: boolean
+  statusByKey: StatusCatalogMap
 }) {
-  const status = kanbanCardStatusLabel(accion, overdue)
+  const status = kanbanCardStatusLabel(accion, overdue, statusByKey)
   const segments: { key: string; text: string; className?: string }[] = [
     { key: 'owner', text: responsableName },
   ]
@@ -654,6 +659,8 @@ export interface KanbanBoardProps {
   responsableNames?: Record<string, string>
   onSelectAccion?: (accion: AccionDiaria) => void
   onNewAction?: () => void
+  /** Catálogo de estatus (preferir pasarlo desde KanbanPage con useKanbanStatuses). */
+  statuses?: Status[]
   /** Cuando está definido, se muestra solo la columna de este estado (sincronizado con el filtro de la toolbar). */
   filterEstado?: ActionStatus
   /**
@@ -678,6 +685,7 @@ function KanbanCardInner({
   estadoPermission,
   priority,
   statusByKey,
+  movableStatuses,
 }: {
   accion: AccionDiaria
   responsableName: string
@@ -691,6 +699,7 @@ function KanbanCardInner({
   estadoPermission?: ReturnType<typeof useActionEstadoPermissions>
   priority?: Priority
   statusByKey: StatusCatalogMap
+  movableStatuses: ActionStatus[]
 }) {
   const overdue = isEnRetraso(accion)
   const priorityName = priority?.nombre ?? accion.prioridad
@@ -733,6 +742,7 @@ function KanbanCardInner({
               responsableName={responsableName}
               checklistProgress={checklistProgress}
               overdue={overdue}
+              statusByKey={statusByKey}
             />
           </div>
         </div>
@@ -781,7 +791,7 @@ function KanbanCardInner({
                 ) : null}
                 {onClick && onMoveEstado ? <div className="my-1 h-px bg-border" role="separator" /> : null}
                 {onMoveEstado
-                  ? COLUMN_ORDER.filter((s) => s !== accion.estado).map((status) => {
+                  ? movableStatuses.filter((s) => s !== accion.estado).map((status) => {
                       const restricted = estadoPermission
                         ? !estadoPermission.canChangeTo(accion, status)
                         : false
@@ -830,6 +840,7 @@ function KanbanCard({
   estadoPermission,
   priority,
   statusByKey,
+  movableStatuses,
 }: {
   accion: AccionDiaria
   responsableName: string
@@ -840,6 +851,7 @@ function KanbanCard({
   estadoPermission?: ReturnType<typeof useActionEstadoPermissions>
   priority?: Priority
   statusByKey: StatusCatalogMap
+  movableStatuses: ActionStatus[]
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: accion.id,
@@ -861,6 +873,7 @@ function KanbanCard({
         estadoPermission={estadoPermission}
         priority={priority}
         statusByKey={statusByKey}
+        movableStatuses={movableStatuses}
       />
     </div>
   )
@@ -913,6 +926,7 @@ function KanbanColumn({
   estadoPermission,
   priorities,
   statusByKey,
+  movableStatuses,
 }: {
   status: ActionStatus
   actions: AccionDiaria[]
@@ -926,6 +940,7 @@ function KanbanColumn({
   estadoPermission?: ReturnType<typeof useActionEstadoPermissions>
   priorities: Priority[]
   statusByKey: StatusCatalogMap
+  movableStatuses: ActionStatus[]
 }) {
   const [expanded, setExpanded] = useState(false)
   const [sortBy, setSortBy] = useState<ColumnSortBy>('edicion')
@@ -1071,6 +1086,7 @@ function KanbanColumn({
                 estadoPermission={estadoPermission}
                 priority={findPriorityForAccion(accion, priorities)}
                 statusByKey={statusByKey}
+                movableStatuses={movableStatuses}
               />
             ))}
             {hasOverflow ? (
@@ -1143,6 +1159,7 @@ export function KanbanBoard({
   responsableNames = {},
   onSelectAccion,
   onNewAction,
+  statuses: statusesProp = [],
   filterEstado,
   narrowToOccupiedColumns = false,
   checklistProgressByAccionId = {},
@@ -1152,7 +1169,7 @@ export function KanbanBoard({
   const autoSyncedByFechaRef = useRef<Set<string>>(new Set())
   const { data: currentUser } = useCurrentUser()
   const { data: priorities = [] } = usePriorities()
-  const { data: statuses = [] } = useStatuses()
+  const statuses = statusesProp
   const statusByKey = useMemo(() => statusCatalogByKey(statuses), [statuses])
   const columnOrder = useMemo(() => orderedActionStatuses(statuses, COLUMN_ORDER), [statuses])
   const estadoPermission = useActionEstadoPermissions(currentUser ?? undefined)
@@ -1328,6 +1345,7 @@ export function KanbanBoard({
             estadoPermission={estadoPermission}
             priorities={priorities}
             statusByKey={statusByKey}
+            movableStatuses={columnOrder}
           />
         ))}
       </KanbanBoardScrollArea>
@@ -1340,6 +1358,7 @@ export function KanbanBoard({
               commentCount={commentCounts[activeAccion.id] ?? 0}
               priority={findPriorityForAccion(activeAccion, priorities)}
               statusByKey={statusByKey}
+              movableStatuses={columnOrder}
               isOverlay
               checklistProgress={checklistProgressByAccionId[activeAccion.id]}
             />

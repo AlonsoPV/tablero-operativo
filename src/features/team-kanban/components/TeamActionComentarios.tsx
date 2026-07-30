@@ -1,0 +1,699 @@
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import {
+  Check,
+  Download,
+  ExternalLink,
+  FileText,
+  Image as ImageIcon,
+  MessageSquare,
+  Paperclip,
+  Pencil,
+  Send,
+  Tag,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
+import { formatDateTimeCDMX } from '@/lib/dateUtils'
+import { cn } from '@/lib/utils'
+import {
+  EVIDENCIA_ACCEPTED_FORMATS_SHORT,
+  EVIDENCIA_REJECTED_MESSAGE,
+  getEvidenciaAcceptedAccept,
+} from '@/lib/evidenciaFileTypes'
+import {
+  downloadDocumentFromUrl,
+  isPreviewableDocument,
+  openDocumentInNewTab,
+} from '@/lib/documentActions'
+import {
+  getSignedUrlEvidencia,
+  isAcceptedEvidenciaFile,
+  uploadEvidenciaFile,
+} from '@/services/evidenciaStorage.service'
+import { notificacionesService } from '@/services/notificaciones.service'
+import type { ComentarioAdjunto } from '@/types/accionComentario'
+import type { TeamActionComentario } from '@/services/teamActionComentarios.service'
+import {
+  useCreateTeamActionComentario,
+  useDeleteTeamActionComentario,
+  useTeamActionComentarios,
+  useUpdateTeamActionComentario,
+} from '../hooks/useTeamActionComentarios'
+
+const MAX_COMMENT_CHARS = 2000
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function userInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+  return name.slice(0, 2).toUpperCase() || '?'
+}
+
+function etiquetadosTriggerLabel(selected: { nombre: string }[]): string {
+  if (selected.length === 0) return 'Etiquetar'
+  if (selected.length === 1) return selected[0].nombre
+  return `${selected.length} personas`
+}
+
+function resolveEtiquetasUsuarios(
+  etiquetas: string[],
+  userNames: Record<string, string>
+): { userIds: string[]; textTags: string[] } {
+  const userIds: string[] = []
+  const textTags: string[] = []
+  for (const tag of etiquetas) {
+    if (userNames[tag] || UUID_RE.test(tag)) userIds.push(tag)
+    else textTags.push(tag)
+  }
+  return { userIds, textTags }
+}
+
+type Props = {
+  actionId: string
+  actionTitle?: string
+  actionDescription?: string
+  assigneeId?: string | null
+  memberOptions: Array<{ id: string; nombre: string }>
+  enabled?: boolean
+}
+
+export function TeamActionComentarios({
+  actionId,
+  actionTitle = '',
+  actionDescription = '',
+  assigneeId = null,
+  memberOptions,
+  enabled = true,
+}: Props) {
+  const { data: currentUser } = useCurrentUser()
+  const { data: comments = [], isLoading, isError } = useTeamActionComentarios(actionId, enabled)
+  const createComment = useCreateTeamActionComentario(actionId)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [contenido, setContenido] = useState('')
+  const [etiquetadosIds, setEtiquetadosIds] = useState<string[]>([])
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+
+  const userNames = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const member of memberOptions) map[member.id] = member.nombre
+    return map
+  }, [memberOptions])
+
+  const selectedUsers = useMemo(
+    () => memberOptions.filter((member) => etiquetadosIds.includes(member.id)),
+    [etiquetadosIds, memberOptions]
+  )
+
+  const canSubmit =
+    contenido.trim().length > 0 && !createComment.isPending && contenido.length <= MAX_COMMENT_CHARS
+
+  const toggleEtiquetado = (userId: string) => {
+    setEtiquetadosIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    )
+  }
+
+  const handleSubmit = async (event?: FormEvent) => {
+    event?.preventDefault()
+    const contenidoTrim = contenido.trim()
+    if (!contenidoTrim) {
+      toast.error('Escribe un comentario')
+      textareaRef.current?.focus()
+      return
+    }
+
+    const currentUserId = currentUser?.id ?? null
+    let adjuntos: ComentarioAdjunto[] = []
+    if (pendingFiles.length > 0) {
+      try {
+        adjuntos = await Promise.all(
+          pendingFiles.map((file) =>
+            uploadEvidenciaFile(`comentarios/equipo/${actionId}`, file)
+          )
+        )
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Error al subir archivos')
+        return
+      }
+    }
+
+    const taggedIds = [...etiquetadosIds]
+    createComment.mutate(
+      {
+        accion_id: actionId,
+        contenido: contenidoTrim,
+        created_by: currentUserId,
+        created_by_nombre: currentUser?.nombre ?? null,
+        asignado: taggedIds[0] ?? null,
+        etiquetas: taggedIds.length ? taggedIds : undefined,
+        adjuntos: adjuntos.length ? adjuntos : undefined,
+      },
+      {
+        onSuccess: async () => {
+          setContenido('')
+          setEtiquetadosIds([])
+          setPendingFiles([])
+          toast.success('Comentario publicado')
+
+          const toNotify = new Set<string>()
+          for (const uid of taggedIds) {
+            if (uid !== currentUserId) toNotify.add(uid)
+          }
+          if (assigneeId && assigneeId !== currentUserId) toNotify.add(assigneeId)
+
+          for (const uid of toNotify) {
+            const isTagged = taggedIds.includes(uid)
+            const tipo = isTagged ? 'comentario_asignado' : 'comentario'
+            const titulo = isTagged
+              ? 'Te etiquetaron en un comentario de equipo'
+              : 'Nuevo comentario en una accion de equipo'
+            try {
+              await notificacionesService.create({
+                usuario_id: uid,
+                tipo,
+                payload: {
+                  titulo,
+                  titulo_accion: actionTitle.trim() || undefined,
+                  descripcion_accion: actionDescription.trim().slice(0, 500) || undefined,
+                  mensaje: contenidoTrim.slice(0, 200),
+                  equipo_accion_id: actionId,
+                  autor_id: currentUserId,
+                  autor_nombre: currentUser?.nombre ?? null,
+                },
+              })
+            } catch (error) {
+              console.warn('[team-kanban] No se pudo notificar comentario:', error)
+            }
+          }
+        },
+        onError: (error) =>
+          toast.error(error instanceof Error ? error.message : 'Error al agregar comentario'),
+      }
+    )
+  }
+
+  const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && canSubmit) {
+      event.preventDefault()
+      void handleSubmit()
+    }
+  }
+
+  const authorName = currentUser?.nombre ?? 'Tú'
+  const authorInitials = userInitials(authorName)
+
+  return (
+    <div className="team-action-comentarios space-y-4">
+      <div
+        className="max-h-[min(20rem,40vh)] space-y-2 overflow-y-auto pr-0.5"
+        role="feed"
+        aria-label="Comentarios de la accion"
+      >
+        {isError ? (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-3 text-sm text-amber-800 dark:text-amber-200">
+            No se pudieron cargar los comentarios. Verifica que la migracion de comentarios de
+            equipo este aplicada.
+          </div>
+        ) : isLoading ? (
+          <div className="space-y-2" aria-busy="true">
+            {[1, 2].map((index) => (
+              <div key={index} className="flex gap-3 rounded-lg border border-border/40 p-3">
+                <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-muted" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+                  <div className="h-12 w-full animate-pulse rounded bg-muted/80" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : comments.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/15 px-4 py-8 text-center">
+            <MessageSquare className="mb-2 h-8 w-8 text-muted-foreground/50" aria-hidden />
+            <p className="text-sm font-medium text-foreground">Sin comentarios aún</p>
+            <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+              Sé el primero en dejar contexto o coordinar con el responsable.
+            </p>
+          </div>
+        ) : (
+          <ul className="space-y-2">
+            {comments.map((comment) => (
+              <TeamComentarioItem
+                key={comment.id}
+                comment={comment}
+                actionId={actionId}
+                userNames={userNames}
+                currentUserId={currentUser?.id ?? null}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <form
+        onSubmit={(event) => void handleSubmit(event)}
+        className="overflow-hidden rounded-xl border border-border/60 bg-muted/10 shadow-sm ring-1 ring-border/30 focus-within:border-primary/40 focus-within:ring-primary/20"
+      >
+        <div className="flex gap-3 p-3 sm:p-4">
+          <div
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary"
+            aria-hidden
+          >
+            {authorInitials}
+          </div>
+          <div className="min-w-0 flex-1 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">{authorName}</p>
+            <textarea
+              ref={textareaRef}
+              id={`team-comentario-${actionId}`}
+              value={contenido}
+              onChange={(event) => setContenido(event.target.value.slice(0, MAX_COMMENT_CHARS))}
+              onKeyDown={onComposerKeyDown}
+              placeholder="Escribe un comentario… (Ctrl+Enter para enviar)"
+              rows={3}
+              disabled={createComment.isPending}
+              className={cn(
+                'w-full resize-none bg-transparent text-sm leading-relaxed text-foreground',
+                'placeholder:text-muted-foreground/80',
+                'focus:outline-none disabled:opacity-60'
+              )}
+            />
+            {selectedUsers.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {selectedUsers.map((user) => (
+                  <Badge
+                    key={user.id}
+                    variant="secondary"
+                    className="gap-1 pr-1 text-xs font-normal"
+                  >
+                    <Tag className="h-3 w-3 shrink-0 opacity-60" aria-hidden />
+                    {user.nombre}
+                    <button
+                      type="button"
+                      className="rounded p-0.5 hover:bg-muted-foreground/20"
+                      aria-label={`Quitar ${user.nombre}`}
+                      onClick={() => toggleEtiquetado(user.id)}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+            {pendingFiles.length > 0 ? (
+              <ul className="flex flex-wrap gap-1.5">
+                {pendingFiles.map((file, index) => (
+                  <li
+                    key={`${file.name}-${index}`}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border/50 bg-background px-2 py-1 text-xs"
+                  >
+                    {file.type.startsWith('image/') ? (
+                      <ImageIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="truncate font-medium">{file.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setPendingFiles((prev) => prev.filter((_, j) => j !== index))}
+                      className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      aria-label="Quitar archivo"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-border/50 bg-muted/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+          <div className="flex flex-wrap items-center gap-1">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={getEvidenciaAcceptedAccept()}
+              className="hidden"
+              multiple
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? [])
+                const valid = files.filter(isAcceptedEvidenciaFile)
+                if (valid.length < files.length) toast.error(EVIDENCIA_REJECTED_MESSAGE)
+                setPendingFiles((prev) => [...prev, ...valid].slice(0, 5))
+                event.target.value = ''
+              }}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={createComment.isPending || pendingFiles.length >= 5}
+              title={`Adjuntar ${EVIDENCIA_ACCEPTED_FORMATS_SHORT}`}
+            >
+              <Paperclip className="h-4 w-4" />
+              <span className="hidden sm:inline">Adjuntar</span>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    'h-8 gap-1.5 px-2',
+                    selectedUsers.length > 0
+                      ? 'text-primary'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  disabled={createComment.isPending}
+                >
+                  <Users className="h-4 w-4" />
+                  <span className="hidden sm:inline">{etiquetadosTriggerLabel(selectedUsers)}</span>
+                  {selectedUsers.length > 0 ? (
+                    <Badge variant="secondary" className="h-5 min-w-5 px-1 text-[10px]">
+                      {selectedUsers.length}
+                    </Badge>
+                  ) : null}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="max-h-64 w-[min(100vw-2rem,18rem)] overflow-y-auto"
+              >
+                {memberOptions.map((member) => (
+                  <DropdownMenuCheckboxItem
+                    key={member.id}
+                    checked={etiquetadosIds.includes(member.id)}
+                    onCheckedChange={() => toggleEtiquetado(member.id)}
+                  >
+                    {member.nombre}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <div className="flex items-center justify-between gap-3 sm:justify-end">
+            <span
+              className={cn(
+                'text-[11px] tabular-nums text-muted-foreground',
+                contenido.length > MAX_COMMENT_CHARS * 0.9 && 'text-amber-600'
+              )}
+            >
+              {contenido.length}/{MAX_COMMENT_CHARS}
+            </span>
+            <Button type="submit" size="sm" disabled={!canSubmit} className="shrink-0 gap-1.5">
+              <Send className="h-4 w-4" />
+              {createComment.isPending ? 'Publicando…' : 'Publicar'}
+            </Button>
+          </div>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function AdjuntoLink({ storage_path, file_name }: ComentarioAdjunto) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [err, setErr] = useState(false)
+  const previewable = isPreviewableDocument({ fileName: file_name })
+
+  useEffect(() => {
+    getSignedUrlEvidencia(storage_path)
+      .then(setUrl)
+      .catch(() => setErr(true))
+  }, [storage_path])
+
+  const handleDownload = async () => {
+    if (!url) return
+    try {
+      await downloadDocumentFromUrl(url, file_name)
+    } catch {
+      toast.error('No se pudo descargar el archivo')
+    }
+  }
+
+  if (err) return <span className="text-xs text-muted-foreground">{file_name}</span>
+  if (!url) return <span className="animate-pulse text-xs text-muted-foreground">{file_name}…</span>
+
+  return (
+    <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/50 bg-background px-2 py-1 text-xs font-medium text-primary">
+      <FileText className="h-3 w-3 shrink-0" />
+      <span className="max-w-[12rem] truncate">{file_name}</span>
+      {previewable ? (
+        <button
+          type="button"
+          className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={() => openDocumentInNewTab(url)}
+          aria-label="Abrir archivo"
+          title="Abrir archivo"
+        >
+          <ExternalLink className="h-3 w-3" />
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+        onClick={() => void handleDownload()}
+        aria-label="Descargar archivo"
+        title="Descargar archivo"
+      >
+        <Download className="h-3 w-3" />
+      </button>
+    </span>
+  )
+}
+
+function TeamComentarioItem({
+  comment,
+  actionId,
+  userNames,
+  currentUserId,
+}: {
+  comment: TeamActionComentario
+  actionId: string
+  userNames: Record<string, string>
+  currentUserId: string | null
+}) {
+  const updateComment = useUpdateTeamActionComentario(actionId)
+  const deleteComment = useDeleteTeamActionComentario(actionId)
+  const [isEditing, setIsEditing] = useState(false)
+  const [draft, setDraft] = useState(comment.contenido)
+  const adjuntos = comment.adjuntos ?? []
+  const rawTags = comment.etiquetas ?? []
+  const { userIds, textTags } = resolveEtiquetasUsuarios(rawTags, userNames)
+  const taggedIds = new Set(userIds)
+  if (comment.asignado) taggedIds.add(comment.asignado)
+  const taggedPeople = [...taggedIds].map((id) => ({
+    id,
+    name: userNames[id] ?? id,
+  }))
+  const authorLabel = comment.created_by
+    ? userNames[comment.created_by] ?? comment.created_by_nombre ?? 'Usuario'
+    : comment.created_by_nombre ?? 'Usuario'
+  const authorInitials = userInitials(authorLabel)
+  const canEdit = Boolean(currentUserId && comment.created_by === currentUserId)
+  const canDelete = Boolean(currentUserId && comment.created_by === currentUserId)
+  const draftTrim = draft.trim()
+  const canSave =
+    canEdit &&
+    draftTrim.length > 0 &&
+    draft.length <= MAX_COMMENT_CHARS &&
+    draftTrim !== comment.contenido.trim() &&
+    !updateComment.isPending
+  const isDeleting = deleteComment.isPending
+
+  useEffect(() => {
+    if (!isEditing) setDraft(comment.contenido)
+  }, [comment.contenido, isEditing])
+
+  const cancelEdit = () => {
+    setDraft(comment.contenido)
+    setIsEditing(false)
+  }
+
+  const saveEdit = () => {
+    if (!canSave) return
+    updateComment.mutate(
+      { id: comment.id, patch: { contenido: draftTrim } },
+      {
+        onSuccess: () => {
+          toast.success('Comentario actualizado')
+          setIsEditing(false)
+        },
+        onError: (error) =>
+          toast.error(error instanceof Error ? error.message : 'No se pudo actualizar el comentario'),
+      }
+    )
+  }
+
+  const deleteItem = () => {
+    if (!canDelete || isDeleting) return
+    const confirmed = window.confirm('¿Eliminar este comentario?')
+    if (!confirmed) return
+    deleteComment.mutate(comment.id, {
+      onSuccess: () => toast.success('Comentario eliminado'),
+      onError: (error) =>
+        toast.error(error instanceof Error ? error.message : 'No se pudo eliminar el comentario'),
+    })
+  }
+
+  const onEditKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      cancelEdit()
+      return
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && canSave) {
+      event.preventDefault()
+      saveEdit()
+    }
+  }
+
+  return (
+    <li className="flex gap-3 rounded-xl border border-border/50 bg-background/80 p-3 text-sm shadow-sm">
+      <div
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground"
+        aria-hidden
+      >
+        {authorInitials}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="font-medium text-foreground">{authorLabel}</span>
+            <time
+              className="text-[11px] text-muted-foreground"
+              dateTime={comment.created_at}
+              title={comment.created_at}
+            >
+              {formatDateTimeCDMX(comment.created_at)}
+            </time>
+          </div>
+          {(canEdit || canDelete) && !isEditing ? (
+            <div className="flex shrink-0 items-center gap-1">
+              {canEdit ? (
+                <button
+                  type="button"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={() => setIsEditing(true)}
+                  disabled={isDeleting}
+                  aria-label="Editar comentario"
+                  title="Editar comentario"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+              {canDelete ? (
+                <button
+                  type="button"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-60"
+                  onClick={deleteItem}
+                  disabled={isDeleting}
+                  aria-label="Eliminar comentario"
+                  title="Eliminar comentario"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {isEditing ? (
+          <div className="mt-2 space-y-2">
+            <textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value.slice(0, MAX_COMMENT_CHARS))}
+              onKeyDown={onEditKeyDown}
+              rows={3}
+              disabled={updateComment.isPending}
+              className={cn(
+                'min-h-[5rem] w-full resize-y rounded-lg border border-border/60 bg-background px-3 py-2 text-sm leading-relaxed text-foreground',
+                'focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:opacity-60'
+              )}
+              aria-label="Contenido del comentario"
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span
+                className={cn(
+                  'text-[11px] tabular-nums text-muted-foreground',
+                  draft.length > MAX_COMMENT_CHARS * 0.9 && 'text-amber-600'
+                )}
+              >
+                {draft.length}/{MAX_COMMENT_CHARS}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={cancelEdit}
+                  disabled={updateComment.isPending}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={saveEdit}
+                  disabled={!canSave}
+                >
+                  <Check className="h-4 w-4" />
+                  {updateComment.isPending ? 'Guardando...' : 'Guardar'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-1.5 whitespace-pre-wrap leading-relaxed text-foreground/95">
+            {comment.contenido}
+          </p>
+        )}
+        {adjuntos.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {adjuntos.map((adjunto, index) => (
+              <AdjuntoLink
+                key={`${adjunto.storage_path}-${index}`}
+                storage_path={adjunto.storage_path}
+                file_name={adjunto.file_name}
+              />
+            ))}
+          </div>
+        ) : null}
+        {(taggedPeople.length > 0 || textTags.length > 0) && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {taggedPeople.length > 0 ? (
+              <>
+                <Tag className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                {taggedPeople.map(({ id, name }) => (
+                  <Badge key={id} variant="outline" className="text-[11px] font-normal">
+                    {name}
+                  </Badge>
+                ))}
+              </>
+            ) : null}
+            {textTags.map((tag) => (
+              <Badge key={tag} variant="secondary" className="text-[11px] font-normal">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
+    </li>
+  )
+}

@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase/client'
 import type { DropdownOption, CreateDropdownOptionInput, UpdateDropdownOptionInput } from '../types/catalogs.types'
+import { updateCatalogRow } from './catalogUpdate'
 
 const TABLE = 'dropdown_options'
 
@@ -28,8 +29,9 @@ export const dropdownOptionsService = {
       value: input.value.trim(),
       orden: input.orden ?? 0,
       activo: input.activo ?? true,
-    }).select().single()
+    }).select('*').maybeSingle()
     if (error) throw error
+    if (!data) throw new Error('No se pudo crear la opción. Verifica permisos de Super Admin.')
     return data as DropdownOption
   },
 
@@ -37,9 +39,7 @@ export const dropdownOptionsService = {
     const payload: Record<string, unknown> = { ...input }
     if (payload.label !== undefined) payload.label = (payload.label as string).trim()
     if (payload.value !== undefined) payload.value = (payload.value as string).trim()
-    const { data, error } = await supabase.from(TABLE).update(payload).eq('id', id).select().single()
-    if (error) throw error
-    return data as DropdownOption
+    return updateCatalogRow<DropdownOption>(TABLE, id, payload, 'Opción')
   },
 
   async setActivo(id: string, activo: boolean): Promise<DropdownOption> {

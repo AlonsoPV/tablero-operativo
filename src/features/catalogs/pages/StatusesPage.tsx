@@ -89,7 +89,15 @@ export function StatusesPage() {
           toast.success(newActivo ? 'Estatus activado' : 'Estatus desactivado')
           setConfirmToggle(null)
         },
-        onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+        onError: (e) => {
+          const message =
+            e instanceof Error
+              ? e.message
+              : typeof e === 'object' && e && 'message' in e
+                ? String((e as { message: unknown }).message)
+                : 'Error al cambiar el estatus'
+          toast.error(message)
+        },
       }
     )
   }, [confirmToggle, toggleM])

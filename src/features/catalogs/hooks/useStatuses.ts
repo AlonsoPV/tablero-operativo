@@ -1,17 +1,36 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { statusesService } from '../services/statuses.service'
 import { catalogQueryKeys, invalidateActionCatalogDependents, invalidateCatalogQueries } from '../queryKeys'
 import type { CatalogFilter } from '../types/catalogs.types'
 import type { CreateStatusInput, UpdateStatusInput } from '../types/catalogs.types'
 
 const KEY = catalogQueryKeys.statuses
-const CATALOG_STALE_TIME = 10 * 60 * 1000
+
+async function refreshStatusCatalogQueries(qc: QueryClient): Promise<void> {
+  invalidateCatalogQueries(qc, KEY)
+  invalidateActionCatalogDependents(qc)
+  qc.invalidateQueries({ queryKey: ['team-kanban'], refetchType: 'active' })
+  await qc.refetchQueries({ queryKey: KEY, type: 'active' })
+}
 
 export function useStatuses(filter: CatalogFilter = {}) {
   return useQuery({
     queryKey: [...KEY, filter],
     queryFn: () => statusesService.list(filter),
-    staleTime: CATALOG_STALE_TIME,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: true,
+    retry: 1,
+  })
+}
+
+/** Catálogo de estatus para kanban: siempre fresco al entrar al tablero. */
+export function useKanbanStatuses() {
+  return useQuery({
+    queryKey: [...KEY, 'kanban-board'],
+    queryFn: () => statusesService.list(),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
     retry: 1,
   })
 }
@@ -21,8 +40,7 @@ export function useCreateStatus() {
   return useMutation({
     mutationFn: (input: CreateStatusInput) => statusesService.create(input),
     onSuccess: () => {
-      invalidateCatalogQueries(qc, KEY)
-      invalidateActionCatalogDependents(qc)
+      void refreshStatusCatalogQueries(qc)
     },
   })
 }
@@ -33,8 +51,7 @@ export function useUpdateStatus() {
     mutationFn: ({ id, input }: { id: string; input: UpdateStatusInput }) =>
       statusesService.update(id, input),
     onSuccess: () => {
-      invalidateCatalogQueries(qc, KEY)
-      invalidateActionCatalogDependents(qc)
+      void refreshStatusCatalogQueries(qc)
     },
   })
 }
@@ -45,8 +62,7 @@ export function useToggleStatusStatus() {
     mutationFn: ({ id, activo }: { id: string; activo: boolean }) =>
       statusesService.setActivo(id, activo),
     onSuccess: () => {
-      invalidateCatalogQueries(qc, KEY)
-      invalidateActionCatalogDependents(qc)
+      void refreshStatusCatalogQueries(qc)
     },
   })
 }

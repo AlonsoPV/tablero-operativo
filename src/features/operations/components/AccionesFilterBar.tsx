@@ -24,7 +24,7 @@ import { useStatuses } from '@/features/catalogs/hooks/useStatuses'
 import { Search, X } from 'lucide-react'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { priorityDisplayLabel } from '../utils/priorityLabels'
-import { statusCatalogByKey, statusCatalogLabel } from '../utils/statusCatalog'
+import { activeEstadoFilterOptions } from '../utils/statusCatalog'
 
 export interface AccionesFilterBarProps {
   filter: AccionesFilter
@@ -41,13 +41,9 @@ export function AccionesFilterBar({
   const { data: areas = [] } = useAreas({ activo: true })
   const { data: priorities = [] } = usePriorities({ activo: true })
   const { data: statuses = [] } = useStatuses()
-  const statusByKey = useMemo(() => statusCatalogByKey(statuses), [statuses])
   const estadoOptions = useMemo(
-    () => [
-      { value: 'all', label: 'Todos' },
-      ...ACTION_STATUS.map((s) => ({ value: s, label: statusCatalogLabel(s, statusByKey) })),
-    ],
-    [statusByKey]
+    () => activeEstadoFilterOptions(statuses, ACTION_STATUS, 'Todos'),
+    [statuses]
   )
   const todayYmd = todayWallClockCDMX()
   const fechaEffective = filter.fecha_creacion ?? todayYmd

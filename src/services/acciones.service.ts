@@ -501,12 +501,17 @@ export const accionesService = {
         if (preCloseError) throw preCloseError
       }
 
-      const currentUsuarioId = await resolveCurrentUsuarioId()
+      // 1 arg: el RPC resuelve el actor con get_my_usuario_id() (evita 400 por overload/null).
       const { error: closeError } = await supabase.rpc('try_set_accion_hecho', {
         p_accion_id: id,
-        p_usuario_id: currentUsuarioId,
       })
-      if (closeError) throw closeError
+      if (closeError) {
+        const message =
+          typeof closeError.message === 'string' && closeError.message.trim()
+            ? closeError.message
+            : 'No se pudo marcar la acción como Hecha.'
+        throw new Error(message)
+      }
 
       const updated = await this.getById(id)
       void Promise.allSettled([

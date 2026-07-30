@@ -1,13 +1,24 @@
 import { AlertTriangle, Ban, Clock3, FolderOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import type { Status } from '@/features/catalogs/types/catalogs.types'
 import type { KanbanHealthMetrics } from '../utils/metricas'
+import {
+  isActionStatusActiveInCatalog,
+  statusCatalogByKey,
+  statusCatalogLabel,
+} from '../utils/statusCatalog'
 
 type KanbanMetricsRowProps = {
   metrics: KanbanHealthMetrics
+  statuses?: Status[]
   className?: string
 }
 
-export function KanbanMetricsRow({ metrics, className }: KanbanMetricsRowProps) {
+export function KanbanMetricsRow({ metrics, statuses = [], className }: KanbanMetricsRowProps) {
+  const statusByKey = statusCatalogByKey(statuses)
+  const showBlockedMetric = isActionStatusActiveInCatalog(statuses, 'Bloqueado')
+  const blockedLabel = statusCatalogLabel('Bloqueado', statusByKey)
+
   const items = [
     {
       key: 'rojos',
@@ -18,6 +29,7 @@ export function KanbanMetricsRow({ metrics, className }: KanbanMetricsRowProps) 
       tone: 'border-red-200/80 bg-red-50/80',
       valueTone: 'text-red-700',
       labelTone: 'text-red-800/80',
+      visible: true,
     },
     {
       key: 'vencidas',
@@ -28,16 +40,18 @@ export function KanbanMetricsRow({ metrics, className }: KanbanMetricsRowProps) 
       tone: 'border-orange-200/80 bg-orange-50/80',
       valueTone: 'text-orange-700',
       labelTone: 'text-orange-800/80',
+      visible: true,
     },
     {
       key: 'bloqueadas',
-      label: 'Bloqueadas',
+      label: blockedLabel,
       value: metrics.bloqueadas,
       hint: 'Sin avance',
       icon: Ban,
       tone: 'border-amber-200/80 bg-amber-50/70',
       valueTone: 'text-amber-800',
       labelTone: 'text-amber-900/75',
+      visible: showBlockedMetric,
     },
     {
       key: 'abiertas',
@@ -48,12 +62,21 @@ export function KanbanMetricsRow({ metrics, className }: KanbanMetricsRowProps) 
       tone: 'border-border/70 bg-card',
       valueTone: 'text-foreground',
       labelTone: 'text-muted-foreground',
+      visible: true,
     },
   ] as const
 
+  const visibleItems = items.filter((item) => item.visible)
+
   return (
-    <div className={cn('grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3', className)}>
-      {items.map((item) => (
+    <div
+      className={cn(
+        'grid grid-cols-2 gap-2 sm:gap-3',
+        visibleItems.length >= 4 ? 'sm:grid-cols-4' : 'sm:grid-cols-3',
+        className
+      )}
+    >
+      {visibleItems.map((item) => (
         <div
           key={item.key}
           className={cn('rounded-xl border px-3 py-2.5 shadow-sm sm:px-3.5 sm:py-3', item.tone)}

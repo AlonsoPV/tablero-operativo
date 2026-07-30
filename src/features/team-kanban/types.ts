@@ -1,10 +1,19 @@
 export type TeamArea = { id: string; nombre: string; is_leader: boolean; member_count: number; open_count: number }
-export type TeamState = { id: string; area_id: string; nombre: string; orden: number; color: string; es_final: boolean }
+export type TeamState = {
+  /** UUID de `statuses.id` (catálogo corporativo). `area_id` se conserva por compatibilidad JSON. */
+  id: string
+  area_id: string
+  nombre: string
+  orden: number
+  color: string
+  es_final: boolean
+}
 export type TeamMember = { id: string; nombre: string }
 export type TeamFrequency = 'diaria' | 'semanal' | 'quincenal' | 'mensual'
 export type TeamAction = {
   id: string; area_id: string; estado_id: string; titulo: string; descripcion: string | null
-  prioridad: 'Baja' | 'Media' | 'Alta' | 'Critica'; asignado_a: string; lider_id: string; asignado_nombre: string
+  prioridad: string; asignado_a: string; lider_id: string; asignado_nombre: string
+  creado_por?: string
   fecha_limite: string | null; evidencia_requerida: boolean; checklist: Array<{ text: string; done?: boolean; responsable_id?: string | null }>
   es_frecuente?: boolean; frecuencia_tipo?: TeamFrequency | null
   frecuencia_dia_semana?: number | null; frecuencia_dia_mes?: number | null; frecuencia_inicio?: string | null
@@ -14,7 +23,7 @@ export type TeamAction = {
 /** Plantilla de una accion frecuente: no vive en el tablero, genera ocurrencias. */
 export type TeamSeries = {
   id: string; area_id: string; titulo: string; descripcion: string | null
-  prioridad: 'Baja' | 'Media' | 'Alta' | 'Critica'; asignado_a: string; asignado_nombre: string
+  prioridad: string; asignado_a: string; asignado_nombre: string
   fecha_limite: string | null
   frecuencia_tipo: TeamFrequency | null; frecuencia_dia_semana: number | null; frecuencia_dia_mes: number | null
   frecuencia_inicio: string | null

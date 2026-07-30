@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase/client'
 import type { DropdownCatalog, CreateDropdownCatalogInput, UpdateDropdownCatalogInput, CatalogFilter } from '../types/catalogs.types'
+import { updateCatalogRow } from './catalogUpdate'
 
 const TABLE = 'dropdown_catalogs'
 
@@ -39,8 +40,9 @@ export const dropdownCatalogsService = {
       nombre: input.nombre.trim(),
       descripcion: input.descripcion?.trim() ?? null,
       activo: input.activo ?? true,
-    }).select().single()
+    }).select('*').maybeSingle()
     if (error) throw error
+    if (!data) throw new Error('No se pudo crear el catálogo. Verifica permisos de Super Admin.')
     return data as DropdownCatalog
   },
 
@@ -49,9 +51,7 @@ export const dropdownCatalogsService = {
     if (payload.key !== undefined) payload.key = (payload.key as string).trim()
     if (payload.nombre !== undefined) payload.nombre = (payload.nombre as string).trim()
     if (payload.descripcion !== undefined) payload.descripcion = (payload.descripcion as string)?.trim() ?? null
-    const { data, error } = await supabase.from(TABLE).update(payload).eq('id', id).select().single()
-    if (error) throw error
-    return data as DropdownCatalog
+    return updateCatalogRow<DropdownCatalog>(TABLE, id, payload, 'Catálogo')
   },
 
   async setActivo(id: string, activo: boolean): Promise<DropdownCatalog> {

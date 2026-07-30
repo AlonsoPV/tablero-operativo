@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { CalendarClock, Check, FileCheck, Repeat2, Target } from 'lucide-react'
 import { toast } from 'sonner'
@@ -10,8 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AccionForm } from '@/features/operations/components/AccionForm'
 import { AccionFormField } from '@/features/operations/components/AccionFormSection'
 import { AccionFormBlock } from '@/features/operations/components/form/AccionFormBlock'
+import { AccionAsignadorNote } from '@/features/operations/components/form/AccionAsignadorNote'
 import { EvidenceOptionPicker } from '@/features/operations/components/form/EvidenceOptionPicker'
 import { useDropdownOptionsByKey } from '@/features/catalogs/hooks/useDropdownOptions'
+import type { Priority } from '@/features/catalogs/types/catalogs.types'
 import { AccionChecklistEditor, type LocalCheckpointDraft } from '@/features/operations/components/AccionChecklistEditor'
 import type { AccionCreateInput, AccionFormInput } from '@/features/operations/schemas/accion.schema'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
@@ -25,6 +27,7 @@ type Props = {
   areaId: string
   areaName: string
   board: TeamBoard
+  priorities: Priority[]
   onDone: () => Promise<void>
 }
 
@@ -65,12 +68,11 @@ const weekdays = [
   { value: 7, label: 'Domingo' },
 ]
 
-function teamPriority(value: string | undefined): 'Baja' | 'Media' | 'Alta' | 'Critica' {
+function notificationPriority(value: string | undefined): 'Normal' | 'Alta' | 'Urgente' {
   const normalized = (value ?? '').toLowerCase()
-  if (normalized.includes('critic') || normalized.includes('p1')) return 'Critica'
+  if (normalized.includes('critic') || normalized.includes('p1') || normalized.includes('urgent')) return 'Urgente'
   if (normalized.includes('alta')) return 'Alta'
-  if (normalized.includes('baja') || normalized.includes('p3')) return 'Baja'
-  return 'Media'
+  return 'Normal'
 }
 
 function todayInputValue() {
@@ -83,7 +85,7 @@ function isoWeekdayFromDate(value: string) {
   return day === 0 ? 7 : day
 }
 
-export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, board, onDone }: Props) {
+export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, board, priorities, onDone }: Props) {
   const { data: currentUser } = useCurrentUser()
   const [mode, setMode] = useState<TeamActionMode>('single')
   const [checklist, setChecklist] = useState<LocalCheckpointDraft[]>([])
@@ -96,7 +98,7 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
     title: '',
     description: '',
     assignee: '',
-    priority: 'Media' as 'Baja' | 'Media' | 'Alta' | 'Critica',
+    priority: priorities[0]?.nombre ?? 'P2_Media',
     dueDate: todayInputValue(),
     dueTime: '09:00',
     frequencyType: 'semanal' as FrequencyType,
@@ -113,6 +115,15 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
   const memberName = (id: string | null | undefined) =>
     id ? board.members.find((member) => member.id === id)?.nombre ?? undefined : undefined
 
+  useEffect(() => {
+    if (priorities.length === 0) return
+    setFrequentForm((current) =>
+      priorities.some((priority) => priority.nombre === current.priority)
+        ? current
+        : { ...current, priority: priorities[0].nombre }
+    )
+  }, [priorities])
+
   const notifyTeamAssignee = async (input: {
     usuarioId: string
     actionId: string
@@ -125,7 +136,7 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
     await notificacionesService.create({
       usuario_id: input.usuarioId,
       tipo: 'team_responsable',
-      prioridad: input.priority === 'Critica' ? 'Urgente' : input.priority === 'Alta' ? 'Alta' : 'Normal',
+      prioridad: notificationPriority(input.priority),
       payload: {
         titulo: 'Te asignaron una accion de equipo',
         titulo_accion: input.title,
@@ -177,7 +188,7 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
       title: values.titulo_accion?.trim() || values.descripcion_accion.slice(0, 70),
       description: values.descripcion_accion,
       assignee: values.responsable,
-      priority: teamPriority(values.prioridad),
+      priority: values.prioridad,
       dueAt: values.fecha ? new Date(`${values.fecha}T${values.hora_limite}:00`).toISOString() : null,
       evidence: Boolean(values.evidencia_esperada?.trim()),
       evidenceText: values.evidencia_esperada,
@@ -339,6 +350,7 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
           <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">
             {areaName} · Kanban por Equipos
           </p>
+          <AccionAsignadorNote nombre={currentUser?.nombre} className="mt-3" />
           <div
             role="radiogroup"
             aria-label="Tipo de acción"
@@ -393,9 +405,7 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
               onCancel={() => onOpenChange(false)}
               isSubmitting={isSubmitting}
               userOptions={board.members}
-              areaOptions={[{ id: areaId, nombre: areaName }]}
               lockedAreaName={areaName}
-              hideImpactStep
               validationExtras={
                 <AccionChecklistEditor
                   items={checklist}
@@ -484,15 +494,15 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
                         value={frequentForm.priority}
                         onValueChange={(value) => setFrequentForm((current) => ({
                           ...current,
-                          priority: value as typeof frequentForm.priority,
+                          priority: value,
                         }))}
                       >
                         <SelectTrigger id="frequent-priority" className={`${inputBase} h-10`}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {['Baja', 'Media', 'Alta', 'Critica'].map((priority) => (
-                            <SelectItem key={priority} value={priority}>{priority}</SelectItem>
+                          {priorities.map((priority) => (
+                            <SelectItem key={priority.id} value={priority.nombre}>{priority.nombre}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>

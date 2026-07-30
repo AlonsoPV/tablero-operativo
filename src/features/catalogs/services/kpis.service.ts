@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase/client'
 import type { CatalogKpi, CreateKpiInput, UpdateKpiInput, CatalogFilter } from '../types/catalogs.types'
+import { updateCatalogRow } from './catalogUpdate'
 
 const TABLE = 'catalog_kpis'
 
@@ -66,8 +67,9 @@ export const catalogKpisService = {
       owner_usuario: input.owner_usuario ?? null,
     } as Record<string, unknown>)
 
-    const { data, error } = await supabase.from(TABLE).insert(payload).select().single()
+    const { data, error } = await supabase.from(TABLE).insert(payload).select('*').maybeSingle()
     if (error) throw error
+    if (!data) throw new Error('No se pudo crear el KPI. Verifica permisos de Super Admin.')
     return data as CatalogKpi
   },
 
@@ -79,9 +81,7 @@ export const catalogKpisService = {
         input.descripcion !== undefined ? input.descripcion?.trim() ?? null : undefined,
     } as Record<string, unknown>)
 
-    const { data, error } = await supabase.from(TABLE).update(payload).eq('id', id).select().single()
-    if (error) throw error
-    return data as CatalogKpi
+    return updateCatalogRow<CatalogKpi>(TABLE, id, payload, 'KPI')
   },
 
   async setActivo(id: string, activo: boolean): Promise<CatalogKpi> {

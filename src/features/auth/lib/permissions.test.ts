@@ -91,6 +91,7 @@ describe('role route permissions', () => {
 
   it('allows only super_admin catalog role to manage support tickets in UI', () => {
     expect(canManageSupportTicketsByRole('super_admin')).toBe(true)
+    expect(canManageSupportTicketsByRole('Super Admin')).toBe(true)
     expect(canManageSupportTicketsByRole('Direccion')).toBe(false)
     expect(canManageSupportTicketsByRole('Operativo')).toBe(false)
   })

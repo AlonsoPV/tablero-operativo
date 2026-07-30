@@ -2,9 +2,10 @@ import { Search, SlidersHorizontal, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import type { Priority } from '@/features/catalogs/types/catalogs.types'
 import type { TeamFilters, TeamState } from './types'
 
-export function TeamKanbanFilters({value,states,onChange,onClear}:{value:TeamFilters;states:TeamState[];onChange:(v:TeamFilters)=>void;onClear:()=>void}){
+export function TeamKanbanFilters({value,states,priorities,onChange,onClear}:{value:TeamFilters;states:TeamState[];priorities:Priority[];onChange:(v:TeamFilters)=>void;onClear:()=>void}){
   const count=[value.search,value.dateFrom,value.dateTo,value.priority!=='all'?'x':'',value.stateId!=='all'?'x':''].filter(Boolean).length
   const field='h-9 min-w-0 rounded-md border-border/60 bg-background text-sm transition-[box-shadow,border-color,background-color]'
   const active='border-primary/55 bg-primary/[0.06] ring-2 ring-primary/15'
@@ -17,7 +18,7 @@ export function TeamKanbanFilters({value,states,onChange,onClear}:{value:TeamFil
     </div>
     <div className="grid min-w-0 grid-cols-2 gap-2 border-t border-border/40 pt-2">
       <Select value={value.stateId} onValueChange={stateId=>onChange({...value,stateId})}><SelectTrigger aria-label="Estado" className={`${field} w-full ${value.stateId!=='all'?active:''}`}><SelectValue placeholder="Estado"/></SelectTrigger><SelectContent><SelectItem value="all">Todos los estados</SelectItem>{states.map(s=><SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>)}</SelectContent></Select>
-      <Select value={value.priority} onValueChange={priority=>onChange({...value,priority})}><SelectTrigger aria-label="Prioridad" className={`${field} w-full ${value.priority!=='all'?active:''}`}><SelectValue placeholder="Prioridad"/></SelectTrigger><SelectContent><SelectItem value="all">Todas las prioridades</SelectItem>{['Baja','Media','Alta','Critica'].map(p=><SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select>
+      <Select value={value.priority} onValueChange={priority=>onChange({...value,priority})}><SelectTrigger aria-label="Prioridad" className={`${field} w-full ${value.priority!=='all'?active:''}`}><SelectValue placeholder="Prioridad"/></SelectTrigger><SelectContent><SelectItem value="all">Todas las prioridades</SelectItem>{priorities.map(p=><SelectItem key={p.id} value={p.nombre}>{p.nombre}</SelectItem>)}</SelectContent></Select>
     </div>
     {count?<Button variant="outline" size="sm" className="h-9 gap-1 border-primary/25 bg-primary/5 text-primary lg:hidden" onClick={onClear}><X className="h-3.5 w-3.5"/>Limpiar filtros</Button>:null}
   </div>

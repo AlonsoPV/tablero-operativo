@@ -57,11 +57,11 @@ export const teamKanbanService = {
   },
   async update(
     actionId: string,
-    patch: { stateId?: string; assignee?: string; priority?: string; blocked?: boolean; dueAt?: string | null }
+    patch: { stateId?: string; assignee?: string; priority?: string; dueAt?: string | null }
   ) {
     const { data, error } = await supabase.rpc('team_kanban_update_action', {
       p_action_id: actionId, p_state_id: patch.stateId ?? null, p_assignee: patch.assignee ?? null,
-      p_priority: patch.priority ?? null, p_blocked: patch.blocked ?? null, p_due_at: patch.dueAt ?? null,
+      p_priority: patch.priority ?? null, p_blocked: null, p_due_at: patch.dueAt ?? null,
     })
     if (error) throw new Error(error.message)
     return unwrap(data, null) as TeamAction

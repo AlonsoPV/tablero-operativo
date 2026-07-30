@@ -1,59 +1,3 @@
-CREATE TABLE IF NOT EXISTS public.accion_fecha_compromiso_cambios (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  origen text NOT NULL CHECK (origen IN ('kanban', 'team_kanban')),
-  accion_id uuid NOT NULL,
-  accion_titulo text NOT NULL,
-  motivo_key text NOT NULL CHECK (
-    motivo_key IN (
-      'planeacion_trabajo',
-      'dependencias',
-      'recursos_capacidad',
-      'cambios_compromiso'
-    )
-  ),
-  motivo_label text NOT NULL,
-  fecha_anterior date NOT NULL,
-  fecha_nueva date NOT NULL,
-  changed_by uuid REFERENCES public.usuarios(id) ON DELETE SET NULL,
-  changed_by_nombre text,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  CHECK (fecha_anterior IS DISTINCT FROM fecha_nueva)
-);
-
-CREATE INDEX IF NOT EXISTS idx_accion_fecha_compromiso_cambios_created_at
-  ON public.accion_fecha_compromiso_cambios(created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_accion_fecha_compromiso_cambios_accion
-  ON public.accion_fecha_compromiso_cambios(origen, accion_id);
-
-ALTER TABLE public.accion_fecha_compromiso_cambios ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS accion_fecha_compromiso_cambios_select_authenticated
-  ON public.accion_fecha_compromiso_cambios;
-CREATE POLICY accion_fecha_compromiso_cambios_select_authenticated
-ON public.accion_fecha_compromiso_cambios
-FOR SELECT
-TO authenticated
-USING (true);
-
-DROP POLICY IF EXISTS accion_fecha_compromiso_cambios_insert_authenticated
-  ON public.accion_fecha_compromiso_cambios;
-CREATE POLICY accion_fecha_compromiso_cambios_insert_authenticated
-ON public.accion_fecha_compromiso_cambios
-FOR INSERT
-TO authenticated
-WITH CHECK (
-  changed_by IS NULL
-  OR EXISTS (
-    SELECT 1
-    FROM public.usuarios u
-    WHERE u.id = changed_by
-      AND u.user_id = (SELECT auth.uid())
-  )
-);
-
-GRANT SELECT, INSERT ON public.accion_fecha_compromiso_cambios TO authenticated;
-
 CREATE OR REPLACE FUNCTION public.team_kanban_update_action(
   p_action_id uuid,
   p_state_id uuid DEFAULT NULL,
@@ -127,3 +71,31 @@ BEGIN
   RETURN v_row;
 END;
 $$;
+
+DROP FUNCTION IF EXISTS public.team_kanban_update_action(
+  uuid,
+  uuid,
+  uuid,
+  text,
+  boolean
+);
+
+REVOKE ALL ON FUNCTION public.team_kanban_update_action(
+  uuid,
+  uuid,
+  uuid,
+  text,
+  boolean,
+  timestamptz
+) FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION public.team_kanban_update_action(
+  uuid,
+  uuid,
+  uuid,
+  text,
+  boolean,
+  timestamptz
+) TO authenticated;
+
+NOTIFY pgrst, 'reload schema';

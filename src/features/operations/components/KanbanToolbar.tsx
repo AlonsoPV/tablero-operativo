@@ -15,13 +15,13 @@ import {
 } from '@/components/ui/select'
 import type { AccionesFilter } from '@/services/acciones.service'
 import type { ActionStatus } from '@/types'
+import type { Status } from '@/features/catalogs/types/catalogs.types'
 import { ACTION_STATUS } from '@/types'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import { useAreas } from '@/features/catalogs/hooks/useAreas'
 import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
-import { useStatuses } from '@/features/catalogs/hooks/useStatuses'
 import { priorityDisplayLabel } from '../utils/priorityLabels'
-import { statusCatalogByKey, statusCatalogLabel } from '../utils/statusCatalog'
+import { activeEstadoFilterOptions } from '../utils/statusCatalog'
 import { Label } from '@/components/ui/label'
 import { Check, ChevronDown, Search, X, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -76,21 +76,6 @@ function KanbanToolbarField({
     </div>
   )
 }
-
-const ESTADO_LABELS: Record<string, string> = {
-  Pendiente: 'Pendiente',
-  Hoy: 'Hoy',
-  En_Ejecucion: 'En ejecución',
-  Bloqueado: 'Bloqueado',
-  Retraso: 'Retraso',
-  Hecho: 'Hecho',
-  Verificado: 'Verificado',
-}
-
-const ESTADO_OPTIONS: { value: string; label: string }[] = [
-  { value: 'all', label: 'Todos los estados' },
-  ...ACTION_STATUS.map((s) => ({ value: s, label: ESTADO_LABELS[s] ?? s })),
-]
 
 const ALL_FILTER_VALUE = 'all'
 
@@ -284,6 +269,8 @@ export interface KanbanToolbarProps {
   layout?: KanbanToolbarLayout
   /** Solo `layout="dashboard"`: muestra estado, prioridad, área, creada por y responsable. */
   advancedExpanded?: boolean
+  /** Si se omite, el filtro de estado usa solo claves internas (legacy). */
+  statuses?: Status[]
   className?: string
 }
 
@@ -294,22 +281,15 @@ export function KanbanToolbar({
   visible = true,
   layout = 'default',
   advancedExpanded,
+  statuses = [],
   className,
 }: KanbanToolbarProps) {
   const { data: users = [] } = useUsers({ activo: true })
   const { data: areas = [] } = useAreas({ activo: true })
   const { data: priorities = [] } = usePriorities({ activo: true })
-  const { data: statuses = [] } = useStatuses()
-  const statusByKey = useMemo(() => statusCatalogByKey(statuses), [statuses])
   const estadoOptions = useMemo(
-    () => [
-      { value: ALL_FILTER_VALUE, label: 'Todos los estados' },
-      ...ACTION_STATUS.map((s) => ({
-        value: s,
-        label: statusCatalogLabel(s, statusByKey) || ESTADO_OPTIONS.find((o) => o.value === s)?.label || s,
-      })),
-    ],
-    [statusByKey]
+    () => activeEstadoFilterOptions(statuses, ACTION_STATUS, 'Todos los estados'),
+    [statuses]
   )
   const priorityOptions = useMemo(
     () => [

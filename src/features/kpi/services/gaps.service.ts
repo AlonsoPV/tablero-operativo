@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase/client'
+import { updateCatalogRow } from '@/features/catalogs/services/catalogUpdate'
 import type { Gap, GapStatus, GapsListFilters } from '../types/kpi.types'
 
 const TABLE = 'gaps'
@@ -56,8 +57,11 @@ export async function createGap(input: CreateGapInput): Promise<Gap> {
       activo: input.activo ?? true,
     })
     .select('*')
-    .single()
+    .maybeSingle()
   if (error) throw error
+  if (!data) {
+    throw new Error('No se pudo crear el gap. Verifica permisos de Super Admin.')
+  }
   return data as Gap
 }
 
@@ -77,12 +81,9 @@ export async function updateGap(id: string, input: UpdateGapInput): Promise<Gap>
   if (input.total_story_points !== undefined) patch.total_story_points = input.total_story_points
   if (input.activo !== undefined) patch.activo = input.activo
 
-  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', id).select('*').single()
-  if (error) throw error
-  return data as Gap
+  return updateCatalogRow<Gap>(TABLE, id, patch, 'Gap')
 }
 
-export async function setGapActivo(id: string, activo: boolean): Promise<void> {
-  const { error } = await supabase.from(TABLE).update({ activo }).eq('id', id)
-  if (error) throw error
+export async function setGapActivo(id: string, activo: boolean): Promise<Gap> {
+  return updateGap(id, { activo })
 }

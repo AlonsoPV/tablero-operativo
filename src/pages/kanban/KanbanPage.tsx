@@ -14,6 +14,7 @@ import {
   KanbanBoard,
   KanbanHeader,
   KanbanToolbar,
+  createKanbanDefaultFilter,
   KanbanMetricsRow,
   hasKanbanActiveFilters,
   AccionesControlTable,
@@ -29,6 +30,7 @@ import {
   fetchDropdownOptionsByCatalogKey,
 } from '@/features/catalogs/hooks/useDropdownOptions'
 import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
+import { useKanbanStatuses } from '@/features/catalogs/hooks/useStatuses'
 import type { AccionDiaria, ActionStatus } from '@/types'
 import type { AccionesFilter } from '@/services/acciones.service'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
@@ -75,6 +77,7 @@ export function KanbanPage() {
   const isAnalyst = isAnalystByRole(currentUser?.rol)
 
   const [filter, setFilter] = useState<AccionesFilter>(() => ({}))
+  const [defaultResponsibleApplied, setDefaultResponsibleApplied] = useState(false)
   const [filtersExpanded, setFiltersExpanded] = useState(false)
   const [viewMode, setViewMode] = useState<KanbanViewMode>('kanban')
   const filterForQuery = useMemo(
@@ -109,11 +112,18 @@ export function KanbanPage() {
   const { data: commentCounts = {} } = useCommentCounts(accionesDisplay.map((a) => a.id))
   const { data: users = [] } = useUsers({ activo: true })
   const { data: priorities = [] } = usePriorities({ activo: true })
+  const { data: kanbanStatuses = [] } = useKanbanStatuses()
   const [editingAccion, setEditingAccion] = useState<AccionDiaria | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const accionIdFromUrl = searchParams.get('accion')
   const fechaFromUrl = searchParams.get('fecha')
   const { data: accionFromUrl } = useAccion(accionIdFromUrl)
+
+  useEffect(() => {
+    if (!currentUser?.id || defaultResponsibleApplied) return
+    setFilter((prev) => normalizeKanbanFilter({ ...createKanbanDefaultFilter(currentUser.id), ...prev }))
+    setDefaultResponsibleApplied(true)
+  }, [currentUser?.id, defaultResponsibleApplied])
 
   useEffect(() => {
     if (fechaFromUrl && /^\d{4}-\d{2}-\d{2}$/.test(fechaFromUrl)) {
@@ -149,13 +159,13 @@ export function KanbanPage() {
   }, [currentUser?.id, isAnalyst])
 
   const handleClearFilters = useCallback(() => {
-    setFilter(isAnalyst && currentUser?.id ? { responsable: currentUser.id } : {})
+    setFilter(createKanbanDefaultFilter(currentUser?.id))
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       next.delete('gap')
       return next
     }, { replace: true })
-  }, [currentUser?.id, isAnalyst, setSearchParams])
+  }, [currentUser?.id, setSearchParams])
 
   const clearGapFilter = useCallback(() => {
     setSearchParams((prev) => {
@@ -281,11 +291,12 @@ export function KanbanPage() {
           filter={filter}
           onFilterChange={handleFilterChange}
           onClear={handleClearFilters}
+          statuses={kanbanStatuses}
           visible
         />
       ) : null}
 
-      {!accionesError ? <KanbanMetricsRow metrics={healthMetrics} /> : null}
+      {!accionesError ? <KanbanMetricsRow metrics={healthMetrics} statuses={kanbanStatuses} /> : null}
 
       <section
         id="kanban-content"
@@ -314,6 +325,7 @@ export function KanbanPage() {
               isLoading={listLoading}
               responsableNames={responsableNames}
               checklistProgressByAccionId={checklistProgressByAccionId}
+              statuses={kanbanStatuses}
               onSelectAccion={handleSelectAccion}
               onNewAction={isAnalyst ? undefined : handleNewAction}
               filterEstado={filterEstadoSingle}

@@ -1,10 +1,10 @@
 /**
  * Formulario de creación/edición de acción diaria.
- * Arquitectura en 3 bloques (acordeón): principal → impacto → evidencia/validación.
+ * Arquitectura en 2 bloques (acordeón): principal → evidencia/validación.
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Controller, useForm, type FieldErrors, type Resolver } from 'react-hook-form'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useForm, type FieldErrors, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Input } from '@/components/ui/input'
 import {
@@ -20,30 +20,23 @@ import {
   type AccionFormInput,
 } from '../schemas/accion.schema'
 import { useUsers } from '@/features/users/hooks/useUsers'
-import { useAreas } from '@/features/catalogs/hooks/useAreas'
 import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
-import { useKpis } from '@/features/catalogs/hooks/useKpis'
 import { useDropdownOptionsByKey } from '@/features/catalogs/hooks/useDropdownOptions'
-import { useGaps } from '@/features/kpi/hooks/useGaps'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { isAnalystByRole, isDirectionByRole, isOperativeByRole } from '@/features/auth/lib/permissions'
-import { cn } from '@/lib/utils'
+import { isAnalystByRole } from '@/features/auth/lib/permissions'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
-import { STORY_POINTS_OPTIONS } from '../utils/tipoAccionConfig'
 import { DEFAULT_PRIORITY_NOMBRE, priorityDisplayLabel } from '../utils/priorityLabels'
 import { AccionFormField } from './AccionFormSection'
 import { AccionFormBlock } from './form/AccionFormBlock'
+import { AccionAsignadorNote } from './form/AccionAsignadorNote'
 import { AccionPrioridadSelect, resolveDefaultPrioridadNombre } from './form/AccionPrioridadSelect'
 import { resolveAccionPrioridadNombre } from '../utils/resolveAccionPrioridad'
-import { CatalogSearchMultiSelect } from './form/CatalogSearchMultiSelect'
 import { EvidenceOptionPicker } from './form/EvidenceOptionPicker'
 import { CatalogLoadError } from './form/CatalogLoadError'
-import { StoryPointsHelper } from './form/StoryPointsHelper'
 import { AccionDescripcionTextarea } from './form/AccionDescripcionTextarea'
 import {
   CalendarClock,
   FileCheck,
-  Target,
 } from 'lucide-react'
 
 function collectAccionFormErrorMessages(errors: FieldErrors<AccionFormInput>): string[] {
@@ -93,34 +86,6 @@ function ReadonlyValue({
   )
 }
 
-function ReadonlyList({
-  label,
-  values,
-}: {
-  label: string
-  values: string[]
-}) {
-  return (
-    <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-      {values.length > 0 ? (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {values.map((value) => (
-            <span
-              key={value}
-              className="inline-flex max-w-full rounded-md border border-border/60 bg-background px-2 py-1 text-xs font-medium text-foreground"
-            >
-              <span className="truncate">{value}</span>
-            </span>
-          ))}
-        </div>
-      ) : (
-        <p className="mt-1 text-sm text-muted-foreground">Sin dato</p>
-      )}
-    </div>
-  )
-}
-
 export interface AccionFormProps {
   defaultValues?: Partial<AccionFormInput> | null
   onSubmit: (values: AccionCreateInput) => void
@@ -133,13 +98,13 @@ export interface AccionFormProps {
   /** Checklist borrador y adjuntos opcionales (bloque 3, solo creación). */
   validationExtras?: ReactNode
   deadlineExtras?: (values: { fecha: string | undefined; hora_limite: string | undefined }) => ReactNode
-  /** Oculta el bloque de impacto/planeación (p. ej. Kanban por Equipos). */
-  hideImpactStep?: boolean
   onPrioridadChange?: (prioridad: string | undefined) => void
   accionPrioridadId?: string | null
   userOptions?: Array<{ id: string; nombre: string }>
-  areaOptions?: Array<{ id: string; nombre: string }>
+  /** Área fija aplicada al formulario (p. ej. Kanban por Equipos). */
   lockedAreaName?: string
+  /** Quién asigna la acción; por defecto el usuario actual. */
+  asignadorNombre?: string | null
 }
 
 export function AccionForm({
@@ -153,12 +118,11 @@ export function AccionForm({
   onSubmitInvalid,
   validationExtras,
   deadlineExtras,
-  hideImpactStep = false,
   onPrioridadChange,
   accionPrioridadId,
   userOptions,
-  areaOptions,
   lockedAreaName,
+  asignadorNombre,
 }: AccionFormProps) {
   void _onCancel
   void _isSubmitting
@@ -170,38 +134,17 @@ export function AccionForm({
     error: usersErrorObj,
     refetch: retryUsers,
   } = useUsers({ activo: true })
-  const {
-    data: queriedAreas = [],
-    isLoading: areasLoading,
-    isError: areasError,
-    refetch: retryAreas,
-  } = useAreas({ activo: true })
   const users = userOptions ?? queriedUsers
-  const areas = areaOptions ?? queriedAreas
   const effectiveUsersLoading = userOptions ? false : usersLoading
   const effectiveUsersError = userOptions ? false : usersError
-  const effectiveAreasLoading = areaOptions ? false : areasLoading
-  const effectiveAreasError = areaOptions ? false : areasError
   const {
     data: priorities = [],
     isLoading: prioritiesLoading,
   } = usePriorities()
   const { data: currentUser } = useCurrentUser()
   const isAnalyst = isAnalystByRole(currentUser?.rol)
-  const canViewO2cImpactFields =
-    !isAnalyst && !isDirectionByRole(currentUser?.rol) && !isOperativeByRole(currentUser?.rol)
-  const {
-    data: gaps = [],
-    isLoading: gapsLoading,
-    isError: gapsError,
-    refetch: retryGaps,
-  } = useGaps({ filters: isEdit ? undefined : { activo: true }, enabled: canViewO2cImpactFields })
-  const {
-    data: catalogKpis = [],
-    isLoading: kpisLoading,
-    isError: kpisError,
-    refetch: retryKpis,
-  } = useKpis(isEdit ? {} : { activo: true }, { enabled: canViewO2cImpactFields })
+  const assignerName = asignadorNombre?.trim() || currentUser?.nombre?.trim() || null
+  const showAsignadorNote = !lockedAreaName
   const {
     data: evidenciaOpciones = [],
     isLoading: evidenciaLoading,
@@ -215,7 +158,6 @@ export function AccionForm({
 
   const [blocksOpen, setBlocksOpen] = useState({
     principal: true,
-    impacto: isEdit,
     validacion: isEdit,
   })
 
@@ -248,19 +190,8 @@ export function AccionForm({
     if (lockedAreaName) form.setValue('area', lockedAreaName)
   }, [form, lockedAreaName])
 
-  const gapById = useMemo(() => {
-    const m = new Map<string, { area: string | null }>()
-    for (const g of gaps) m.set(g.id, { area: g.area ?? null })
-    return m
-  }, [gaps])
-
-  const watchedGapIds = form.watch('gap_ids')
-  const watchedCatalogKpiIds = form.watch('catalog_kpi_ids')
-  const selectedStoryPoints = form.watch('story_points') ?? 0
   const watchedFecha = form.watch('fecha')
   const watchedHoraLimite = form.watch('hora_limite')
-  const gapIds = useMemo(() => watchedGapIds ?? [], [watchedGapIds])
-  const catalogKpiIds = useMemo(() => watchedCatalogKpiIds ?? [], [watchedCatalogKpiIds])
   const prioridadSeleccionada = form.watch('prioridad')
 
   const priorityOptions = useMemo((): { id: string; nombre: string }[] => {
@@ -273,29 +204,6 @@ export function AccionForm({
   }, [priorities, prioridadSeleccionada])
 
   const defaultPrioridadNombre = useMemo(() => resolveDefaultPrioridadNombre(priorities), [priorities])
-
-  const gapSearchItems = useMemo(
-    () =>
-      gaps.map((g) => ({
-        id: g.id,
-        label: g.activo ? g.nombre : `${g.nombre} (inactivo)`,
-        description: g.descripcion,
-        code: g.id.slice(0, 8),
-      })),
-    [gaps]
-  )
-
-  const kpiSearchItems = useMemo(() => {
-    const gapSet = new Set(gapIds)
-    return catalogKpis
-      .filter((k) => !k.gap_id || gapSet.has(k.gap_id))
-      .map((k) => ({
-        id: k.id,
-        label: k.activo ? k.nombre : `${k.nombre} (inactivo)`,
-        description: k.descripcion,
-        code: k.tipo ?? k.unidad,
-      }))
-  }, [catalogKpis, gapIds])
 
   const principalSummary = useMemo(() => {
     const titulo = (form.watch('titulo_accion') ?? '').trim()
@@ -353,31 +261,6 @@ export function AccionForm({
     form.setValue('responsable_bloqueo', null)
   }, [form])
 
-  const setGapIds = useCallback(
-    (ids: string[]) => {
-      form.setValue('gap_ids', ids)
-      const added = ids.find((id) => !gapIds.includes(id))
-      if (added) {
-        const gapArea = gapById.get(added)?.area
-        if (gapArea) form.setValue('area', gapArea)
-      }
-    },
-    [form, gapById, gapIds]
-  )
-
-  useEffect(() => {
-    if (isEditProtectedReadonly) return
-    const set = new Set(gapIds)
-    const current = form.getValues('catalog_kpi_ids') ?? []
-    const next = current.filter((id) => {
-      const kpi = catalogKpis.find((k) => k.id === id)
-      if (!kpi) return false
-      if (!kpi.gap_id) return true
-      return set.has(kpi.gap_id)
-    })
-    if (next.length !== current.length) form.setValue('catalog_kpi_ids', next)
-  }, [gapIds, catalogKpis, form, isEditProtectedReadonly])
-
   const evidenciaSignature = evidenciaOpciones.map((o) => `${o.id}:${o.value}:${o.label}`).join('|')
   const hasCatalogOtro = catalogHasOtroOption(evidenciaOpciones)
 
@@ -416,12 +299,6 @@ export function AccionForm({
     users.find((u) => u.id === form.watch('responsable'))?.nombre ??
     form.watch('responsable') ??
     ''
-  const readonlyGapLabels = gapIds.map(
-    (id) => gapSearchItems.find((g) => g.id === id)?.label ?? id
-  )
-  const readonlyKpiLabels = catalogKpiIds.map(
-    (id) => kpiSearchItems.find((k) => k.id === id)?.label ?? id
-  )
   return (
     <form
       id={fid}
@@ -444,6 +321,8 @@ export function AccionForm({
         editProtected={isEditProtectedReadonly}
       >
         {isEditProtectedReadonly ? (
+          <div className="space-y-4">
+            {showAsignadorNote ? <AccionAsignadorNote nombre={assignerName} /> : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <ReadonlyValue label="Título de la acción" value={form.watch('titulo_accion')} />
             <ReadonlyValue label="Responsable de ejecutar" value={readonlyResponsableNombre} />
@@ -485,8 +364,10 @@ export function AccionForm({
               )}
             </div>
           </div>
+          </div>
         ) : (
         <fieldset className="space-y-4">
+        {showAsignadorNote ? <AccionAsignadorNote nombre={assignerName} /> : null}
         <AccionFormField label="Título de la acción" htmlFor={fieldId('titulo_accion')} required>
           <Input
             id={fieldId('titulo_accion')}
@@ -601,166 +482,9 @@ export function AccionForm({
         )}
       </AccionFormBlock>
 
-      {!hideImpactStep ? (
-      <AccionFormBlock
-        blockId={`${fid}-block-impacto`}
-        step={2}
-        title={canViewO2cImpactFields ? 'Impacto estratégico' : 'Planeación operativa'}
-        subtitle={
-          canViewO2cImpactFields
-            ? 'Brechas, indicadores y estimación.'
-            : 'Estimación y clasificación de la acción.'
-        }
-        icon={Target}
-        expanded={blocksOpen.impacto}
-        onToggle={() => setBlocksOpen((b) => ({ ...b, impacto: !b.impacto }))}
-        editProtected={isEditProtectedReadonly}
-        collapsedSummary={
-          [
-            canViewO2cImpactFields && gapIds.length ? `${gapIds.length} brecha(s)` : null,
-            canViewO2cImpactFields && catalogKpiIds.length ? `${catalogKpiIds.length} KPI` : null,
-          ]
-            .filter(Boolean)
-            .join(' · ') || undefined
-        }
-      >
-        {isEditProtectedReadonly ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {canViewO2cImpactFields ? (
-              <>
-                <ReadonlyList label="Brecha que atiende" values={readonlyGapLabels} />
-                <ReadonlyList label="Indicador impactado" values={readonlyKpiLabels} />
-              </>
-            ) : null}
-            <div className="space-y-2 sm:col-span-2">
-              <ReadonlyValue label="Story points" value={String(selectedStoryPoints)} />
-              <StoryPointsHelper points={selectedStoryPoints} />
-            </div>
-            <ReadonlyValue label="Área" value={form.watch('area')} />
-          </div>
-        ) : (
-        <fieldset className="space-y-4">
-        {/*
-          Tipo de acción (RUN / Sprint / Estratégica / Desbloqueo) — oculto por ahora.
-          Todas las acciones se registran como operativa (RUN).
-        */}
-
-        {canViewO2cImpactFields && (
-          <>
-            <AccionFormField label="Brecha que atiende" htmlFor={fieldId('gap_ids')}>
-              {gapsLoading && <p className="text-xs text-muted-foreground">Cargando brechas…</p>}
-              {gapsError && (
-                <CatalogLoadError
-                  message="No se pudo cargar el catálogo de brechas."
-                  onRetry={() => void retryGaps()}
-                />
-              )}
-              <CatalogSearchMultiSelect
-                id={fieldId('gap_ids')}
-                items={gapSearchItems}
-                selectedIds={gapIds}
-                onChange={setGapIds}
-                placeholder="Buscar brecha por nombre o código…"
-                emptyLabel="Sin brechas en catálogo"
-                loading={gapsLoading}
-                disabled={isEditProtectedReadonly || (gapsLoading && gaps.length === 0)}
-              />
-            </AccionFormField>
-
-            <AccionFormField label="Indicador impactado" htmlFor={fieldId('catalog_kpi_ids')}>
-              {kpisLoading && <p className="text-xs text-muted-foreground">Cargando indicadores…</p>}
-              {kpisError && (
-                <CatalogLoadError
-                  message="No se pudo cargar el catálogo de KPIs."
-                  onRetry={() => void retryKpis()}
-                />
-              )}
-              <CatalogSearchMultiSelect
-                id={fieldId('catalog_kpi_ids')}
-                items={kpiSearchItems}
-                selectedIds={catalogKpiIds}
-                onChange={(ids) => form.setValue('catalog_kpi_ids', ids)}
-                placeholder="Buscar KPI por nombre o tipo…"
-                emptyLabel={
-                  gapIds.length > 0 ? 'Sin KPIs para las brechas seleccionadas' : 'Buscar en catálogo'
-                }
-                loading={kpisLoading}
-                disabled={isEditProtectedReadonly || (kpisLoading && catalogKpis.length === 0)}
-              />
-            </AccionFormField>
-          </>
-        )}
-
-        <AccionFormField
-          label="Story points"
-          hint="Estima el esfuerzo relativo de la acción. Elige 0 si no aplica."
-          hintAsIcon
-        >
-          <Controller
-            name="story_points"
-            control={form.control}
-            render={({ field }) => (
-              <div className="-mx-0.5 flex flex-nowrap gap-1.5 overflow-x-auto pb-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible">
-                {[0, ...STORY_POINTS_OPTIONS].map((pts) => (
-                  <button
-                    key={pts}
-                    type="button"
-                    disabled={isEditProtectedReadonly}
-                    aria-pressed={(field.value ?? 0) === pts}
-                    onClick={() => field.onChange(pts)}
-                    className={cn(
-                      'h-10 min-w-10 shrink-0 rounded-lg border px-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:min-w-9',
-                      (field.value ?? 0) === pts
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'border-border bg-background hover:border-primary/50'
-                    )}
-                  >
-                    {pts}
-                  </button>
-                ))}
-              </div>
-            )}
-          />
-          <StoryPointsHelper points={selectedStoryPoints} />
-          {form.formState.errors.story_points && (
-            <p className="text-xs text-destructive">{form.formState.errors.story_points.message}</p>
-          )}
-        </AccionFormField>
-
-        <AccionFormField label="Área (opcional)" htmlFor={fieldId('area')} hintAsIcon hint="Puede autocompletarse al elegir brecha.">
-          {effectiveAreasLoading && <p className="text-xs text-muted-foreground">Cargando áreas…</p>}
-          {effectiveAreasError && (
-            <CatalogLoadError
-              message="No se pudo cargar áreas."
-              onRetry={() => void retryAreas()}
-            />
-          )}
-          <Select
-            value={form.watch('area') ?? '__none__'}
-            onValueChange={(v) => form.setValue('area', v === '__none__' ? undefined : v)}
-            disabled={Boolean(lockedAreaName) || isEditProtectedReadonly || (effectiveAreasLoading && areas.length === 0)}
-          >
-            <SelectTrigger id={fieldId('area')} className={`${inputBase} h-10`}>
-              <SelectValue placeholder="Sin área" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">Sin área</SelectItem>
-              {areas.map((a) => (
-                <SelectItem key={a.id} value={a.nombre}>
-                  {a.nombre}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </AccionFormField>
-        </fieldset>
-        )}
-      </AccionFormBlock>
-      ) : null}
-
       <AccionFormBlock
         blockId={`${fid}-block-validacion`}
-        step={hideImpactStep ? 2 : 3}
+        step={2}
         title="Evidencia y validación"
         subtitle="Qué comprobará el cierre."
         icon={FileCheck}

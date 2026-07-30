@@ -80,6 +80,16 @@ function downloadActionsCsv(filename: string, actions: AccionDiaria[]) {
   URL.revokeObjectURL(url)
 }
 
+/** Atención inmediata: abiertas asignadas con compromiso de hoy o ya vencido. */
+function attentionPriorityActions(metrics: OperationalDashboardMetrics): AccionDiaria[] {
+  const byId = new Map<string, AccionDiaria>()
+  for (const action of [...metrics.dueTodayActions, ...metrics.overdueActions]) {
+    if (!action.responsable) continue
+    byId.set(action.id, action)
+  }
+  return [...byId.values()]
+}
+
 function ActionsPriorityPie({
   metrics,
   onDrillDown,
@@ -89,9 +99,14 @@ function ActionsPriorityPie({
   onDrillDown: (input: DrillDownInput) => void
   loading?: boolean
 }) {
-  const total = metrics.totalFiltered
-  const redPct = total > 0 ? (metrics.redActions.length / total) * 100 : 0
-  const yellowPct = total > 0 ? (metrics.yellowActions.length / total) * 100 : 0
+  const scopedActions = attentionPriorityActions(metrics)
+  const scopedIds = new Set(scopedActions.map((action) => action.id))
+  const redActions = metrics.redActions.filter((action) => scopedIds.has(action.id))
+  const yellowActions = metrics.yellowActions.filter((action) => scopedIds.has(action.id))
+  const greenActions = metrics.greenActions.filter((action) => scopedIds.has(action.id))
+  const total = scopedActions.length
+  const redPct = total > 0 ? (redActions.length / total) * 100 : 0
+  const yellowPct = total > 0 ? (yellowActions.length / total) * 100 : 0
   const yellowEnd = redPct + yellowPct
   const chartBackground =
     total > 0
@@ -100,8 +115,8 @@ function ActionsPriorityPie({
   const segments = [
     {
       label: 'Rojos',
-      value: metrics.redActions.length,
-      actions: metrics.redActions,
+      value: redActions.length,
+      actions: redActions,
       dot: 'bg-red-500',
       text: 'text-red-700 dark:text-red-300',
       surface: 'border-red-500/20 bg-red-500/[0.06] hover:bg-red-500/10',
@@ -109,8 +124,8 @@ function ActionsPriorityPie({
     },
     {
       label: 'Amarillos',
-      value: metrics.yellowActions.length,
-      actions: metrics.yellowActions,
+      value: yellowActions.length,
+      actions: yellowActions,
       dot: 'bg-amber-500',
       text: 'text-amber-700 dark:text-amber-300',
       surface: 'border-amber-500/20 bg-amber-500/[0.06] hover:bg-amber-500/10',
@@ -118,8 +133,8 @@ function ActionsPriorityPie({
     },
     {
       label: 'Verdes',
-      value: metrics.greenActions.length,
-      actions: metrics.greenActions,
+      value: greenActions.length,
+      actions: greenActions,
       dot: 'bg-emerald-500',
       text: 'text-emerald-700 dark:text-emerald-300',
       surface: 'border-emerald-500/20 bg-emerald-500/[0.06] hover:bg-emerald-500/10',
@@ -135,19 +150,19 @@ function ActionsPriorityPie({
             <ListChecks className="h-5 w-5" aria-hidden />
           </span>
           <div>
-            <p className="text-base font-semibold tracking-tight">Acciones totales</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">Composición del trabajo por prioridad</p>
+            <p className="text-base font-semibold tracking-tight">Hoy y vencidas</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Asignadas abiertas por prioridad</p>
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <InfoHint text="Total de acciones incluidas en los filtros activos, segmentadas por el color configurado en su prioridad." />
+          <InfoHint text="Por defecto solo incluye acciones asignadas abiertas con fecha compromiso de hoy o ya vencida, segmentadas por el color de su prioridad. Respeta los filtros activos del tablero." />
           <Button
             type="button"
             variant="ghost"
             size="icon"
             className="h-8 w-8"
-            onClick={() => downloadActionsCsv('acciones-totales.csv', metrics.totalActions)}
-            title="Exportar acciones totales"
+            onClick={() => downloadActionsCsv('acciones-hoy-vencidas.csv', scopedActions)}
+            title="Exportar acciones de hoy y vencidas"
           >
             <Download className="h-4 w-4" aria-hidden />
           </Button>
@@ -161,8 +176,8 @@ function ActionsPriorityPie({
             type="button"
             className="relative aspect-square w-full rounded-full p-2 transition duration-200 hover:scale-[1.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             style={{ background: chartBackground }}
-            onClick={() => onDrillDown({ title: 'Acciones totales', actions: metrics.totalActions })}
-            aria-label={`Ver ${total} acciones totales`}
+            onClick={() => onDrillDown({ title: 'Hoy y vencidas', actions: scopedActions })}
+            aria-label={`Ver ${total} acciones de hoy y vencidas`}
           >
             <span className="absolute inset-[20%] flex flex-col items-center justify-center rounded-full border-4 border-background bg-background shadow-[inset_0_1px_8px_hsl(var(--muted)),0_6px_18px_rgba(15,23,42,0.12)]">
               {loading ? (

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowRight,
   BarChart3,
@@ -362,7 +362,10 @@ const commitmentDateChangeCategories = [
 ]
 
 export function ManualPage() {
-  const [activeTab, setActiveTab] = useState<'tablero' | 'gamificacion'>('tablero')
+  const [searchParams] = useSearchParams()
+  const [activeTab, setActiveTab] = useState<'tablero' | 'gamificacion'>(
+    searchParams.get('seccion') === 'gamificacion' ? 'gamificacion' : 'tablero'
+  )
   const { data: currentUser } = useCurrentUser()
   const visibleSections = manualSections.filter((section) =>
     canAccessRouteByRole(currentUser?.rol, section.route)

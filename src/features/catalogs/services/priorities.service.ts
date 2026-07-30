@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase/client'
 import type { Priority, CreatePriorityInput, UpdatePriorityInput, CatalogFilter } from '../types/catalogs.types'
+import { updateCatalogRow } from './catalogUpdate'
 
 const TABLE = 'priorities'
 
@@ -30,8 +31,9 @@ export const prioritiesService = {
       color: input.color,
       orden: input.orden ?? 0,
       activo: input.activo ?? true,
-    }).select().single()
+    }).select('*').maybeSingle()
     if (error) throw error
+    if (!data) throw new Error('No se pudo crear la prioridad. Verifica permisos de Super Admin.')
     return data as Priority
   },
 
@@ -40,8 +42,7 @@ export const prioritiesService = {
     const payload: Record<string, unknown> = { ...input }
     if (payload.nombre !== undefined) payload.nombre = (payload.nombre as string).trim()
     if (payload.descripcion !== undefined) payload.descripcion = (payload.descripcion as string)?.trim() ?? null
-    const { data, error } = await supabase.from(TABLE).update(payload).eq('id', id).select().single()
-    if (error) throw error
+    const data = await updateCatalogRow<Priority>(TABLE, id, payload, 'Prioridad')
 
     const newNombre = typeof input.nombre === 'string' ? input.nombre.trim() : null
     const { error: syncError } = await supabase.rpc('sync_acciones_prioridad_for_priority', {
@@ -64,7 +65,7 @@ export const prioritiesService = {
       }
     }
 
-    return data as Priority
+    return data
   },
 
   async setActivo(id: string, activo: boolean): Promise<Priority> {

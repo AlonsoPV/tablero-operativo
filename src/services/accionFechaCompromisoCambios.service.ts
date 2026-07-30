@@ -39,6 +39,24 @@ export const accionFechaCompromisoCambiosService = {
     const reason = getFechaCompromisoChangeReason(input.motivoKey)
     if (!reason) throw new Error('Selecciona un motivo valido para cambiar la fecha compromiso.')
 
+    let changedBy = input.changedBy ?? null
+    let changedByNombre = input.changedByNombre?.trim().slice(0, 160) || null
+
+    if (!changedBy) {
+      const { data: authData } = await supabase.auth.getUser()
+      const authUserId = authData.user?.id
+      if (authUserId) {
+        const { data: profile } = await supabase
+          .from('usuarios')
+          .select('id,nombre')
+          .eq('user_id', authUserId)
+          .maybeSingle()
+
+        changedBy = profile?.id ?? null
+        changedByNombre = changedByNombre ?? profile?.nombre?.trim().slice(0, 160) ?? null
+      }
+    }
+
     const { data, error } = await supabase
       .from('accion_fecha_compromiso_cambios')
       .insert({
@@ -49,8 +67,8 @@ export const accionFechaCompromisoCambiosService = {
         motivo_label: reason.label,
         fecha_anterior: input.fechaAnterior,
         fecha_nueva: input.fechaNueva,
-        changed_by: input.changedBy ?? null,
-        changed_by_nombre: input.changedByNombre?.trim().slice(0, 160) || null,
+        changed_by: changedBy,
+        changed_by_nombre: changedByNombre,
       })
       .select(SELECT_FIELDS)
       .single()
