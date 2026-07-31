@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowRight,
@@ -362,7 +362,7 @@ const commitmentDateChangeCategories = [
 ]
 
 export function ManualPage() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState<'tablero' | 'gamificacion'>(
     searchParams.get('seccion') === 'gamificacion' ? 'gamificacion' : 'tablero'
   )
@@ -379,6 +379,18 @@ export function ManualPage() {
       text: 'Usa Alineacion estrategica y Reportes para enfocar decisiones y explicar avances.',
     }
   })
+
+  useEffect(() => {
+    const section = searchParams.get('seccion')
+    setActiveTab(section === 'gamificacion' ? 'gamificacion' : 'tablero')
+  }, [searchParams])
+
+  const selectTab = (tab: 'tablero' | 'gamificacion') => {
+    setActiveTab(tab)
+    setSearchParams(tab === 'gamificacion' ? { seccion: 'gamificacion' } : {}, {
+      replace: false,
+    })
+  }
 
   return (
     <div id="manual-page" className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-3 py-5 sm:px-6 sm:py-6">
@@ -420,7 +432,7 @@ export function ManualPage() {
           id="manual-tab-tablero"
           aria-selected={activeTab === 'tablero'}
           aria-controls="manual-panel-tablero"
-          onClick={() => setActiveTab('tablero')}
+          onClick={() => selectTab('tablero')}
           className={`group flex min-h-20 items-center gap-4 rounded-xl border px-4 py-3 text-left transition-all sm:px-5 ${
             activeTab === 'tablero'
               ? 'border-primary/40 bg-primary/[0.07] text-foreground shadow-sm ring-1 ring-primary/10'
@@ -444,7 +456,7 @@ export function ManualPage() {
           id="manual-tab-gamificacion"
           aria-selected={activeTab === 'gamificacion'}
           aria-controls="manual-panel-gamificacion"
-          onClick={() => setActiveTab('gamificacion')}
+          onClick={() => selectTab('gamificacion')}
           className={`group flex min-h-20 items-center gap-4 rounded-xl border px-4 py-3 text-left transition-all sm:px-5 ${
             activeTab === 'gamificacion'
               ? 'border-amber-500/40 bg-amber-500/[0.08] text-foreground shadow-sm ring-1 ring-amber-500/10'
