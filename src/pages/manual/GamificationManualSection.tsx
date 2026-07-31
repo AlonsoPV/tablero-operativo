@@ -13,7 +13,6 @@ import {
   ShieldCheck,
   Target,
   Trophy,
-  Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -60,17 +59,29 @@ const awardWeights = [
   { label: 'Consistencia', value: '10%', detail: 'Racha y actividad sostenida en el periodo.' },
 ]
 
-const workloadBands = [
-  { label: 'Carga baja', value: '1-5 acciones' },
-  { label: 'Carga media', value: '6-15 acciones' },
-  { label: 'Carga alta', value: '16+ acciones' },
+const awardSteps = [
+  'Revisar el avance real del Kanban.',
+  'Calcular el score ajustado.',
+  'Usar puntos como desempate.',
+  'Revisar retrasos como riesgo operativo.',
 ]
 
-const awardSteps = [
-  'Calcular score ajustado.',
-  'Comparar dentro de la banda de carga.',
-  'Usar puntos netos como desempate.',
-  'Revisar retrasos como riesgo operativo.',
+const learningBlocks = [
+  {
+    label: 'Lo principal',
+    title: 'Score ajustado',
+    detail: 'Es la calificacion para premios. Resume cierre, puntualidad, retrasos, colaboracion y consistencia.',
+  },
+  {
+    label: 'Lo que explica',
+    title: 'Puntos',
+    detail: 'Muestran actividad positiva y penalizaciones. No son el ranking principal.',
+  },
+  {
+    label: 'Lo que corrige',
+    title: 'Retrasos',
+    detail: 'No borran toda la actividad, pero si bajan el score y muestran riesgo operativo.',
+  },
 ]
 
 const commentTypes = [
@@ -147,26 +158,28 @@ export function GamificationManualSection() {
 
         <CardContent className="p-0">
           <div className="border-b bg-card px-5 py-5 sm:px-6">
-            <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-4">
                 <div className="flex items-center gap-2">
                   <Medal className="h-4 w-4 text-amber-600" aria-hidden />
-                  <h3 className="text-sm font-semibold text-foreground">Como se decide el premio</h3>
+                  <h3 className="text-sm font-semibold text-foreground">Idea central</h3>
                 </div>
-                <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  Primero se calcula el score ajustado. Despues se compara al usuario con personas de carga similar.
-                  Los puntos no desaparecen: ayudan a explicar actividad y desempatar.
+                <p className="mt-3 text-lg font-semibold leading-7 text-foreground">
+                  La gamificacion premia cumplimiento operativo, no solo acumulacion de puntos.
                 </p>
-                <div className="mt-4 grid gap-2">
-                  {awardSteps.map((step, index) => (
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  El score ajustado es la lectura principal. Los puntos ayudan a entender actividad y funcionan como
+                  desempate cuando el desempeno es similar.
+                </p>
+                <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
+                  {learningBlocks.map((block) => (
                     <div
-                      key={step}
-                      className="flex items-center gap-3 rounded-lg border border-border/60 bg-background px-3 py-2"
+                      key={block.title}
+                      className="rounded-lg border border-border/60 bg-background px-3 py-2"
                     >
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-500 text-xs font-semibold text-white">
-                        {index + 1}
-                      </span>
-                      <span className="text-sm font-medium text-foreground">{step}</span>
+                      <p className="text-[11px] font-semibold uppercase text-muted-foreground">{block.label}</p>
+                      <p className="mt-0.5 text-sm font-semibold text-foreground">{block.title}</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">{block.detail}</p>
                     </div>
                   ))}
                 </div>
@@ -190,8 +203,8 @@ export function GamificationManualSection() {
                     <p className="mt-1 text-sm font-semibold text-foreground">Score ajustado</p>
                   </div>
                   <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
-                    <p className="text-xs font-medium text-muted-foreground">Comparacion justa</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">Banda de carga</p>
+                    <p className="text-xs font-medium text-muted-foreground">Evidencia de actividad</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">Puntos positivos</p>
                   </div>
                   <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
                     <p className="text-xs font-medium text-muted-foreground">Desempate</p>
@@ -201,45 +214,27 @@ export function GamificationManualSection() {
               </div>
             </div>
 
-            <div className="mt-4 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-              <div className="rounded-xl border border-border/70 bg-background p-4">
+            <div className="mt-4 rounded-xl border border-border/70 bg-background p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <Gauge className="h-4 w-4 text-primary" aria-hidden />
                   <h3 className="text-sm font-semibold text-foreground">Score ajustado para premios</h3>
                 </div>
-                <div className="mt-3 grid gap-2 sm:grid-cols-5">
-                  {awardWeights.map((item, index) => (
-                    <div key={item.label} className="rounded-lg border border-border/60 bg-muted/15 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-lg font-semibold tabular-nums text-foreground">{item.value}</p>
-                        <span className="text-[11px] font-semibold text-muted-foreground">0{index + 1}</span>
-                      </div>
-                      <p className="mt-1 min-h-8 text-xs font-semibold text-foreground">{item.label}</p>
-                      <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{item.detail}</p>
-                    </div>
-                  ))}
-                </div>
+                <Badge variant="outline" className="bg-muted/30 text-xs">
+                  Criterio principal
+                </Badge>
               </div>
-
-              <div className="rounded-xl border border-border/70 bg-background p-4">
-                <div className="flex items-center gap-2">
-                  <Users className="h-4 w-4 text-primary" aria-hidden />
-                  <h3 className="text-sm font-semibold text-foreground">Bandas de carga</h3>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {workloadBands.map((band) => (
-                    <div
-                      key={band.label}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/15 px-3 py-2"
-                    >
-                      <span className="text-sm font-medium text-foreground">{band.label}</span>
-                      <span className="text-xs font-semibold tabular-nums text-muted-foreground">{band.value}</span>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                {awardWeights.map((item, index) => (
+                  <div key={item.label} className="rounded-lg border border-border/60 bg-muted/15 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-2xl font-semibold tabular-nums text-foreground">{item.value}</p>
+                      <span className="text-[11px] font-semibold text-muted-foreground">0{index + 1}</span>
                     </div>
-                  ))}
-                </div>
-                <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                  Compara usuarios dentro de su misma banda para evitar que una carga dispareja defina los premios.
-                </p>
+                    <p className="mt-2 min-h-8 text-sm font-semibold leading-5 text-foreground">{item.label}</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.detail}</p>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -309,8 +304,8 @@ export function GamificationManualSection() {
                 ))}
               </div>
               <p className="mt-4 text-sm leading-6 text-muted-foreground">
-                La gamificacion separa actividad, score ajustado y premios. Asi se reconoce desempeno real sin hacer
-                competir directamente a usuarios con cargas de trabajo muy distintas.
+                La gamificacion separa actividad, score ajustado y premios. Asi se reconoce desempeno real: el score
+                define el premio y los puntos explican la actividad o desempatan.
               </p>
             </div>
           </div>

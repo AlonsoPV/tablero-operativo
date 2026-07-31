@@ -299,6 +299,44 @@ const operatingFlow = [
   },
 ]
 
+const actionStatusLifecycle = [
+  {
+    status: 'Asignado',
+    purpose: 'La accion ya fue creada, tiene responsable definido y esta visible para iniciar el trabajo.',
+    signal: 'Debe tener responsable, fecha compromiso y prioridad claras.',
+    next: 'El responsable revisa la indicacion, confirma entendimiento y comienza la ejecucion.',
+    tone: 'border-sky-200 bg-sky-50 text-sky-900',
+  },
+  {
+    status: 'Hoy',
+    purpose: 'La fecha compromiso llega al dia actual; es la ventana natural para cerrar o actualizar la accion.',
+    signal: 'Requiere atencion durante el dia para evitar retraso.',
+    next: 'Cerrar si ya se cumplio, comentar avance si falta algo o ajustar con motivo si el compromiso cambio.',
+    tone: 'border-amber-200 bg-amber-50 text-amber-900',
+  },
+  {
+    status: 'Retraso',
+    purpose: 'La accion paso su fecha compromiso sin quedar cerrada; tambien puede indicar bloqueo operativo.',
+    signal: 'Debe revisarse causa, responsable del bloqueo y nuevo compromiso si aplica.',
+    next: 'Desbloquear, registrar motivo de cambio de fecha o escalar si la dependencia impide avanzar.',
+    tone: 'border-orange-200 bg-orange-50 text-orange-950',
+  },
+  {
+    status: 'Por verificar',
+    purpose: 'El responsable asignado completo la tarea; quien asigno debe validar que el resultado cumple.',
+    signal: 'La evidencia se revisa antes de declarar la accion terminada.',
+    next: 'Verificar evidencia, pedir ajuste si falta sustento o pasar a Verificado cuando cumple.',
+    tone: 'border-violet-200 bg-violet-50 text-violet-950',
+  },
+  {
+    status: 'Verificado',
+    purpose: 'Es el definition of done: el resultado fue validado y permite cerrar el ciclo operativo.',
+    signal: 'La accion ya no es solo trabajo realizado; es trabajo aceptado.',
+    next: 'Usar como referencia para reportes, disciplina operativa y lectura ejecutiva.',
+    tone: 'border-emerald-200 bg-emerald-50 text-emerald-950',
+  },
+]
+
 const glossary = [
   {
     term: 'Accion',
@@ -502,6 +540,71 @@ export function ManualPage() {
             </Card>
           ))}
         </div>
+      </section>
+
+      <section className="space-y-4" aria-labelledby="manual-action-lifecycle-title">
+        <div className="max-w-3xl space-y-2">
+          <Badge variant="outline" className="bg-background">Lectura pedagogica</Badge>
+          <h2 id="manual-action-lifecycle-title" className="text-2xl font-semibold tracking-tight">
+            Ciclo de vida de una accion
+          </h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            El tablero no solo muestra tarjetas: ensena en que momento esta cada compromiso y que decision toca tomar.
+            Lee los estados como una secuencia de trabajo, validacion y cierre.
+          </p>
+        </div>
+
+        <Card className="overflow-hidden rounded-xl border-border/70 shadow-sm">
+          <CardHeader className="border-b bg-muted/20 p-5">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <ClipboardCheck className="h-5 w-5 text-primary" aria-hidden />
+              Estados operativos que deben mantenerse
+            </CardTitle>
+            <CardDescription>
+              Asignado, Hoy, Retraso, Por verificar y Verificado explicados desde el comportamiento esperado del usuario.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-4 sm:p-5">
+            <div className="grid gap-3 lg:grid-cols-5">
+              {actionStatusLifecycle.map((item, index) => (
+                <article key={item.status} className="flex min-h-full flex-col rounded-xl border border-border/70 bg-card p-4 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${item.tone}`}>
+                      {index + 1}
+                    </span>
+                    <h3 className="text-sm font-semibold text-foreground">{item.status}</h3>
+                  </div>
+                  <div className="mt-3 space-y-3 text-sm leading-6">
+                    <p className="text-muted-foreground">{item.purpose}</p>
+                    <div className="rounded-lg bg-muted/30 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Senal</p>
+                      <p className="mt-1 text-muted-foreground">{item.signal}</p>
+                    </div>
+                    <div className="rounded-lg border border-border/60 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Siguiente accion</p>
+                      <p className="mt-1 text-muted-foreground">{item.next}</p>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <div className="mt-4 grid gap-3 rounded-xl border border-primary/15 bg-primary/[0.04] p-4 text-sm leading-6 md:grid-cols-3">
+              <div>
+                <p className="font-semibold text-foreground">Regla 1: asignar bien</p>
+                <p className="mt-1 text-muted-foreground">Una accion sin responsable claro no puede gestionarse con disciplina.</p>
+              </div>
+              <div>
+                <p className="font-semibold text-foreground">Regla 2: cerrar con evidencia</p>
+                <p className="mt-1 text-muted-foreground">La evidencia permite validar que el avance reportado corresponde al resultado esperado.</p>
+              </div>
+              <div>
+                <p className="font-semibold text-foreground">Regla 3: verificar para cerrar</p>
+                <p className="mt-1 text-muted-foreground">Verificado es el cierre real: quien asigno confirma que el definition of done se cumplio.</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </section>
 
       <section className="space-y-4" aria-labelledby="manual-fecha-compromiso-title">
