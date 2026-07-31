@@ -6,7 +6,8 @@ import { supabase } from '@/lib/supabase/client'
 import type { AccionComentario, ComentarioAdjunto } from '@/types/accionComentario'
 
 const TABLE = 'accion_comentarios'
-const COMENTARIO_SELECT = 'id,accion_id,contenido,created_by,asignado,etiquetas,adjuntos,created_at'
+const COMENTARIO_SELECT =
+  'id,accion_id,contenido,created_by,tipo_comentario,asignado,etiquetas,adjuntos,created_at'
 const COMENTARIO_VISIBILITY_SELECT = 'accion_id,asignado,etiquetas'
 const BUCKET = 'evidencias'
 
@@ -65,6 +66,7 @@ export const accionComentariosService = {
     accion_id: string
     contenido: string
     created_by?: string | null
+    tipo_comentario?: string | null
     asignado?: string | null
     etiquetas?: string[]
     adjuntos?: { storage_path: string; file_name: string }[]
@@ -75,6 +77,7 @@ export const accionComentariosService = {
       accion_id: input.accion_id,
       contenido: input.contenido.trim(),
       created_by: input.created_by ?? null,
+      tipo_comentario: input.tipo_comentario ?? null,
       asignado: input.asignado ?? null,
       etiquetas: input.etiquetas ?? [],
       adjuntos: input.adjuntos ?? [],
@@ -93,7 +96,7 @@ export const accionComentariosService = {
 
   async update(
     id: string,
-    patch: { contenido?: string; asignado?: string | null; etiquetas?: string[] }
+    patch: { contenido?: string; tipo_comentario?: string | null; asignado?: string | null; etiquetas?: string[] }
   ): Promise<AccionComentario> {
     const { data, error } = await supabase
       .from(TABLE)

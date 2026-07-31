@@ -8,6 +8,8 @@ export interface AccionComentario {
   accion_id: string
   contenido: string
   created_by: string | null
+  /** Clasificacion opcional del comentario; no condiciona puntos de gamificacion. */
+  tipo_comentario?: string | null
   /** Primer usuario etiquetado (compatibilidad); preferir `etiquetas`. */
   asignado: string | null
   /** IDs de usuarios etiquetados en el comentario. */
@@ -20,6 +22,7 @@ export interface CreateAccionComentarioInput {
   accion_id: string
   contenido: string
   created_by?: string | null
+  tipo_comentario?: string | null
   asignado?: string | null
   etiquetas?: string[]
   adjuntos?: ComentarioAdjunto[]

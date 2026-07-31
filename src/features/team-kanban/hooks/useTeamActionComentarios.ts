@@ -48,7 +48,7 @@ export function useUpdateTeamActionComentario(actionId: string) {
       patch,
     }: {
       id: string
-      patch: { contenido?: string; asignado?: string | null; etiquetas?: string[] }
+      patch: { contenido?: string; tipo_comentario?: string | null; asignado?: string | null; etiquetas?: string[] }
     }) => teamActionComentariosService.update(id, patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [...COMMENTS_KEY, actionId] })

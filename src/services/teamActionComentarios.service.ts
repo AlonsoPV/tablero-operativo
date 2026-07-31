@@ -3,7 +3,7 @@ import type { ComentarioAdjunto } from '@/types/accionComentario'
 
 const TABLE = 'equipo_accion_comentarios'
 const SELECT_FIELDS =
-  'id,accion_id,contenido,created_by,created_by_nombre,asignado,etiquetas,adjuntos,created_at'
+  'id,accion_id,contenido,created_by,created_by_nombre,tipo_comentario,asignado,etiquetas,adjuntos,created_at'
 const BUCKET = 'evidencias'
 
 export type TeamActionComentario = {
@@ -12,6 +12,7 @@ export type TeamActionComentario = {
   contenido: string
   created_by: string | null
   created_by_nombre: string | null
+  tipo_comentario: string | null
   asignado: string | null
   etiquetas: string[]
   adjuntos: ComentarioAdjunto[]
@@ -40,6 +41,7 @@ function normalizeComment(row: Record<string, unknown>): TeamActionComentario {
     created_by: typeof row.created_by === 'string' ? row.created_by : null,
     created_by_nombre:
       typeof row.created_by_nombre === 'string' ? row.created_by_nombre : null,
+    tipo_comentario: typeof row.tipo_comentario === 'string' ? row.tipo_comentario : null,
     asignado: typeof row.asignado === 'string' ? row.asignado : null,
     etiquetas: Array.isArray(row.etiquetas)
       ? row.etiquetas.filter((tag): tag is string => typeof tag === 'string')
@@ -83,6 +85,7 @@ export const teamActionComentariosService = {
     contenido: string
     created_by?: string | null
     created_by_nombre?: string | null
+    tipo_comentario?: string | null
     asignado?: string | null
     etiquetas?: string[]
     adjuntos?: ComentarioAdjunto[]
@@ -115,6 +118,7 @@ export const teamActionComentariosService = {
         contenido: content,
         created_by: createdBy,
         created_by_nombre: createdByNombre,
+        tipo_comentario: input.tipo_comentario ?? null,
         asignado: input.asignado ?? null,
         etiquetas: input.etiquetas ?? [],
         adjuntos: input.adjuntos ?? [],
@@ -128,7 +132,7 @@ export const teamActionComentariosService = {
 
   async update(
     id: string,
-    patch: { contenido?: string; asignado?: string | null; etiquetas?: string[] }
+    patch: { contenido?: string; tipo_comentario?: string | null; asignado?: string | null; etiquetas?: string[] }
   ): Promise<TeamActionComentario> {
     const { data, error } = await supabase
       .from(TABLE)

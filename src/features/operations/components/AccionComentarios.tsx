@@ -10,6 +10,13 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { SectionCard, SectionCardHeader, SectionCardBody } from '@/components/SectionCard'
 import {
@@ -32,6 +39,12 @@ import {
   isAcceptedEvidenciaFile,
 } from '@/services/evidenciaStorage.service'
 import type { AccionComentario, ComentarioAdjunto } from '@/types/accionComentario'
+import {
+  COMMENT_TYPE_OPTIONS,
+  NO_COMMENT_TYPE_VALUE,
+  getCommentTypeLabel,
+  normalizeCommentType,
+} from '@/constants/commentTypes'
 import { formatDateTimeCDMX } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import {
@@ -110,6 +123,7 @@ export function AccionComentarios({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [contenido, setContenido] = useState('')
+  const [tipoComentario, setTipoComentario] = useState(NO_COMMENT_TYPE_VALUE)
   const [etiquetadosIds, setEtiquetadosIds] = useState<string[]>([])
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
 
@@ -158,6 +172,7 @@ export function AccionComentarios({
         accion_id: accionId,
         contenido: contenidoTrim,
         created_by: currentUserId,
+        tipo_comentario: normalizeCommentType(tipoComentario),
         asignado: etiquetadosIds[0] ?? null,
         etiquetas: etiquetadosIds.length ? etiquetadosIds : undefined,
         adjuntos: adjuntos.length ? adjuntos : undefined,
@@ -165,6 +180,7 @@ export function AccionComentarios({
       {
         onSuccess: async () => {
           setContenido('')
+          setTipoComentario(NO_COMMENT_TYPE_VALUE)
           setEtiquetadosIds([])
           setPendingFiles([])
           toast.success('Comentario publicado')
@@ -426,6 +442,26 @@ export function AccionComentarios({
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              <Select
+                value={tipoComentario}
+                onValueChange={setTipoComentario}
+                disabled={createComment.isPending}
+              >
+                <SelectTrigger
+                  className="h-8 w-[9.75rem] border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none hover:text-foreground focus:ring-0"
+                  aria-label="Tipo de comentario"
+                >
+                  <SelectValue placeholder="Clasificar" />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  <SelectItem value={NO_COMMENT_TYPE_VALUE}>Sin clasificar</SelectItem>
+                  {COMMENT_TYPE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex items-center justify-between gap-3 sm:justify-end">
               <span
@@ -536,6 +572,7 @@ function ComentarioItem({
     !updateComment.isPending
 
   const isDeleting = deleteComment.isPending
+  const commentTypeLabel = getCommentTypeLabel(comment.tipo_comentario)
 
   useEffect(() => {
     if (!isEditing) setDraft(comment.contenido)
@@ -596,6 +633,11 @@ function ComentarioItem({
         <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             <span className="font-medium text-foreground">{authorLabel}</span>
+            {commentTypeLabel ? (
+              <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-medium">
+                {commentTypeLabel}
+              </Badge>
+            ) : null}
             <time
               className="text-[11px] text-muted-foreground"
               dateTime={comment.created_at}

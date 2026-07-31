@@ -5,6 +5,7 @@ import {
   CirclePlus,
   Gauge,
   ListChecks,
+  MessageSquare,
   Pencil,
   Percent,
   Scale,
@@ -50,11 +51,11 @@ function PointsBadge({ points }: { points: number }) {
 }
 
 const awardWeights = [
-  { label: 'Cumplimiento', value: '40%', detail: 'Puntos ganados sobre puntos positivos posibles.' },
-  { label: 'Tasa de cierre', value: '25%', detail: 'Acciones asignadas que llegaron a cierre.' },
-  { label: 'Sin retrasos', value: '15%', detail: 'Premia evitar acciones vencidas o en Retraso.' },
-  { label: 'Colaboracion', value: '10%', detail: 'Comentarios y seguimiento relevante.' },
-  { label: 'Racha', value: '10%', detail: 'Actividad constante creando, comentando o cerrando.' },
+  { label: 'Alcance Kanban', value: '40%', detail: 'Acciones cerradas sobre acciones asignadas.' },
+  { label: 'Cierre en tiempo', value: '25%', detail: 'Acciones cerradas antes o en fecha compromiso.' },
+  { label: 'Sin retrasos', value: '15%', detail: 'Premia operar sin vencimientos activos.' },
+  { label: 'Desarrollo y colaboracion', value: '10%', detail: 'Comentarios, academia y perfil organizacional.' },
+  { label: 'Consistencia', value: '10%', detail: 'Racha y actividad sostenida en el periodo.' },
 ]
 
 const workloadBands = [
@@ -131,11 +132,11 @@ export function GamificationManualSection() {
               <div className="rounded-xl border border-border/70 bg-muted/15 p-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
                   <Percent className="h-4 w-4 text-amber-600" aria-hidden />
-                  Cumplimiento
+                  Score ajustado
                 </div>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  La lectura principal es puntos ganados sobre puntos positivos posibles. Si un usuario gana 80 de
-                  80 puntos posibles, su cumplimiento es 100%, aunque tenga penalizaciones visibles en el neto.
+                  La lectura principal para premios es el score ajustado. Combina avance real del Kanban,
+                  puntualidad, retrasos, colaboracion y consistencia para evitar premiar solo volumen.
                 </p>
               </div>
               <div className="rounded-xl border border-border/70 bg-muted/15 p-4">
@@ -144,8 +145,8 @@ export function GamificationManualSection() {
                   Neto operativo
                 </div>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Las penalizaciones no reducen el porcentaje de cumplimiento; se muestran como saldo neto para
-                  evidenciar retrasos, riesgos o disciplina operativa pendiente.
+                  Los puntos siguen mostrando actividad positiva y penalizaciones, pero ya no son el ranking
+                  principal. Sirven como contexto y como desempate cuando dos personas tienen score similar.
                 </p>
               </div>
               <div className="rounded-xl border border-border/70 bg-muted/15 p-4">
@@ -154,8 +155,8 @@ export function GamificationManualSection() {
                   Premios justos
                 </div>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Para reconocimientos, usa el score ajustado dentro de bandas de carga. Los puntos brutos quedan
-                  como contexto o desempate, no como criterio unico.
+                  Las personas se comparan dentro de bandas de carga. Asi alguien con pocas acciones no compite
+                  directamente contra alguien con muchas acciones abiertas.
                 </p>
               </div>
             </div>
@@ -202,33 +203,35 @@ export function GamificationManualSection() {
             <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-4">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-amber-600" aria-hidden />
-                <h3 className="text-sm font-semibold text-foreground">Consideracion para premios</h3>
+                <h3 className="text-sm font-semibold text-foreground">Version final para premios</h3>
               </div>
               <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
                 <p>
                   La gamificacion no premia solo quien junta mas puntos, porque la carga de trabajo puede ser
                   diferente entre usuarios. El sistema separa <strong className="text-foreground">actividad</strong>,{' '}
-                  <strong className="text-foreground">cumplimiento</strong> y{' '}
+                  <strong className="text-foreground">score ajustado</strong> y{' '}
                   <strong className="text-foreground">premios</strong>.
                 </p>
                 <p>
                   Cada usuario puede ganar puntos por acciones positivas como crear acciones, recibir asignaciones,
                   cerrar en tiempo, comentar seguimientos, completar academia, mantener racha y tener perfil
-                  organizacional completo. Tambien puede tener penalizaciones por acciones en retraso.
+                  organizacional completo. Cualquier comentario suma los puntos definidos en la regla de
+                  gamificacion; el tipo de comentario es opcional y solo clasifica el contexto.
                 </p>
                 <div className="rounded-lg border border-border/70 bg-background p-3">
-                  <p className="font-medium text-foreground">Dato principal para evaluar desempeno</p>
+                  <p className="font-medium text-foreground">Dato principal para evaluar premios</p>
                   <p className="mt-1 font-mono text-xs text-muted-foreground">
-                    Cumplimiento = puntos ganados / puntos positivos posibles
+                    Score ajustado = 40% alcance Kanban + 25% cierre en tiempo + 15% sin retrasos + 10%
+                    desarrollo y colaboracion + 10% consistencia
                   </p>
                 </div>
                 <div className="grid gap-2 rounded-lg border border-border/70 bg-background p-3 sm:grid-cols-5">
                   {[
-                    ['Puntos ganados', '80'],
-                    ['Puntos posibles', '80'],
-                    ['Penalizacion', '-20'],
-                    ['Neto operativo', '60'],
-                    ['Cumplimiento', '100%'],
+                    ['Alcance Kanban', '40%'],
+                    ['Cierre en tiempo', '25%'],
+                    ['Sin retrasos', '15%'],
+                    ['Desarrollo', '10%'],
+                    ['Consistencia', '10%'],
                   ].map(([label, value]) => (
                     <div key={label}>
                       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
@@ -237,13 +240,13 @@ export function GamificationManualSection() {
                   ))}
                 </div>
                 <p>
-                  En este ejemplo, el usuario si cumplio el 100% de lo que podia ganar, pero el neto muestra que tuvo
-                  retrasos que deben corregirse.
+                  Alcance Kanban significa acciones cerradas sobre acciones asignadas. Es el corazon del score
+                  porque mide si la persona esta llevando sus compromisos a cierre, no solo si genero actividad.
                 </p>
                 <p>
-                  Para premios, no se recomienda usar solo puntos brutos ni solo puntos netos. Se usa un{' '}
-                  <strong className="text-foreground">score ajustado para premios</strong>: 40% cumplimiento, 25% tasa
-                  de cierre, 15% sin retrasos, 10% colaboracion y 10% racha.
+                  Desarrollo y colaboracion se interpreta de forma sencilla: comentarios publicados, avances con
+                  evidencia, academia completada y perfil u organigrama actualizado. No se intenta calificar si un
+                  comentario es "util" de manera subjetiva; si el usuario comenta, suma los puntos de comentario.
                 </p>
                 <p>
                   Ademas, los usuarios se comparan por banda de carga: baja de 1 a 5 acciones, media de 6 a 15
@@ -252,11 +255,11 @@ export function GamificationManualSection() {
                 </p>
                 <ul className="grid gap-2 sm:grid-cols-2">
                   {[
-                    'Se revisa el cumplimiento de gamificacion.',
-                    'Se revisa el score ajustado para premios.',
+                    'Se revisa el score ajustado para premios como criterio principal.',
                     'Se compara al usuario dentro de su banda de carga.',
-                    'Los puntos netos se usan como contexto o desempate.',
-                    'Los retrasos no borran el cumplimiento, pero si afectan el score premio y muestran riesgo operativo.',
+                    'Los puntos netos se usan como desempate y contexto operativo.',
+                    'Los puntos positivos ayudan a reconocer actividad cuando el score queda empatado.',
+                    'Los retrasos afectan el score premio y muestran riesgo operativo.',
                   ].map((item) => (
                     <li key={item} className="flex gap-2 rounded-lg border border-border/60 bg-background px-3 py-2">
                       <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
@@ -266,17 +269,30 @@ export function GamificationManualSection() {
                 </ul>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="rounded-lg border border-border/70 bg-background p-3">
-                    <p className="font-medium text-foreground">Mejor cumplimiento</p>
+                    <p className="font-medium text-foreground">Mejor score ajustado</p>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Mayor porcentaje de cumplimiento dentro de su banda.
+                      Mayor combinacion de alcance Kanban, cierre en tiempo, cero retrasos, colaboracion y
+                      consistencia dentro de su banda.
                     </p>
                   </div>
                   <div className="rounded-lg border border-border/70 bg-background p-3">
-                    <p className="font-medium text-foreground">Mejor score premio</p>
+                    <p className="font-medium text-foreground">Desempate por puntos</p>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Mejor combinacion de cierre, cumplimiento, colaboracion, racha y cero retrasos.
+                      Si dos usuarios tienen score similar, se revisan puntos netos, puntos positivos y menos
+                      retrasos.
                     </p>
                   </div>
+                </div>
+                <div className="rounded-lg border border-border/70 bg-background p-3">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-primary" aria-hidden />
+                    <p className="font-medium text-foreground">Tipos opcionales de comentario</p>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Al comentar se puede clasificar como general, avance, bloqueo, dependencia, decision, riesgo,
+                    evidencia o cambio relevante. La clasificacion ayuda a leer el seguimiento, pero todos los
+                    comentarios suman igual segun la regla de puntos vigente.
+                  </p>
                 </div>
               </div>
             </div>

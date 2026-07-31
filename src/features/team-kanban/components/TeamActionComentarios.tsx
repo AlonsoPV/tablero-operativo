@@ -23,6 +23,13 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { formatDateTimeCDMX } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
@@ -42,6 +49,12 @@ import {
   uploadEvidenciaFile,
 } from '@/services/evidenciaStorage.service'
 import { notificacionesService } from '@/services/notificaciones.service'
+import {
+  COMMENT_TYPE_OPTIONS,
+  NO_COMMENT_TYPE_VALUE,
+  getCommentTypeLabel,
+  normalizeCommentType,
+} from '@/constants/commentTypes'
 import type { ComentarioAdjunto } from '@/types/accionComentario'
 import type { TeamActionComentario } from '@/services/teamActionComentarios.service'
 import {
@@ -102,6 +115,7 @@ export function TeamActionComentarios({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [contenido, setContenido] = useState('')
+  const [tipoComentario, setTipoComentario] = useState(NO_COMMENT_TYPE_VALUE)
   const [etiquetadosIds, setEtiquetadosIds] = useState<string[]>([])
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
 
@@ -156,6 +170,7 @@ export function TeamActionComentarios({
         contenido: contenidoTrim,
         created_by: currentUserId,
         created_by_nombre: currentUser?.nombre ?? null,
+        tipo_comentario: normalizeCommentType(tipoComentario),
         asignado: taggedIds[0] ?? null,
         etiquetas: taggedIds.length ? taggedIds : undefined,
         adjuntos: adjuntos.length ? adjuntos : undefined,
@@ -163,6 +178,7 @@ export function TeamActionComentarios({
       {
         onSuccess: async () => {
           setContenido('')
+          setTipoComentario(NO_COMMENT_TYPE_VALUE)
           setEtiquetadosIds([])
           setPendingFiles([])
           toast.success('Comentario publicado')
@@ -405,6 +421,26 @@ export function TeamActionComentarios({
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+            <Select
+              value={tipoComentario}
+              onValueChange={setTipoComentario}
+              disabled={createComment.isPending}
+            >
+              <SelectTrigger
+                className="h-8 w-[9.75rem] border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none hover:text-foreground focus:ring-0"
+                aria-label="Tipo de comentario"
+              >
+                <SelectValue placeholder="Clasificar" />
+              </SelectTrigger>
+              <SelectContent align="start">
+                <SelectItem value={NO_COMMENT_TYPE_VALUE}>Sin clasificar</SelectItem>
+                {COMMENT_TYPE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex items-center justify-between gap-3 sm:justify-end">
             <span
@@ -515,6 +551,7 @@ function TeamComentarioItem({
     draftTrim !== comment.contenido.trim() &&
     !updateComment.isPending
   const isDeleting = deleteComment.isPending
+  const commentTypeLabel = getCommentTypeLabel(comment.tipo_comentario)
 
   useEffect(() => {
     if (!isEditing) setDraft(comment.contenido)
@@ -575,6 +612,11 @@ function TeamComentarioItem({
         <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             <span className="font-medium text-foreground">{authorLabel}</span>
+            {commentTypeLabel ? (
+              <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-medium">
+                {commentTypeLabel}
+              </Badge>
+            ) : null}
             <time
               className="text-[11px] text-muted-foreground"
               dateTime={comment.created_at}

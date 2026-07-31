@@ -641,8 +641,8 @@ function ScoreAwardStrategyPanel({ metrics }: { metrics: PersonalMetrics }) {
             <p className="text-sm font-semibold text-foreground">Criterio recomendado para premios</p>
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground sm:text-sm">
-            Compite dentro de tu banda ({metrics.workloadBand}) con score ajustado: 40% cumplimiento, 25% cierre,
-            15% sin retrasos, 10% colaboracion y 10% racha.
+            Compite dentro de tu banda ({metrics.workloadBand}) con score ajustado: 40% alcance Kanban, 25%
+            cierre en tiempo, 15% sin retrasos, 10% desarrollo y colaboracion, y 10% consistencia.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-1.5 sm:min-w-[13rem] sm:gap-2">
