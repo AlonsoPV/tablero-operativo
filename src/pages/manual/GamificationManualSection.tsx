@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  ArrowRight,
+  CheckCircle2,
   CircleMinus,
   CirclePlus,
   Gauge,
   ListChecks,
+  Medal,
   MessageSquare,
   Pencil,
-  Percent,
-  Scale,
   ShieldCheck,
+  Target,
   Trophy,
   Users,
 } from 'lucide-react'
@@ -64,6 +66,24 @@ const workloadBands = [
   { label: 'Carga alta', value: '16+ acciones' },
 ]
 
+const awardSteps = [
+  'Calcular score ajustado.',
+  'Comparar dentro de la banda de carga.',
+  'Usar puntos netos como desempate.',
+  'Revisar retrasos como riesgo operativo.',
+]
+
+const commentTypes = [
+  'General',
+  'Avance',
+  'Bloqueo',
+  'Dependencia',
+  'Decision',
+  'Riesgo',
+  'Evidencia',
+  'Cambio relevante',
+]
+
 export function GamificationManualSection() {
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState<ManualGamificationRule | null>(null)
@@ -103,14 +123,13 @@ export function GamificationManualSection() {
   return (
     <section className="space-y-4" aria-labelledby="manual-gamification-title">
       <Card className="overflow-hidden rounded-2xl border-border/70 shadow-sm">
-        <CardHeader className="relative gap-3 overflow-hidden border-b bg-gradient-to-br from-amber-500/[0.14] via-background to-emerald-500/[0.06] p-5 sm:p-6">
-          <div className="pointer-events-none absolute -right-12 -top-20 h-48 w-48 rounded-full bg-amber-400/15 blur-3xl" />
+        <CardHeader className="gap-3 border-b bg-muted/20 p-5 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex items-start gap-3">
-              <div className="relative rounded-xl bg-amber-500 p-2.5 text-white shadow-sm">
+              <div className="rounded-xl bg-amber-500 p-2.5 text-white shadow-sm">
                 <Trophy className="h-5 w-5" aria-hidden />
               </div>
-              <div className="relative space-y-1">
+              <div className="space-y-1">
                 <CardTitle id="manual-gamification-title" className="text-xl">
                   Gamificación y puntos
                 </CardTitle>
@@ -119,7 +138,7 @@ export function GamificationManualSection() {
                 </CardDescription>
               </div>
             </div>
-            <Badge variant="outline" className="relative gap-1.5 bg-background/80 backdrop-blur">
+            <Badge variant="outline" className="gap-1.5 bg-background">
               <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
               {permissionQuery.data ? 'Edición autorizada' : 'Solo lectura'}
             </Badge>
@@ -128,36 +147,57 @@ export function GamificationManualSection() {
 
         <CardContent className="p-0">
           <div className="border-b bg-card px-5 py-5 sm:px-6">
-            <div className="grid gap-3 lg:grid-cols-3">
-              <div className="rounded-xl border border-border/70 bg-muted/15 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <Percent className="h-4 w-4 text-amber-600" aria-hidden />
-                  Score ajustado
+            <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-4">
+                <div className="flex items-center gap-2">
+                  <Medal className="h-4 w-4 text-amber-600" aria-hidden />
+                  <h3 className="text-sm font-semibold text-foreground">Como se decide el premio</h3>
                 </div>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  La lectura principal para premios es el score ajustado. Combina avance real del Kanban,
-                  puntualidad, retrasos, colaboracion y consistencia para evitar premiar solo volumen.
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  Primero se calcula el score ajustado. Despues se compara al usuario con personas de carga similar.
+                  Los puntos no desaparecen: ayudan a explicar actividad y desempatar.
                 </p>
+                <div className="mt-4 grid gap-2">
+                  {awardSteps.map((step, index) => (
+                    <div
+                      key={step}
+                      className="flex items-center gap-3 rounded-lg border border-border/60 bg-background px-3 py-2"
+                    >
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-500 text-xs font-semibold text-white">
+                        {index + 1}
+                      </span>
+                      <span className="text-sm font-medium text-foreground">{step}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="rounded-xl border border-border/70 bg-muted/15 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <Scale className="h-4 w-4 text-emerald-600" aria-hidden />
-                  Neto operativo
+
+              <div className="rounded-xl border border-border/70 bg-background p-4">
+                <div className="flex items-center gap-2">
+                  <Gauge className="h-4 w-4 text-primary" aria-hidden />
+                  <h3 className="text-sm font-semibold text-foreground">Formula principal</h3>
                 </div>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Los puntos siguen mostrando actividad positiva y penalizaciones, pero ya no son el ranking
-                  principal. Sirven como contexto y como desempate cuando dos personas tienen score similar.
-                </p>
-              </div>
-              <div className="rounded-xl border border-border/70 bg-muted/15 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <Trophy className="h-4 w-4 text-amber-600" aria-hidden />
-                  Premios justos
+                <div className="mt-3 rounded-lg border border-border/70 bg-muted/20 p-3">
+                  <p className="text-xs font-semibold uppercase text-muted-foreground">Score ajustado para premios</p>
+                  <p className="mt-1 text-sm font-semibold leading-6 text-foreground">
+                    40% alcance Kanban + 25% cierre en tiempo + 15% sin retrasos + 10% desarrollo y colaboracion +
+                    10% consistencia
+                  </p>
                 </div>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Las personas se comparan dentro de bandas de carga. Asi alguien con pocas acciones no compite
-                  directamente contra alguien con muchas acciones abiertas.
-                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
+                    <p className="text-xs font-medium text-muted-foreground">Criterio principal</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">Score ajustado</p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
+                    <p className="text-xs font-medium text-muted-foreground">Comparacion justa</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">Banda de carga</p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
+                    <p className="text-xs font-medium text-muted-foreground">Desempate</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">Puntos netos</p>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -168,10 +208,13 @@ export function GamificationManualSection() {
                   <h3 className="text-sm font-semibold text-foreground">Score ajustado para premios</h3>
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-5">
-                  {awardWeights.map((item) => (
-                    <div key={item.label} className="rounded-lg border border-border/60 bg-muted/20 p-3">
-                      <p className="text-lg font-semibold tabular-nums text-foreground">{item.value}</p>
-                      <p className="mt-1 text-xs font-medium text-foreground">{item.label}</p>
+                  {awardWeights.map((item, index) => (
+                    <div key={item.label} className="rounded-lg border border-border/60 bg-muted/15 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-lg font-semibold tabular-nums text-foreground">{item.value}</p>
+                        <span className="text-[11px] font-semibold text-muted-foreground">0{index + 1}</span>
+                      </div>
+                      <p className="mt-1 min-h-8 text-xs font-semibold text-foreground">{item.label}</p>
                       <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{item.detail}</p>
                     </div>
                   ))}
@@ -187,7 +230,7 @@ export function GamificationManualSection() {
                   {workloadBands.map((band) => (
                     <div
                       key={band.label}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2"
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/15 px-3 py-2"
                     >
                       <span className="text-sm font-medium text-foreground">{band.label}</span>
                       <span className="text-xs font-semibold tabular-nums text-muted-foreground">{band.value}</span>
@@ -200,101 +243,75 @@ export function GamificationManualSection() {
               </div>
             </div>
 
-            <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-4">
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-xl border border-border/70 bg-background p-4">
+                <div className="flex items-center gap-2">
+                  <Target className="h-4 w-4 text-primary" aria-hidden />
+                  <h3 className="text-sm font-semibold text-foreground">Que significa cada lectura</h3>
+                </div>
+                <div className="mt-3 space-y-2 text-sm leading-6 text-muted-foreground">
+                  <p>
+                    <strong className="text-foreground">Alcance Kanban</strong> mide acciones cerradas sobre acciones
+                    asignadas. Es el corazon del score porque confirma cierre real.
+                  </p>
+                  <p>
+                    <strong className="text-foreground">Desarrollo y colaboracion</strong> incluye comentarios,
+                    avances con evidencia, academia y perfil u organigrama actualizado.
+                  </p>
+                  <p>
+                    <strong className="text-foreground">Puntos</strong> muestran actividad y penalizaciones. No son el
+                    ranking principal; sirven como contexto y desempate.
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border/70 bg-background p-4">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 text-primary" aria-hidden />
+                  <h3 className="text-sm font-semibold text-foreground">Comentarios y colaboracion</h3>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  Cualquier comentario suma los puntos definidos en la regla vigente. El tipo de comentario es
+                  opcional y solo ayuda a entender el seguimiento.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {commentTypes.map((type) => (
+                    <Badge key={type} variant="secondary" className="text-[11px] font-medium">
+                      {type}
+                    </Badge>
+                  ))}
+                </div>
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-3 text-xs leading-5 text-muted-foreground">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                  <span>No se califica subjetivamente si el comentario es util: si el usuario comenta, suma.</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-border/70 bg-background p-4">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-amber-600" aria-hidden />
                 <h3 className="text-sm font-semibold text-foreground">Version final para premios</h3>
               </div>
-              <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
-                <p>
-                  La gamificacion no premia solo quien junta mas puntos, porque la carga de trabajo puede ser
-                  diferente entre usuarios. El sistema separa <strong className="text-foreground">actividad</strong>,{' '}
-                  <strong className="text-foreground">score ajustado</strong> y{' '}
-                  <strong className="text-foreground">premios</strong>.
-                </p>
-                <p>
-                  Cada usuario puede ganar puntos por acciones positivas como crear acciones, recibir asignaciones,
-                  cerrar en tiempo, comentar seguimientos, completar academia, mantener racha y tener perfil
-                  organizacional completo. Cualquier comentario suma los puntos definidos en la regla de
-                  gamificacion; el tipo de comentario es opcional y solo clasifica el contexto.
-                </p>
-                <div className="rounded-lg border border-border/70 bg-background p-3">
-                  <p className="font-medium text-foreground">Dato principal para evaluar premios</p>
-                  <p className="mt-1 font-mono text-xs text-muted-foreground">
-                    Score ajustado = 40% alcance Kanban + 25% cierre en tiempo + 15% sin retrasos + 10%
-                    desarrollo y colaboracion + 10% consistencia
-                  </p>
-                </div>
-                <div className="grid gap-2 rounded-lg border border-border/70 bg-background p-3 sm:grid-cols-5">
-                  {[
-                    ['Alcance Kanban', '40%'],
-                    ['Cierre en tiempo', '25%'],
-                    ['Sin retrasos', '15%'],
-                    ['Desarrollo', '10%'],
-                    ['Consistencia', '10%'],
-                  ].map(([label, value]) => (
-                    <div key={label}>
-                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-                      <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{value}</p>
+              <div className="mt-4 grid gap-3 lg:grid-cols-4">
+                {awardSteps.map((step, index) => (
+                  <div key={step} className="rounded-lg border border-border/60 bg-muted/15 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-muted-foreground">Paso {index + 1}</span>
+                      {index < awardSteps.length - 1 ? (
+                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+                      ) : (
+                        <Medal className="h-3.5 w-3.5 text-amber-600" aria-hidden />
+                      )}
                     </div>
-                  ))}
-                </div>
-                <p>
-                  Alcance Kanban significa acciones cerradas sobre acciones asignadas. Es el corazon del score
-                  porque mide si la persona esta llevando sus compromisos a cierre, no solo si genero actividad.
-                </p>
-                <p>
-                  Desarrollo y colaboracion se interpreta de forma sencilla: comentarios publicados, avances con
-                  evidencia, academia completada y perfil u organigrama actualizado. No se intenta calificar si un
-                  comentario es "util" de manera subjetiva; si el usuario comenta, suma los puntos de comentario.
-                </p>
-                <p>
-                  Ademas, los usuarios se comparan por banda de carga: baja de 1 a 5 acciones, media de 6 a 15
-                  acciones y alta de 16 o mas acciones. Asi, alguien con 4 acciones no compite directamente contra
-                  alguien con 25 acciones; cada usuario compite contra personas con una carga parecida.
-                </p>
-                <ul className="grid gap-2 sm:grid-cols-2">
-                  {[
-                    'Se revisa el score ajustado para premios como criterio principal.',
-                    'Se compara al usuario dentro de su banda de carga.',
-                    'Los puntos netos se usan como desempate y contexto operativo.',
-                    'Los puntos positivos ayudan a reconocer actividad cuando el score queda empatado.',
-                    'Los retrasos afectan el score premio y muestran riesgo operativo.',
-                  ].map((item) => (
-                    <li key={item} className="flex gap-2 rounded-lg border border-border/60 bg-background px-3 py-2">
-                      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div className="rounded-lg border border-border/70 bg-background p-3">
-                    <p className="font-medium text-foreground">Mejor score ajustado</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Mayor combinacion de alcance Kanban, cierre en tiempo, cero retrasos, colaboracion y
-                      consistencia dentro de su banda.
-                    </p>
+                    <p className="mt-2 text-sm font-medium leading-5 text-foreground">{step}</p>
                   </div>
-                  <div className="rounded-lg border border-border/70 bg-background p-3">
-                    <p className="font-medium text-foreground">Desempate por puntos</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Si dos usuarios tienen score similar, se revisan puntos netos, puntos positivos y menos
-                      retrasos.
-                    </p>
-                  </div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-background p-3">
-                  <div className="flex items-center gap-2">
-                    <MessageSquare className="h-4 w-4 text-primary" aria-hidden />
-                    <p className="font-medium text-foreground">Tipos opcionales de comentario</p>
-                  </div>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Al comentar se puede clasificar como general, avance, bloqueo, dependencia, decision, riesgo,
-                    evidencia o cambio relevante. La clasificacion ayuda a leer el seguimiento, pero todos los
-                    comentarios suman igual segun la regla de puntos vigente.
-                  </p>
-                </div>
+                ))}
               </div>
+              <p className="mt-4 text-sm leading-6 text-muted-foreground">
+                La gamificacion separa actividad, score ajustado y premios. Asi se reconoce desempeno real sin hacer
+                competir directamente a usuarios con cargas de trabajo muy distintas.
+              </p>
             </div>
           </div>
 
