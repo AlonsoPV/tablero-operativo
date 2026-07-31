@@ -1,16 +1,19 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowRight,
+  Award,
   CheckCircle2,
+  Clock3,
   CircleMinus,
   CirclePlus,
   Gauge,
+  Home,
   ListChecks,
-  Medal,
   MessageSquare,
   Pencil,
   ShieldCheck,
+  Star,
   Target,
   Trophy,
 } from 'lucide-react'
@@ -52,35 +55,48 @@ function PointsBadge({ points }: { points: number }) {
 }
 
 const awardWeights = [
-  { label: 'Alcance Kanban', value: '40%', detail: 'Acciones cerradas sobre acciones asignadas.' },
-  { label: 'Cierre en tiempo', value: '25%', detail: 'Acciones cerradas antes o en fecha compromiso.' },
-  { label: 'Sin retrasos', value: '15%', detail: 'Premia operar sin vencimientos activos.' },
-  { label: 'Desarrollo y colaboracion', value: '10%', detail: 'Comentarios, academia y perfil organizacional.' },
-  { label: 'Consistencia', value: '10%', detail: 'Racha y actividad sostenida en el periodo.' },
+  { label: 'Cumplimiento del Kanban', value: 40, detail: 'Acciones cerradas sobre acciones asignadas.' },
+  { label: 'Cierre en tiempo', value: 25, detail: 'Acciones cerradas antes o en fecha compromiso.' },
+  { label: 'Sin retrasos', value: 15, detail: 'Premia operar sin vencimientos activos.' },
+  { label: 'Colaboracion', value: 10, detail: 'Comentarios, academia y perfil organizacional.' },
+  { label: 'Constancia', value: 10, detail: 'Racha y actividad sostenida en el periodo.' },
+]
+
+const winningHabits = [
+  'Cumple tus acciones en tiempo.',
+  'Manten actualizado el Kanban.',
+  'Evita reprogramaciones innecesarias.',
+  'Verifica correctamente.',
+  'Colabora con tu equipo.',
+]
+
+const progressMetrics = [
+  { label: 'Score ajustado', value: '92%', detail: 'Criterio principal' },
+  { label: 'Nivel', value: 'Plata', detail: 'Reconocimiento estimado' },
+  { label: 'ICC', value: '97%', detail: 'Cierre y cumplimiento' },
+  { label: 'Kanban', value: '89%', detail: 'Avance operativo' },
+  { label: 'Constancia', value: '100%', detail: 'Racha del periodo' },
+]
+
+const exampleMetrics = [
+  { label: 'Acciones', value: '20' },
+  { label: 'Cerradas', value: '18' },
+  { label: 'ICC', value: '96%' },
+  { label: 'Retrasos', value: '1' },
 ]
 
 const awardSteps = [
-  'Revisar el avance real del Kanban.',
-  'Calcular el score ajustado.',
-  'Usar puntos como desempate.',
-  'Revisar retrasos como riesgo operativo.',
-]
-
-const learningBlocks = [
   {
-    label: 'Lo principal',
     title: 'Score ajustado',
-    detail: 'Es la calificacion para premios. Resume cierre, puntualidad, retrasos, colaboracion y consistencia.',
+    detail: 'Define el premio porque mide cumplimiento real, puntualidad, retrasos, colaboracion y constancia.',
   },
   {
-    label: 'Lo que explica',
     title: 'Puntos',
-    detail: 'Muestran actividad positiva y penalizaciones. No son el ranking principal.',
+    detail: 'Explican actividad positiva, penalizaciones y sirven como desempate.',
   },
   {
-    label: 'Lo que corrige',
     title: 'Retrasos',
-    detail: 'No borran toda la actividad, pero si bajan el score y muestran riesgo operativo.',
+    detail: 'No borran todo lo ganado, pero bajan el score y muestran riesgo operativo.',
   },
 ]
 
@@ -128,8 +144,31 @@ export function GamificationManualSection() {
   const canSave =
     activity.trim().length >= 3 && Number.isInteger(parsedPoints) && parsedPoints >= -1000 && parsedPoints <= 1000
   const rules = rulesQuery.data ?? []
-  const recognitionCount = rules.filter((rule) => rule.points >= 0).length
+  const positiveRules = rules.filter((rule) => rule.points > 0)
+  const neutralRules = rules.filter((rule) => rule.points === 0)
+  const penaltyRules = rules.filter((rule) => rule.points < 0)
+  const recognitionCount = positiveRules.length + neutralRules.length
   const penaltyCount = rules.filter((rule) => rule.points < 0).length
+  const ruleGroups = [
+    {
+      title: 'Acciones que suman',
+      description: 'Actividad operativa que ayuda al score y deja evidencia de avance.',
+      rules: positiveRules,
+      tone: 'bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-300',
+    },
+    {
+      title: 'Acciones que restan',
+      description: 'Penalizaciones que muestran riesgo operativo y bajan el resultado neto.',
+      rules: penaltyRules,
+      tone: 'bg-red-500/[0.08] text-red-700 dark:text-red-300',
+    },
+    {
+      title: 'Reconocimientos',
+      description: 'Reglas visibles para explicar conducta esperada, aunque no siempre sumen puntos.',
+      rules: neutralRules,
+      tone: 'bg-amber-500/[0.08] text-amber-700 dark:text-amber-300',
+    },
+  ].filter((group) => group.rules.length > 0)
 
   return (
     <section className="space-y-4" aria-labelledby="manual-gamification-title">
@@ -158,28 +197,80 @@ export function GamificationManualSection() {
 
         <CardContent className="p-0">
           <div className="border-b bg-card px-5 py-5 sm:px-6">
-            <div className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-4">
-                <div className="flex items-center gap-2">
-                  <Medal className="h-4 w-4 text-amber-600" aria-hidden />
-                  <h3 className="text-sm font-semibold text-foreground">Idea central</h3>
-                </div>
-                <p className="mt-3 text-lg font-semibold leading-7 text-foreground">
-                  La gamificacion premia cumplimiento operativo, no solo acumulacion de puntos.
-                </p>
+            <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-5">
+                <Badge variant="outline" className="border-amber-500/30 bg-background text-amber-700 dark:text-amber-300">
+                  Criterio para premios
+                </Badge>
+                <h3 className="mt-3 text-2xl font-semibold leading-8 text-foreground">
+                  Los puntos explican la actividad. El Score Ajustado define el premio.
+                </h3>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  El score ajustado es la lectura principal. Los puntos ayudan a entender actividad y funcionan como
-                  desempate cuando el desempeno es similar.
+                  No gana quien mas trabaja. Gana quien cumple mejor sus compromisos, mantiene el tablero vivo y ayuda
+                  a que el equipo cierre con claridad.
                 </p>
-                <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
-                  {learningBlocks.map((block) => (
-                    <div
-                      key={block.title}
-                      className="rounded-lg border border-border/60 bg-background px-3 py-2"
-                    >
-                      <p className="text-[11px] font-semibold uppercase text-muted-foreground">{block.label}</p>
-                      <p className="mt-0.5 text-sm font-semibold text-foreground">{block.title}</p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">{block.detail}</p>
+                <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                  {winningHabits.map((habit) => (
+                    <div key={habit} className="flex items-center gap-2 rounded-lg bg-background px-3 py-2 text-sm font-medium text-foreground">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                      <span>{habit}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border/70 bg-background p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Trophy className="h-4 w-4 text-amber-600" aria-hidden />
+                    <h3 className="text-sm font-semibold text-foreground">Tu progreso</h3>
+                  </div>
+                  <Badge variant="secondary" className="text-xs">Ejemplo</Badge>
+                </div>
+                <div className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-4">
+                  <p className="text-xs font-semibold uppercase text-muted-foreground">Premio estimado</p>
+                  <div className="mt-2 flex items-end justify-between gap-3">
+                    <div>
+                      <p className="text-3xl font-semibold leading-none text-foreground">Home Office</p>
+                      <p className="mt-2 text-sm text-muted-foreground">Nivel Plata · 275 pts</p>
+                    </div>
+                    <Home className="h-8 w-8 text-amber-600" aria-hidden />
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {progressMetrics.map((metric) => (
+                    <div key={metric.label} className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2">
+                      <p className="text-xs font-medium text-muted-foreground">{metric.label}</p>
+                      <p className="mt-1 text-lg font-semibold leading-none text-foreground">{metric.value}</p>
+                      <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{metric.detail}</p>
+                    </div>
+                  ))}
+                  <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-3 py-2">
+                    <p className="text-xs font-medium text-muted-foreground">Resultado</p>
+                    <p className="mt-1 text-lg font-semibold leading-none text-emerald-700 dark:text-emerald-300">Premiable</p>
+                    <p className="mt-1 text-[11px] leading-4 text-muted-foreground">Buen cierre con retraso controlado.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+              <div className="rounded-xl border border-border/70 bg-background p-4">
+                <div className="flex items-center gap-2">
+                  <Gauge className="h-4 w-4 text-primary" aria-hidden />
+                  <h3 className="text-sm font-semibold text-foreground">Como se calcula el premio mensual</h3>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {awardWeights.map((item) => (
+                    <div key={item.label} className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-foreground">{item.label}</p>
+                        <span className="text-sm font-semibold tabular-nums text-foreground">{item.value}%</span>
+                      </div>
+                      <div className="h-2.5 rounded-full bg-muted">
+                        <div className="h-2.5 rounded-full bg-primary" style={{ width: `${item.value}%` }} />
+                      </div>
+                      <p className="text-xs leading-5 text-muted-foreground">{item.detail}</p>
                     </div>
                   ))}
                 </div>
@@ -187,76 +278,53 @@ export function GamificationManualSection() {
 
               <div className="rounded-xl border border-border/70 bg-background p-4">
                 <div className="flex items-center gap-2">
-                  <Gauge className="h-4 w-4 text-primary" aria-hidden />
-                  <h3 className="text-sm font-semibold text-foreground">Formula principal</h3>
+                  <Award className="h-4 w-4 text-primary" aria-hidden />
+                  <h3 className="text-sm font-semibold text-foreground">Ejemplo rapido</h3>
                 </div>
-                <div className="mt-3 rounded-lg border border-border/70 bg-muted/20 p-3">
-                  <p className="text-xs font-semibold uppercase text-muted-foreground">Score ajustado para premios</p>
-                  <p className="mt-1 text-sm font-semibold leading-6 text-foreground">
-                    40% alcance Kanban + 25% cierre en tiempo + 15% sin retrasos + 10% desarrollo y colaboracion +
-                    10% consistencia
-                  </p>
-                </div>
-                <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                  <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
-                    <p className="text-xs font-medium text-muted-foreground">Criterio principal</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">Score ajustado</p>
-                  </div>
-                  <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
-                    <p className="text-xs font-medium text-muted-foreground">Evidencia de actividad</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">Puntos positivos</p>
-                  </div>
-                  <div className="rounded-lg border border-border/60 bg-card px-3 py-2">
-                    <p className="text-xs font-medium text-muted-foreground">Desempate</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">Puntos netos</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-xl border border-border/70 bg-background p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Gauge className="h-4 w-4 text-primary" aria-hidden />
-                  <h3 className="text-sm font-semibold text-foreground">Score ajustado para premios</h3>
-                </div>
-                <Badge variant="outline" className="bg-muted/30 text-xs">
-                  Criterio principal
-                </Badge>
-              </div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                {awardWeights.map((item, index) => (
-                  <div key={item.label} className="rounded-lg border border-border/60 bg-muted/15 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-2xl font-semibold tabular-nums text-foreground">{item.value}</p>
-                      <span className="text-[11px] font-semibold text-muted-foreground">0{index + 1}</span>
+                <div className="mt-3 rounded-lg border border-border/60 bg-muted/15 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">Juan</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Periodo mensual</p>
                     </div>
-                    <p className="mt-2 min-h-8 text-sm font-semibold leading-5 text-foreground">{item.label}</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.detail}</p>
+                    <Badge variant="outline" className="bg-background">Premio Plata</Badge>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <div className="rounded-xl border border-border/70 bg-background p-4">
-                <div className="flex items-center gap-2">
-                  <Target className="h-4 w-4 text-primary" aria-hidden />
-                  <h3 className="text-sm font-semibold text-foreground">Que significa cada lectura</h3>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                    {exampleMetrics.map((metric) => (
+                      <div key={metric.label} className="rounded-lg bg-background px-3 py-2">
+                        <p className="text-xs text-muted-foreground">{metric.label}</p>
+                        <p className="mt-1 text-lg font-semibold leading-none text-foreground">{metric.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-3">
+                    <Star className="h-4 w-4 text-emerald-600" aria-hidden />
+                    <span className="text-sm font-semibold text-foreground">Score Ajustado 93%</span>
+                    <span className="text-sm text-muted-foreground">Los puntos explican su actividad; el score define el premio.</span>
+                  </div>
                 </div>
                 <div className="mt-3 space-y-2 text-sm leading-6 text-muted-foreground">
                   <p>
-                    <strong className="text-foreground">Alcance Kanban</strong> mide acciones cerradas sobre acciones
-                    asignadas. Es el corazon del score porque confirma cierre real.
+                    Este ejemplo ayuda a leer la gamificacion como desempeno operativo, no como una carrera por juntar
+                    mas acciones.
                   </p>
-                  <p>
-                    <strong className="text-foreground">Desarrollo y colaboracion</strong> incluye comentarios,
-                    avances con evidencia, academia y perfil u organigrama actualizado.
-                  </p>
-                  <p>
-                    <strong className="text-foreground">Puntos</strong> muestran actividad y penalizaciones. No son el
-                    ranking principal; sirven como contexto y desempate.
-                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-3">
+              <div className="rounded-xl border border-border/70 bg-background p-4">
+                <div className="flex items-center gap-2">
+                  <Target className="h-4 w-4 text-primary" aria-hidden />
+                  <h3 className="text-sm font-semibold text-foreground">Score, puntos y retrasos</h3>
+                </div>
+                <div className="mt-3 space-y-2 text-sm leading-6 text-muted-foreground">
+                  {awardSteps.map((step) => (
+                    <div key={step.title} className="rounded-lg border border-border/60 bg-muted/15 p-3">
+                      <p className="font-semibold text-foreground">{step.title}</p>
+                      <p className="mt-1 text-xs leading-5">{step.detail}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -281,32 +349,28 @@ export function GamificationManualSection() {
                   <span>No se califica subjetivamente si el comentario es util: si el usuario comenta, suma.</span>
                 </div>
               </div>
-            </div>
 
-            <div className="mt-4 rounded-xl border border-border/70 bg-background p-4">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-amber-600" aria-hidden />
-                <h3 className="text-sm font-semibold text-foreground">Version final para premios</h3>
-              </div>
-              <div className="mt-4 grid gap-3 lg:grid-cols-4">
-                {awardSteps.map((step, index) => (
-                  <div key={step} className="rounded-lg border border-border/60 bg-muted/15 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-muted-foreground">Paso {index + 1}</span>
-                      {index < awardSteps.length - 1 ? (
-                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-                      ) : (
-                        <Medal className="h-3.5 w-3.5 text-amber-600" aria-hidden />
-                      )}
+              <div className="rounded-xl border border-border/70 bg-background p-4">
+                <div className="flex items-center gap-2">
+                  <Clock3 className="h-4 w-4 text-primary" aria-hidden />
+                  <h3 className="text-sm font-semibold text-foreground">Ruta del reconocimiento</h3>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {['Nivel Plata', '275 pts', 'Premio mensual', 'Home Office'].map((step, index) => (
+                    <div key={step} className="flex items-center gap-3 rounded-lg border border-border/60 bg-muted/15 px-3 py-2">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                        {index + 1}
+                      </span>
+                      <span className="text-sm font-semibold text-foreground">{step}</span>
+                      {index < 3 && <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground" aria-hidden />}
                     </div>
-                    <p className="mt-2 text-sm font-medium leading-5 text-foreground">{step}</p>
-                  </div>
-                ))}
+                  ))}
+                </div>
+                <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                  El premio final depende de las reglas internas del periodo; esta tarjeta muestra como se traduce el
+                  desempeno en una recompensa tangible.
+                </p>
               </div>
-              <p className="mt-4 text-sm leading-6 text-muted-foreground">
-                La gamificacion separa actividad, score ajustado y premios. Asi se reconoce desempeno real: el score
-                define el premio y los puntos explican la actividad o desempatan.
-              </p>
             </div>
           </div>
 
@@ -354,24 +418,43 @@ export function GamificationManualSection() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/70">
-                  {rules.map((rule) => (
-                    <tr key={rule.id} className="transition-colors odd:bg-muted/[0.12] hover:bg-primary/[0.04]">
-                      <td className="px-5 py-3.5 font-medium text-foreground">{rule.activity}</td>
-                      <td className="px-5 py-3.5 text-center"><PointsBadge points={rule.points} /></td>
-                      {permissionQuery.data && (
-                        <td className="px-5 py-3.5 text-right">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setEditing(rule)}
-                            aria-label={`Editar ${rule.activity}`}
-                          >
-                            <Pencil className="h-4 w-4" aria-hidden />
-                          </Button>
+                  {ruleGroups.map((group) => (
+                    <Fragment key={group.title}>
+                      <tr key={`${group.title}-heading`} className="bg-muted/35">
+                        <td colSpan={permissionQuery.data ? 3 : 2} className="px-5 py-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">{group.title}</p>
+                              <p className="mt-0.5 text-xs normal-case tracking-normal text-muted-foreground">
+                                {group.description}
+                              </p>
+                            </div>
+                            <Badge variant="secondary" className={group.tone}>
+                              {group.rules.length}
+                            </Badge>
+                          </div>
                         </td>
-                      )}
-                    </tr>
+                      </tr>
+                      {group.rules.map((rule) => (
+                        <tr key={rule.id} className="transition-colors odd:bg-muted/[0.12] hover:bg-primary/[0.04]">
+                          <td className="px-5 py-3.5 font-medium text-foreground">{rule.activity}</td>
+                          <td className="px-5 py-3.5 text-center"><PointsBadge points={rule.points} /></td>
+                          {permissionQuery.data && (
+                            <td className="px-5 py-3.5 text-right">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setEditing(rule)}
+                                aria-label={`Editar ${rule.activity}`}
+                              >
+                                <Pencil className="h-4 w-4" aria-hidden />
+                              </Button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
