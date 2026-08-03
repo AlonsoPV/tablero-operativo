@@ -87,6 +87,17 @@ function todayISO(): string {
   return todayWallClockCDMX()
 }
 
+function stableActionPayloadSignature(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableActionPayloadSignature).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, val]) => `${key}:${stableActionPayloadSignature(val)}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
 export interface AccionFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -140,6 +151,7 @@ export function AccionFormDialog({
   // bloquear el click por caches o ids locales desfasados tras cambios de usuario.
   const canAttemptChecklistContribution = !!currentUser?.id && !isAnalyst
   const isMutating = createAccion.isPending || updateAccion.isPending || deleteAccion.isPending
+  const lastEditSubmitRef = useRef<{ signature: string; at: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [pendingNewEvidencias, setPendingNewEvidencias] = useState<File[]>([])
   const [dragOverNew, setDragOverNew] = useState(false)
@@ -167,6 +179,7 @@ export function AccionFormDialog({
   useEffect(() => {
     setSubmitFooterErrors(null)
     setFechaCompromisoReason('')
+    lastEditSubmitRef.current = null
   }, [open, accion?.id])
 
   useEffect(() => {
@@ -460,6 +473,7 @@ export function AccionFormDialog({
 
   const handleSubmit = (values: AccionCreateInput) => {
     setSubmitFooterErrors(null)
+    if (isMutating) return
     if (isEditProtectedReadonly) {
       const message =
         'No tienes permiso para guardar cambios generales de esta acción. Puede hacerlo quien asignó/creó la acción, perfil Kanban, Dirección o super_admin.'
@@ -534,6 +548,14 @@ export function AccionFormDialog({
           }
 
     if (isEdit && accionLive) {
+      const submitSignature = stableActionPayloadSignature({ id: accionLive.id, payload })
+      const lastSubmit = lastEditSubmitRef.current
+      const now = Date.now()
+      if (lastSubmit?.signature === submitSignature && now - lastSubmit.at < 3000) {
+        console.warn('[acciones] Submit duplicado ignorado para evitar loop de guardado.')
+        return
+      }
+      lastEditSubmitRef.current = { signature: submitSignature, at: now }
       const nuevoResponsable = payload.responsable ?? null
       const cambiaResponsable = nuevoResponsable && nuevoResponsable !== accionLive.responsable
       updateAccion.mutate(
@@ -580,8 +602,9 @@ export function AccionFormDialog({
             onOpenChange(false)
             onSuccess?.()
           },
-          onError: (e) =>
-            toast.error(e instanceof Error ? e.message : 'Error al actualizar'),
+          onError: (e) => {
+            toast.error(e instanceof Error ? e.message : 'Error al actualizar')
+          },
         }
       )
     } else {

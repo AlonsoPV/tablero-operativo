@@ -125,7 +125,6 @@ export function AccionForm({
   asignadorNombre,
 }: AccionFormProps) {
   void _onCancel
-  void _isSubmitting
 
   const {
     data: queriedUsers = [],
@@ -302,10 +301,16 @@ export function AccionForm({
   return (
     <form
       id={fid}
-      onSubmit={form.handleSubmit(onSubmit, (errors) => {
-        const msgs = collectAccionFormErrorMessages(errors)
-        onSubmitInvalid?.(msgs.length > 0 ? msgs : ['Revisa los campos obligatorios.'])
-      })}
+      onSubmit={(event) => {
+        if (_isSubmitting) {
+          event.preventDefault()
+          return
+        }
+        void form.handleSubmit(onSubmit, (errors) => {
+          const msgs = collectAccionFormErrorMessages(errors)
+          onSubmitInvalid?.(msgs.length > 0 ? msgs : ['Revisa los campos obligatorios.'])
+        })(event)
+      }}
       className="accion-form space-y-3 sm:space-y-4"
       data-accion-form-mode={isEdit ? 'edit' : 'create'}
     >
