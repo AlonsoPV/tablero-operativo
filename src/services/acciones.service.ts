@@ -80,15 +80,6 @@ function stripPrioridadIdIfUnavailable<T extends Partial<AccionDiaria>>(payload:
   return rest as T
 }
 
-function isPostgrestNoRowsError(error: unknown): boolean {
-  return Boolean(
-    error &&
-      typeof error === 'object' &&
-      'code' in error &&
-      (error as { code?: string }).code === 'PGRST116'
-  )
-}
-
 function markPrioridadIdUnavailable(error: { code?: string; message?: string } | null): boolean {
   if (!isMissingPrioridadIdColumn(error)) return false
   prioridadIdColumnAvailable = false
@@ -455,14 +446,7 @@ export const accionesService = {
   },
 
   async update(id: string, payload: Partial<AccionDiaria>) {
-    let prev: AccionDiaria | undefined
-    const needsPrev =
-      payload.estado !== undefined ||
-      payload.tipo_accion !== undefined ||
-      payload.sprint_id !== undefined
-    if (needsPrev) {
-      prev = await this.getById(id)
-    }
+    const prev = await this.getById(id)
 
     const mergedPayload = normalizeAccionPayload(prev ? ({ ...prev, ...payload } as Partial<AccionDiaria>) : payload)
     const cleanPayload: Partial<AccionDiaria> = stripPrioridadIdIfUnavailable({ ...payload })
@@ -521,31 +505,34 @@ export const accionesService = {
       return updated
     }
 
-    let { data, error } = await supabase
+    let { count, error } = await supabase
       .from(TABLE)
-      .update(cleanPayload)
+      .update(cleanPayload, { count: 'exact' })
       .eq('id', id)
-      .select(accionSelectColumns())
-      .maybeSingle()
     if (markPrioridadIdUnavailable(error)) {
-      ;({ data, error } = await supabase
+      ;({ count, error } = await supabase
         .from(TABLE)
-        .update(stripPrioridadIdIfUnavailable(cleanPayload))
-        .eq('id', id)
-        .select(accionSelectColumns())
-        .maybeSingle())
-    }
-    if (isPostgrestNoRowsError(error)) {
-      data = null
-      error = null
+        .update(stripPrioridadIdIfUnavailable(cleanPayload), { count: 'exact' })
+        .eq('id', id))
     }
     if (error) throw error
-    if (!data) {
+    if (count === 0) {
       throw new Error(
         'No se pudo actualizar la acción. Solo quien asignó/creó la acción, perfil Kanban, Dirección o super_admin pueden guardar cambios generales.'
       )
     }
-    const updated = data as unknown as AccionDiaria
+
+    let updated: AccionDiaria
+    try {
+      updated = await this.getById(id)
+    } catch (fetchError) {
+      console.warn('[acciones] update applied but updated row could not be reloaded:', fetchError)
+      updated = {
+        ...prev,
+        ...cleanPayload,
+        updated_at: new Date().toISOString(),
+      } as AccionDiaria
+    }
 
     if (prev && nextEstado !== undefined) {
       void Promise.allSettled([
