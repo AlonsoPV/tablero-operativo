@@ -159,13 +159,17 @@ export function KanbanPage() {
   }, [currentUser?.id, isAnalyst])
 
   const handleClearFilters = useCallback(() => {
-    setFilter(createKanbanDefaultFilter(currentUser?.id))
+    // Vacía todos los filtros, incluido el responsable por defecto.
+    // Analistas mantienen el propio responsable (solo ven sus acciones).
+    setFilter(
+      isAnalyst && currentUser?.id ? createKanbanDefaultFilter(currentUser.id) : {}
+    )
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       next.delete('gap')
       return next
     }, { replace: true })
-  }, [currentUser?.id, setSearchParams])
+  }, [currentUser?.id, isAnalyst, setSearchParams])
 
   const clearGapFilter = useCallback(() => {
     setSearchParams((prev) => {
