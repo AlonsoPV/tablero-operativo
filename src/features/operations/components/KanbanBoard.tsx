@@ -34,7 +34,6 @@ import { useActionEstadoPermissions } from '../hooks/useActionEstadoPermissions'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import {
   getAccionKanbanColumn,
-  getAutoEstadoPorFechaCompromiso,
   isEnRetraso,
 } from '../utils/accionUtils'
 import { getAccionDisplayEstado } from '../utils/accionEstadoDisplay'
@@ -1166,7 +1165,6 @@ export function KanbanBoard({
 }: KanbanBoardProps) {
   const updateEstado = useUpdateAccionEstado()
   const [activeId, setActiveId] = useState<string | null>(null)
-  const autoSyncedByFechaRef = useRef<Set<string>>(new Set())
   const { data: currentUser } = useCurrentUser()
   const { data: priorities = [] } = usePriorities()
   const statuses = statusesProp
@@ -1174,40 +1172,6 @@ export function KanbanBoard({
   const columnOrder = useMemo(() => orderedActionStatuses(statuses, COLUMN_ORDER), [statuses])
   const estadoPermission = useActionEstadoPermissions(currentUser ?? undefined)
   const { data: commentCounts = {} } = useCommentCounts(acciones.map((a) => a.id))
-
-  const autoEstadoTargets = useMemo(
-    () =>
-      acciones
-        .map((accion) => ({
-          accion,
-          target: getAutoEstadoPorFechaCompromiso(accion),
-        }))
-        .filter(
-          (item): item is { accion: AccionDiaria; target: ActionStatus } =>
-            item.target !== null && item.target !== item.accion.estado
-        ),
-    [acciones]
-  )
-
-  useEffect(() => {
-    if (isLoading || updateEstado.isPending || autoEstadoTargets.length === 0) return
-
-    for (const { accion, target } of autoEstadoTargets) {
-      const syncKey = `${accion.id}:${accion.fecha}:${target}`
-      if (autoSyncedByFechaRef.current.has(syncKey)) continue
-      if (estadoPermission.denialMessage(accion, target)) continue
-      autoSyncedByFechaRef.current.add(syncKey)
-      updateEstado.mutate(
-        { id: accion.id, estado: target },
-        {
-          onError: (e) => {
-            autoSyncedByFechaRef.current.delete(syncKey)
-            console.warn('No se pudo sincronizar el estado por fecha compromiso', e)
-          },
-        }
-      )
-    }
-  }, [autoEstadoTargets, estadoPermission, isLoading, updateEstado])
 
   const byStatus = useMemo(() => {
     const map: Record<ActionStatus, AccionDiaria[]> = {

@@ -224,29 +224,10 @@ export interface CalendarActionCountsInput {
   estado?: ActionStatus
 }
 
-async function syncEstadosPorFechaCompromiso(list: AccionDiaria[]): Promise<AccionDiaria[]> {
-  const changes = list.flatMap((accion) => {
-    const next = getAutoEstadoPorFechaCompromiso(accion)
-    return next && next !== accion.estado ? [{ accion, next }] : []
-  })
-  if (changes.length === 0) return list
-
-  const updates = await Promise.all(
-    changes.map(({ accion, next }) =>
-      supabase.from(TABLE).update({ estado: next }).eq('id', accion.id)
-    )
-  )
-
-  const failed = updates.find((result) => result.error)
-  if (failed?.error) {
-    console.error('[acciones] syncEstadosPorFechaCompromiso:', failed.error)
-    return list
-  }
-
-  const nextById = new Map(changes.map(({ accion, next }) => [accion.id, next]))
+function syncEstadosPorFechaCompromiso(list: AccionDiaria[]): AccionDiaria[] {
   return list.map((accion) => {
-    const next = nextById.get(accion.id)
-    return next ? { ...accion, estado: next } : accion
+    const next = getAutoEstadoPorFechaCompromiso(accion)
+    return next && next !== accion.estado ? { ...accion, estado: next } : accion
   })
 }
 
