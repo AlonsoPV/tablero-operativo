@@ -156,6 +156,23 @@ function isTeamPendingLikeStateName(value: string) {
   return key === 'pendiente' || key === 'asignado' || key === 'asignada'
 }
 
+function isTeamRetrasoStateName(value: string) {
+  const key = normalizeTeamStateName(value)
+  return key === 'retraso' || key === 'vencido' || key === 'vencida' || key === 'vencidas'
+}
+
+function findTeamRetrasoState(board: TeamBoard) {
+  return board.states.find((state) => isTeamRetrasoStateName(state.nombre) && !state.es_final)
+}
+
+/** Misma idea que el Kanban corporativo: columna/estatus Retraso o fecha límite rebasada. */
+function isEnRetrasoTeam(action: TeamAction, board: TeamBoard) {
+  if (!isOpenAction(action, board) || action.bloqueada) return false
+  const retrasoState = findTeamRetrasoState(board)
+  if (retrasoState && getEffectiveTeamStateId(action, board) === retrasoState.id) return true
+  return isOverdue(action, board)
+}
+
 function getCdmxWallClockParts(date: Date) {
   return {
     ymd: date.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' }),
@@ -546,13 +563,14 @@ export function TeamKanbanPage() {
 
   const metrics = useMemo(() => {
     if (!board.data) {
-      return { rojos: 0, vencidas: 0, abiertas: 0 }
+      return { rojos: 0, vencidas: 0, abiertas: 0, retrasoLabel: 'Retraso' }
     }
     const open = filteredActions.filter((action) => isOpenAction(action, board.data!))
     return {
       rojos: open.filter((action) => isCritical(action, board.data!)).length,
-      vencidas: open.filter((action) => isOverdue(action, board.data!)).length,
+      vencidas: open.filter((action) => isEnRetrasoTeam(action, board.data!)).length,
       abiertas: open.length,
+      retrasoLabel: findTeamRetrasoState(board.data)?.nombre ?? 'Retraso',
     }
   }, [board.data, filteredActions])
 
@@ -957,7 +975,7 @@ function AreaSelector({
 function MetricsRow({
   metrics,
 }: {
-  metrics: { rojos: number; vencidas: number; abiertas: number }
+  metrics: { rojos: number; vencidas: number; abiertas: number; retrasoLabel: string }
 }) {
   const items = [
     {
@@ -972,9 +990,9 @@ function MetricsRow({
     },
     {
       key: 'vencidas',
-      label: 'Vencidas',
+      label: metrics.retrasoLabel,
       value: metrics.vencidas,
-      hint: 'Fecha rebasada',
+      hint: 'Fecha o hora límite rebasada',
       icon: Clock3,
       tone: 'border-orange-200/80 bg-orange-50/80',
       valueTone: 'text-orange-700',
@@ -1162,7 +1180,7 @@ function FrequentSeriesPanel({
 }
 
 function teamActionStatusLabel(action: TeamAction, board: TeamBoard, overdue: boolean) {
-  if (overdue) return 'Vencida'
+  if (overdue) return findTeamRetrasoState(board)?.nombre ?? 'Retraso'
   return board.states.find((state) => state.id === action.estado_id)?.nombre ?? 'Sin estatus'
 }
 
