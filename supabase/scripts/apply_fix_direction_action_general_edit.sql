@@ -1,6 +1,25 @@
 -- Ejecutar completo en Supabase SQL Editor.
 -- Corrige RLS para que usuarios con rol Direccion puedan editar acciones ajenas.
 
+CREATE OR REPLACE FUNCTION public.normalize_business_role(p_role text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT trim(
+    both '_' FROM regexp_replace(
+      translate(
+        lower(trim(coalesce(p_role, ''))),
+        U&'\00E1\00E9\00ED\00F3\00FA\00FC\00F1',
+        'aeiouun'
+      ),
+      '[^a-z0-9]+',
+      '_',
+      'g'
+    )
+  );
+$$;
+
 CREATE OR REPLACE FUNCTION public.is_action_privileged_usuario(p_usuario_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -101,3 +120,14 @@ CREATE POLICY acciones_update_responsable_creator_or_admin ON public.acciones_di
   );
 
 NOTIFY pgrst, 'reload schema';
+
+-- Resultado esperado para el usuario reportado: es_direccion = true.
+-- Se usan UUID explicitos porque auth.uid() es NULL dentro del SQL Editor.
+SELECT
+  u.id AS usuario_id,
+  u.user_id AS auth_user_id,
+  u.rol,
+  public.is_action_privileged_usuario(u.id) AS es_direccion
+FROM public.usuarios u
+WHERE u.id = 'e5e93ec8-716d-42f1-bec7-cdcc7ba2abc3'::uuid
+  AND u.user_id = 'bb977914-8d4d-4aa4-8785-7194d0289f49'::uuid;
