@@ -39,6 +39,8 @@ import { useGapAccionesForGapIds } from '@/features/kpi/hooks/useGapAccionesForG
 import { useGap } from '@/features/kpi/hooks/useGaps'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { isAnalystByRole } from '@/features/auth/lib/permissions'
+import { exportKanbanToExcel } from '@/features/operations/utils/exportKanbanExcel'
+import { toast } from 'sonner'
 
 function normalizeKanbanFilter(filter: AccionesFilter): AccionesFilter {
   const normalized: AccionesFilter = {}
@@ -115,6 +117,7 @@ export function KanbanPage() {
   const { data: kanbanStatuses = [] } = useKanbanStatuses()
   const [editingAccion, setEditingAccion] = useState<AccionDiaria | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [isExportingExcel, setIsExportingExcel] = useState(false)
   const accionIdFromUrl = searchParams.get('accion')
   const fechaFromUrl = searchParams.get('fecha')
   const { data: accionFromUrl } = useAccion(accionIdFromUrl)
@@ -241,6 +244,25 @@ export function KanbanPage() {
     setDialogOpen(false)
   }, [])
 
+  const handleExportExcel = useCallback(async () => {
+    if (accionesDisplay.length === 0 || isExportingExcel) return
+    setIsExportingExcel(true)
+    try {
+      await exportKanbanToExcel({
+        acciones: accionesDisplay,
+        users,
+        priorities,
+        statuses: kanbanStatuses,
+        exportedByName: currentUser?.nombre,
+      })
+      toast.success(`Excel generado con ${accionesDisplay.length} acción${accionesDisplay.length === 1 ? '' : 'es'}.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se pudo generar el archivo Excel.')
+    } finally {
+      setIsExportingExcel(false)
+    }
+  }, [accionesDisplay, currentUser?.nombre, isExportingExcel, kanbanStatuses, priorities, users])
+
   return (
     <div
       id="kanban-page"
@@ -253,6 +275,13 @@ export function KanbanPage() {
         onToggleFilters={isAnalyst ? undefined : () => setFiltersExpanded((v) => !v)}
         hasActiveFilters={hasActiveFilters}
         onNewAction={isAnalyst ? undefined : handleNewAction}
+        onExportExcel={() => void handleExportExcel()}
+        exportDisabled={listLoading || accionesDisplay.length === 0 || isExportingExcel}
+        exportLabel={
+          isExportingExcel
+            ? 'Generando archivo Excel'
+            : `Exportar ${accionesDisplay.length} acción${accionesDisplay.length === 1 ? '' : 'es'} visible${accionesDisplay.length === 1 ? '' : 's'} a Excel`
+        }
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         rightOfTitle={

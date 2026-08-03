@@ -9,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Plus, LayoutGrid, SlidersHorizontal, List, Check } from 'lucide-react'
+import { Plus, LayoutGrid, SlidersHorizontal, List, Check, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export type KanbanViewMode = 'kanban' | 'lista'
@@ -20,6 +20,9 @@ export interface KanbanHeaderProps {
   /** Muestra indicador cuando hay filtros aplicados (incl. responsable por defecto). */
   hasActiveFilters?: boolean
   onNewAction?: () => void
+  onExportExcel?: () => void
+  exportDisabled?: boolean
+  exportLabel?: string
   viewMode?: KanbanViewMode
   onViewModeChange?: (mode: KanbanViewMode) => void
   rightOfTitle?: React.ReactNode
@@ -45,6 +48,9 @@ export function KanbanHeader({
   onToggleFilters,
   hasActiveFilters = false,
   onNewAction,
+  onExportExcel,
+  exportDisabled = false,
+  exportLabel = 'Exportar Excel',
   viewMode = 'kanban',
   onViewModeChange,
   rightOfTitle,
@@ -82,7 +88,7 @@ export function KanbanHeader({
 
         <div
           className={cn(
-            'kanban-header-actions grid w-full min-w-0 grid-cols-3 gap-2 rounded-xl border border-border/70 bg-muted/25 p-2 shadow-sm ring-1 ring-border/30 sm:flex sm:items-center sm:justify-between sm:gap-3 sm:p-3'
+            'kanban-header-actions grid w-full min-w-0 grid-cols-2 gap-2 rounded-xl border border-border/70 bg-muted/25 p-2 shadow-sm ring-1 ring-border/30 sm:flex sm:items-center sm:justify-between sm:gap-3 sm:p-3'
           )}
         >
           {onNewAction ? (
@@ -124,6 +130,22 @@ export function KanbanHeader({
                   aria-label="Filtros activos"
                 />
               ) : null}
+            </Button>
+          ) : null}
+
+          {onExportExcel ? (
+            <Button
+              id="kanban-btn-export-excel"
+              className={cn('kanban-btn-export-excel', ACTION_BTN, SECONDARY_ACTION_BTN)}
+              variant="outline"
+              size="sm"
+              onClick={onExportExcel}
+              disabled={exportDisabled}
+              title={exportLabel}
+              aria-label={exportLabel}
+            >
+              <Download className="h-4 w-4 shrink-0 stroke-[2.25]" />
+              <span className="truncate">Excel</span>
             </Button>
           ) : null}
 
