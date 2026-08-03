@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   Columns3,
   GraduationCap,
+  Scale,
   Settings,
   ShieldCheck,
   Sparkles,
@@ -20,6 +21,9 @@ import { ROUTES } from '@/constants'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { canAccessRouteByRole } from '@/features/auth/lib/permissions'
 import { GamificationManualSection } from './GamificationManualSection'
+import { ReglamentoManualSection } from './ReglamentoManualSection'
+
+type ManualTab = 'tablero' | 'gamificacion' | 'reglamento'
 
 type ManualSection = {
   title: string
@@ -205,10 +209,16 @@ const commitmentDateChangeCategories = [
   },
 ]
 
+function tabFromSearchParam(value: string | null): ManualTab {
+  if (value === 'gamificacion') return 'gamificacion'
+  if (value === 'reglamento') return 'reglamento'
+  return 'tablero'
+}
+
 export function ManualPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [activeTab, setActiveTab] = useState<'tablero' | 'gamificacion'>(
-    searchParams.get('seccion') === 'gamificacion' ? 'gamificacion' : 'tablero'
+  const [activeTab, setActiveTab] = useState<ManualTab>(
+    tabFromSearchParam(searchParams.get('seccion'))
   )
   const [activeTopicIndex, setActiveTopicIndex] = useState(0)
   const [activeStatusIndex, setActiveStatusIndex] = useState(0)
@@ -220,15 +230,16 @@ export function ManualPage() {
   const selectedStatus = actionStatusLifecycle[activeStatusIndex]
 
   useEffect(() => {
-    const section = searchParams.get('seccion')
-    setActiveTab(section === 'gamificacion' ? 'gamificacion' : 'tablero')
+    setActiveTab(tabFromSearchParam(searchParams.get('seccion')))
   }, [searchParams])
 
-  const selectTab = (tab: 'tablero' | 'gamificacion') => {
+  const selectTab = (tab: ManualTab) => {
     setActiveTab(tab)
-    setSearchParams(tab === 'gamificacion' ? { seccion: 'gamificacion' } : {}, {
-      replace: false,
-    })
+    if (tab === 'tablero') {
+      setSearchParams({}, { replace: false })
+      return
+    }
+    setSearchParams({ seccion: tab }, { replace: false })
   }
 
   return (
@@ -268,7 +279,7 @@ export function ManualPage() {
         </div>
       </header>
 
-      <div role="tablist" aria-label="Secciones del manual" className="grid w-full gap-3 sm:grid-cols-2">
+      <div role="tablist" aria-label="Secciones del manual" className="grid w-full gap-3 lg:grid-cols-3">
         <button
           type="button"
           role="tab"
@@ -289,6 +300,29 @@ export function ManualPage() {
             <span className="block font-semibold">Aprender SCRUMBAN</span>
             <span className="mt-0.5 block text-xs font-normal text-muted-foreground sm:text-sm">
               Índice rápido, ciclo y reglas prácticas
+            </span>
+          </span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="manual-tab-reglamento"
+          aria-selected={activeTab === 'reglamento'}
+          aria-controls="manual-panel-reglamento"
+          onClick={() => selectTab('reglamento')}
+          className={`group flex min-h-20 items-center gap-4 rounded-xl border px-4 py-3 text-left transition-all sm:px-5 ${
+            activeTab === 'reglamento'
+              ? 'border-slate-500/40 bg-slate-500/[0.08] text-foreground shadow-sm ring-1 ring-slate-500/10'
+              : 'bg-card text-muted-foreground hover:border-slate-500/25 hover:bg-muted/30 hover:text-foreground'
+          }`}
+        >
+          <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${activeTab === 'reglamento' ? 'bg-slate-800 text-white' : 'bg-muted text-foreground'}`}>
+            <Scale className="h-5 w-5" aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-semibold">Reglamento</span>
+            <span className="mt-0.5 block text-xs font-normal text-muted-foreground sm:text-sm">
+              Normas internas del modelo operativo
             </span>
           </span>
         </button>
@@ -534,6 +568,14 @@ export function ManualPage() {
               })}
             </div>
           </section>
+        </div>
+      ) : activeTab === 'reglamento' ? (
+        <div
+          id="manual-panel-reglamento"
+          role="tabpanel"
+          aria-labelledby="manual-tab-reglamento"
+        >
+          <ReglamentoManualSection />
         </div>
       ) : (
         <div
