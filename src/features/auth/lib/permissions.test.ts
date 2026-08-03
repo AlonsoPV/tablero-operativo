@@ -6,6 +6,7 @@ import {
   canEditOrgHierarchyByRole,
   canEditOrgUserHierarchy,
   canEditOwnOrgProfileByRole,
+  canManageActionsByRole,
   canManageAcademyModulesByRole,
   canManageSupportTicketsByRole,
   getDefaultRouteByRole,
@@ -98,10 +99,20 @@ describe('role route permissions', () => {
   })
 
   it('allows Kanban role to edit general action fields without becoming action admin', () => {
+    expect(canManageActionsByRole('Kanban')).toBe(false)
     expect(canEditActionGeneralByRole('Kanban')).toBe(true)
     expect(canEditActionGeneralByRole('Editor Kanban')).toBe(true)
     expect(canEditActionGeneralByRole('Kanban Editor')).toBe(true)
     expect(canEditActionGeneralByRole('Operativo')).toBe(false)
+  })
+
+  it('allows Super Admin and Direccion to fully manage actions', () => {
+    expect(canManageActionsByRole('super_admin')).toBe(true)
+    expect(canManageActionsByRole('Super Admin')).toBe(true)
+    expect(canManageActionsByRole('Direccion')).toBe(true)
+    expect(canManageActionsByRole('Dirección general')).toBe(true)
+    expect(canEditActionGeneralByRole('Direccion')).toBe(true)
+    expect(canEditActionGeneralByRole('Dirección general')).toBe(true)
   })
 
   it('keeps Analista limited even if app_role is elevated accidentally', () => {

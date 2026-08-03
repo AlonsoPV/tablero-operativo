@@ -2,6 +2,58 @@
 -- No le otorga verificacion: Verificado sigue limitado a creador/asignador,
 -- Direccion o super_admin mediante can_manage_accion_full_as.
 
+CREATE OR REPLACE FUNCTION public.is_action_privileged_usuario(p_usuario_id uuid)
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.usuarios u
+    WHERE u.id = p_usuario_id
+      AND u.activo = true
+      AND (
+        public.normalize_business_role(u.rol::text) = 'super_admin'
+        OR public.normalize_business_role(u.rol::text) = 'direccion'
+        OR public.normalize_business_role(u.rol::text) LIKE 'direccion_%'
+      )
+  )
+  OR EXISTS (
+    SELECT 1
+    FROM public.usuarios u
+    JOIN public.user_roles ur ON ur.user_id = u.user_id
+    WHERE u.id = p_usuario_id
+      AND u.activo = true
+      AND lower(ur.app_role::text) IN ('super_admin', 'admin')
+  )
+  OR (
+    to_regclass('public.usuario_catalog_roles') IS NOT NULL
+    AND to_regclass('public.catalog_roles') IS NOT NULL
+    AND EXISTS (
+      SELECT 1
+      FROM public.usuarios u
+      JOIN public.usuario_catalog_roles ucr ON ucr.user_id = u.id
+      JOIN public.catalog_roles cr ON cr.id = ucr.role_id
+      WHERE u.id = p_usuario_id
+        AND u.activo = true
+        AND cr.activo = true
+        AND (
+          public.normalize_business_role(COALESCE(cr.system_key, '')) = 'super_admin'
+          OR public.normalize_business_role(COALESCE(cr.system_key, '')) = 'direccion'
+          OR public.normalize_business_role(COALESCE(cr.system_key, '')) LIKE 'direccion_%'
+          OR public.normalize_business_role(cr.nombre) = 'super_admin'
+          OR public.normalize_business_role(cr.nombre) = 'direccion'
+          OR public.normalize_business_role(cr.nombre) LIKE 'direccion_%'
+        )
+    )
+  );
+$$;
+
+COMMENT ON FUNCTION public.is_action_privileged_usuario(uuid) IS
+  'Privilegio total sobre acciones propias y ajenas: Super Admin y Direccion por usuarios.rol, app_role o catalog_roles.';
+
 CREATE OR REPLACE FUNCTION public.has_kanban_action_editor_role(p_usuario_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -88,10 +140,12 @@ COMMENT ON FUNCTION public.can_edit_accion_general(uuid) IS
   'Permiso del usuario autenticado para editar campos generales de una accion.';
 
 REVOKE ALL ON FUNCTION public.has_kanban_action_editor_role(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.is_action_privileged_usuario(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.can_edit_accion_general_as(uuid, uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.can_edit_accion_general(uuid) FROM PUBLIC, anon;
 
 GRANT EXECUTE ON FUNCTION public.has_kanban_action_editor_role(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_action_privileged_usuario(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.can_edit_accion_general_as(uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.can_edit_accion_general(uuid) TO authenticated;
 
