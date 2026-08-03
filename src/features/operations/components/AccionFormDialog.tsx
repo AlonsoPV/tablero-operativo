@@ -120,7 +120,11 @@ export function AccionFormDialog({
   dialogId,
 }: AccionFormDialogProps) {
   const qc = useQueryClient()
-  const { data: currentUser } = useCurrentUser()
+  const {
+    data: currentUser,
+    isLoading: isCurrentUserLoading,
+    isFetching: isCurrentUserFetching,
+  } = useCurrentUser()
   const createAccion = useCreateAccion()
   const updateAccion = useUpdateAccion()
   const deleteAccion = useDeleteAccion()
@@ -132,10 +136,13 @@ export function AccionFormDialog({
   const isSuperAdmin = isSuperAdminByRole(currentUser?.rol)
   const isDirection = isDirectionByRole(currentUser?.rol)
   const canManageActions = canManageActionsByRole(currentUser?.rol)
-  const canEditActionGeneral = canEditActionGeneralByRole(currentUser?.rol)
+  const canEditActionGeneral =
+    canEditActionGeneralByRole(currentUser?.rol) || isSuperAdmin || isDirection
   const isActionCreator = !!accionLive?.created_by && accionLive.created_by === currentUser?.id
   const isActionResponsible = !!accionLive?.responsable && accionLive.responsable === currentUser?.id
   const canFullyEditAction = !isEdit || isActionCreator || canEditActionGeneral
+  const isEditPermissionPending =
+    isEdit && !currentUser && (isCurrentUserLoading || isCurrentUserFetching)
   const canMarkActionDone =
     isEdit &&
     !!accionLive?.id &&
@@ -145,7 +152,7 @@ export function AccionFormDialog({
     accionLive.estado !== 'Verificado' &&
     (isSuperAdmin || isDirection || isActionCreator || isActionResponsible)
   const canDeleteAccion = isEdit && isSuperAdmin
-  const isEditProtectedReadonly = isEdit && !canFullyEditAction
+  const isEditProtectedReadonly = isEdit && !isEditPermissionPending && !canFullyEditAction
   const canManageChecklistStructure = isActionCreator || canManageActions
   // La autorizacion final del checklist vive en Supabase. El cliente solo evita
   // bloquear el click por caches o ids locales desfasados tras cambios de usuario.
@@ -474,6 +481,12 @@ export function AccionFormDialog({
   const handleSubmit = (values: AccionCreateInput) => {
     setSubmitFooterErrors(null)
     if (isMutating) return
+    if (isEditPermissionPending) {
+      const message = 'Estamos cargando tu perfil para validar permisos. Intenta guardar de nuevo en unos segundos.'
+      setSubmitFooterErrors([message])
+      toast.info(message)
+      return
+    }
     if (isEditProtectedReadonly) {
       const message =
         'No tienes permiso para guardar cambios generales de esta acción. Puede hacerlo quien asignó/creó la acción, perfil Kanban, Dirección o super_admin.'
@@ -1161,7 +1174,12 @@ export function AccionFormDialog({
               variant="default"
               size="icon"
               className={cn('accion-form-dialog-submit', iconButtonClass)}
-              disabled={isMutating || isManualNotificationPending || isEditProtectedReadonly}
+              disabled={
+                isMutating ||
+                isManualNotificationPending ||
+                isEditPermissionPending ||
+                isEditProtectedReadonly
+              }
               aria-label={
                 createAccion.isPending || updateAccion.isPending ? 'Guardando acción' : 'Guardar acción'
               }
