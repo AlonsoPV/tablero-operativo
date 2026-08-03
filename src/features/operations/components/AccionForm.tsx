@@ -35,6 +35,10 @@ import { EvidenceOptionPicker } from './form/EvidenceOptionPicker'
 import { CatalogLoadError } from './form/CatalogLoadError'
 import { AccionDescripcionTextarea } from './form/AccionDescripcionTextarea'
 import {
+  EVIDENCIA_NO_REQUIERE,
+  isEvidenciaNoRequerida,
+} from '../utils/evidenciaEsperada'
+import {
   CalendarClock,
   FileCheck,
 } from 'lucide-react'
@@ -157,8 +161,13 @@ export function AccionForm({
 
   const [blocksOpen, setBlocksOpen] = useState({
     principal: true,
-    validacion: isEdit,
+    validacion: false,
   })
+
+  const initialRequiereEvidencia =
+    defaultValues?.requiere_evidencia ??
+    (!isEvidenciaNoRequerida(defaultValues?.evidencia_esperada) &&
+      Boolean((defaultValues?.evidencia_esperada ?? '').trim()))
 
   const form = useForm<AccionFormInput, unknown, AccionCreateInput>({
     resolver: zodResolver(accionCreateSchema) as Resolver<AccionFormInput, unknown, AccionCreateInput>,
@@ -172,7 +181,6 @@ export function AccionForm({
       responsable: '',
       fecha: todayWallClockCDMX(),
       hora_limite: '17:00',
-      evidencia_esperada: '',
       prioridad: DEFAULT_PRIORITY_NOMBRE,
       area: undefined,
       gap_ids: [],
@@ -182,6 +190,10 @@ export function AccionForm({
       sprint_id: null,
       responsable_bloqueo: null,
       ...defaultValues,
+      requiere_evidencia: initialRequiereEvidencia,
+      evidencia_esperada: initialRequiereEvidencia
+        ? (defaultValues?.evidencia_esperada ?? '')
+        : EVIDENCIA_NO_REQUIERE,
     },
   })
 
@@ -265,6 +277,10 @@ export function AccionForm({
 
   useEffect(() => {
     const val = (defaultValues?.evidencia_esperada ?? form.getValues('evidencia_esperada'))?.trim() ?? ''
+    if (isEvidenciaNoRequerida(val)) {
+      setEvidenciaSelect('__none__')
+      return
+    }
     if (evidenciaOpciones.length === 0) {
       setEvidenciaSelect(val ? EVIDENCIA_OTRO_SPECIFY_INTERNAL : '__none__')
       return
@@ -281,6 +297,27 @@ export function AccionForm({
     const otroOpt = evidenciaOpciones.find((o) => String(o.value).trim().toLowerCase() === 'otro')
     setEvidenciaSelect(otroOpt ? otroOpt.value : EVIDENCIA_OTRO_SPECIFY_INTERNAL)
   }, [evidenciaSignature, evidenciaOpciones, defaultValues?.evidencia_esperada, form])
+
+  const requiereEvidencia = form.watch('requiere_evidencia') ?? false
+
+  const setRequiereEvidencia = (checked: boolean) => {
+    form.setValue('requiere_evidencia', checked, { shouldDirty: true, shouldTouch: true })
+    if (checked) {
+      const current = (form.getValues('evidencia_esperada') ?? '').trim()
+      if (isEvidenciaNoRequerida(current)) {
+        form.setValue('evidencia_esperada', '', { shouldDirty: true })
+        setEvidenciaSelect('__none__')
+      }
+      setBlocksOpen((b) => ({ ...b, validacion: true }))
+    } else {
+      form.setValue('evidencia_esperada', EVIDENCIA_NO_REQUIERE, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+      form.clearErrors('evidencia_esperada')
+      setEvidenciaSelect('__none__')
+    }
+  }
 
   const fid = formId ?? 'accion-form'
   const fieldId = (name: string) => `${fid}-${name}`
@@ -307,6 +344,9 @@ export function AccionForm({
           return
         }
         void form.handleSubmit(onSubmit, (errors) => {
+          if (errors.evidencia_esperada || errors.requiere_evidencia) {
+            setBlocksOpen((b) => ({ ...b, validacion: true }))
+          }
           const msgs = collectAccionFormErrorMessages(errors)
           onSubmitInvalid?.(msgs.length > 0 ? msgs : ['Revisa los campos obligatorios.'])
         })(event)
@@ -491,7 +531,7 @@ export function AccionForm({
         blockId={`${fid}-block-validacion`}
         step={2}
         title="Evidencia y validación"
-        subtitle="Qué comprobará el cierre."
+        subtitle="Opcional: define evidencia solo si hace falta comprobar el cierre."
         icon={FileCheck}
         expanded={blocksOpen.validacion}
         onToggle={() => setBlocksOpen((b) => ({ ...b, validacion: !b.validacion }))}
@@ -500,54 +540,89 @@ export function AccionForm({
         {isEditProtectedReadonly ? (
           <ReadonlyValue
             label="Evidencia esperada"
-            value={form.watch('evidencia_esperada')}
+            value={
+              isEvidenciaNoRequerida(form.watch('evidencia_esperada'))
+                ? 'No requiere evidencia'
+                : form.watch('evidencia_esperada')
+            }
           />
         ) : (
         <>
-        {(evidenciaLoading || evidenciaFetching) && (
-          <p className="text-xs text-muted-foreground">Cargando catálogo de evidencia…</p>
-        )}
-        {evidenciaError && (
-          <CatalogLoadError
-            message="No se pudo cargar el catálogo de evidencia."
-            onRetry={() => void retryEvidenciaCatalog()}
-          />
-        )}
-
-        <AccionFormField
-          label="¿Qué evidencia comprobará que se hizo?"
-          required
-          error={form.formState.errors.evidencia_esperada?.message}
+        <label
+          htmlFor={fieldId('requiere_evidencia')}
+          className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5"
         >
-          {evidenceCards.length > 0 ? (
-            <EvidenceOptionPicker
-              options={evidenceCards}
-              selectedValue={evidenciaSelect === '__none__' ? '' : evidenciaSelect}
-              otherInternalValue={hasCatalogOtro ? undefined : EVIDENCIA_OTRO_SPECIFY_INTERNAL}
-              disabled={evidenciaLoading && evidenciaOpciones.length === 0}
-              onSelect={(value, label) => {
-                setEvidenciaSelect(value)
-                if (value === EVIDENCIA_OTRO_SPECIFY_INTERNAL) form.setValue('evidencia_esperada', '')
-                else form.setValue('evidencia_esperada', label, { shouldValidate: true })
-              }}
-            />
-          ) : (
-            !evidenciaLoading &&
-            !evidenciaError && (
-              <p className="text-xs text-muted-foreground">
-                Sin opciones en catálogo; describe la evidencia abajo.
-              </p>
-            )
-          )}
-          {evidenciaNeedsFreeText(evidenciaSelect, evidenciaOpciones) && (
-            <Input
-              id={fieldId('evidencia_esperada_texto')}
-              placeholder="Especificar (mín. 5 caracteres)"
-              className={`${inputBase} mt-2 h-10`}
-              {...form.register('evidencia_esperada')}
-            />
-          )}
-        </AccionFormField>
+          <input
+            id={fieldId('requiere_evidencia')}
+            type="checkbox"
+            checked={requiereEvidencia}
+            onChange={(e) => setRequiereEvidencia(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-input text-primary focus:ring-2 focus:ring-ring focus:ring-offset-1"
+          />
+          <span className="min-w-0 space-y-0.5">
+            <span className="block text-sm font-medium text-foreground">Requiere evidencia</span>
+            <span className="block text-xs text-muted-foreground">
+              Actívalo solo si el cierre debe comprobarse con un tipo de evidencia.
+            </span>
+          </span>
+        </label>
+
+        {requiereEvidencia ? (
+          <>
+            {(evidenciaLoading || evidenciaFetching) && (
+              <p className="text-xs text-muted-foreground">Cargando catálogo de evidencia…</p>
+            )}
+            {evidenciaError && (
+              <CatalogLoadError
+                message="No se pudo cargar el catálogo de evidencia."
+                onRetry={() => void retryEvidenciaCatalog()}
+              />
+            )}
+
+            <AccionFormField
+              label="¿Qué evidencia comprobará que se hizo?"
+              required
+              error={form.formState.errors.evidencia_esperada?.message}
+            >
+              {evidenceCards.length > 0 ? (
+                <EvidenceOptionPicker
+                  options={evidenceCards}
+                  selectedValue={evidenciaSelect === '__none__' ? '' : evidenciaSelect}
+                  otherInternalValue={hasCatalogOtro ? undefined : EVIDENCIA_OTRO_SPECIFY_INTERNAL}
+                  disabled={evidenciaLoading && evidenciaOpciones.length === 0}
+                  onSelect={(value, label) => {
+                    setEvidenciaSelect(value)
+                    if (value === EVIDENCIA_OTRO_SPECIFY_INTERNAL) {
+                      form.setValue('evidencia_esperada', '', { shouldValidate: true })
+                    } else {
+                      form.setValue('evidencia_esperada', label, { shouldValidate: true })
+                    }
+                  }}
+                />
+              ) : (
+                !evidenciaLoading &&
+                !evidenciaError && (
+                  <p className="text-xs text-muted-foreground">
+                    Sin opciones en catálogo; describe la evidencia abajo.
+                  </p>
+                )
+              )}
+              {(evidenciaNeedsFreeText(evidenciaSelect, evidenciaOpciones) ||
+                (evidenceCards.length === 0 && !evidenciaLoading)) && (
+                <Input
+                  id={fieldId('evidencia_esperada_texto')}
+                  placeholder="Especificar (mín. 5 caracteres)"
+                  className={`${inputBase} mt-2 h-10`}
+                  {...form.register('evidencia_esperada')}
+                />
+              )}
+            </AccionFormField>
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Sin evidencia requerida. Puedes activar el check si más adelante hace falta comprobar el cierre.
+          </p>
+        )}
 
         {validationExtras ? <div className="space-y-4 border-t border-border/50 pt-4">{validationExtras}</div> : null}
         </>

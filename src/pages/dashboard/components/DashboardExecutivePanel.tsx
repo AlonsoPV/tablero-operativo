@@ -1,8 +1,7 @@
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
   Building2,
-  Download,
   ListChecks,
   ShieldCheck,
   Timer,
@@ -10,13 +9,23 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { InfoHint } from '@/components/InfoHint'
 import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
 import { cn } from '@/lib/utils'
 import type { AccionDiaria } from '@/types'
+import type { Priority } from '@/features/catalogs/types/catalogs.types'
+import { findPriorityForAccion } from '@/features/operations/utils/resolveAccionPrioridad'
+import { priorityDisplayLabel } from '@/features/operations/utils/priorityLabels'
 import type {
+  DashboardAgingBucket,
   DashboardAreaMetric,
   DashboardMetric,
   MetricTone,
@@ -32,6 +41,7 @@ type DrillDownInput = {
 
 type DashboardExecutivePanelProps = {
   metrics: OperationalDashboardMetrics
+  priorities?: Priority[]
   isLoading?: boolean
   onDrillDown: (input: DrillDownInput) => void
 }
@@ -54,30 +64,6 @@ function formatTrend(metric: DashboardMetric, suffix = ''): string {
   if (Math.abs(delta) < 0.1) return `Sin cambio vs periodo anterior`
   const sign = delta > 0 ? '+' : ''
   return `${sign}${delta}${suffix} vs periodo anterior`
-}
-
-function downloadActionsCsv(filename: string, actions: AccionDiaria[]) {
-  const headers = ['id', 'titulo', 'estado', 'prioridad', 'area', 'responsable', 'fecha_compromiso', 'created_at']
-  const rows = actions.map((action) => [
-    action.id,
-    action.titulo_accion,
-    action.estado,
-    action.prioridad,
-    action.area ?? '',
-    action.responsable,
-    action.fecha,
-    action.created_at,
-  ])
-  const csv = [headers, ...rows]
-    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-    .join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  link.click()
-  URL.revokeObjectURL(url)
 }
 
 /** Atención inmediata: abiertas asignadas con compromiso de hoy o ya vencido. */
@@ -154,19 +140,7 @@ function ActionsPriorityPie({
             <p className="mt-0.5 text-xs text-muted-foreground">Asignadas abiertas por prioridad</p>
           </div>
         </div>
-        <div className="flex items-center gap-1">
-          <InfoHint text="Por defecto solo incluye acciones asignadas abiertas con fecha compromiso de hoy o ya vencida, segmentadas por el color de su prioridad. Respeta los filtros activos del tablero." />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => downloadActionsCsv('acciones-hoy-vencidas.csv', scopedActions)}
-            title="Exportar acciones de hoy y vencidas"
-          >
-            <Download className="h-4 w-4" aria-hidden />
-          </Button>
-        </div>
+        <InfoHint text="Por defecto solo incluye acciones asignadas abiertas con fecha compromiso de hoy o ya vencida, segmentadas por el color de su prioridad. Respeta los filtros activos del tablero." />
       </div>
 
       <div className="grid items-center gap-6 p-5 sm:grid-cols-[minmax(11rem,0.9fr)_minmax(13rem,1.1fr)]">
@@ -525,7 +499,8 @@ function AverageOpenAgeCard({
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Edad promedio</p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Días transcurridos desde la creación del backlog activo.
+            Backlog aún abierto. Promedio de días desde que se creó cada acción abierta hasta hoy.
+            Responde: ¿qué tan viejo está lo que sigue pendiente?
           </p>
         </div>
         <span className="tone-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-background/70">
@@ -725,19 +700,7 @@ function ReliabilityMetricCard({
             ) : null}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <InfoHint text={`${description}. Fórmula: ${formula}`} />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 bg-background/50"
-            onClick={() => downloadActionsCsv(`${title.toLowerCase().replace(/\s+/g, '-')}.csv`, actions)}
-            title="Exportar listado"
-          >
-            <Download className="h-4 w-4" aria-hidden />
-          </Button>
-        </div>
+        <InfoHint text={`${description}. Fórmula: ${formula}`} />
       </div>
 
       <button
@@ -819,19 +782,7 @@ function IcoHeroCard({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-1">
-          <InfoHint text="Porcentaje de acciones cerradas a tiempo sobre el total de acciones cerradas. Fórmula: cerradas a tiempo / cerradas × 100." />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => downloadActionsCsv('ico-global.csv', actions)}
-            title="Exportar acciones cerradas"
-          >
-            <Download className="h-4 w-4" aria-hidden />
-          </Button>
-        </div>
+        <InfoHint text="Porcentaje de acciones cerradas a tiempo sobre el total de acciones cerradas. Fórmula: cerradas a tiempo / cerradas × 100." />
       </div>
 
       <div className="grid items-center gap-6 p-5 sm:grid-cols-[minmax(10rem,0.85fr)_minmax(12rem,1.15fr)]">
@@ -972,9 +923,188 @@ function IcoRankingPanel({
   )
 }
 
-export function DashboardExecutivePanel({ metrics, isLoading, onDrillDown }: DashboardExecutivePanelProps) {
-  const openTotal = metrics.openActions.length
+function matchesPriorityFilter(
+  action: AccionDiaria,
+  priorityFilter: string,
+  priorities: Priority[]
+): boolean {
+  if (priorityFilter === 'all') return true
+  const matched = findPriorityForAccion(action, priorities)
+  if (matched) return matched.id === priorityFilter
+  return action.prioridad_id === priorityFilter || action.prioridad === priorityFilter
+}
 
+function filterOpenActionsByPriority(
+  actions: AccionDiaria[],
+  priorityFilter: string,
+  priorities: Priority[]
+): AccionDiaria[] {
+  if (priorityFilter === 'all') return actions
+  return actions.filter((action) => matchesPriorityFilter(action, priorityFilter, priorities))
+}
+
+function filterAgingBuckets(
+  buckets: DashboardAgingBucket[],
+  openActions: AccionDiaria[]
+): DashboardAgingBucket[] {
+  const ids = new Set(openActions.map((action) => action.id))
+  return buckets.map((bucket) => {
+    const actions = bucket.actions.filter((action) => ids.has(action.id))
+    return { ...bucket, actions, count: actions.length }
+  })
+}
+
+function filterBacklogByArea(
+  items: DashboardAreaMetric[],
+  openActions: AccionDiaria[]
+): DashboardAreaMetric[] {
+  const ids = new Set(openActions.map((action) => action.id))
+  return items
+    .map((item) => {
+      const actions = item.actions.filter((action) => ids.has(action.id))
+      return { ...item, actions, value: actions.length }
+    })
+    .filter((item) => item.value > 0)
+}
+
+function averageOpenAgeMetric(
+  openActions: AccionDiaria[],
+  today: string,
+  baseline: DashboardMetric,
+  isFiltered: boolean
+): DashboardMetric {
+  if (!isFiltered) return baseline
+  if (openActions.length === 0) {
+    return {
+      value: 0,
+      previous: 0,
+      trend: { current: 0, previous: 0, delta: 0, direction: 'flat', isGood: null },
+    }
+  }
+  const dayMs = 86_400_000
+  const end = Date.parse(`${today}T00:00:00`)
+  const sum = openActions.reduce((acc, action) => {
+    const start = Date.parse(action.created_at)
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return acc
+    return acc + Math.max(0, (end - start) / dayMs)
+  }, 0)
+  const value = Math.round((sum / openActions.length) * 10) / 10
+  return {
+    value,
+    previous: value,
+    trend: { current: value, previous: value, delta: 0, direction: 'flat', isGood: null },
+  }
+}
+
+function CargaOperativaSection({
+  metrics,
+  priorities,
+  isLoading,
+  onDrillDown,
+}: {
+  metrics: OperationalDashboardMetrics
+  priorities: Priority[]
+  isLoading?: boolean
+  onDrillDown: (input: DrillDownInput) => void
+}) {
+  const [priorityFilter, setPriorityFilter] = useState('all')
+
+  const priorityOptions = useMemo(() => {
+    const sorted = [...priorities].sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre))
+    return sorted.map((priority) => ({
+      value: priority.id,
+      label: priorityDisplayLabel(priority.nombre),
+    }))
+  }, [priorities])
+
+  const filteredOpenActions = useMemo(
+    () => filterOpenActionsByPriority(metrics.openActions, priorityFilter, priorities),
+    [metrics.openActions, priorities, priorityFilter]
+  )
+  const openTotal = filteredOpenActions.length
+  const agingBuckets = useMemo(
+    () => filterAgingBuckets(metrics.agingBuckets, filteredOpenActions),
+    [filteredOpenActions, metrics.agingBuckets]
+  )
+  const backlogByArea = useMemo(
+    () => filterBacklogByArea(metrics.backlogByArea, filteredOpenActions),
+    [filteredOpenActions, metrics.backlogByArea]
+  )
+  const avgOpenAgeDays = useMemo(
+    () =>
+      averageOpenAgeMetric(
+        filteredOpenActions,
+        metrics.today,
+        metrics.avgOpenAgeDays,
+        priorityFilter !== 'all'
+      ),
+    [filteredOpenActions, metrics.avgOpenAgeDays, metrics.today, priorityFilter]
+  )
+
+  return (
+    <section className="scroll-mt-4">
+      <SectionCard>
+        <SectionCardHeader
+          eyebrow="Carga operativa"
+          title="Trabajo abierto y antigüedad"
+          subtitle="Dónde se concentra el trabajo pendiente y cuánto tiempo lleva abierto."
+          icon={Timer}
+          action={
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                <SelectTrigger
+                  className="h-8 w-[11.5rem] border-border/70 bg-background text-xs"
+                  aria-label="Filtrar por prioridad"
+                >
+                  <SelectValue placeholder="Prioridad" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las prioridades</SelectItem>
+                  {priorityOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Badge variant="secondary" className="h-7 gap-1.5 px-2.5 tabular-nums">
+                <ListChecks className="h-3.5 w-3.5" aria-hidden />
+                {openTotal} {openTotal === 1 ? 'acción abierta' : 'acciones abiertas'}
+              </Badge>
+            </div>
+          }
+        />
+        <SectionCardBody className="space-y-5">
+          <AgingDistributionChart
+            buckets={agingBuckets}
+            total={openTotal}
+            onDrillDown={onDrillDown}
+          />
+          <div className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
+            <BacklogByAreaChart
+              items={backlogByArea}
+              total={openTotal}
+              onDrillDown={onDrillDown}
+            />
+            <AverageOpenAgeCard
+              metric={avgOpenAgeDays}
+              actions={filteredOpenActions}
+              onDrillDown={onDrillDown}
+              loading={isLoading}
+            />
+          </div>
+        </SectionCardBody>
+      </SectionCard>
+    </section>
+  )
+}
+
+export function DashboardExecutivePanel({
+  metrics,
+  priorities = [],
+  isLoading,
+  onDrillDown,
+}: DashboardExecutivePanelProps) {
   return (
     <div id="dashboard-executive-panel" className="space-y-5">
       <section className="scroll-mt-4">
@@ -1031,7 +1161,7 @@ export function DashboardExecutivePanel({ metrics, isLoading, onDrillDown }: Das
                   title="Tiempo promedio de cierre"
                   value={metrics.avgCloseDays.value}
                   suffix="días"
-                  description="Promedio entre creación y cierre operativo."
+                  description="Acciones ya cerradas. Promedio de días desde la creación hasta el cierre operativo. Responde: ¿cuánto tardamos en cerrar lo que ya terminamos?"
                   formula="fecha cierre − fecha creación"
                   metric={metrics.avgCloseDays}
                   tone={toneForDays(metrics.avgCloseDays.value)}
@@ -1076,42 +1206,12 @@ export function DashboardExecutivePanel({ metrics, isLoading, onDrillDown }: Das
         </SectionCard>
       </section>
 
-      <section className="scroll-mt-4">
-        <SectionCard>
-          <SectionCardHeader
-            eyebrow="Carga operativa"
-            title="Trabajo abierto y antigüedad"
-            subtitle="Dónde se concentra el trabajo pendiente y cuánto tiempo lleva abierto."
-            icon={Timer}
-            action={
-              <Badge variant="secondary" className="h-7 gap-1.5 px-2.5 tabular-nums">
-                <ListChecks className="h-3.5 w-3.5" aria-hidden />
-                {openTotal} {openTotal === 1 ? 'acción abierta' : 'acciones abiertas'}
-              </Badge>
-            }
-          />
-          <SectionCardBody className="space-y-5">
-            <AgingDistributionChart
-              buckets={metrics.agingBuckets}
-              total={openTotal}
-              onDrillDown={onDrillDown}
-            />
-            <div className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
-              <BacklogByAreaChart
-                items={metrics.backlogByArea}
-                total={openTotal}
-                onDrillDown={onDrillDown}
-              />
-              <AverageOpenAgeCard
-                metric={metrics.avgOpenAgeDays}
-                actions={metrics.openActions}
-                onDrillDown={onDrillDown}
-                loading={isLoading}
-              />
-            </div>
-          </SectionCardBody>
-        </SectionCard>
-      </section>
+      <CargaOperativaSection
+        metrics={metrics}
+        priorities={priorities}
+        isLoading={isLoading}
+        onDrillDown={onDrillDown}
+      />
 
       <section className="scroll-mt-4">
         <SectionCard>
@@ -1129,3 +1229,4 @@ export function DashboardExecutivePanel({ metrics, isLoading, onDrillDown }: Das
     </div>
   )
 }
+

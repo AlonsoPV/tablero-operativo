@@ -26,6 +26,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { getAppNow } from '@/lib/clock'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
@@ -135,6 +136,86 @@ function isOverdue(action: TeamAction, board: TeamBoard) {
 function isCritical(action: TeamAction, board: TeamBoard) {
   const priority = action.prioridad.trim().toLowerCase()
   return isOpenAction(action, board) && (priority.includes('crit') || priority.includes('p1'))
+}
+
+function normalizeTeamStateName(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '_')
+}
+
+function isTeamTodayStateName(value: string) {
+  return normalizeTeamStateName(value) === 'hoy'
+}
+
+function isTeamPendingLikeStateName(value: string) {
+  const key = normalizeTeamStateName(value)
+  return key === 'pendiente' || key === 'asignado' || key === 'asignada'
+}
+
+function getCdmxWallClockParts(date: Date) {
+  return {
+    ymd: date.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' }),
+    hm: date.toLocaleTimeString('en-GB', {
+      timeZone: 'America/Mexico_City',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }),
+  }
+}
+
+function getTeamDueCdmxParts(value: string | null | undefined) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return getCdmxWallClockParts(date)
+}
+
+function hasTeamActionReachedTodayTime(action: TeamAction, now = getAppNow()) {
+  const due = getTeamDueCdmxParts(action.fecha_limite)
+  if (!due) return false
+  const current = getCdmxWallClockParts(now)
+  return due.ymd === current.ymd && current.hm >= due.hm
+}
+
+function isTeamActionTodayButNotTime(action: TeamAction, now = getAppNow()) {
+  const due = getTeamDueCdmxParts(action.fecha_limite)
+  if (!due) return false
+  const current = getCdmxWallClockParts(now)
+  return due.ymd === current.ymd && current.hm < due.hm
+}
+
+function getTeamFallbackBeforeTodayStateId(board: TeamBoard) {
+  return (
+    board.states.find((state) => isTeamPendingLikeStateName(state.nombre) && !state.es_final)?.id ??
+    board.states.find((state) => !isTeamTodayStateName(state.nombre) && !state.es_final)?.id ??
+    null
+  )
+}
+
+function getEffectiveTeamStateId(action: TeamAction, board: TeamBoard) {
+  if (!isOpenAction(action, board)) return action.estado_id
+  const currentState = board.states.find((state) => state.id === action.estado_id)
+  const todayState = board.states.find((state) => isTeamTodayStateName(state.nombre))
+  if (!todayState) return action.estado_id
+
+  if (currentState && isTeamTodayStateName(currentState.nombre) && isTeamActionTodayButNotTime(action)) {
+    return getTeamFallbackBeforeTodayStateId(board) ?? action.estado_id
+  }
+
+  if (
+    currentState &&
+    isTeamPendingLikeStateName(currentState.nombre) &&
+    hasTeamActionReachedTodayTime(action)
+  ) {
+    return todayState.id
+  }
+
+  return action.estado_id
 }
 
 function hexToRgba(hex: string | null | undefined, alpha: number): string | undefined {
@@ -453,13 +534,13 @@ export function TeamKanbanPage() {
         return false
       }
       if (filters.priority !== 'all' && action.prioridad !== filters.priority) return false
-      if (filters.stateId !== 'all' && action.estado_id !== filters.stateId) return false
+      if (filters.stateId !== 'all' && board.data && getEffectiveTeamStateId(action, board.data) !== filters.stateId) return false
       const due = action.fecha_limite?.slice(0, 10) ?? ''
       if (filters.dateFrom && (!due || due < filters.dateFrom)) return false
       if (filters.dateTo && (!due || due > filters.dateTo)) return false
       return true
     })
-  }, [board.data?.actions, filters])
+  }, [board.data, filters])
 
   const { data: commentCounts = {} } = useTeamActionCommentCounts(filteredActions.map((action) => action.id))
 
@@ -584,7 +665,7 @@ export function TeamKanbanPage() {
               aria-label="Estatus del tablero"
             >
               {board.data.states.map((state, index) => {
-                const count = filteredActions.filter((a) => a.estado_id === state.id).length
+                const count = filteredActions.filter((a) => getEffectiveTeamStateId(a, board.data!) === state.id).length
                 const active = activeStateId === state.id
                 return (
                   <button
@@ -663,7 +744,7 @@ export function TeamKanbanPage() {
               className="kanban-board flex min-w-0 snap-x snap-proximity gap-4 overflow-x-auto overscroll-x-contain px-3 pb-4 pt-1 sm:gap-5 sm:px-12 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-primary"
             >
               {board.data.states.map((state) => {
-                const stateActions = filteredActions.filter((a) => a.estado_id === state.id)
+                const stateActions = filteredActions.filter((a) => getEffectiveTeamStateId(a, board.data!) === state.id)
                 const overdueInColumn = stateActions.filter((a) =>
                   isOverdue(a, board.data!)
                 ).length

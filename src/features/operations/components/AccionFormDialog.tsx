@@ -54,6 +54,7 @@ import {
 } from '../constants/fechaCompromisoChangeReasons'
 import type { AccionCreateInput, AccionFormInput } from '../schemas/accion.schema'
 import { flattenDescripcionForForm } from '../utils/descripcionAccionTriada'
+import { isEvidenciaNoRequerida } from '../utils/evidenciaEsperada'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { CheckCircle2, Download, ExternalLink, Loader2, Paperclip, FileText, Image, Mail, Save, Trash2, X } from 'lucide-react'
@@ -446,6 +447,8 @@ export function AccionFormDialog({
         descripcion_quiero: '',
         descripcion_para_que: '',
         hora_limite: '17:00',
+        requiere_evidencia: false,
+        evidencia_esperada: '',
         prioridad: undefined,
         tipo_accion: 'operativa',
         story_points: 0,
@@ -454,6 +457,8 @@ export function AccionFormDialog({
       }
     }
     const prioridadResuelta = resolveAccionPrioridadNombre(accionLive, priorities)
+    const evidencia = accionLive.evidencia_esperada ?? ''
+    const requiereEvidencia = !isEvidenciaNoRequerida(evidencia)
     return {
       fecha: accionLive.fecha,
       titulo_accion: accionLive.titulo_accion ?? '',
@@ -464,7 +469,8 @@ export function AccionFormDialog({
       descripcion_para_que: '',
       responsable: accionLive.responsable,
       hora_limite: accionLive.hora_limite?.slice(0, 5) ?? '17:00',
-      evidencia_esperada: accionLive.evidencia_esperada,
+      requiere_evidencia: requiereEvidencia,
+      evidencia_esperada: evidencia,
       estado: accionLive.estado,
       prioridad: prioridadResuelta || accionLive.prioridad,
       area: accionLive.area ?? undefined,

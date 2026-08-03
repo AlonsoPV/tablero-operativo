@@ -5,6 +5,7 @@ import type { KanbanHealthMetrics } from '../utils/metricas'
 import {
   isActionStatusActiveInCatalog,
   statusCatalogByKey,
+  statusCatalogDescription,
   statusCatalogLabel,
 } from '../utils/statusCatalog'
 
@@ -14,10 +15,29 @@ type KanbanMetricsRowProps = {
   className?: string
 }
 
+function retrasoHint(metrics: KanbanHealthMetrics, emptyHint: string): string {
+  if (metrics.vencidas <= 0) return emptyHint
+  if (metrics.vencidasRojas <= 0) return 'Sin rojas en retraso'
+  if (metrics.vencidasRojas === metrics.vencidas) {
+    return metrics.vencidasRojas === 1 ? '1 roja en retraso' : `${metrics.vencidasRojas} rojas en retraso`
+  }
+  return metrics.vencidasRojas === 1
+    ? '1 roja entre ellas'
+    : `${metrics.vencidasRojas} rojas entre ellas`
+}
+
 export function KanbanMetricsRow({ metrics, statuses = [], className }: KanbanMetricsRowProps) {
   const statusByKey = statusCatalogByKey(statuses)
   const showBlockedMetric = isActionStatusActiveInCatalog(statuses, 'Bloqueado')
+  const showRetrasoMetric = isActionStatusActiveInCatalog(statuses, 'Retraso')
   const blockedLabel = statusCatalogLabel('Bloqueado', statusByKey)
+  const retrasoLabel = statusCatalogLabel('Retraso', statusByKey)
+  const retrasoEmptyHint = statusCatalogDescription(
+    'Retraso',
+    statusByKey,
+    'Fecha o hora límite rebasada'
+  )
+  const hasOverdueReds = metrics.vencidasRojas > 0
 
   const items = [
     {
@@ -25,6 +45,7 @@ export function KanbanMetricsRow({ metrics, statuses = [], className }: KanbanMe
       label: 'Rojos',
       value: metrics.rojos,
       hint: 'Criticas abiertas',
+      hintTone: undefined as string | undefined,
       icon: AlertTriangle,
       tone: 'border-red-200/80 bg-red-50/80',
       valueTone: 'text-red-700',
@@ -33,20 +54,24 @@ export function KanbanMetricsRow({ metrics, statuses = [], className }: KanbanMe
     },
     {
       key: 'vencidas',
-      label: 'Vencidas',
+      label: retrasoLabel,
       value: metrics.vencidas,
-      hint: 'Fecha rebasada',
+      hint: retrasoHint(metrics, retrasoEmptyHint),
+      hintTone: hasOverdueReds ? 'font-medium text-red-700' : undefined,
       icon: Clock3,
-      tone: 'border-orange-200/80 bg-orange-50/80',
-      valueTone: 'text-orange-700',
-      labelTone: 'text-orange-800/80',
-      visible: true,
+      tone: hasOverdueReds
+        ? 'border-red-300/80 bg-gradient-to-br from-orange-50 via-orange-50 to-red-50/80'
+        : 'border-orange-200/80 bg-orange-50/80',
+      valueTone: hasOverdueReds ? 'text-red-700' : 'text-orange-700',
+      labelTone: hasOverdueReds ? 'text-red-800/80' : 'text-orange-800/80',
+      visible: showRetrasoMetric,
     },
     {
       key: 'bloqueadas',
       label: blockedLabel,
       value: metrics.bloqueadas,
       hint: 'Sin avance',
+      hintTone: undefined as string | undefined,
       icon: Ban,
       tone: 'border-amber-200/80 bg-amber-50/70',
       valueTone: 'text-amber-800',
@@ -58,6 +83,7 @@ export function KanbanMetricsRow({ metrics, statuses = [], className }: KanbanMe
       label: 'Abiertas',
       value: metrics.abiertas,
       hint: 'En flujo',
+      hintTone: undefined as string | undefined,
       icon: FolderOpen,
       tone: 'border-border/70 bg-card',
       valueTone: 'text-foreground',
@@ -91,7 +117,7 @@ export function KanbanMetricsRow({ metrics, statuses = [], className }: KanbanMe
             <p className={cn('text-2xl font-bold tabular-nums leading-none sm:text-[1.75rem]', item.valueTone)}>
               {item.value}
             </p>
-            <p className="text-[11px] text-muted-foreground">{item.hint}</p>
+            <p className={cn('text-[11px] text-muted-foreground', item.hintTone)}>{item.hint}</p>
           </div>
         </div>
       ))}

@@ -72,6 +72,10 @@ function isAfterCdmxTime(currentHm: string, deadlineHm: string): boolean {
   return currentHm > deadlineHm
 }
 
+function isAtOrAfterCdmxTime(currentHm: string, deadlineHm: string): boolean {
+  return currentHm >= deadlineHm
+}
+
 function isPastAccionDeadline(accion: AccionDiaria, now = getAppNow()): boolean {
   const fecha = normalizeFechaCompromiso(accion.fecha)
   const { ymd, hm } = getCdmxWallClock(now)
@@ -106,7 +110,8 @@ export function getAutoEstadoPorFechaCompromiso(accion: AccionDiaria): ActionSta
   if (!isAutoSyncEligible(accion)) return null
 
   const fecha = normalizeFechaCompromiso(accion.fecha)
-  const today = getCdmxWallClock(getAppNow()).ymd
+  const { ymd: today, hm } = getCdmxWallClock(getAppNow())
+  const deadlineHm = normalizeHoraLimite(accion.hora_limite)
 
   if (isPastAccionDeadline(accion)) {
     return accion.estado === 'Retraso' ? null : 'Retraso'
@@ -116,6 +121,9 @@ export function getAutoEstadoPorFechaCompromiso(accion: AccionDiaria): ActionSta
     return null
   }
   if (fecha === today) {
+    if (!isAtOrAfterCdmxTime(hm, deadlineHm)) {
+      return accion.estado === 'Hoy' || accion.estado === 'Retraso' ? 'Pendiente' : null
+    }
     if (accion.estado === 'Hoy' || accion.estado === 'En_Ejecucion') return null
     return 'Hoy'
   }

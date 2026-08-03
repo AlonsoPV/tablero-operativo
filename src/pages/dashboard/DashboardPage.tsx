@@ -210,16 +210,14 @@ export function DashboardPage() {
     <div id="dashboard-page" className="dashboard-page min-h-0">
       <div className="mx-auto w-full max-w-7xl space-y-6 overflow-x-hidden px-3 py-5 sm:space-y-8 sm:px-6 sm:py-6">
         <section
-          className="dashboard-control-center space-y-5 rounded-2xl border border-border/50 bg-card/30 p-4 shadow-sm ring-1 ring-black/5 dark:bg-card/20 dark:ring-white/10 sm:p-6"
+          className="dashboard-control-center overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-card via-card to-muted/25 p-5 shadow-sm sm:p-6"
           aria-labelledby="dashboard-title"
         >
           <DashboardHeader
             filtersExpanded={filtersExpanded}
             advancedFiltersActive={advancedFiltersActive}
-            title={usesOperationalDashboard ? 'Vision general' : undefined}
-            eyebrow={usesOperationalDashboard ? 'Tablero operativo' : undefined}
+            eyebrow={usesOperationalDashboard ? 'Tablero operativo' : 'Tablero ejecutivo'}
             onToggleFilters={() => setFiltersExpanded((v) => !v)}
-            onNewAction={handleCreate}
             filtersPanel={
               <KanbanToolbar
                 filter={filter}
@@ -238,6 +236,7 @@ export function DashboardPage() {
         >
           <DashboardExecutivePanel
             metrics={executiveMetrics}
+            priorities={priorities}
             isLoading={isLoading || previousAccionesLoading}
             onDrillDown={handleDrillDown}
           />

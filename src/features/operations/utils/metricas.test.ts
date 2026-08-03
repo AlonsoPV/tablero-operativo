@@ -59,20 +59,54 @@ const priorities: Priority[] = [
 ]
 
 describe('kanbanHealthFromAcciones', () => {
-  it('cuenta abiertas, rojas, vencidas y bloqueadas', () => {
+  it('cuenta abiertas, rojas, retraso y bloqueadas', () => {
     const metrics = kanbanHealthFromAcciones(
       [
         action({ id: '1', prioridad: 'P1_Critica', prioridad_id: 'p1' }),
         action({ id: '2', estado: 'Bloqueado', fecha: '2020-01-01' }),
         action({ id: '3', estado: 'Hecho' }),
         action({ id: '4', fecha: '2020-01-01', hora_limite: '00:00' }),
+        action({ id: '5', estado: 'Retraso', fecha: '2020-01-02', hora_limite: '00:00' }),
       ],
       priorities
     )
 
-    expect(metrics.abiertas).toBe(3)
+    expect(metrics.abiertas).toBe(4)
     expect(metrics.rojos).toBe(1)
     expect(metrics.bloqueadas).toBe(1)
-    expect(metrics.vencidas).toBeGreaterThanOrEqual(2)
+    // Bloqueadas no entran en Retraso aunque la fecha esté vencida.
+    expect(metrics.vencidas).toBe(2)
+    expect(metrics.vencidasRojas).toBe(0)
+  })
+
+  it('cuenta rojas dentro de retraso', () => {
+    const metrics = kanbanHealthFromAcciones(
+      [
+        action({
+          id: 'red-overdue',
+          prioridad: 'P1_Critica',
+          prioridad_id: 'p1',
+          fecha: '2020-01-01',
+          hora_limite: '00:00',
+        }),
+        action({
+          id: 'yellow-overdue',
+          prioridad: 'P2_Media',
+          fecha: '2020-01-01',
+          hora_limite: '00:00',
+        }),
+        action({
+          id: 'red-open',
+          prioridad: 'P1_Critica',
+          prioridad_id: 'p1',
+          fecha: '2099-01-01',
+        }),
+      ],
+      priorities
+    )
+
+    expect(metrics.vencidas).toBe(2)
+    expect(metrics.vencidasRojas).toBe(1)
+    expect(metrics.rojos).toBe(2)
   })
 })

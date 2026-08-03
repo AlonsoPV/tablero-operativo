@@ -62,10 +62,6 @@ export function KanbanHeader({
       className={cn('kanban-header flex min-w-0 flex-col gap-2.5', className)}
     >
       <div className="kanban-header-title-area min-w-0 space-y-2.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Operaciones
-        </p>
-
         <div className="grid min-w-0 gap-2.5 md:grid-cols-[minmax(0,auto)_minmax(0,1fr)] md:items-start md:gap-x-4 lg:gap-x-5">
           <h1
             id="kanban-title"

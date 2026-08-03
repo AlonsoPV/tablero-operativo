@@ -92,7 +92,7 @@ export function AccionChecklistEditor({ items, onChange, disabled, users = [] }:
         <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-2">
           <div className="space-y-1.5">
             <Label htmlFor="checkpoint-draft" className="text-xs font-semibold text-foreground/80">
-              Indicacion
+              Validación
             </Label>
             <Input
               id="checkpoint-draft"

@@ -8,6 +8,10 @@ import { ACTION_STATUS } from '@/types'
 import { DEFAULT_PRIORITY_NOMBRE } from '../utils/priorityLabels'
 import { formatDescripcionTriada } from '../utils/descripcionAccionTriada'
 import { STORY_POINTS_OPTIONS } from '../utils/tipoAccionConfig'
+import {
+  isEvidenciaNoRequerida,
+  normalizeEvidenciaEsperada,
+} from '../utils/evidenciaEsperada'
 
 const TIPO_ACCION_ENUM = z.enum(['operativa', 'sprint', 'estrategica', 'desbloqueo'])
 const DESCRIPCION_MAX = 2000
@@ -28,12 +32,6 @@ const descripcionParteSchema = z
       .min(5, 'Mínimo 5 caracteres')
       .max(400, 'Máximo 400 caracteres')
   )
-
-const evidenciaEsperadaSchema = z
-  .string()
-  .min(1, 'La evidencia esperada es obligatoria')
-  .transform((s) => s.trim())
-  .pipe(z.string().min(5, 'Mínimo 5 caracteres'))
 
 /** Formato hora HH:MM (sin segundos) */
 const horaSchema = z
@@ -77,7 +75,9 @@ const accionInputShape = z.object({
   descripcion_para_que: z.string().optional(),
   responsable: z.string().uuid('Responsable obligatorio'),
   hora_limite: horaSchema,
-  evidencia_esperada: evidenciaEsperadaSchema,
+  /** UI: si true, exige elegir evidencia real (no el sentinel). */
+  requiere_evidencia: z.boolean().default(false),
+  evidencia_esperada: z.string().max(500).optional().default(''),
   estado: z.enum(ACTION_STATUS as unknown as [string, ...string[]]).optional(),
   prioridad: z
     .string()
@@ -153,6 +153,23 @@ const accionInputShape = z.object({
       message: `La descripcion completa no puede exceder ${DESCRIPCION_MAX} caracteres.`,
     })
   }
+
+  const evidencia = (value.evidencia_esperada ?? '').trim()
+  if (value.requiere_evidencia) {
+    if (!evidencia || isEvidenciaNoRequerida(evidencia)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evidencia_esperada'],
+        message: 'Selecciona una opción de evidencia.',
+      })
+    } else if (evidencia.length < 5) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evidencia_esperada'],
+        message: 'Describe la evidencia (mín. 5 caracteres).',
+      })
+    }
+  }
 })
 
 export const accionCreateSchema = accionInputShape.transform(
@@ -164,12 +181,15 @@ export const accionCreateSchema = accionInputShape.transform(
     descripcion_para_que,
     gap_ids,
     catalog_kpi_ids,
+    requiere_evidencia: _requiereEvidencia,
+    evidencia_esperada,
     ...rest
   }) => {
     const gids = gap_ids ?? []
     const kids = catalog_kpi_ids ?? []
     return {
       ...rest,
+      evidencia_esperada: normalizeEvidenciaEsperada(evidencia_esperada),
       descripcion_accion: buildDescripcionAccion({
         descripcion_modo,
         descripcion_simple,
@@ -202,7 +222,11 @@ export const accionUpdateSchema = z
       .optional(),
     responsable: z.string().uuid().optional(),
     hora_limite: horaSchema.optional(),
-    evidencia_esperada: z.string().min(5).max(500).optional(),
+    evidencia_esperada: z
+      .string()
+      .transform((s) => normalizeEvidenciaEsperada(s))
+      .pipe(z.string().min(5).max(500))
+      .optional(),
     estado: z.enum(ACTION_STATUS as unknown as [string, ...string[]]).optional(),
     prioridad: z.string().min(1, 'Prioridad obligatoria').max(100).optional(),
     kpi_afectado: z.string().uuid().nullable().optional(),

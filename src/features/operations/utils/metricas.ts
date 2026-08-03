@@ -6,7 +6,7 @@ import type { AccionDiaria } from '@/types'
 import type { Priority } from '@/features/catalogs/types/catalogs.types'
 import { priorityColorFor } from './priorityColors'
 import { findPriorityForAccion } from './resolveAccionPrioridad'
-import { isEnRetraso } from './accionUtils'
+import { getAccionKanbanColumn } from './accionUtils'
 
 export interface MetricasAcciones {
   total: number
@@ -18,12 +18,24 @@ export interface MetricasAcciones {
 
 export type KanbanHealthMetrics = {
   rojos: number
+  /** Acciones abiertas en columna/estatus Retraso (misma regla que el Kanban). */
   vencidas: number
+  /** Subconjunto de Retraso con prioridad roja/crítica. */
+  vencidasRojas: number
   bloqueadas: number
   abiertas: number
 }
 
 const ESTADOS_CERRADOS = new Set(['Hecho', 'Verificado'])
+
+function isAccionRoja(accion: AccionDiaria, priorities: Priority[]): boolean {
+  const priority = findPriorityForAccion(accion, priorities)
+  return priorityColorFor(priority?.nombre ?? accion.prioridad, priority?.color) === 'rojo'
+}
+
+function isEnColumnaRetraso(accion: AccionDiaria): boolean {
+  return getAccionKanbanColumn(accion) === 'Retraso'
+}
 
 export function metricasFromAcciones(acciones: AccionDiaria[]): MetricasAcciones {
   const total = acciones.length
@@ -31,7 +43,7 @@ export function metricasFromAcciones(acciones: AccionDiaria[]): MetricasAcciones
     a.estado === 'Hecho' || a.estado === 'Verificado'
   ).length
   const bloqueadas = acciones.filter((a) => a.estado === 'Bloqueado').length
-  const retraso = acciones.filter((a) => a.estado === 'Retraso' || isEnRetraso(a)).length
+  const retraso = acciones.filter((a) => isEnColumnaRetraso(a)).length
   const eficienciaPorcentaje = total > 0 ? Math.round((completadas / total) * 100) : 0
 
   return {
@@ -49,13 +61,12 @@ export function kanbanHealthFromAcciones(
   priorities: Priority[] = []
 ): KanbanHealthMetrics {
   const open = acciones.filter((accion) => !ESTADOS_CERRADOS.has(accion.estado))
+  const vencidas = open.filter((accion) => isEnColumnaRetraso(accion))
 
   return {
-    rojos: open.filter((accion) => {
-      const priority = findPriorityForAccion(accion, priorities)
-      return priorityColorFor(priority?.nombre ?? accion.prioridad, priority?.color) === 'rojo'
-    }).length,
-    vencidas: open.filter((accion) => isEnRetraso(accion)).length,
+    rojos: open.filter((accion) => isAccionRoja(accion, priorities)).length,
+    vencidas: vencidas.length,
+    vencidasRojas: vencidas.filter((accion) => isAccionRoja(accion, priorities)).length,
     bloqueadas: open.filter((accion) => accion.estado === 'Bloqueado').length,
     abiertas: open.length,
   }

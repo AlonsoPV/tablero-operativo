@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
   ArrowRight,
   CalendarClock,
   CheckCircle2,
   ClipboardList,
+  FilePlus2,
   Flag,
   Gauge,
   Layers3,
@@ -21,6 +22,7 @@ type ReglamentoNavId =
   | 'alcance'
   | 'definiciones'
   | 'prioridades'
+  | 'crear'
   | 'ciclo'
   | 'daily'
   | 'reprogramacion'
@@ -34,6 +36,7 @@ const navItems: Array<{ id: ReglamentoNavId; label: string; icon: typeof Scale }
   { id: 'alcance', label: 'Alcance', icon: Layers3 },
   { id: 'definiciones', label: 'Definiciones', icon: ClipboardList },
   { id: 'prioridades', label: 'Prioridades', icon: Flag },
+  { id: 'crear', label: 'Crear acción', icon: FilePlus2 },
   { id: 'ciclo', label: 'Ciclo de vida', icon: ArrowRight },
   { id: 'daily', label: 'Daily', icon: Users },
   { id: 'reprogramacion', label: 'Reprogramación', icon: CalendarClock },
@@ -41,21 +44,6 @@ const navItems: Array<{ id: ReglamentoNavId; label: string; icon: typeof Scale }
   { id: 'roles', label: 'Roles', icon: Users },
   { id: 'indicadores', label: 'Indicadores', icon: Gauge },
   { id: 'principios', label: 'Principios', icon: Scale },
-]
-
-const foundations = [
-  {
-    title: 'EOS',
-    detail: 'Responsabilidad individual y disciplina de ejecución.',
-  },
-  {
-    title: 'Scaling Up',
-    detail: 'Seguimiento mediante indicadores y cadencia operativa.',
-  },
-  {
-    title: 'Lean',
-    detail: 'Mejora continua basada en datos y eliminación de desperdicios.',
-  },
 ]
 
 const scopeItems = [
@@ -117,46 +105,97 @@ const definitions = [
       'Proceso mediante el cual una acción se notifica automáticamente al siguiente nivel jerárquico cuando requiere intervención.',
   },
   {
-    term: 'ICO – Índice de Confiabilidad Operativa',
+    term: 'ICO',
     definition:
-      'Indicador que mide la confiabilidad en el cumplimiento de los compromisos asumidos por cada colaborador.',
+      'Índice de Confiabilidad Operativa: mide la confiabilidad en el cumplimiento de los compromisos de cada colaborador.',
   },
 ]
 
 const priorities = [
   {
     label: 'Roja',
-    tone: 'border-red-200 bg-red-50 text-red-950',
-    badge: 'bg-red-500 text-white',
+    summary: 'Impacto crítico. Revisar todos los días.',
+    dot: 'bg-red-500',
+    bar: 'bg-red-500',
+    shell: 'border-red-200/80 bg-red-50/50',
+    chip: 'bg-red-100 text-red-800',
     uses: [
       'Impacta directamente al cliente.',
       'Impacta ingresos.',
       'Detiene el trabajo de otra área.',
       'Genera un riesgo operativo importante.',
     ],
-    note: 'Las acciones rojas son revisadas diariamente.',
   },
   {
     label: 'Amarilla',
-    tone: 'border-amber-200 bg-amber-50 text-amber-950',
-    badge: 'bg-amber-500 text-white',
+    summary: 'Impacto moderado. Requiere seguimiento.',
+    dot: 'bg-amber-500',
+    bar: 'bg-amber-500',
+    shell: 'border-amber-200/80 bg-amber-50/50',
+    chip: 'bg-amber-100 text-amber-900',
     uses: [
       'Impacto operativo moderado.',
       'Requieren seguimiento.',
       'No representan un riesgo crítico.',
     ],
-    note: 'Mantienen cadencia sin saturar la operación crítica.',
   },
   {
     label: 'Verde',
-    tone: 'border-emerald-200 bg-emerald-50 text-emerald-950',
-    badge: 'bg-emerald-500 text-white',
+    summary: 'Impacto menor. Atiéndela a tiempo.',
+    dot: 'bg-emerald-500',
+    bar: 'bg-emerald-500',
+    shell: 'border-emerald-200/80 bg-emerald-50/50',
+    chip: 'bg-emerald-100 text-emerald-900',
     uses: [
       'Impacto menor.',
       'Deben atenderse dentro del tiempo establecido.',
       'Evitan acumulación de pendientes.',
     ],
-    note: 'No deben olvidarse por parecer menores.',
+  },
+]
+
+const actionCreateFields = [
+  {
+    field: 'Título',
+    required: true,
+    detail: 'Nombre corto y claro del compromiso. Debe permitir entender la acción sin abrir el detalle.',
+  },
+  {
+    field: 'Descripción',
+    required: true,
+    detail: 'Contexto y resultado esperado. Explica qué se debe lograr y por qué importa.',
+  },
+  {
+    field: 'Responsable',
+    required: true,
+    detail: 'Única persona encargada de ejecutar y mantener actualizada la acción.',
+  },
+  {
+    field: 'Prioridad',
+    required: true,
+    detail: 'Roja, amarilla o verde según el impacto operativo y el nivel de atención requerido.',
+  },
+  {
+    field: 'Fecha y hora límite',
+    required: true,
+    detail: 'Fecha compromiso con hora. Representa el acuerdo de entrega; solo cambia con causa documentada.',
+  },
+  {
+    field: 'Evidencia',
+    required: false,
+    detail:
+      'Opcional. Si se activa, indica qué se espera como prueba de cumplimiento: documento, captura, archivo o comentario verificable.',
+  },
+  {
+    field: 'Validaciones',
+    required: false,
+    detail:
+      'Puntos a cumplir para cerrar la acción. Pueden tener responsable asignado cuando sea necesario.',
+  },
+  {
+    field: 'Apoyo documental',
+    required: false,
+    detail: 'Referencias, archivos o contexto adicional que faciliten la ejecución sin sustituir la evidencia.',
   },
 ]
 
@@ -328,11 +367,6 @@ function SectionShell({
 export function ReglamentoManualSection() {
   const [activeId, setActiveId] = useState<ReglamentoNavId>('objetivo')
 
-  const activeItem = useMemo(
-    () => navItems.find((item) => item.id === activeId) ?? navItems[0],
-    [activeId]
-  )
-
   useEffect(() => {
     const sections = navItems
       .map((item) => document.getElementById(`reglamento-${item.id}`))
@@ -364,40 +398,6 @@ export function ReglamentoManualSection() {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="rounded-2xl border bg-card px-5 py-6 shadow-sm sm:px-8 sm:py-8">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-3xl space-y-3">
-            <Badge className="gap-1.5 border-slate-500/20 bg-slate-500/10 text-slate-700 hover:bg-slate-500/10">
-              <Scale className="h-3.5 w-3.5" aria-hidden />
-              Reglamento interno · Versión 1.0
-            </Badge>
-            <div>
-              <h2 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-                Modelo de Gestión Operativa – SCRUMBAN
-              </h2>
-              <p className="mt-3 text-base leading-7 text-muted-foreground">
-                Reglas para administrar solicitudes, incidencias y compromisos con responsable, fecha
-                compromiso, seguimiento oportuno y cierre verificable.
-              </p>
-            </div>
-          </div>
-          <Card className="w-full rounded-xl border-slate-500/15 bg-slate-500/[0.04] shadow-none lg:w-80">
-            <CardContent className="space-y-3 p-4">
-              <p className="text-sm font-semibold text-foreground">Sección actual</p>
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-700 text-white">
-                  <activeItem.icon className="h-5 w-5" aria-hidden />
-                </span>
-                <div>
-                  <p className="font-medium text-foreground">{activeItem.label}</p>
-                  <p className="text-xs text-muted-foreground">Navega el reglamento completo</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </header>
-
       <nav
         aria-label="Índice del reglamento"
         className="sticky top-2 z-10 -mx-1 overflow-x-auto rounded-xl border border-border/70 bg-card/95 p-2 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80"
@@ -426,19 +426,18 @@ export function ReglamentoManualSection() {
         </div>
       </nav>
 
-      <SectionShell
-        id="objetivo"
-        title="1. Objetivo"
-        subtitle="El objetivo no es administrar tareas, sino asegurar que los compromisos se ejecuten con visibilidad, trazabilidad y responsabilidad."
-      >
+      <SectionShell id="objetivo" title="1. Objetivo">
         <Card className="rounded-xl border-border/70 shadow-sm">
-          <CardContent className="grid gap-4 p-4 sm:p-5 lg:grid-cols-3">
-            {foundations.map((item) => (
-              <article key={item.title} className="rounded-lg border border-border/70 bg-muted/20 p-4">
-                <p className="text-sm font-semibold text-foreground">{item.title}</p>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.detail}</p>
-              </article>
-            ))}
+          <CardContent className="space-y-3 p-4 sm:p-5">
+            <p className="text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
+              Establecer las reglas para administrar solicitudes, incidencias y compromisos mediante
+              SCRUMBAN, garantizando que toda acción tenga un responsable, una fecha compromiso,
+              seguimiento oportuno y cierre verificable.
+            </p>
+            <p className="text-sm font-medium leading-6 text-foreground sm:text-base sm:leading-7">
+              El objetivo no es administrar tareas, sino asegurar que los compromisos se ejecuten con
+              visibilidad, trazabilidad y responsabilidad.
+            </p>
           </CardContent>
         </Card>
       </SectionShell>
@@ -463,50 +462,114 @@ export function ReglamentoManualSection() {
         </p>
       </SectionShell>
 
-      <SectionShell id="definiciones" title="3. Definiciones">
-        <div className="grid gap-3 sm:grid-cols-2">
-          {definitions.map((item) => (
-            <Card key={item.term} className="rounded-xl border-border/70 shadow-sm">
-              <CardContent className="p-4">
-                <p className="font-semibold text-foreground">{item.term}</p>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.definition}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+      <SectionShell
+        id="definiciones"
+        title="3. Definiciones"
+        subtitle="Glosario rápido del modelo operativo."
+      >
+        <Card className="overflow-hidden rounded-xl border-border/70 shadow-sm">
+          <CardContent className="p-0">
+            <dl className="grid gap-px bg-border/50 sm:grid-cols-2">
+              {definitions.map((item) => (
+                <div key={item.term} className="bg-card px-4 py-3.5 sm:px-5">
+                  <dt className="mb-1.5">
+                    <span className="inline-flex rounded-md bg-slate-800/90 px-2 py-0.5 text-xs font-semibold text-white">
+                      {item.term}
+                    </span>
+                  </dt>
+                  <dd className="text-sm leading-5 text-muted-foreground">{item.definition}</dd>
+                </div>
+              ))}
+            </dl>
+          </CardContent>
+        </Card>
       </SectionShell>
 
       <SectionShell
         id="prioridades"
         title="4. Prioridades"
-        subtitle="La prioridad representa el impacto de una acción sobre la operación y determina el nivel de atención requerido."
+        subtitle="La prioridad indica el impacto operativo y el nivel de atención que requiere la acción."
       >
         <div className="grid gap-3 lg:grid-cols-3">
           {priorities.map((item) => (
-            <Card key={item.label} className={cn('rounded-xl border shadow-sm', item.tone)}>
-              <CardContent className="space-y-3 p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-lg font-semibold">{item.label}</p>
-                  <span className={cn('rounded-full px-2.5 py-1 text-xs font-semibold', item.badge)}>
-                    Prioridad
-                  </span>
+            <article
+              key={item.label}
+              className={cn(
+                'overflow-hidden rounded-xl border shadow-sm',
+                item.shell
+              )}
+            >
+              <div className={cn('h-1.5 w-full', item.bar)} />
+              <div className="space-y-3 p-4">
+                <div className="flex items-start gap-3">
+                  <span className={cn('mt-1.5 h-3 w-3 shrink-0 rounded-full', item.dot)} aria-hidden />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-semibold text-foreground">{item.label}</h3>
+                      <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', item.chip)}>
+                        Prioridad
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm font-medium leading-5 text-foreground/80">
+                      {item.summary}
+                    </p>
+                  </div>
                 </div>
-                <ul className="space-y-2 text-sm leading-6">
+                <ul className="space-y-1.5 rounded-lg border border-black/5 bg-white/70 p-3 text-sm leading-5 text-muted-foreground">
                   {item.uses.map((use) => (
                     <li key={use} className="flex gap-2">
-                      <CheckCircle2 className="mt-1 h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+                      <span className={cn('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full', item.dot)} aria-hidden />
                       <span>{use}</span>
                     </li>
                   ))}
                 </ul>
-                <p className="border-t border-black/10 pt-3 text-sm font-medium">{item.note}</p>
-              </CardContent>
-            </Card>
+              </div>
+            </article>
           ))}
         </div>
       </SectionShell>
 
-      <SectionShell id="ciclo" title="5. Ciclo de vida de una acción">
+      <SectionShell
+        id="crear"
+        title="5. Crear una acción"
+        subtitle="Toda acción debe nacer completa: compromiso claro, responsable único y criterios de cierre verificables."
+      >
+        <Card className="overflow-hidden rounded-xl border-border/70 shadow-sm">
+          <CardContent className="p-0">
+            <div className="grid gap-px bg-border/50 sm:grid-cols-2">
+              {actionCreateFields.map((item, index) => (
+                <article key={item.field} className="bg-card px-4 py-3.5 sm:px-5">
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-[11px] font-semibold text-white">
+                      {index + 1}
+                    </span>
+                    <h3 className="text-sm font-semibold text-foreground">{item.field}</h3>
+                    <span
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-[11px] font-medium',
+                        item.required
+                          ? 'bg-primary/10 text-primary'
+                          : 'bg-muted text-muted-foreground'
+                      )}
+                    >
+                      {item.required ? 'Obligatorio' : 'Opcional'}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-5 text-muted-foreground">{item.detail}</p>
+                </article>
+              ))}
+            </div>
+            <div className="border-t border-border/60 bg-muted/20 px-4 py-3 sm:px-5">
+              <p className="text-sm leading-6 text-muted-foreground">
+                Al guardar, la acción queda en <span className="font-medium text-foreground">Asignado</span> y
+                entra al seguimiento operativo. Sin estos datos mínimos, el compromiso no es gestionable.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </SectionShell>
+
+      <SectionShell id="ciclo" title="6. Ciclo de vida de una acción">
         <Card className="rounded-xl border-border/70 shadow-sm">
           <CardContent className="space-y-3 p-4 sm:p-5">
             {lifecycle.map((item, index) => (
@@ -529,7 +592,7 @@ export function ReglamentoManualSection() {
 
       <SectionShell
         id="daily"
-        title="6. Daily operativa"
+        title="7. Daily operativa"
         subtitle="Las reuniones diarias tendrán una duración máxima de 30 minutos y comenzarán a las 9:00 a.m."
       >
         <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
@@ -585,7 +648,7 @@ export function ReglamentoManualSection() {
 
       <SectionShell
         id="reprogramacion"
-        title="7. Reprogramación de fechas"
+        title="8. Reprogramación de fechas"
         subtitle="Toda modificación de la fecha compromiso deberá registrar obligatoriamente una causa. No se permitirá cambiar fechas sin documentar el motivo."
       >
         <Card className="overflow-hidden rounded-xl border-border/70 shadow-sm">
@@ -626,7 +689,7 @@ export function ReglamentoManualSection() {
 
       <SectionShell
         id="escalamiento"
-        title="8. Reglas de escalamiento"
+        title="9. Reglas de escalamiento"
         subtitle="El tablero realizará escalamientos automáticos cuando no exista actividad registrada, para evitar que las acciones permanezcan sin atención."
       >
         <Card className="rounded-xl border-border/70 shadow-sm">
@@ -658,7 +721,7 @@ export function ReglamentoManualSection() {
         </Card>
       </SectionShell>
 
-      <SectionShell id="roles" title="9. Roles y responsabilidades">
+      <SectionShell id="roles" title="10. Roles y responsabilidades">
         <div className="grid gap-3 sm:grid-cols-2">
           {roles.map((role) => (
             <Card key={role.title} className="rounded-xl border-border/70 shadow-sm">
@@ -680,7 +743,7 @@ export function ReglamentoManualSection() {
 
       <SectionShell
         id="indicadores"
-        title="10. Indicadores de seguimiento"
+        title="11. Indicadores de seguimiento"
         subtitle="El tablero mostrará de forma permanente estos indicadores para sostener la disciplina operativa."
       >
         <Card className="rounded-xl border-border/70 shadow-sm">
@@ -700,7 +763,7 @@ export function ReglamentoManualSection() {
 
       <SectionShell
         id="principios"
-        title="11. Principios del modelo"
+        title="12. Principios del modelo"
         subtitle="Todo usuario deberá considerar las siguientes reglas."
       >
         <Card className="rounded-xl border-border/70 shadow-sm">

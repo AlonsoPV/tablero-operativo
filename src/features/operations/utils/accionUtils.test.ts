@@ -71,8 +71,16 @@ describe('accionUtils fecha compromiso CDMX', () => {
     expect(isEnRetraso(baseAccion({ estado: 'Hecho', fecha: '2026-06-04' }))).toBe(false)
   })
 
-  it('no marca retraso el mismo dia antes de la hora limite', () => {
+  it('no muestra en Hoy antes de la hora limite del mismo dia', () => {
     vi.setSystemTime(new Date('2026-06-05T10:00:00-06:00'))
+    expect(isEnRetraso(baseAccion({ fecha: '2026-06-05', hora_limite: '17:00' }))).toBe(false)
+    expect(getAutoEstadoPorFechaCompromiso(baseAccion({ estado: 'Pendiente' }))).toBeNull()
+    expect(getAutoEstadoPorFechaCompromiso(baseAccion({ estado: 'Hoy' }))).toBe('Pendiente')
+    expect(getAccionKanbanColumn(baseAccion({ fecha: '2026-06-05', hora_limite: '17:00' }))).toBe('Pendiente')
+  })
+
+  it('muestra en Hoy cuando llega la hora limite del mismo dia', () => {
+    vi.setSystemTime(new Date('2026-06-05T17:00:00-06:00'))
     expect(isEnRetraso(baseAccion({ fecha: '2026-06-05', hora_limite: '17:00' }))).toBe(false)
     expect(getAutoEstadoPorFechaCompromiso(baseAccion({ estado: 'Pendiente' }))).toBe('Hoy')
     expect(getAccionKanbanColumn(baseAccion({ fecha: '2026-06-05', hora_limite: '17:00' }))).toBe('Hoy')

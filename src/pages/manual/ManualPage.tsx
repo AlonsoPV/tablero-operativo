@@ -20,10 +20,11 @@ import { Card, CardContent } from '@/components/ui/card'
 import { ROUTES } from '@/constants'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { canAccessRouteByRole } from '@/features/auth/lib/permissions'
+import { cn } from '@/lib/utils'
 import { GamificationManualSection } from './GamificationManualSection'
 import { ReglamentoManualSection } from './ReglamentoManualSection'
 
-type ManualTab = 'tablero' | 'gamificacion' | 'reglamento'
+type ManualTab = 'reglamento' | 'gamificacion' | 'tablero'
 
 type ManualSection = {
   title: string
@@ -89,7 +90,7 @@ const academyTopics = [
     description: 'Responsable, fecha, prioridad y compromiso claro.',
     icon: Columns3,
     summary: 'Crear una acción significa convertir una conversación o pendiente en un compromiso gestionable.',
-    steps: ['Define qué se debe lograr.', 'Asigna un responsable real.', 'Agrega fecha compromiso, prioridad y evidencia esperada.'],
+    steps: ['Define qué se debe lograr.', 'Asigna un responsable real.', 'Agrega fecha compromiso y prioridad; evidencia solo si hace falta.'],
     outcome: 'La acción queda en Asignado y ya puede entrar al seguimiento diario.',
   },
   {
@@ -211,8 +212,106 @@ const commitmentDateChangeCategories = [
 
 function tabFromSearchParam(value: string | null): ManualTab {
   if (value === 'gamificacion') return 'gamificacion'
-  if (value === 'reglamento') return 'reglamento'
-  return 'tablero'
+  if (value === 'aprender' || value === 'tablero') return 'tablero'
+  return 'reglamento'
+}
+
+const manualTabs: Array<{
+  id: ManualTab
+  label: string
+  description: string
+  icon: typeof BookOpen
+  accent: string
+  iconActive: string
+  panelId: string
+}> = [
+  {
+    id: 'reglamento',
+    label: 'Reglamento',
+    description: 'Normas y responsabilidades',
+    icon: Scale,
+    accent: 'border-slate-700 bg-slate-800 text-white shadow-sm',
+    iconActive: 'bg-white/15 text-white',
+    panelId: 'manual-panel-reglamento',
+  },
+  {
+    id: 'gamificacion',
+    label: 'Gamificación',
+    description: 'Puntos, hábitos y cultura',
+    icon: Sparkles,
+    accent: 'border-amber-500 bg-amber-500 text-white shadow-sm',
+    iconActive: 'bg-white/20 text-white',
+    panelId: 'manual-panel-gamificacion',
+  },
+  {
+    id: 'tablero',
+    label: 'Aprender',
+    description: 'Guía práctica del tablero',
+    icon: BookOpen,
+    accent: 'border-primary bg-primary text-primary-foreground shadow-sm',
+    iconActive: 'bg-primary-foreground/15 text-primary-foreground',
+    panelId: 'manual-panel-tablero',
+  },
+]
+
+const manualHeaderByTab: Record<
+  ManualTab,
+  {
+    eyebrow: string
+    title: string
+    description: string
+    asideTitle: string
+    asideHint: string
+    asideItems: string[]
+    shellClass: string
+    accentBar: string
+    badgeClass: string
+    iconWrapClass: string
+    asideClass: string
+  }
+> = {
+  reglamento: {
+    eyebrow: 'Reglamento interno · v1.0',
+    title: 'Normas del modelo operativo SCRUMBAN',
+    description:
+      'Define cómo se administran solicitudes, incidencias y compromisos: responsable único, fecha compromiso, seguimiento, validación y cierre verificable.',
+    asideTitle: 'Pilares del reglamento',
+    asideHint: 'Lo esencial para operar',
+    asideItems: ['Prioridades y ciclo de vida', 'Daily y reprogramación', 'Escalamiento y roles'],
+    shellClass: 'border-slate-200/80 bg-gradient-to-br from-slate-50 via-card to-card',
+    accentBar: 'bg-slate-800',
+    badgeClass: 'border-slate-300/70 bg-white/80 text-slate-700',
+    iconWrapClass: 'bg-slate-800 text-white',
+    asideClass: 'border-slate-200 bg-white/70',
+  },
+  gamificacion: {
+    eyebrow: 'Gamificación operativa',
+    title: 'Cultura, puntos y hábitos que sostienen el tablero',
+    description:
+      'Traduce disciplina diaria en señales visibles: cumplimiento, cierre a tiempo, colaboración y constancia, sin reemplazar el criterio operativo.',
+    asideTitle: 'Hábitos que suman',
+    asideHint: 'Enfoque cultural',
+    asideItems: ['Cumplir en tiempo', 'Mantener el Kanban vivo', 'Verificar con evidencia'],
+    shellClass: 'border-amber-200/70 bg-gradient-to-br from-amber-50 via-card to-card',
+    accentBar: 'bg-amber-500',
+    badgeClass: 'border-amber-300/70 bg-white/80 text-amber-800',
+    iconWrapClass: 'bg-amber-500 text-white',
+    asideClass: 'border-amber-200/80 bg-white/70',
+  },
+  tablero: {
+    eyebrow: 'Academia práctica',
+    title: 'Aprende SCRUMBAN sin leer un manual completo',
+    description:
+      'Resuelve dudas frecuentes, entiende el ciclo de vida de una acción y registra cambios de fecha con trazabilidad clara.',
+    asideTitle: 'Primer recorrido',
+    asideHint: 'Duración sugerida: 4 minutos',
+    asideItems: ['Crear una acción', 'Dar seguimiento', 'Cerrar con verificación'],
+    shellClass: 'border-primary/20 bg-gradient-to-br from-primary/[0.06] via-card to-card',
+    accentBar: 'bg-primary',
+    badgeClass: 'border-primary/25 bg-white/80 text-primary',
+    iconWrapClass: 'bg-primary text-primary-foreground',
+    asideClass: 'border-primary/20 bg-white/70',
+  },
 }
 
 export function ManualPage() {
@@ -235,123 +334,133 @@ export function ManualPage() {
 
   const selectTab = (tab: ManualTab) => {
     setActiveTab(tab)
-    if (tab === 'tablero') {
+    if (tab === 'reglamento') {
       setSearchParams({}, { replace: false })
       return
     }
-    setSearchParams({ seccion: tab }, { replace: false })
+    setSearchParams(
+      { seccion: tab === 'tablero' ? 'aprender' : tab },
+      { replace: false }
+    )
   }
 
+  const header = manualHeaderByTab[activeTab]
+  const HeaderIcon = manualTabs.find((tab) => tab.id === activeTab)?.icon ?? Scale
+
   return (
-    <div id="manual-page" className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-3 py-5 sm:px-6 sm:py-6">
-      <header className="rounded-2xl border bg-card px-5 py-6 shadow-sm sm:px-8 sm:py-8">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="max-w-3xl space-y-3">
-            <Badge className="gap-1.5 border-primary/20 bg-primary/10 text-primary hover:bg-primary/10">
-              <BookOpen className="h-3.5 w-3.5" aria-hidden />
-              Academia SCRUMBAN
-            </Badge>
-            <div>
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-                Aprende SCRUMBAN sin leer un manual completo
-              </h1>
-              <p className="mt-3 text-base leading-7 text-muted-foreground">
-                SCRUMBAN es un sistema de gestión operativa que centraliza compromisos, responsables, fechas,
-                evidencia y seguimiento hasta el cierre. Su objetivo no es administrar tareas: es asegurar claridad,
-                responsabilidad y visibilidad.
-              </p>
+    <div id="manual-page" className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-3 py-5 sm:gap-6 sm:px-6 sm:py-6">
+      <div
+        role="tablist"
+        aria-label="Secciones del manual"
+        className="grid w-full gap-2 rounded-2xl border border-border/70 bg-muted/30 p-1.5 sm:grid-cols-3"
+      >
+        {manualTabs.map((tab) => {
+          const Icon = tab.icon
+          const active = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              id={`manual-tab-${tab.id}`}
+              aria-selected={active}
+              aria-controls={tab.panelId}
+              onClick={() => selectTab(tab.id)}
+              className={cn(
+                'group flex min-h-[4.25rem] items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all sm:px-4',
+                active
+                  ? tab.accent
+                  : 'border-transparent bg-transparent text-muted-foreground hover:bg-card/80 hover:text-foreground'
+              )}
+            >
+              <span
+                className={cn(
+                  'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors',
+                  active ? tab.iconActive : 'bg-card text-foreground shadow-sm ring-1 ring-border/60'
+                )}
+              >
+                <Icon className="h-5 w-5" aria-hidden />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold tracking-tight">{tab.label}</span>
+                <span
+                  className={cn(
+                    'mt-0.5 block text-xs font-normal leading-4',
+                    active ? 'text-white/80' : 'text-muted-foreground'
+                  )}
+                >
+                  {tab.description}
+                </span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      <header className={cn('overflow-hidden rounded-2xl border shadow-sm', header.shellClass)}>
+        <div className={cn('h-1.5 w-full', header.accentBar)} />
+        <div className="flex flex-col gap-5 px-5 py-6 sm:px-8 sm:py-7 lg:flex-row lg:items-stretch lg:justify-between">
+          <div className="flex max-w-3xl gap-4">
+            <span
+              className={cn(
+                'mt-1 hidden h-12 w-12 shrink-0 items-center justify-center rounded-2xl shadow-sm sm:flex',
+                header.iconWrapClass
+              )}
+            >
+              <HeaderIcon className="h-6 w-6" aria-hidden />
+            </span>
+            <div className="space-y-3">
+              <Badge className={cn('gap-1.5 hover:bg-inherit', header.badgeClass)}>
+                <HeaderIcon className="h-3.5 w-3.5 sm:hidden" aria-hidden />
+                {header.eyebrow}
+              </Badge>
+              <div>
+                <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+                  {header.title}
+                </h1>
+                <p className="mt-3 max-w-2xl text-base leading-7 text-muted-foreground">
+                  {header.description}
+                </p>
+              </div>
             </div>
           </div>
-          <Card className="w-full rounded-xl border-primary/15 bg-primary/[0.04] shadow-none lg:w-80">
-            <CardContent className="p-4">
-              <p className="text-sm font-semibold text-foreground">Primer recorrido</p>
-              <p className="mt-1 text-xs text-muted-foreground">Duración sugerida: 4 minutos</p>
-              <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-                {['Crear una acción', 'Dar seguimiento', 'Cerrar con verificación'].map((item) => (
-                  <li key={item} className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
+          <aside
+            className={cn(
+              'flex w-full flex-col justify-center rounded-xl border p-4 shadow-none lg:w-80',
+              header.asideClass
+            )}
+          >
+            <p className="text-sm font-semibold text-foreground">{header.asideTitle}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{header.asideHint}</p>
+            <ul className="mt-3 space-y-2.5 text-sm text-muted-foreground">
+              {header.asideItems.map((item) => (
+                <li key={item} className="flex items-start gap-2">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </aside>
         </div>
       </header>
 
-      <div role="tablist" aria-label="Secciones del manual" className="grid w-full gap-3 lg:grid-cols-3">
-        <button
-          type="button"
-          role="tab"
-          id="manual-tab-tablero"
-          aria-selected={activeTab === 'tablero'}
-          aria-controls="manual-panel-tablero"
-          onClick={() => selectTab('tablero')}
-          className={`group flex min-h-20 items-center gap-4 rounded-xl border px-4 py-3 text-left transition-all sm:px-5 ${
-            activeTab === 'tablero'
-              ? 'border-primary/40 bg-primary/[0.07] text-foreground shadow-sm ring-1 ring-primary/10'
-              : 'bg-card text-muted-foreground hover:border-primary/25 hover:bg-muted/30 hover:text-foreground'
-          }`}
+      {activeTab === 'reglamento' ? (
+        <div
+          id="manual-panel-reglamento"
+          role="tabpanel"
+          aria-labelledby="manual-tab-reglamento"
         >
-          <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${activeTab === 'tablero' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>
-            <BookOpen className="h-5 w-5" aria-hidden />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block font-semibold">Aprender SCRUMBAN</span>
-            <span className="mt-0.5 block text-xs font-normal text-muted-foreground sm:text-sm">
-              Índice rápido, ciclo y reglas prácticas
-            </span>
-          </span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="manual-tab-reglamento"
-          aria-selected={activeTab === 'reglamento'}
-          aria-controls="manual-panel-reglamento"
-          onClick={() => selectTab('reglamento')}
-          className={`group flex min-h-20 items-center gap-4 rounded-xl border px-4 py-3 text-left transition-all sm:px-5 ${
-            activeTab === 'reglamento'
-              ? 'border-slate-500/40 bg-slate-500/[0.08] text-foreground shadow-sm ring-1 ring-slate-500/10'
-              : 'bg-card text-muted-foreground hover:border-slate-500/25 hover:bg-muted/30 hover:text-foreground'
-          }`}
+          <ReglamentoManualSection />
+        </div>
+      ) : activeTab === 'gamificacion' ? (
+        <div
+          id="manual-panel-gamificacion"
+          role="tabpanel"
+          aria-labelledby="manual-tab-gamificacion"
         >
-          <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${activeTab === 'reglamento' ? 'bg-slate-800 text-white' : 'bg-muted text-foreground'}`}>
-            <Scale className="h-5 w-5" aria-hidden />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block font-semibold">Reglamento</span>
-            <span className="mt-0.5 block text-xs font-normal text-muted-foreground sm:text-sm">
-              Normas internas del modelo operativo
-            </span>
-          </span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="manual-tab-gamificacion"
-          aria-selected={activeTab === 'gamificacion'}
-          aria-controls="manual-panel-gamificacion"
-          onClick={() => selectTab('gamificacion')}
-          className={`group flex min-h-20 items-center gap-4 rounded-xl border px-4 py-3 text-left transition-all sm:px-5 ${
-            activeTab === 'gamificacion'
-              ? 'border-amber-500/40 bg-amber-500/[0.08] text-foreground shadow-sm ring-1 ring-amber-500/10'
-              : 'bg-card text-muted-foreground hover:border-amber-500/25 hover:bg-muted/30 hover:text-foreground'
-          }`}
-        >
-          <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${activeTab === 'gamificacion' ? 'bg-amber-500 text-white' : 'bg-muted text-foreground'}`}>
-            <Sparkles className="h-5 w-5" aria-hidden />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block font-semibold">Gamificación</span>
-            <span className="mt-0.5 block text-xs font-normal text-muted-foreground sm:text-sm">
-              Cultura, puntos y hábitos operativos
-            </span>
-          </span>
-        </button>
-      </div>
-
-      {activeTab === 'tablero' ? (
+          <GamificationManualSection />
+        </div>
+      ) : (
         <div
           id="manual-panel-tablero"
           role="tabpanel"
@@ -568,22 +677,6 @@ export function ManualPage() {
               })}
             </div>
           </section>
-        </div>
-      ) : activeTab === 'reglamento' ? (
-        <div
-          id="manual-panel-reglamento"
-          role="tabpanel"
-          aria-labelledby="manual-tab-reglamento"
-        >
-          <ReglamentoManualSection />
-        </div>
-      ) : (
-        <div
-          id="manual-panel-gamificacion"
-          role="tabpanel"
-          aria-labelledby="manual-tab-gamificacion"
-        >
-          <GamificationManualSection />
         </div>
       )}
     </div>
