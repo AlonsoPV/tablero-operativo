@@ -508,9 +508,18 @@ function UserMobileCard({ row }: { row: UserActionsSummaryRow }) {
           </p>
         </div>
         <div className="rounded-lg bg-muted/30 px-2 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Premio</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Score</p>
           <p className="mt-0.5 text-sm font-semibold tabular-nums">{row.gamificationAwardScore}</p>
         </div>
+      </div>
+      <div className="mt-3">
+        <AwardScoreCell
+          score={row.gamificationAwardScore}
+          fulfillment={row.gamificationFulfillmentPercent}
+          net={row.gamificationPoints}
+          workloadBand={row.workloadBand}
+          align="left"
+        />
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">
         {row.workloadBand} · {row.gamificationEarnedPoints}/{row.gamificationPossiblePoints} pts posibles · neto{' '}
@@ -826,7 +835,7 @@ export function DashboardUserActionsSummarySection({
                             onSort={handleUserSort}
                           />
                           <SortableHead
-                            label="Premio"
+                            label="Score ajustado"
                             sortKey="gamificationAwardScore"
                             activeKey={userSortKey}
                             sortDir={sortDir}
@@ -884,12 +893,12 @@ export function DashboardUserActionsSummarySection({
                                 </p>
                               </td>
                               <td className="px-4 py-3 text-right align-middle md:px-6">
-                                <div className="inline-flex flex-col items-end gap-0.5">
-                                  <span className="font-semibold tabular-nums text-foreground">
-                                    {row.gamificationAwardScore}
-                                  </span>
-                                  <span className="text-[11px] text-muted-foreground">{row.workloadBand}</span>
-                                </div>
+                                <AwardScoreCell
+                                  score={row.gamificationAwardScore}
+                                  fulfillment={row.gamificationFulfillmentPercent}
+                                  net={row.gamificationPoints}
+                                  workloadBand={row.workloadBand}
+                                />
                               </td>
                             </tr>
                           )
@@ -955,7 +964,7 @@ export function DashboardUserActionsSummarySection({
                             onSort={handleAreaSort}
                           />
                           <SortableHead
-                            label="Premio"
+                            label="Score ajustado"
                             sortKey="gamificationAwardScore"
                             activeKey={areaSortKey}
                             sortDir={sortDir}
@@ -1013,7 +1022,11 @@ export function DashboardUserActionsSummarySection({
                                 </p>
                               </td>
                               <td className="px-4 py-3 text-right align-middle md:px-6">
-                                <span className="font-semibold tabular-nums text-foreground">{row.gamificationAwardScore}</span>
+                                <AwardScoreCell
+                                  score={row.gamificationAwardScore}
+                                  fulfillment={row.gamificationFulfillmentPercent}
+                                  net={row.gamificationPoints}
+                                />
                               </td>
                             </tr>
                           )
@@ -1042,4 +1055,43 @@ function fulfillmentTone(percent: number) {
   if (percent >= 85) return 'text-emerald-700 dark:text-emerald-300'
   if (percent >= 60) return 'text-amber-700 dark:text-amber-300'
   return 'text-destructive'
+}
+
+function awardScoreTone(score: number) {
+  if (score >= 85) return 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300'
+  if (score >= 65) return 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300'
+  return 'border-red-200 bg-red-50 text-red-800 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300'
+}
+
+function awardScoreLabel(score: number) {
+  if (score >= 85) return 'Sólido'
+  if (score >= 65) return 'En riesgo'
+  return 'Crítico'
+}
+
+function AwardScoreCell({
+  score,
+  fulfillment,
+  net,
+  workloadBand,
+  align = 'right',
+}: {
+  score: number
+  fulfillment: number
+  net: number
+  workloadBand?: string
+  align?: 'left' | 'right'
+}) {
+  return (
+    <div className={cn('inline-flex max-w-[190px] flex-col gap-1', align === 'right' ? 'items-end text-right' : 'items-start text-left')}>
+      <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold tabular-nums', awardScoreTone(score))}>
+        <Trophy className="h-3.5 w-3.5" aria-hidden />
+        {score} · {awardScoreLabel(score)}
+      </span>
+      <span className="text-[11px] leading-4 text-muted-foreground">
+        Ajustado: {fulfillment}% cumpl. · neto {net}
+        {workloadBand ? ` · ${workloadBand}` : null}
+      </span>
+    </div>
+  )
 }
