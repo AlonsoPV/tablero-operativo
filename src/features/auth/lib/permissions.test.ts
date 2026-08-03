@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ROUTES } from '@/constants'
 import {
   canAccessRouteByRole,
+  canEditActionGeneralByRole,
   canEditOrgHierarchyByRole,
   canEditOrgUserHierarchy,
   canEditOwnOrgProfileByRole,
@@ -94,6 +95,13 @@ describe('role route permissions', () => {
     expect(canManageSupportTicketsByRole('Super Admin')).toBe(true)
     expect(canManageSupportTicketsByRole('Direccion')).toBe(false)
     expect(canManageSupportTicketsByRole('Operativo')).toBe(false)
+  })
+
+  it('allows Kanban role to edit general action fields without becoming action admin', () => {
+    expect(canEditActionGeneralByRole('Kanban')).toBe(true)
+    expect(canEditActionGeneralByRole('Editor Kanban')).toBe(true)
+    expect(canEditActionGeneralByRole('Kanban Editor')).toBe(true)
+    expect(canEditActionGeneralByRole('Operativo')).toBe(false)
   })
 
   it('keeps Analista limited even if app_role is elevated accidentally', () => {

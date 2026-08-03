@@ -16,6 +16,7 @@ const OPERATIVE_ROLE = 'Operativo'
 const ANALYST_ROLE = 'Analista'
 const DIRECTION_ROLE = 'Direccion'
 const SUPER_ADMIN_ROLE = 'super_admin'
+const KANBAN_ACTION_EDITOR_ROLES = ['kanban', 'editor_kanban', 'kanban_editor'] as const
 
 const STRICT_ANALYST_ALLOWED_ROUTES = [
   ROUTES.TEAM_KANBAN,
@@ -219,6 +220,11 @@ function belongsToRhArea(
 
 export function canManageActionsByRole(rol: string | null | undefined): boolean {
   return isSuperAdminByRole(rol) || isDirectionByRole(rol)
+}
+
+export function canEditActionGeneralByRole(rol: string | null | undefined): boolean {
+  const normalized = normalizeRole(rol)
+  return canManageActionsByRole(rol) || KANBAN_ACTION_EDITOR_ROLES.includes(normalized as typeof KANBAN_ACTION_EDITOR_ROLES[number])
 }
 
 export function canAccessRouteByRole(

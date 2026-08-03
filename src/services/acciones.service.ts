@@ -542,7 +542,7 @@ export const accionesService = {
     if (error) throw error
     if (!data) {
       throw new Error(
-        'No se pudo actualizar la acción. Solo quien asignó/creó la acción, Dirección o super_admin pueden guardar cambios generales.'
+        'No se pudo actualizar la acción. Solo quien asignó/creó la acción, perfil Kanban, Dirección o super_admin pueden guardar cambios generales.'
       )
     }
     const updated = data as unknown as AccionDiaria

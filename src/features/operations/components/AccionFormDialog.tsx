@@ -27,6 +27,7 @@ import { AccionComentarios } from './AccionComentarios'
 import { useCreateAccion, useDeleteAccion, useUpdateAccion, useAccion } from '../hooks'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import {
+  canEditActionGeneralByRole,
   canManageActionsByRole,
   isAnalystByRole,
   isDirectionByRole,
@@ -120,9 +121,10 @@ export function AccionFormDialog({
   const isSuperAdmin = isSuperAdminByRole(currentUser?.rol)
   const isDirection = isDirectionByRole(currentUser?.rol)
   const canManageActions = canManageActionsByRole(currentUser?.rol)
+  const canEditActionGeneral = canEditActionGeneralByRole(currentUser?.rol)
   const isActionCreator = !!accionLive?.created_by && accionLive.created_by === currentUser?.id
   const isActionResponsible = !!accionLive?.responsable && accionLive.responsable === currentUser?.id
-  const canFullyEditAction = !isEdit || isActionCreator || canManageActions
+  const canFullyEditAction = !isEdit || isActionCreator || canEditActionGeneral
   const canMarkActionDone =
     isEdit &&
     !!accionLive?.id &&
@@ -460,7 +462,7 @@ export function AccionFormDialog({
     setSubmitFooterErrors(null)
     if (isEditProtectedReadonly) {
       const message =
-        'No tienes permiso para guardar cambios generales de esta acción. Tus comentarios, evidencias y cambios operativos se guardan desde su propia sección.'
+        'No tienes permiso para guardar cambios generales de esta acción. Puede hacerlo quien asignó/creó la acción, perfil Kanban, Dirección o super_admin.'
       setSubmitFooterErrors([message])
       toast.error(message)
       return
@@ -1142,7 +1144,7 @@ export function AccionFormDialog({
               }
               title={
                 isEditProtectedReadonly
-                  ? 'Solo quien asignó/creó la acción, Dirección o super_admin pueden guardar cambios generales.'
+                  ? 'Solo quien asignó/creó la acción, perfil Kanban, Dirección o super_admin pueden guardar cambios generales.'
                   : 'Guardar acción'
               }
             >
