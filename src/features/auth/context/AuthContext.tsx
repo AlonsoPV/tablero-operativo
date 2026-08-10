@@ -306,7 +306,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (nextState.sessionStatus === 'signed_out') {
           lastFullyAuthenticatedUserIdRef.current = null
         } else if (nextState.status === 'authenticated' && nextState.user?.id) {
+          const alreadyTracked = lastFullyAuthenticatedUserIdRef.current === nextState.user.id
           lastFullyAuthenticatedUserIdRef.current = nextState.user.id
+          // Cubre restauración de sesión / primer acceso del día (dedupe en RPC).
+          if (!alreadyTracked) {
+            void authService.recordLoginActivity()
+          }
         }
 
         if (nextState.user?.id && nextState.profile) {

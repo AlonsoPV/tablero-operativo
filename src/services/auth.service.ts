@@ -58,6 +58,17 @@ export function mapPasswordFlowError(error: { message?: string }): string {
 }
 
 export const authService = {
+  /**
+   * Registra actividad de acceso para adopción (RPC). No lanza: no debe romper auth.
+   * El backend deduplica a un evento por día (CDMX).
+   */
+  async recordLoginActivity() {
+    const { error } = await supabase.rpc('record_user_login_event')
+    if (error) {
+      console.warn('No se pudo registrar la actividad de inicio de sesion.', error)
+    }
+  },
+
   async signIn(email: string, password: string) {
     const { data, error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
@@ -65,12 +76,8 @@ export const authService = {
     })
     if (error) throw new Error(mapAuthError(error))
 
-    // El acceso ya fue concedido: un fallo de telemetria nunca debe impedir
-    // que el usuario entre (por ejemplo, durante el despliegue de la migracion).
-    const { error: activityError } = await supabase.rpc('record_user_login_event')
-    if (activityError) {
-      console.warn('No se pudo registrar la actividad de inicio de sesion.', activityError)
-    }
+    // El acceso ya fue concedido: un fallo de telemetria nunca debe impedir el ingreso.
+    await authService.recordLoginActivity()
 
     return data
   },
