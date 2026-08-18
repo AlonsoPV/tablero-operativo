@@ -3,7 +3,7 @@
  * No persiste hasta que el padre llama insertMany tras crear la acción.
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -34,6 +34,13 @@ export interface AccionChecklistEditorProps {
   onChange: (items: LocalCheckpointDraft[]) => void
   disabled?: boolean
   users?: { id: string; nombre: string; rol?: string | null; area?: string | null }[]
+  renderResponsibleSelector?: (props: {
+    value: string | null
+    onValueChange: (value: string | null) => void
+    disabled: boolean
+    id?: string
+    compact: boolean
+  }) => ReactNode
 }
 
 function newKey() {
@@ -50,7 +57,13 @@ function responsableLabel(
   return users.find((user) => user.id === userId)?.nombre ?? 'Usuario asignado'
 }
 
-export function AccionChecklistEditor({ items, onChange, disabled, users = [] }: AccionChecklistEditorProps) {
+export function AccionChecklistEditor({
+  items,
+  onChange,
+  disabled,
+  users = [],
+  renderResponsibleSelector,
+}: AccionChecklistEditorProps) {
   const [draft, setDraft] = useState('')
   const [draftResponsableId, setDraftResponsableId] = useState<string | null>(null)
 
@@ -120,30 +133,38 @@ export function AccionChecklistEditor({ items, onChange, disabled, users = [] }:
             <Label htmlFor="checkpoint-draft-responsable" className="sr-only">
               Responsable del check
             </Label>
-            <Select
-              value={draftResponsableId ?? NONE_RESPONSABLE}
-              onValueChange={(value) => setDraftResponsableId(value === NONE_RESPONSABLE ? null : value)}
-              disabled={disabled}
-            >
-              <SelectTrigger
-                id="checkpoint-draft-responsable"
-                className="h-10 w-10 justify-center bg-background px-0 [&>svg:last-child]:ml-0 [&>svg:last-child]:h-3.5 [&>svg:last-child]:w-3.5"
-                title={`Responsable: ${responsableLabel(draftResponsableId, users)}`}
+            {renderResponsibleSelector ? renderResponsibleSelector({
+              value: draftResponsableId,
+              onValueChange: setDraftResponsableId,
+              disabled: Boolean(disabled),
+              id: 'checkpoint-draft-responsable',
+              compact: true,
+            }) : (
+              <Select
+                value={draftResponsableId ?? NONE_RESPONSABLE}
+                onValueChange={(value) => setDraftResponsableId(value === NONE_RESPONSABLE ? null : value)}
+                disabled={disabled}
               >
-                <UserRound className={cn('h-4 w-4', draftResponsableId ? 'text-primary' : 'text-muted-foreground')} aria-hidden />
-                <span className="sr-only">
-                  <SelectValue placeholder="Sin responsable especifico" />
-                </span>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE_RESPONSABLE}>Sin responsable especifico</SelectItem>
-                {users.map((user) => (
-                  <SelectItem key={user.id} value={user.id}>
-                    {user.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                <SelectTrigger
+                  id="checkpoint-draft-responsable"
+                  className="h-10 w-10 justify-center bg-background px-0 [&>svg:last-child]:ml-0 [&>svg:last-child]:h-3.5 [&>svg:last-child]:w-3.5"
+                  title={`Responsable: ${responsableLabel(draftResponsableId, users)}`}
+                >
+                  <UserRound className={cn('h-4 w-4', draftResponsableId ? 'text-primary' : 'text-muted-foreground')} aria-hidden />
+                  <span className="sr-only">
+                    <SelectValue placeholder="Sin responsable especifico" />
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE_RESPONSABLE}>Sin responsable especifico</SelectItem>
+                  {users.map((user) => (
+                    <SelectItem key={user.id} value={user.id}>
+                      {user.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <Button
             type="button"
@@ -199,40 +220,50 @@ export function AccionChecklistEditor({ items, onChange, disabled, users = [] }:
                   <Label className="sr-only">
                     Responsable del check
                   </Label>
-                  <Select
-                    value={item.responsable_id ?? NONE_RESPONSABLE}
-                    onValueChange={(value) => {
-                      const nextResponsableId = value === NONE_RESPONSABLE ? null : value
-                      onChange(items.map((it) => (it.key === item.key ? { ...it, responsable_id: nextResponsableId } : it)))
-                    }}
-                    disabled={disabled}
-                  >
-                    <SelectTrigger
-                      className={cn(
-                        'h-8 justify-center gap-1.5 bg-background px-2 [&>svg:last-child]:ml-0 [&>svg:last-child]:h-3 [&>svg:last-child]:w-3',
-                        item.responsable_id ? 'w-[8.5rem] border-primary/35 text-primary' : 'w-8 px-0 text-muted-foreground'
-                      )}
-                      title={`Responsable: ${responsableLabel(item.responsable_id, users)}`}
+                  {renderResponsibleSelector ? renderResponsibleSelector({
+                    value: item.responsable_id ?? null,
+                    onValueChange: (nextResponsableId) =>
+                      onChange(items.map((it) =>
+                        it.key === item.key ? { ...it, responsable_id: nextResponsableId } : it
+                      )),
+                    disabled: Boolean(disabled),
+                    compact: true,
+                  }) : (
+                    <Select
+                      value={item.responsable_id ?? NONE_RESPONSABLE}
+                      onValueChange={(value) => {
+                        const nextResponsableId = value === NONE_RESPONSABLE ? null : value
+                        onChange(items.map((it) => (it.key === item.key ? { ...it, responsable_id: nextResponsableId } : it)))
+                      }}
+                      disabled={disabled}
                     >
-                      <UserRound className={cn('h-3.5 w-3.5', item.responsable_id ? 'text-primary' : 'text-muted-foreground')} aria-hidden />
-                      {item.responsable_id ? (
-                        <span className="min-w-0 truncate text-[11px] font-medium">
-                          {responsableLabel(item.responsable_id, users)}
+                      <SelectTrigger
+                        className={cn(
+                          'h-8 justify-center gap-1.5 bg-background px-2 [&>svg:last-child]:ml-0 [&>svg:last-child]:h-3 [&>svg:last-child]:w-3',
+                          item.responsable_id ? 'w-[8.5rem] border-primary/35 text-primary' : 'w-8 px-0 text-muted-foreground'
+                        )}
+                        title={`Responsable: ${responsableLabel(item.responsable_id, users)}`}
+                      >
+                        <UserRound className={cn('h-3.5 w-3.5', item.responsable_id ? 'text-primary' : 'text-muted-foreground')} aria-hidden />
+                        {item.responsable_id ? (
+                          <span className="min-w-0 truncate text-[11px] font-medium">
+                            {responsableLabel(item.responsable_id, users)}
+                          </span>
+                        ) : null}
+                        <span className="sr-only">
+                          <SelectValue placeholder="Sin responsable especifico" />
                         </span>
-                      ) : null}
-                      <span className="sr-only">
-                        <SelectValue placeholder="Sin responsable especifico" />
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NONE_RESPONSABLE}>Sin responsable especifico</SelectItem>
-                      {users.map((user) => (
-                        <SelectItem key={user.id} value={user.id}>
-                          {user.nombre}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE_RESPONSABLE}>Sin responsable especifico</SelectItem>
+                        {users.map((user) => (
+                          <SelectItem key={user.id} value={user.id}>
+                            {user.nombre}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
                 <div className="col-start-2 flex shrink-0 items-center justify-end gap-0 rounded-md bg-muted/20 p-0.5 sm:col-span-1 sm:col-start-auto sm:justify-start sm:bg-transparent sm:p-0">
                   <Button

@@ -8,6 +8,7 @@ import {
   MessageSquare,
   Paperclip,
   Pencil,
+  Search,
   Send,
   Tag,
   Trash2,
@@ -17,6 +18,7 @@ import {
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -63,6 +65,9 @@ import {
   useTeamActionComentarios,
   useUpdateTeamActionComentario,
 } from '../hooks/useTeamActionComentarios'
+import type { TeamMember } from '../types'
+import { TeamMemberOption } from './TeamMemberSelect'
+import { filterTeamMembers } from '../utils/teamMemberSearch'
 
 const MAX_COMMENT_CHARS = 2000
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -97,7 +102,7 @@ type Props = {
   actionTitle?: string
   actionDescription?: string
   assigneeId?: string | null
-  memberOptions: Array<{ id: string; nombre: string }>
+  memberOptions: TeamMember[]
   enabled?: boolean
 }
 
@@ -117,6 +122,7 @@ export function TeamActionComentarios({
   const [contenido, setContenido] = useState('')
   const [tipoComentario, setTipoComentario] = useState(NO_COMMENT_TYPE_VALUE)
   const [etiquetadosIds, setEtiquetadosIds] = useState<string[]>([])
+  const [mentionQuery, setMentionQuery] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
 
   const userNames = useMemo(() => {
@@ -128,6 +134,10 @@ export function TeamActionComentarios({
   const selectedUsers = useMemo(
     () => memberOptions.filter((member) => etiquetadosIds.includes(member.id)),
     [etiquetadosIds, memberOptions]
+  )
+  const filteredMembers = useMemo(
+    () => filterTeamMembers(memberOptions, mentionQuery),
+    [memberOptions, mentionQuery]
   )
 
   const canSubmit =
@@ -383,7 +393,7 @@ export function TeamActionComentarios({
               <Paperclip className="h-4 w-4" />
               <span className="hidden sm:inline">Adjuntar</span>
             </Button>
-            <DropdownMenu>
+            <DropdownMenu onOpenChange={(open) => { if (!open) setMentionQuery('') }}>
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
@@ -410,15 +420,35 @@ export function TeamActionComentarios({
                 align="start"
                 className="max-h-64 w-[min(100vw-2rem,18rem)] overflow-y-auto"
               >
-                {memberOptions.map((member) => (
+                <div
+                  className="sticky top-0 z-10 border-b border-border/60 bg-popover p-2"
+                  onKeyDown={(event) => event.stopPropagation()}
+                >
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                    <Input
+                      value={mentionQuery}
+                      onChange={(event) => setMentionQuery(event.target.value)}
+                      placeholder="Buscar por nombre"
+                      className="h-8 pl-8 text-xs"
+                      aria-label="Buscar usuario para etiquetar"
+                    />
+                  </div>
+                </div>
+                {filteredMembers.map((member) => (
                   <DropdownMenuCheckboxItem
                     key={member.id}
                     checked={etiquetadosIds.includes(member.id)}
                     onCheckedChange={() => toggleEtiquetado(member.id)}
                   >
-                    {member.nombre}
+                    <TeamMemberOption member={member} />
                   </DropdownMenuCheckboxItem>
                 ))}
+                {filteredMembers.length === 0 ? (
+                  <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+                    No hay usuarios disponibles dentro de tu equipo.
+                  </p>
+                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
             <Select

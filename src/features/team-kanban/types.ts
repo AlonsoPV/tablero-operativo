@@ -8,7 +8,13 @@ export type TeamState = {
   color: string
   es_final: boolean
 }
-export type TeamMember = { id: string; nombre: string }
+export type TeamMember = {
+  id: string
+  nombre: string
+  rol?: string | null
+  area?: string | null
+  manager_user_id?: string | null
+}
 export type TeamFrequency = 'diaria' | 'semanal' | 'quincenal' | 'mensual'
 export type TeamAction = {
   id: string; area_id: string; estado_id: string; titulo: string; descripcion: string | null

@@ -52,6 +52,7 @@ import {
 import { TeamActionFormDialog } from './TeamActionFormDialog'
 import { TeamKanbanFilters } from './TeamKanbanFilters'
 import { TeamActionComentarios } from './components/TeamActionComentarios'
+import { TeamMemberSelect } from './components/TeamMemberSelect'
 import { useTeamActionCommentCounts } from './hooks/useTeamActionComentarios'
 import { formatRecurrenceLabel, upcomingOccurrenceDate } from './utils/recurrence'
 
@@ -313,25 +314,8 @@ export function TeamKanbanPage() {
   const { data: catalogPriorities = [] } = usePriorities({ activo: true })
   const priorityOptions = catalogPriorities.length > 0 ? catalogPriorities : LEGACY_TEAM_PRIORITIES
   const areaParam = searchParams.get('area')
-  const membershipAreaNames = useMemo(() => {
-    const names = [
-      ...(currentUser?.areas ?? []),
-      ...(currentUser?.area ? [currentUser.area] : []),
-    ]
-    return new Set(
-      names
-        .map((name) => name.trim().toLowerCase())
-        .filter(Boolean)
-    )
-  }, [currentUser?.area, currentUser?.areas])
-
-  const visibleAreas = useMemo(() => {
-    const list = areas.data ?? []
-    // Esperar perfil para no ocultar areas durante la carga inicial.
-    if (!currentUser) return list
-    if (membershipAreaNames.size === 0) return []
-    return list.filter((area) => membershipAreaNames.has(area.nombre.trim().toLowerCase()))
-  }, [areas.data, currentUser, membershipAreaNames])
+  // La RPC ya resuelve membresias, liderazgos y equipos por organigrama.
+  const visibleAreas = useMemo(() => areas.data ?? [], [areas.data])
 
   const board = useQuery({
     queryKey: qk.board(areaId ?? ''),
@@ -1302,7 +1286,7 @@ function TeamActionEditDialog({
     setDraftStateId(action.estado_id)
     setDraftAssignee(action.asignado_a)
     setDraftPriority(action.prioridad)
-  }, [action?.id, action?.estado_id, action?.asignado_a, action?.prioridad])
+  }, [action])
 
   if (!action) return null
 
@@ -1455,16 +1439,12 @@ function TeamActionEditDialog({
                 </Select>
               </AccionFormField>
               <AccionFormField label="Responsable">
-                <Select
+                <TeamMemberSelect
+                  members={board.members}
                   value={draftAssignee}
-                  onValueChange={setDraftAssignee}
+                  onValueChange={(value) => { if (value) setDraftAssignee(value) }}
                   disabled={!canManage || isSaving}
-                >
-                  <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {board.members.map((member) => <SelectItem key={member.id} value={member.id}>{member.nombre}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                />
               </AccionFormField>
               <AccionFormField label="Prioridad">
                 <Select
@@ -1780,18 +1760,13 @@ function ActionCard({
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground">Asignar</Label>
-              <Select value={action.asignado_a} onValueChange={onAssign}>
-                <SelectTrigger className="h-9 border-border/70 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {board.members.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <TeamMemberSelect
+                members={board.members}
+                value={action.asignado_a}
+                onValueChange={(value) => { if (value) onAssign(value) }}
+                compact
+                className="h-9 w-full border-border/70 text-xs"
+              />
             </div>
             <div className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground">Prioridad</Label>

@@ -20,6 +20,7 @@ import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { notificacionesService } from '@/services/notificaciones.service'
 import type { TeamBoard } from './types'
 import { teamKanbanService } from './service'
+import { TeamMemberSelect } from './components/TeamMemberSelect'
 
 type Props = {
   open: boolean
@@ -396,6 +397,11 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 sm:px-5 sm:py-4 md:px-6 md:py-5">
+          {board.members.length === 0 ? (
+            <div className="mb-4 rounded-md border border-dashed border-border bg-muted/20 px-4 py-5 text-center text-sm text-muted-foreground">
+              No hay usuarios disponibles dentro de tu equipo.
+            </div>
+          ) : null}
           {mode === 'single' ? (
             <AccionForm
               formId={formId}
@@ -405,6 +411,9 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
               onCancel={() => onOpenChange(false)}
               isSubmitting={isSubmitting}
               userOptions={board.members}
+              renderResponsibleSelector={(props) => (
+                <TeamMemberSelect members={board.members} {...props} />
+              )}
               lockedAreaName={areaName}
               validationExtras={
                 <AccionChecklistEditor
@@ -412,6 +421,14 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
                   onChange={setChecklist}
                   disabled={isSubmitting}
                   users={board.members}
+                  renderResponsibleSelector={(props) => (
+                    <TeamMemberSelect
+                      members={board.members}
+                      allowEmpty
+                      emptyLabel="Sin responsable especifico"
+                      {...props}
+                    />
+                  )}
                 />
               }
             />
@@ -474,19 +491,16 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
                       hintAsIcon
                       required
                     >
-                      <Select
-                        value={frequentForm.assignee || undefined}
-                        onValueChange={(value) => setFrequentForm((current) => ({ ...current, assignee: value }))}
-                      >
-                        <SelectTrigger id="frequent-assignee" className={`${inputBase} h-10`}>
-                          <SelectValue placeholder="Seleccionar" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {board.members.map((member) => (
-                            <SelectItem key={member.id} value={member.id}>{member.nombre}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <TeamMemberSelect
+                        id="frequent-assignee"
+                        members={board.members}
+                        value={frequentForm.assignee}
+                        onValueChange={(value) => setFrequentForm((current) => ({
+                          ...current,
+                          assignee: value ?? '',
+                        }))}
+                        disabled={isSubmitting}
+                      />
                     </AccionFormField>
 
                     <AccionFormField label="Prioridad" htmlFor="frequent-priority" required>
@@ -698,6 +712,14 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
                       onChange={setChecklist}
                       disabled={isSubmitting}
                       users={board.members}
+                      renderResponsibleSelector={(props) => (
+                        <TeamMemberSelect
+                          members={board.members}
+                          allowEmpty
+                          emptyLabel="Sin responsable especifico"
+                          {...props}
+                        />
+                      )}
                     />
                   </div>
                 </div>

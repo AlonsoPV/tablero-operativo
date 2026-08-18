@@ -104,7 +104,13 @@ export interface AccionFormProps {
   deadlineExtras?: (values: { fecha: string | undefined; hora_limite: string | undefined }) => ReactNode
   onPrioridadChange?: (prioridad: string | undefined) => void
   accionPrioridadId?: string | null
-  userOptions?: Array<{ id: string; nombre: string }>
+  userOptions?: Array<{ id: string; nombre: string; rol?: string | null; area?: string | null }>
+  renderResponsibleSelector?: (props: {
+    value: string | null
+    onValueChange: (value: string | null) => void
+    disabled: boolean
+    id: string
+  }) => ReactNode
   /** Área fija aplicada al formulario (p. ej. Kanban por Equipos). */
   lockedAreaName?: string
   /** Quién asigna la acción; por defecto el usuario actual. */
@@ -125,6 +131,7 @@ export function AccionForm({
   onPrioridadChange,
   accionPrioridadId,
   userOptions,
+  renderResponsibleSelector,
   lockedAreaName,
   asignadorNombre,
 }: AccionFormProps) {
@@ -461,23 +468,30 @@ export function AccionForm({
               onRetry={() => void retryUsers()}
             />
           )}
-          <Select
-            value={form.watch('responsable') ?? '__none__'}
-            onValueChange={(v) => form.setValue('responsable', v === '__none__' ? '' : v)}
-            disabled={isEditProtectedReadonly || (effectiveUsersLoading && users.length === 0)}
-          >
-            <SelectTrigger id={fieldId('responsable')} className={`${inputBase} h-10`}>
-              <SelectValue placeholder="Seleccionar responsable" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">Seleccionar responsable</SelectItem>
-              {users.map((u) => (
-                <SelectItem key={u.id} value={u.id}>
-                  {u.nombre}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {renderResponsibleSelector ? renderResponsibleSelector({
+            value: form.watch('responsable') || null,
+            onValueChange: (value) => form.setValue('responsable', value ?? '', { shouldValidate: true }),
+            disabled: isEditProtectedReadonly || (effectiveUsersLoading && users.length === 0),
+            id: fieldId('responsable'),
+          }) : (
+            <Select
+              value={form.watch('responsable') ?? '__none__'}
+              onValueChange={(v) => form.setValue('responsable', v === '__none__' ? '' : v)}
+              disabled={isEditProtectedReadonly || (effectiveUsersLoading && users.length === 0)}
+            >
+              <SelectTrigger id={fieldId('responsable')} className={`${inputBase} h-10`}>
+                <SelectValue placeholder="Seleccionar responsable" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Seleccionar responsable</SelectItem>
+                {users.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </AccionFormField>
 
         <AccionFormField
