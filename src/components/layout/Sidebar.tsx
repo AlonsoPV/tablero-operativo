@@ -2,19 +2,14 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
-  Map,
   Columns3,
   LifeBuoy,
-  TimerReset,
   Target,
   Calendar,
-  FileBarChart,
   BookOpen,
   GraduationCap,
   Sparkles,
-  LineChart,
   FolderKanban,
-  BarChart3,
   Network,
   X,
   type LucideIcon,
@@ -51,17 +46,6 @@ const navGroups: NavGroup[] = [
       { to: ROUTES.TICKETS, label: 'Tickets', icon: LifeBuoy },
       { to: ROUTES.MANUAL, label: 'Manual', icon: BookOpen },
       { to: ROUTES.AI_ASSIST, label: 'Asistente IA', icon: Sparkles },
-      { to: ROUTES.SPRINTS, label: 'Sprint Center', icon: TimerReset },
-      { to: ROUTES.REPORTES, label: 'Reportes', icon: FileBarChart },
-    ],
-  },
-  {
-    label: 'Por Liberar',
-    items: [
-      { to: ROUTES.ESTRATEGIA, label: 'Alineación estratégica', icon: Map },
-      { to: ROUTES.DASHBOARD_KPIS, label: 'KPIs O2C', icon: LineChart },
-      { to: ROUTES.DASHBOARD_GAPS, label: 'Gaps O2C', icon: FolderKanban },
-      { to: ROUTES.DASHBOARD_IMPACTO, label: 'Matriz de Impacto', icon: BarChart3 },
     ],
   },
 ]
