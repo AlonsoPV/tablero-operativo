@@ -17,8 +17,9 @@ describe('module access', () => {
     expect(canAccessRouteWithModules('Operativo', '/dashboard', null, ['tickets'])).toBe(false)
   })
 
-  it('mantiene Analista solo en Kanban por Equipos, Disciplina y Calendario', () => {
-    expect(canAccessRouteWithModules('Lider', '/kanban-equipos', null, [])).toBe(false)
+  it('permite a Lider entrar a Kanban por Equipos sin depender del catalogo de modulos', () => {
+    expect(canAccessRouteWithModules('Lider', '/kanban-equipos', null, [])).toBe(true)
+    expect(canAccessRouteWithModules('Líder', '/kanban-equipos', null, [])).toBe(true)
     expect(canAccessRouteWithModules('Lider', '/kanban-equipos', null, ['team_kanban'])).toBe(true)
     expect(canAccessRouteWithModules('Analista', '/kanban-equipos', null, ['team_kanban'])).toBe(true)
     expect(canAccessRouteWithModules('Analista', '/kanban', null, ['kanban'])).toBe(false)

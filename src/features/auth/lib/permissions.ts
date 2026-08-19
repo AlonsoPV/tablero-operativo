@@ -14,6 +14,7 @@ import type { Usuario } from '@/types'
 const ADMIN_ROLES = ['DG', 'Sistemas', 'super_admin'] as const
 const OPERATIVE_ROLE = 'Operativo'
 const ANALYST_ROLE = 'Analista'
+const LEADER_ROLE = 'Lider'
 const DIRECTION_ROLE = 'Direccion'
 const SUPER_ADMIN_ROLE = 'super_admin'
 const KANBAN_ACTION_EDITOR_ROLES = ['kanban', 'editor_kanban', 'kanban_editor'] as const
@@ -117,6 +118,10 @@ export function isOperativeByRole(rol: string | null | undefined): boolean {
 
 export function isAnalystByRole(rol: string | null | undefined): boolean {
   return normalizeRole(rol) === normalizeRole(ANALYST_ROLE)
+}
+
+export function isLeaderByRole(rol: string | null | undefined): boolean {
+  return normalizeRole(rol) === normalizeRole(LEADER_ROLE)
 }
 
 export function isDirectionByRole(rol: string | null | undefined): boolean {
@@ -233,7 +238,13 @@ export function canAccessRouteByRole(
   appRole?: string | null | undefined
 ): boolean {
   if (routeMatches(pathname, ROUTES.TEAM_KANBAN)) {
-    return isSuperAdminByRole(rol) || isDirectionByRole(rol) || isAnalystByRole(rol) || isAppSuperAdminByAppRole(appRole)
+    return (
+      isSuperAdminByRole(rol) ||
+      isDirectionByRole(rol) ||
+      isAnalystByRole(rol) ||
+      isLeaderByRole(rol) ||
+      isAppSuperAdminByAppRole(appRole)
+    )
   }
 
   if (isAnalystByRole(rol)) {
