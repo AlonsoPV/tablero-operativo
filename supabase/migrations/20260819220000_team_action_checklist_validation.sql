@@ -14,6 +14,7 @@ DECLARE
   v_actor_id uuid;
   v_row public.acciones_equipo;
   v_item jsonb;
+  v_closing_state_id uuid;
 BEGIN
   PERFORM public.team_kanban_assert_super_admin();
 
@@ -46,6 +47,7 @@ BEGIN
 
   IF NOT (
     public.team_kanban_user_is_super_admin(v_actor_id)
+    OR public.team_kanban_current_user_can_use_area(v_row.area_id)
     OR v_actor_id = v_row.asignado_a
     OR v_actor_id = v_row.creado_por
     OR v_actor_id = v_row.lider_id
@@ -71,6 +73,35 @@ BEGIN
       updated_at = now()
   WHERE action.id = p_action_id
   RETURNING action.* INTO v_row;
+
+  IF coalesce(p_done, false)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements(coalesce(v_row.checklist, '[]'::jsonb)) item
+      WHERE NOT coalesce((item->>'done')::boolean, false)
+    )
+  THEN
+    SELECT status.id
+    INTO v_closing_state_id
+    FROM public.statuses status
+    WHERE status.activo
+      AND status.es_cierre
+    ORDER BY
+      CASE WHEN lower(status.nombre) = 'hecho' THEN 0 ELSE 1 END,
+      status.orden,
+      status.id
+    LIMIT 1;
+
+    IF v_closing_state_id IS NOT NULL THEN
+      UPDATE public.acciones_equipo action
+      SET estado_id = v_closing_state_id,
+          completed_at = coalesce(action.completed_at, now()),
+          updated_at = now()
+      WHERE action.id = p_action_id
+        AND action.estado_id <> v_closing_state_id
+      RETURNING action.* INTO v_row;
+    END IF;
+  END IF;
 
   RETURN v_row;
 END;

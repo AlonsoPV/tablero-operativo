@@ -52,6 +52,7 @@ import {
 import { TeamActionFormDialog } from './TeamActionFormDialog'
 import { TeamKanbanFilters } from './TeamKanbanFilters'
 import { TeamActionComentarios } from './components/TeamActionComentarios'
+import { TeamActionChecklistManage } from './components/TeamActionChecklistManage'
 import { TeamMemberSelect } from './components/TeamMemberSelect'
 import { useTeamActionCommentCounts } from './hooks/useTeamActionComentarios'
 import { formatRecurrenceLabel, upcomingOccurrenceDate } from './utils/recurrence'
@@ -568,6 +569,18 @@ export function TeamKanbanPage() {
     },
   })
 
+  const toggleChecklist = useMutation({
+    mutationFn: ({ actionId, itemIndex, done }: { actionId: string; itemIndex: number; done: boolean }) =>
+      teamKanbanService.setChecklistItemDone(actionId, itemIndex, done),
+    onError: (error) => toast.error(error.message),
+    onSuccess: (action, vars) => {
+      if (areaId) {
+        patchTeamBoardAction(qc, areaId, action.id, {}, action)
+      }
+      toast.success(vars.done ? 'Punto validado' : 'Validacion retirada')
+    },
+  })
+
   const scrollBoard = (direction: -1 | 1) => {
     boardScrollRef.current?.scrollBy({ left: direction * 320, behavior: 'smooth' })
   }
@@ -929,7 +942,9 @@ export function TeamKanbanPage() {
           priorities={priorityOptions}
           asignadorNombre={editingAction ? resolveTeamActionAssignerName(editingAction, board.data) : null}
           commentCount={editingAction ? (commentCounts[editingAction.id] ?? 0) : 0}
+          currentUsuarioId={currentUser?.id ?? null}
           isSaving={update.isPending}
+          isChecklistSaving={toggleChecklist.isPending}
           onClose={() => setEditingActionId(null)}
           onSave={(patch) => {
             update.mutate(
@@ -953,6 +968,9 @@ export function TeamKanbanPage() {
                 title: action.titulo,
               },
             })
+          }
+          onToggleChecklist={(action, itemIndex, done) =>
+            toggleChecklist.mutate({ actionId: action.id, itemIndex, done })
           }
           onEscalate={(action) => {
             setEditingActionId(null)
@@ -1317,10 +1335,13 @@ function TeamActionEditDialog({
   priorities,
   asignadorNombre,
   commentCount,
+  currentUsuarioId,
   isSaving = false,
+  isChecklistSaving = false,
   onClose,
   onSave,
   onDueDateChange,
+  onToggleChecklist,
   onEscalate,
   onCloseSeries,
 }: {
@@ -1329,7 +1350,9 @@ function TeamActionEditDialog({
   priorities: Priority[]
   asignadorNombre?: string | null
   commentCount: number
+  currentUsuarioId: string | null
   isSaving?: boolean
+  isChecklistSaving?: boolean
   onClose: () => void
   onSave: (patch: {
     actionId: string
@@ -1346,6 +1369,7 @@ function TeamActionEditDialog({
       nextDate: string
     }
   ) => void
+  onToggleChecklist: (action: TeamAction, itemIndex: number, done: boolean) => void
   onEscalate: (action: TeamAction) => void
   onCloseSeries: (action: TeamAction) => void
 }) {
@@ -1403,6 +1427,11 @@ function TeamActionEditDialog({
 
   const handleSave = () => {
     if (!canManage || !hasFieldChanges || isSaving) return
+    const selectedState = board.states.find((state) => state.id === draftStateId)
+    if (selectedState?.es_final && action.checklist.some((item) => !item.done)) {
+      toast.error('Completa todos los puntos del checklist antes de cerrar la accion')
+      return
+    }
     const patch: {
       actionId: string
       stateId?: string
@@ -1482,21 +1511,16 @@ function TeamActionEditDialog({
                   className="min-h-[7rem] w-full resize-y rounded-md border border-input bg-muted/30 px-3 py-2 text-sm leading-relaxed text-foreground"
                 />
               </AccionFormField>
-              {action.checklist.length > 0 ? (
-                <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
-                  <p className="text-sm font-medium text-foreground">Checklist</p>
-                  <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
-                    {action.checklist.map((item, index) => (
-                      <li key={`${item.text}-${index}`} className="flex items-start gap-2">
-                        <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary/70" aria-hidden />
-                        <span className={item.done ? 'line-through opacity-70' : undefined}>{item.text}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
             </div>
           </AccionFormSection>
+
+          <TeamActionChecklistManage
+            action={action}
+            currentUsuarioId={currentUsuarioId}
+            users={board.members}
+            disabled={isChecklistSaving}
+            onToggle={(itemIndex, done) => onToggleChecklist(action, itemIndex, done)}
+          />
 
           <AccionFormSection
             sectionId="team-action-edit"
