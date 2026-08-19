@@ -75,6 +75,15 @@ export const teamKanbanService = {
     if (error) throw new Error(error.message)
     return unwrap(data, null) as TeamAction
   },
+  async setChecklistItemDone(actionId: string, itemIndex: number, done: boolean) {
+    const { data, error } = await supabase.rpc('team_kanban_set_checklist_item_done', {
+      p_action_id: actionId,
+      p_item_index: itemIndex,
+      p_done: done,
+    })
+    if (error) throw new Error(error.message)
+    return unwrap(data, null) as TeamAction
+  },
   /** Genera las ocurrencias vencidas de las series activas del area. Idempotente. */
   async syncFrequent(areaId: string) {
     const { data, error } = await supabase.rpc('team_kanban_sync_frequent_actions', { p_area_id: areaId })

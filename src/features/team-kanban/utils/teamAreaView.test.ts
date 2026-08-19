@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TeamAction, TeamArea, TeamBoard, TeamMember } from '../types'
-import { boardForTeamAction, filterAssignedTeamAreas, mergeTeamBoards } from './teamAreaView'
+import { boardForTeamAction, filterAssignedTeamAreas, mergeTeamBoards, resolveTeamAssigneeName } from './teamAreaView'
 
 const areas: TeamArea[] = [
   { id: 'area-1', nombre: 'Operaciones', is_leader: true, member_count: 2, open_count: 3 },
@@ -45,7 +45,7 @@ describe('vista de areas del Kanban por Equipos', () => {
 
   it('consolida Todas sin mezclar responsables entre areas', () => {
     const actionOne = action('action-1', 'area-1')
-    const actionTwo = action('action-2', 'area-2')
+    const actionTwo = { ...action('action-2', 'area-2'), asignado_a: 'member-2', asignado_nombre: 'Beto' }
     const merged = mergeTeamBoards([
       board([member('member-1', 'Ana')], [actionOne]),
       board([member('member-2', 'Beto')], [actionTwo]),
@@ -54,5 +54,22 @@ describe('vista de areas del Kanban por Equipos', () => {
     expect(merged.actions.map((item) => item.id)).toEqual(['action-1', 'action-2'])
     expect(boardForTeamAction(merged, actionOne).members.map((item) => item.id)).toEqual(['member-1'])
     expect(boardForTeamAction(merged, actionTwo).members.map((item) => item.id)).toEqual(['member-2'])
+  })
+
+  it('incluye al responsable actual aunque no este en el listado del area', () => {
+    const actionOne = {
+      ...action('action-1', 'area-1'),
+      asignado_a: 'member-2',
+      asignado_nombre: 'Beto Externo',
+    }
+    const merged = mergeTeamBoards([
+      board([member('member-1', 'Ana')], [actionOne]),
+      board([member('member-2', 'Beto')], []),
+    ], ['area-1', 'area-2'])
+
+    const scoped = boardForTeamAction(merged, actionOne)
+    expect(scoped.members.map((item) => item.id)).toEqual(['member-1', 'member-2'])
+    expect(resolveTeamAssigneeName(actionOne, merged)).toBe('Beto Externo')
+    expect(resolveTeamAssigneeName({ ...actionOne, asignado_nombre: '' }, merged)).toBe('Beto')
   })
 })

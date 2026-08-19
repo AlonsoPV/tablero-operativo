@@ -15,12 +15,19 @@ export type TeamMember = {
   area?: string | null
   manager_user_id?: string | null
 }
+export type TeamChecklistItem = {
+  text: string
+  done?: boolean
+  responsable_id?: string | null
+  checked_at?: string | null
+  checked_by?: string | null
+}
 export type TeamFrequency = 'diaria' | 'semanal' | 'quincenal' | 'mensual'
 export type TeamAction = {
   id: string; area_id: string; estado_id: string; titulo: string; descripcion: string | null
   prioridad: string; asignado_a: string; lider_id: string; asignado_nombre: string
   creado_por?: string
-  fecha_limite: string | null; evidencia_requerida: boolean; checklist: Array<{ text: string; done?: boolean; responsable_id?: string | null }>
+  fecha_limite: string | null; evidencia_requerida: boolean; checklist: TeamChecklistItem[]
   es_frecuente?: boolean; frecuencia_tipo?: TeamFrequency | null
   frecuencia_dia_semana?: number | null; frecuencia_dia_mes?: number | null; frecuencia_inicio?: string | null
   serie_id?: string | null; ocurrencia_fecha?: string | null

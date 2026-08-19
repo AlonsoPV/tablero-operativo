@@ -55,7 +55,12 @@ import { TeamActionComentarios } from './components/TeamActionComentarios'
 import { TeamMemberSelect } from './components/TeamMemberSelect'
 import { useTeamActionCommentCounts } from './hooks/useTeamActionComentarios'
 import { formatRecurrenceLabel, upcomingOccurrenceDate } from './utils/recurrence'
-import { boardForTeamAction, filterAssignedTeamAreas, mergeTeamBoards } from './utils/teamAreaView'
+import {
+  boardForTeamAction,
+  filterAssignedTeamAreas,
+  mergeTeamBoards,
+  resolveTeamAssigneeName,
+} from './utils/teamAreaView'
 
 const qk = {
   areas: ['team-kanban', 'areas'] as const,
@@ -221,7 +226,27 @@ function getTeamFallbackBeforeTodayStateId(board: TeamBoard) {
 
 function getEffectiveTeamStateId(action: TeamAction, board: TeamBoard) {
   if (!isOpenAction(action, board)) return action.estado_id
+  if (action.bloqueada) return action.estado_id
+
   const currentState = board.states.find((state) => state.id === action.estado_id)
+  const retrasoState = findTeamRetrasoState(board)
+  const pendingLikeState = board.states.find(
+    (state) => isTeamPendingLikeStateName(state.nombre) && !state.es_final
+  )
+
+  if (retrasoState && isOverdue(action, board)) {
+    return retrasoState.id
+  }
+
+  if (
+    retrasoState &&
+    currentState &&
+    isTeamRetrasoStateName(currentState.nombre) &&
+    !isOverdue(action, board)
+  ) {
+    return pendingLikeState?.id ?? getTeamFallbackBeforeTodayStateId(board) ?? action.estado_id
+  }
+
   const todayState = board.states.find((state) => isTeamTodayStateName(state.nombre))
   if (!todayState) return action.estado_id
 
@@ -1249,7 +1274,7 @@ function TeamCardHeaderMeta({
   const checklistDone = action.checklist?.filter((item) => item.done).length ?? 0
   const status = teamActionStatusLabel(action, board, overdue)
   const segments: { key: string; text: string; className?: string }[] = [
-    { key: 'owner', text: action.asignado_nombre || 'Sin asignar' },
+    { key: 'owner', text: resolveTeamAssigneeName(action, board) },
   ]
 
   if (checklistTotal > 0) {
@@ -1416,7 +1441,7 @@ function TeamActionEditDialog({
                 Editar accion
               </h2>
               <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground sm:text-xs">
-                Kanban por Equipos - {action.asignado_nombre || 'Sin responsable'}
+                Kanban por Equipos - {resolveTeamAssigneeName(action, board)}
               </p>
             </div>
             <div className="flex w-fit max-w-full flex-wrap items-center gap-1.5 sm:max-w-[60%] sm:justify-end">
@@ -1482,7 +1507,7 @@ function TeamActionEditDialog({
             collapsible
             expanded={editExpanded}
             onToggle={() => setEditExpanded((current) => !current)}
-            collapsedHint={`${statusName} - ${action.asignado_nombre || 'Sin responsable'}`}
+            collapsedHint={`${statusName} - ${resolveTeamAssigneeName(action, board)}`}
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <AccionFormField label="Estatus">
@@ -1781,7 +1806,7 @@ function ActionCard({
             Responsable
           </span>
           <span className="truncate text-xs font-semibold text-foreground">
-            {action.asignado_nombre || 'Sin asignar'}
+            {resolveTeamAssigneeName(action, board)}
           </span>
         </div>
 
