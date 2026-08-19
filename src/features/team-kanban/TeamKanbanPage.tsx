@@ -55,11 +55,15 @@ import { TeamActionComentarios } from './components/TeamActionComentarios'
 import { TeamMemberSelect } from './components/TeamMemberSelect'
 import { useTeamActionCommentCounts } from './hooks/useTeamActionComentarios'
 import { formatRecurrenceLabel, upcomingOccurrenceDate } from './utils/recurrence'
+import { boardForTeamAction, filterAssignedTeamAreas, mergeTeamBoards } from './utils/teamAreaView'
 
 const qk = {
   areas: ['team-kanban', 'areas'] as const,
+  assignedAreas: (userId: string) => ['team-kanban', 'assigned-areas', userId] as const,
   board: (id: string) => ['team-kanban', 'board', id] as const,
 }
+
+const ALL_TEAM_AREAS = '__all_team_areas__'
 
 function buildTeamActionPatch(
   board: TeamBoard,
@@ -311,22 +315,40 @@ export function TeamKanbanPage() {
   const statusNavRef = useRef<HTMLDivElement>(null)
 
   const areas = useQuery({ queryKey: qk.areas, queryFn: teamKanbanService.areas })
+  const assignedAreas = useQuery({
+    queryKey: qk.assignedAreas(currentUser?.id ?? ''),
+    queryFn: () => teamKanbanService.assignedAreaIds(currentUser!.id),
+    enabled: Boolean(currentUser?.id),
+  })
   const { data: catalogPriorities = [] } = usePriorities({ activo: true })
   const priorityOptions = catalogPriorities.length > 0 ? catalogPriorities : LEGACY_TEAM_PRIORITIES
   const areaParam = searchParams.get('area')
-  // La RPC ya resuelve membresias, liderazgos y equipos por organigrama.
-  const visibleAreas = useMemo(() => areas.data ?? [], [areas.data])
+  // La RPC trae el alcance organizacional completo; la vista inicia solo con asignaciones directas.
+  const directlyAssignedAreas = useMemo(() => {
+    return filterAssignedTeamAreas(
+      areas.data ?? [],
+      assignedAreas.data ?? [],
+      [currentUser?.area, ...(currentUser?.areas ?? [])]
+    )
+  }, [areas.data, assignedAreas.data, currentUser?.area, currentUser?.areas])
+  const visibleAreas = directlyAssignedAreas
+  const selectedAreaIds = useMemo(
+    () => areaId === ALL_TEAM_AREAS ? visibleAreas.map((area) => area.id) : areaId ? [areaId] : [],
+    [areaId, visibleAreas]
+  )
 
   const board = useQuery({
     queryKey: qk.board(areaId ?? ''),
     queryFn: async () => {
-      // Al abrir el tablero se materializan las ocurrencias vencidas de cada serie.
-      await teamKanbanService.syncFrequent(areaId!).catch((error) => {
-        console.warn('[team-kanban] No se pudieron generar acciones frecuentes:', error)
-      })
-      return teamKanbanService.board(areaId!)
+      await Promise.all(selectedAreaIds.map((selectedAreaId) =>
+        teamKanbanService.syncFrequent(selectedAreaId).catch((error) => {
+          console.warn('[team-kanban] No se pudieron generar acciones frecuentes:', error)
+        })
+      ))
+      const boards = await Promise.all(selectedAreaIds.map(teamKanbanService.board))
+      return boards.length === 1 ? boards[0] : mergeTeamBoards(boards, selectedAreaIds)
     },
-    enabled: Boolean(areaId),
+    enabled: selectedAreaIds.length > 0,
   })
 
   useEffect(() => {
@@ -338,6 +360,7 @@ export function TeamKanbanPage() {
       if (areaId !== areaParam) setAreaId(areaParam)
       return
     }
+    if (areaId === ALL_TEAM_AREAS) return
     if (areaId && visibleAreas.some((area) => area.id === areaId)) return
     setAreaId(visibleAreas[0].id)
   }, [visibleAreas, areaId, areaParam])
@@ -392,6 +415,7 @@ export function TeamKanbanPage() {
   }, [activeStateId])
 
   const selectedArea = visibleAreas.find((a) => a.id === areaId)
+  const isAllAreas = areaId === ALL_TEAM_AREAS
 
   const scrollToState = (stateId: string) => {
     setActiveStateId(stateId)
@@ -427,7 +451,7 @@ export function TeamKanbanPage() {
         descripcion_accion: action.descripcion ?? undefined,
         equipo_accion_id: action.id,
         area_id: action.area_id,
-        area_nombre: selectedArea?.nombre ?? undefined,
+        area_nombre: visibleAreas.find((area) => area.id === action.area_id)?.nombre,
         responsable_id: usuarioId,
         responsable_nombre: memberName(usuarioId),
         fecha_compromiso: action.fecha_limite ?? undefined,
@@ -566,7 +590,7 @@ export function TeamKanbanPage() {
     filters.stateId !== 'all' ? 'x' : '',
   ].filter(Boolean).length
 
-  if (areas.isLoading || userLoading) {
+  if (areas.isLoading || userLoading || (currentUser?.id && assignedAreas.isLoading)) {
     return <p className="py-16 text-center text-muted-foreground">Cargando areas...</p>
   }
 
@@ -596,7 +620,7 @@ export function TeamKanbanPage() {
           <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
               <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-                {selectedArea?.nombre ?? 'Tablero de equipo'}
+                {isAllAreas ? 'Todas mis areas' : selectedArea?.nombre ?? 'Tablero de equipo'}
               </h1>
               <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground sm:text-sm">
                 Acciones privadas del equipo por estado. Cambia de area sin salir del tablero.
@@ -606,7 +630,8 @@ export function TeamKanbanPage() {
               <Button
                 className="h-11 justify-center gap-2 px-4 text-sm font-semibold shadow-md ring-2 ring-primary/25 sm:h-10"
                 onClick={() => setCreateOpen(true)}
-                disabled={!board.data}
+                disabled={!board.data || isAllAreas}
+                title={isAllAreas ? 'Selecciona un area para crear una accion' : undefined}
               >
                 <Plus className="h-4 w-4 stroke-[2.5]" />
                 Nueva accion
@@ -631,7 +656,11 @@ export function TeamKanbanPage() {
           </div>
         </div>
 
-        <AreaSelector areas={visibleAreas} selectedId={areaId} onSelect={setAreaId} />
+        <AreaSelector
+          areas={visibleAreas}
+          selectedId={areaId}
+          onSelect={setAreaId}
+        />
       </header>
 
       {board.isLoading ? (
@@ -792,35 +821,41 @@ export function TeamKanbanPage() {
                       </span>
                     </header>
                     <div className="kanban-column-cards flex min-h-[200px] flex-1 flex-col gap-3 overflow-y-auto px-3 py-3 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-border">
-                      {stateActions.map((action) => (
-                        <ActionCard
-                          key={action.id}
-                          action={action}
-                          board={board.data!}
-                          priorities={priorityOptions}
-                          commentCount={commentCounts[action.id] ?? 0}
-                          onOpenDetail={() => setEditingActionId(action.id)}
-                          onMove={(stateId) => update.mutate({ id: action.id, stateId })}
-                          onAssign={(assignee) => update.mutate({ id: action.id, assignee })}
-                          onPriority={(priority) => update.mutate({ id: action.id, priority })}
-                          onDueDateChange={({ dueAt, reasonKey, previousDate, nextDate }) =>
-                            update.mutate({
-                              id: action.id,
-                              dueAt,
-                              dueChange: {
-                                reasonKey,
-                                previousDate,
-                                nextDate,
-                                title: action.titulo,
-                              },
-                            })
-                          }
-                          onEscalate={() => setEscalating(action)}
-                          onCloseSeries={() =>
-                            setClosingSeries({ id: action.id, titulo: action.titulo })
-                          }
-                        />
-                      ))}
+                      {stateActions.map((action) => {
+                        const actionBoard = boardForTeamAction(board.data!, action)
+                        return (
+                          <ActionCard
+                            key={action.id}
+                            action={action}
+                            board={actionBoard}
+                            areaName={isAllAreas
+                              ? visibleAreas.find((area) => area.id === action.area_id)?.nombre
+                              : undefined}
+                            priorities={priorityOptions}
+                            commentCount={commentCounts[action.id] ?? 0}
+                            onOpenDetail={() => setEditingActionId(action.id)}
+                            onMove={(stateId) => update.mutate({ id: action.id, stateId })}
+                            onAssign={(assignee) => update.mutate({ id: action.id, assignee })}
+                            onPriority={(priority) => update.mutate({ id: action.id, priority })}
+                            onDueDateChange={({ dueAt, reasonKey, previousDate, nextDate }) =>
+                              update.mutate({
+                                id: action.id,
+                                dueAt,
+                                dueChange: {
+                                  reasonKey,
+                                  previousDate,
+                                  nextDate,
+                                  title: action.titulo,
+                                },
+                              })
+                            }
+                            onEscalate={() => setEscalating(action)}
+                            onCloseSeries={() =>
+                              setClosingSeries({ id: action.id, titulo: action.titulo })
+                            }
+                          />
+                        )
+                      })}
                       {stateActions.length === 0 ? (
                         <div className="flex min-h-[180px] flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-muted/10 px-4 py-8 text-center">
                           <FolderOpen className="mb-2 h-8 w-8 text-muted-foreground opacity-60" aria-hidden />
@@ -828,16 +863,18 @@ export function TeamKanbanPage() {
                             Sin acciones en {state.nombre}
                           </p>
                           <p className="mt-0.5 text-xs text-muted-foreground/80">
-                            Arrastra aquí o crea una nueva
+                            {isAllAreas ? 'No hay acciones en tus areas' : 'Arrastra aqui o crea una nueva'}
                           </p>
-                          <button
-                            type="button"
-                            onClick={() => setCreateOpen(true)}
-                            className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                          >
-                            <Plus className="h-3.5 w-3.5" aria-hidden />
-                            Nueva acción
-                          </button>
+                          {!isAllAreas ? (
+                            <button
+                              type="button"
+                              onClick={() => setCreateOpen(true)}
+                              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            >
+                              <Plus className="h-3.5 w-3.5" aria-hidden />
+                              Nueva acción
+                            </button>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
@@ -849,7 +886,7 @@ export function TeamKanbanPage() {
         </div>
       ) : null}
 
-      {board.data && areaId ? (
+      {board.data && areaId && !isAllAreas ? (
         <TeamActionFormDialog
           open={createOpen}
           onOpenChange={setCreateOpen}
@@ -863,7 +900,7 @@ export function TeamKanbanPage() {
       {board.data ? (
         <TeamActionEditDialog
           action={editingAction}
-          board={board.data}
+          board={editingAction ? boardForTeamAction(board.data, editingAction) : board.data}
           priorities={priorityOptions}
           asignadorNombre={editingAction ? resolveTeamActionAssignerName(editingAction, board.data) : null}
           commentCount={editingAction ? (commentCounts[editingAction.id] ?? 0) : 0}
@@ -925,6 +962,28 @@ function AreaSelector({
     <div className="space-y-2">
       <p className="text-xs font-medium text-muted-foreground">Elige area</p>
       <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => onSelect(ALL_TEAM_AREAS)}
+          className={cn(
+            'inline-flex min-h-10 items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition',
+            selectedId === ALL_TEAM_AREAS
+              ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+              : 'border-border/70 bg-card text-foreground hover:border-primary/40 hover:bg-primary/5'
+          )}
+        >
+          <span>Todas</span>
+          <span
+            className={cn(
+              'rounded-full px-1.5 py-0.5 text-[10px] tabular-nums',
+              selectedId === ALL_TEAM_AREAS
+                ? 'bg-primary-foreground/15'
+                : 'bg-muted text-muted-foreground'
+            )}
+          >
+            {areas.reduce((total, area) => total + area.open_count, 0)}
+          </span>
+        </button>
         {areas.map((area) => {
           const selected = area.id === selectedId
           return (
@@ -1546,6 +1605,7 @@ function TeamActionEditDialog({
 function ActionCard({
   action,
   board,
+  areaName,
   priorities,
   commentCount,
   onOpenDetail,
@@ -1558,6 +1618,7 @@ function ActionCard({
 }: {
   action: TeamAction
   board: TeamBoard
+  areaName?: string
   priorities: Priority[]
   commentCount: number
   onOpenDetail: () => void
@@ -1619,6 +1680,11 @@ function ActionCard({
       <CardHeader className={cn('block space-y-0 p-3', expanded && 'border-b border-border/50')}>
         <div className="flex items-start gap-1.5">
           <button type="button" className="min-w-0 flex-1 text-left" onClick={onOpenDetail}>
+            {areaName ? (
+              <p className="mb-1 truncate text-[10px] font-semibold uppercase text-muted-foreground">
+                {areaName}
+              </p>
+            ) : null}
             <div className="flex items-start gap-2 pr-1">
               <AccionPriorityBadge
                 prioridad={priorityName}

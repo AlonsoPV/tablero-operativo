@@ -8,6 +8,15 @@ function unwrap<T>(data: T | null, error: { message: string } | null): T {
 }
 
 export const teamKanbanService = {
+  async assignedAreaIds(userId: string) {
+    const { data, error } = await supabase
+      .from('usuario_areas')
+      .select('area_id')
+      .eq('user_id', userId)
+
+    if (error) throw new Error(error.message)
+    return (data ?? []).map((row) => row.area_id as string)
+  },
   async areas() {
     const { data, error } = await supabase.rpc('team_kanban_my_areas')
     return unwrap(data, error) as TeamArea[]

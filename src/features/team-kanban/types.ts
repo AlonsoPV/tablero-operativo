@@ -42,6 +42,7 @@ export type TeamBoard = {
   canManage?: boolean
   states: TeamState[]
   members: TeamMember[]
+  membersByArea?: Record<string, TeamMember[]>
   actions: TeamAction[]
   series?: TeamSeries[]
 }
