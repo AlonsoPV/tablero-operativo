@@ -1938,7 +1938,7 @@ function EscalateDialog({
   const mutation = useMutation({
     mutationFn: () => teamKanbanService.escalate(action!.id, reason),
     onSuccess: async () => {
-      toast.success('Accion enviada al Kanban Corporativo')
+      toast.success('Accion trasladada al Kanban Corporativo')
       setReason('')
       onClose()
       await onDone()
@@ -1958,7 +1958,8 @@ function EscalateDialog({
           <DialogTitle>Escalar al Kanban Corporativo</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          Se conservaran area origen, lider, fecha, prioridad y motivo.
+          La accion se movera al Kanban Corporativo y dejara de aparecer en este tablero.
+          Se conservaran sus datos, comentarios, adjuntos, checklist y trazabilidad.
         </p>
         <div>
           <Label>Motivo del escalamiento</Label>
@@ -1973,7 +1974,7 @@ function EscalateDialog({
           disabled={reason.trim().length < 5 || mutation.isPending}
           onClick={() => mutation.mutate()}
         >
-          Confirmar escalamiento
+          Mover a Corporativo
         </Button>
       </DialogContent>
     </Dialog>
