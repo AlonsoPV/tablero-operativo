@@ -57,8 +57,12 @@ export type OperationalDashboardMetrics = {
   yellowActions: AccionDiaria[]
   greenActions: AccionDiaria[]
   redOpenActions: AccionDiaria[]
+  otherOpenActions: AccionDiaria[]
+  otherClosedActions: AccionDiaria[]
   dueTodayActions: AccionDiaria[]
   avgOpenAgeDays: DashboardMetric
+  avgOpenAgeRedDays: DashboardMetric
+  avgOpenAgeOthersDays: DashboardMetric
   avgCloseDays: DashboardMetric
   redClosedOnTimePct: DashboardMetric
   ico: DashboardMetric
@@ -214,11 +218,19 @@ function calculateCoreMetrics(
   }
   const redActions = actionsByPriorityColor.rojo
   const redClosedActions = redActions.filter((action) => isClosed(action, statusesByKey))
+  const otherClosedActions = closedActions.filter((action) => !isRedPriority(action, priorities))
   const overdueActions = openActions.filter((action) => action.fecha < today)
   const blockedActions = openActions.filter((action) => isBlocked(action, statusesByKey))
   const redOpenActions = openActions.filter((action) => isRedPriority(action, priorities))
+  const otherOpenActions = openActions.filter((action) => !isRedPriority(action, priorities))
   const dueTodayActions = openActions.filter((action) => action.fecha === today)
-  const avgOpenAgeDays = round(avg(openActions.map((action) => daysBetween(action.created_at, `${today}T00:00:00`) ?? 0)))
+  const openAgeDays = (action: AccionDiaria) =>
+    daysBetween(action.created_at, `${today}T00:00:00`) ?? 0
+  const closeAgeDays = (action: AccionDiaria) =>
+    daysBetween(action.created_at, completedAt(action)) ?? 0
+  const avgOpenAgeDays = round(avg(openActions.map(openAgeDays)))
+  const avgOpenAgeRedDays = round(avg(redClosedActions.map(closeAgeDays)))
+  const avgOpenAgeOthersDays = round(avg(otherClosedActions.map(closeAgeDays)))
   const avgCloseDays = round(avg(closedActions.map((action) => daysBetween(action.created_at, completedAt(action)) ?? 0)))
   const redClosedOnTimePct = pct(redClosedActions.filter(closedOnTime).length, redClosedActions.length)
   const ico = pct(closedActions.filter(closedOnTime).length, closedActions.length)
@@ -234,8 +246,12 @@ function calculateCoreMetrics(
     yellowActions: actionsByPriorityColor.amarillo,
     greenActions: actionsByPriorityColor.verde,
     redOpenActions,
+    otherOpenActions,
+    otherClosedActions,
     dueTodayActions,
     avgOpenAgeDays,
+    avgOpenAgeRedDays,
+    avgOpenAgeOthersDays,
     avgCloseDays,
     redClosedOnTimePct,
     ico,
@@ -318,15 +334,31 @@ export function useOperationalDashboardMetrics(input: {
       totalActions: input.actions,
       openActions: current.openActions,
       closedActions: currentPeriodCore.closedActions,
-      redClosedActions: currentPeriodCore.closedActions.filter((action) => isRedPriority(action, input.priorities)),
+      redClosedActions: currentPeriodCore.closedActions.filter((action) =>
+        isRedPriority(action, input.priorities)
+      ),
+      otherClosedActions: currentPeriodCore.closedActions.filter(
+        (action) => !isRedPriority(action, input.priorities)
+      ),
       overdueActions: current.overdueActions,
       blockedActions: current.blockedActions,
       redActions: current.redActions,
       yellowActions: current.yellowActions,
       greenActions: current.greenActions,
       redOpenActions: current.redOpenActions,
+      otherOpenActions: current.otherOpenActions,
       dueTodayActions: current.dueTodayActions,
       avgOpenAgeDays: valueMetric(current.avgOpenAgeDays, previous.avgOpenAgeDays, false),
+      avgOpenAgeRedDays: valueMetric(
+        currentPeriodCore.avgOpenAgeRedDays,
+        previous.avgOpenAgeRedDays,
+        false
+      ),
+      avgOpenAgeOthersDays: valueMetric(
+        currentPeriodCore.avgOpenAgeOthersDays,
+        previous.avgOpenAgeOthersDays,
+        false
+      ),
       avgCloseDays: valueMetric(currentPeriodCore.avgCloseDays, previous.avgCloseDays, false),
       redClosedOnTimePct: valueMetric(currentPeriodCore.redClosedOnTimePct, previous.redClosedOnTimePct, true),
       ico: valueMetric(currentPeriodCore.ico, previous.ico, true),

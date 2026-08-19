@@ -3,8 +3,14 @@ import { cn } from '@/lib/utils'
 import type { OrgChartNode } from '../types/orgChart.types'
 import { initialsFromName } from '../utils/orgHierarchy'
 
-const LEVEL_GAP = 'gap-8 lg:gap-10'
 const SIBLING_GAP = 'gap-6 lg:gap-8'
+const CONNECTOR_TRUNK = 'w-8 lg:w-10'
+const CONNECTOR_BRANCH = 'w-8 lg:w-10'
+const CONNECTOR_INSET = 'pl-8 lg:pl-10'
+const CONNECTOR_LINE = 'bg-muted-foreground/55 dark:bg-muted-foreground/65'
+const CONNECTOR_THICKNESS = 'w-0.5'
+const CONNECTOR_HEIGHT = 'h-0.5'
+const CONNECTOR_GAP_HALF = 'top-3 bottom-3 lg:top-4 lg:bottom-4'
 
 interface OrgChartNodeCardProps {
   node: OrgChartNode
@@ -68,30 +74,73 @@ interface OrgChartLateralBranchProps {
 
 function OrgChartLateralBranch({ node, selectedId, onSelect }: OrgChartLateralBranchProps) {
   const hasChildren = node.children.length > 0
+  const childCount = node.children.length
+  const multiChildren = childCount > 1
 
   return (
-    <div className={cn('flex items-center', LEVEL_GAP)}>
+    <div className="flex items-center">
       <OrgChartNodeCard node={node} selectedId={selectedId} onSelect={onSelect} />
 
       {hasChildren ? (
-        <div className={cn('relative flex flex-col', SIBLING_GAP)}>
-          {node.children.length > 1 ? (
-            <span
-              className="pointer-events-none absolute left-0 top-5 bottom-5 w-px bg-border"
-              aria-hidden
-            />
-          ) : null}
+        <>
+          <span
+            className={cn(
+              'pointer-events-none shrink-0 self-center',
+              CONNECTOR_HEIGHT,
+              CONNECTOR_TRUNK,
+              CONNECTOR_LINE
+            )}
+            aria-hidden
+          />
 
-          {node.children.map((child) => (
-            <div key={child.id} className="relative flex items-center pl-8">
-              <span
-                className="pointer-events-none absolute left-0 top-1/2 h-px w-8 -translate-y-1/2 bg-border"
-                aria-hidden
-              />
-              <OrgChartLateralBranch node={child} selectedId={selectedId} onSelect={onSelect} />
-            </div>
-          ))}
-        </div>
+          <div className={cn('relative flex flex-col', SIBLING_GAP)}>
+            {node.children.map((child, index) => {
+              const isFirst = index === 0
+              const isLast = index === childCount - 1
+
+              return (
+                <div
+                  key={child.id}
+                  className={cn('relative flex items-center', CONNECTOR_INSET)}
+                >
+                  <span
+                    className={cn(
+                      'pointer-events-none absolute left-0 top-1/2 -translate-y-1/2',
+                      CONNECTOR_HEIGHT,
+                      CONNECTOR_BRANCH,
+                      CONNECTOR_LINE
+                    )}
+                    aria-hidden
+                  />
+
+                  {multiChildren ? (
+                    <span
+                      className={cn(
+                        'pointer-events-none absolute left-0',
+                        CONNECTOR_THICKNESS,
+                        CONNECTOR_LINE,
+                        isFirst && 'top-1/2 -bottom-3 lg:-bottom-4',
+                        isLast && '-top-3 bottom-1/2 lg:-top-4',
+                        !isFirst && !isLast && CONNECTOR_GAP_HALF
+                      )}
+                      aria-hidden
+                    />
+                  ) : null}
+
+                  <span
+                    className={cn(
+                      'pointer-events-none absolute left-0 top-1/2 z-[1] h-2 w-2 -translate-x-[3px] -translate-y-1/2 rounded-full border-2 border-background',
+                      CONNECTOR_LINE
+                    )}
+                    aria-hidden
+                  />
+
+                  <OrgChartLateralBranch node={child} selectedId={selectedId} onSelect={onSelect} />
+                </div>
+              )
+            })}
+          </div>
+        </>
       ) : null}
     </div>
   )

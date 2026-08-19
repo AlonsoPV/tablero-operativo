@@ -36,7 +36,6 @@ import {
   getAccionKanbanColumn,
   isEnRetraso,
 } from '../utils/accionUtils'
-import { getAccionDisplayEstado } from '../utils/accionEstadoDisplay'
 import {
   AlertCircle,
   Clock,
@@ -154,25 +153,20 @@ const COLUMN_STYLES: Record<ActionStatus, { border: string; bg: string; icon: st
 }
 
 
-function kanbanCardStatusLabel(
-  accion: AccionDiaria,
-  overdue: boolean,
-  statusByKey: StatusCatalogMap
-): string {
-  if (overdue) return 'Vencido'
-  return statusCatalogLabel(getAccionDisplayEstado(accion), statusByKey)
-}
-
-function kanbanCardStatusTone(status: string): string | undefined {
-  if (status === 'Vencido') return 'text-orange-600 dark:text-orange-400 font-medium'
-  if (status === 'Bloqueado') return 'text-destructive font-medium'
-  return undefined
-}
-
 function kanbanCardAgeLabel(accion: AccionDiaria): string | null {
+  if (accion.estado === 'Verificado') return null
+
   const createdAt = Date.parse(accion.created_at ?? '')
   if (!Number.isFinite(createdAt)) return null
-  const days = Math.max(0, Math.floor((Date.now() - createdAt) / 86_400_000))
+
+  const isHecho = accion.estado === 'Hecho'
+  const closedAt = Date.parse(accion.completed_at ?? '')
+  const end = isHecho && Number.isFinite(closedAt) ? closedAt : Date.now()
+  const days = Math.max(0, Math.floor((end - createdAt) / 86_400_000))
+
+  if (isHecho) {
+    return days === 1 ? '1 día en flujo' : `${days} días en flujo`
+  }
   return days === 1 ? 'Abierta hace 1 día' : `Abierta hace ${days} días`
 }
 
@@ -181,19 +175,12 @@ function KanbanCardMeta({
   responsableName,
   checklistProgress,
   overdue,
-  statusByKey,
-  showStatus = true,
-  showAge = false,
 }: {
   accion: AccionDiaria
   responsableName: string
   checklistProgress?: { total: number; completed: number }
   overdue: boolean
-  statusByKey: StatusCatalogMap
-  showStatus?: boolean
-  showAge?: boolean
 }) {
-  const status = kanbanCardStatusLabel(accion, overdue, statusByKey)
   const age = kanbanCardAgeLabel(accion)
   const segments: { key: string; text: string; className?: string }[] = [
     { key: 'owner', text: responsableName },
@@ -207,19 +194,13 @@ function KanbanCardMeta({
     })
   }
 
-  if (showStatus) {
-    segments.push({
-      key: 'status',
-      text: status,
-      className: kanbanCardStatusTone(status),
-    })
-  }
-
-  if (showAge && age) {
+  if (age) {
     segments.push({
       key: 'age',
       text: age,
-      className: 'font-medium',
+      className: overdue
+        ? 'font-medium text-orange-600 dark:text-orange-400'
+        : 'font-medium',
     })
   }
 
@@ -707,8 +688,6 @@ function KanbanCardInner({
   priority,
   statusByKey,
   movableStatuses,
-  showStatusInMeta = true,
-  showAgeInMeta = false,
 }: {
   accion: AccionDiaria
   responsableName: string
@@ -723,8 +702,6 @@ function KanbanCardInner({
   priority?: Priority
   statusByKey: StatusCatalogMap
   movableStatuses: ActionStatus[]
-  showStatusInMeta?: boolean
-  showAgeInMeta?: boolean
 }) {
   const overdue = isEnRetraso(accion)
   const priorityName = priority?.nombre ?? accion.prioridad
@@ -767,9 +744,6 @@ function KanbanCardInner({
               responsableName={responsableName}
               checklistProgress={checklistProgress}
               overdue={overdue}
-              statusByKey={statusByKey}
-              showStatus={showStatusInMeta}
-              showAge={showAgeInMeta}
             />
           </div>
         </div>
@@ -868,8 +842,6 @@ function KanbanCard({
   priority,
   statusByKey,
   movableStatuses,
-  showStatusInMeta = true,
-  showAgeInMeta = false,
 }: {
   accion: AccionDiaria
   responsableName: string
@@ -881,8 +853,6 @@ function KanbanCard({
   priority?: Priority
   statusByKey: StatusCatalogMap
   movableStatuses: ActionStatus[]
-  showStatusInMeta?: boolean
-  showAgeInMeta?: boolean
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: accion.id,
@@ -905,8 +875,6 @@ function KanbanCard({
         priority={priority}
         statusByKey={statusByKey}
         movableStatuses={movableStatuses}
-        showStatusInMeta={showStatusInMeta}
-        showAgeInMeta={showAgeInMeta}
       />
     </div>
   )
@@ -990,8 +958,6 @@ function KanbanColumn({
   }, [sortedActions, hasOverflow, expanded])
 
   const hiddenCount = sortedActions.length - COLUMN_PREVIEW_LIMIT
-  const showStatusInMeta = !hasOverflow || expanded
-  const showAgeInMeta = hasOverflow && !expanded
 
   const { setNodeRef, isOver } = useDroppable({ id: status })
   const style = COLUMN_STYLES[status]
@@ -1122,8 +1088,6 @@ function KanbanColumn({
                 priority={findPriorityForAccion(accion, priorities)}
                 statusByKey={statusByKey}
                 movableStatuses={movableStatuses}
-                showStatusInMeta={showStatusInMeta}
-                showAgeInMeta={showAgeInMeta}
               />
             ))}
             {hasOverflow ? (

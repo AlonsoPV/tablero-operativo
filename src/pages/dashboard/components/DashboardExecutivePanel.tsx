@@ -403,11 +403,42 @@ function OverdueBreakdownPie({
 }
 
 const agingChartStyles = [
-  { bar: 'bg-emerald-500', text: 'text-emerald-700 dark:text-emerald-300' },
-  { bar: 'bg-lime-500', text: 'text-lime-700 dark:text-lime-300' },
-  { bar: 'bg-amber-500', text: 'text-amber-700 dark:text-amber-300' },
-  { bar: 'bg-red-500', text: 'text-red-700 dark:text-red-300' },
-]
+  {
+    bar: 'bg-emerald-500',
+    text: 'text-emerald-700 dark:text-emerald-300',
+    surface: 'border-emerald-500/25 bg-emerald-500/[0.06] hover:bg-emerald-500/10',
+    accent: 'border-l-emerald-500',
+    ring: 'ring-emerald-500/20',
+  },
+  {
+    bar: 'bg-lime-500',
+    text: 'text-lime-700 dark:text-lime-300',
+    surface: 'border-lime-500/25 bg-lime-500/[0.06] hover:bg-lime-500/10',
+    accent: 'border-l-lime-500',
+    ring: 'ring-lime-500/20',
+  },
+  {
+    bar: 'bg-amber-500',
+    text: 'text-amber-700 dark:text-amber-300',
+    surface: 'border-amber-500/25 bg-amber-500/[0.06] hover:bg-amber-500/10',
+    accent: 'border-l-amber-500',
+    ring: 'ring-amber-500/20',
+  },
+  {
+    bar: 'bg-red-500',
+    text: 'text-red-700 dark:text-red-300',
+    surface: 'border-red-500/25 bg-red-500/[0.06] hover:bg-red-500/10',
+    accent: 'border-l-red-500',
+    ring: 'ring-red-500/20',
+  },
+] as const
+
+const agingBucketMeta = [
+  { range: '0–2 días', intent: 'Recién abiertas', question: '¿Qué entró hace poco?' },
+  { range: '3–5 días', intent: 'En curso', question: '¿Qué sigue en ventana normal?' },
+  { range: '6–10 días', intent: 'Envejeciendo', question: '¿Qué ya pide seguimiento?' },
+  { range: '+10 días', intent: 'Backlog viejo', question: '¿Qué lleva demasiado tiempo abierto?' },
+] as const
 
 function BacklogByAreaChart({
   items,
@@ -564,54 +595,159 @@ function AgingDistributionChart({
   total: number
   onDrillDown: (input: DrillDownInput) => void
 }) {
+  const segments = buckets.map((bucket, index) => {
+    const percentage = total > 0 ? Math.round((bucket.count / total) * 100) : 0
+    const style = agingChartStyles[index] ?? agingChartStyles[agingChartStyles.length - 1]
+    const meta = agingBucketMeta[index] ?? agingBucketMeta[agingBucketMeta.length - 1]
+    return { bucket, percentage, style, meta }
+  })
+  const staleCount = buckets.at(-1)?.count ?? 0
+  const stalePct = total > 0 ? Math.round((staleCount / total) * 100) : 0
+
   return (
     <div className="overflow-hidden rounded-xl border border-border/60 bg-background/60 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/50 px-4 py-4">
-        <div>
-          <p className="text-sm font-semibold">Antigüedad del backlog</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Cada barra compara el rango contra las {total} acciones abiertas.
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/50 px-4 py-4 sm:px-5">
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Timer className="h-4 w-4" aria-hidden />
+            </span>
+            <p className="text-sm font-semibold">Antigüedad del backlog abierto</p>
+          </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Días desde que se creó cada acción pendiente. Responde:{' '}
+            <span className="font-medium text-foreground/85">¿qué tan viejo está lo que aún no se cierra?</span>
           </p>
         </div>
-        <Badge variant="outline" className="tabular-nums">{total} abiertas</Badge>
+        <Badge variant="outline" className="h-7 shrink-0 tabular-nums">
+          {total} {total === 1 ? 'abierta' : 'abiertas'}
+        </Badge>
       </div>
-      <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
-        {buckets.map((bucket, index) => {
-          const percentage = total > 0 ? Math.round((bucket.count / total) * 100) : 0
-          const style = agingChartStyles[index] ?? agingChartStyles[agingChartStyles.length - 1]
-          return (
-            <button
-              key={bucket.label}
-              type="button"
-              className="group rounded-lg border border-border/50 bg-card/50 p-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => onDrillDown({
-                title: `Antigüedad · ${bucket.label}`,
-                actions: bucket.actions,
-              })}
-              aria-label={`${bucket.label}: ${bucket.count} de ${total}, ${percentage}%`}
+
+      {total === 0 ? (
+        <div className="px-4 py-10 text-center sm:px-5">
+          <p className="text-sm font-medium text-foreground">Sin acciones abiertas en el alcance</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Cuando haya backlog pendiente, aquí verás cuánto tiempo lleva abierto.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="space-y-3 border-b border-border/40 px-4 py-4 sm:px-5">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Panorama rápido
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Proporción del backlog en cada rango de antigüedad.
+                </p>
+              </div>
+              {staleCount > 0 ? (
+                <Badge variant="destructive" className="text-[10px]">
+                  {staleCount} con +10 días ({stalePct}%)
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="text-[10px]">
+                  Nada con más de 10 días
+                </Badge>
+              )}
+            </div>
+
+            <div
+              className="flex h-4 overflow-hidden rounded-full bg-muted shadow-inner"
+              role="img"
+              aria-label={`Distribución: ${segments.map((segment) => `${segment.meta.range} ${segment.percentage}%`).join(', ')}`}
             >
-              <span className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold">{bucket.label}</span>
-                <span className={cn('text-lg font-bold tabular-nums', style.text)}>
-                  {bucket.count}
-                  <span className="ml-1 text-[11px] font-medium text-muted-foreground">/ {total}</span>
-                </span>
-              </span>
-              <span className="mt-4 block h-7 overflow-hidden rounded-md bg-muted">
+              {segments.map(({ bucket, percentage, style }) =>
+                percentage > 0 ? (
+                  <span
+                    key={bucket.label}
+                    className={cn('h-full transition-all', style.bar)}
+                    style={{ width: `${percentage}%` }}
+                    title={`${bucket.label}: ${bucket.count} acciones (${percentage}%)`}
+                  />
+                ) : null
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+              {segments.map(({ bucket, percentage, style, meta }) => (
                 <span
-                  className={cn('flex h-full min-w-0 items-center justify-end rounded-md px-2 text-[10px] font-bold text-white transition-all', style.bar)}
-                  style={{ width: `${percentage}%` }}
+                  key={bucket.label}
+                  className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground"
                 >
-                  {percentage >= 15 ? `${percentage}%` : ''}
+                  <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', style.bar)} aria-hidden />
+                  <span className="font-medium text-foreground/80">{meta.range}</span>
+                  <span className="tabular-nums">
+                    {bucket.count} · {percentage}%
+                  </span>
                 </span>
-              </span>
-              <span className="mt-2 block text-right text-xs font-semibold tabular-nums text-muted-foreground">
-                {percentage}% del total
-              </span>
-            </button>
-          )
-        })}
-      </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-3 p-4 sm:p-5 md:grid-cols-2 xl:grid-cols-4">
+            {segments.map(({ bucket, percentage, style, meta }) => (
+              <button
+                key={bucket.label}
+                type="button"
+                className={cn(
+                  'group flex flex-col rounded-xl border border-l-4 p-4 text-left transition',
+                  'hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  style.surface,
+                  style.accent,
+                  bucket.count > 0 && 'ring-1',
+                  bucket.count > 0 && style.ring
+                )}
+                onClick={() =>
+                  onDrillDown({
+                    title: `Antigüedad · ${meta.range}`,
+                    actions: bucket.actions,
+                  })
+                }
+                aria-label={`${meta.range}, ${meta.intent}: ${bucket.count} acciones, ${percentage}% del backlog`}
+              >
+                <div className="space-y-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {meta.intent}
+                  </p>
+                  <p className={cn('text-base font-bold tracking-tight', style.text)}>{meta.range}</p>
+                  <p className="text-[11px] leading-snug text-muted-foreground">{meta.question}</p>
+                </div>
+
+                <div className="mt-4 flex items-end justify-between gap-2">
+                  <div>
+                    <p className={cn('text-3xl font-bold leading-none tabular-nums', style.text)}>
+                      {bucket.count}
+                    </p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {bucket.count === 1 ? 'acción' : 'acciones'}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className={cn('text-2xl font-bold tabular-nums leading-none', style.text)}>
+                      {percentage}%
+                    </p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">del backlog</p>
+                  </div>
+                </div>
+
+                <span className="mt-4 block h-2 overflow-hidden rounded-full bg-background/70">
+                  <span
+                    className={cn('block h-full min-w-[3px] rounded-full transition-all', style.bar)}
+                    style={{ width: `${Math.max(percentage, bucket.count > 0 ? 8 : 0)}%` }}
+                  />
+                </span>
+
+                <span className="mt-3 text-[11px] font-medium text-muted-foreground group-hover:text-foreground">
+                  Ver detalle →
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -1115,7 +1251,7 @@ export function DashboardExecutivePanel({
             subtitle="Riesgos activos que requieren seguimiento durante el dia."
             icon={AlertTriangle}
           />
-          <SectionCardBody>
+          <SectionCardBody className="space-y-4">
             <div className="grid items-stretch gap-4 lg:grid-cols-2">
               <ActionsPriorityPie
                 metrics={metrics}
@@ -1125,6 +1261,34 @@ export function DashboardExecutivePanel({
               <OverdueBreakdownPie
                 metrics={metrics}
                 onDrillDown={onDrillDown}
+                loading={isLoading}
+              />
+            </div>
+            <div className="grid items-stretch gap-4 sm:grid-cols-2">
+              <ReliabilityMetricCard
+                title="Tiempo prom. rojos"
+                value={metrics.avgOpenAgeRedDays.value}
+                suffix="días"
+                description="Acciones rojas ya cerradas. Promedio de días desde la creación hasta el cierre operativo."
+                formula="fecha cierre − fecha creación (rojas cerradas)"
+                metric={metrics.avgOpenAgeRedDays}
+                tone={toneForDays(metrics.avgOpenAgeRedDays.value)}
+                actions={metrics.redClosedActions}
+                onDrillDown={onDrillDown}
+                icon={<Timer className="h-4.5 w-4.5" aria-hidden />}
+                loading={isLoading}
+              />
+              <ReliabilityMetricCard
+                title="Tiempo prom. demás"
+                value={metrics.avgOpenAgeOthersDays.value}
+                suffix="días"
+                description="Acciones no rojas ya cerradas. Promedio de días desde la creación hasta el cierre operativo."
+                formula="fecha cierre − fecha creación (amarillas y verdes cerradas)"
+                metric={metrics.avgOpenAgeOthersDays}
+                tone={toneForDays(metrics.avgOpenAgeOthersDays.value)}
+                actions={metrics.otherClosedActions}
+                onDrillDown={onDrillDown}
+                icon={<Timer className="h-4.5 w-4.5" aria-hidden />}
                 loading={isLoading}
               />
             </div>
@@ -1148,44 +1312,13 @@ export function DashboardExecutivePanel({
             }
           />
           <SectionCardBody className="space-y-5">
-            <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.9fr)]">
-              <IcoHeroCard
-                metric={metrics.ico}
-                closedCount={metrics.closedActions.length}
-                actions={metrics.closedActions}
-                onDrillDown={onDrillDown}
-                loading={isLoading}
-              />
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-                <ReliabilityMetricCard
-                  title="Tiempo promedio de cierre"
-                  value={metrics.avgCloseDays.value}
-                  suffix="días"
-                  description="Acciones ya cerradas. Promedio de días desde la creación hasta el cierre operativo. Responde: ¿cuánto tardamos en cerrar lo que ya terminamos?"
-                  formula="fecha cierre − fecha creación"
-                  metric={metrics.avgCloseDays}
-                  tone={toneForDays(metrics.avgCloseDays.value)}
-                  actions={metrics.closedActions}
-                  onDrillDown={onDrillDown}
-                  icon={<Timer className="h-4.5 w-4.5" aria-hidden />}
-                  loading={isLoading}
-                />
-                <ReliabilityMetricCard
-                  title="Rojas cerradas a tiempo"
-                  value={metrics.redClosedOnTimePct.value}
-                  suffix="%"
-                  description="Cumplimiento de prioridades críticas."
-                  formula="rojas cerradas a tiempo / rojas cerradas × 100"
-                  metric={metrics.redClosedOnTimePct}
-                  tone={toneForPercent(metrics.redClosedOnTimePct.value, 85, metrics.redClosedOnTimeTarget)}
-                  actions={metrics.redClosedActions}
-                  onDrillDown={onDrillDown}
-                  icon={<AlertTriangle className="h-4.5 w-4.5" aria-hidden />}
-                  loading={isLoading}
-                  targetLabel={`Meta ${metrics.redClosedOnTimeTarget}%`}
-                />
-              </div>
-            </div>
+            <IcoHeroCard
+              metric={metrics.ico}
+              closedCount={metrics.closedActions.length}
+              actions={metrics.closedActions}
+              onDrillDown={onDrillDown}
+              loading={isLoading}
+            />
             <div className="grid gap-4 lg:grid-cols-2">
               <IcoRankingPanel
                 title="ICO por área"

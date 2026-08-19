@@ -24,9 +24,9 @@ export type KanbanHealthMetrics = {
   vencidasRojas: number
   bloqueadas: number
   abiertas: number
-  /** Promedio de días abiertas (todas las abiertas). */
+  /** Edad promedio en días (todas las acciones abiertas). */
   promedioAperturaTotalDias: number
-  /** Promedio de días abiertas (solo rojas abiertas). */
+  /** Edad promedio en días (solo rojas/críticas abiertas). */
   promedioAperturaRojosDias: number
 }
 
