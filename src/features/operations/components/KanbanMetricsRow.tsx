@@ -1,4 +1,4 @@
-import { AlertTriangle, Ban, Clock3, FolderOpen } from 'lucide-react'
+import { AlertTriangle, Ban, Clock3, FolderOpen, Timer } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Status } from '@/features/catalogs/types/catalogs.types'
 import type { KanbanHealthMetrics } from '../utils/metricas'
@@ -38,13 +38,12 @@ export function KanbanMetricsRow({ metrics, statuses = [], className }: KanbanMe
     'Fecha o hora límite rebasada'
   )
   const hasOverdueReds = metrics.vencidasRojas > 0
-
   const items = [
     {
       key: 'rojos',
       label: 'Rojos',
       value: metrics.rojos,
-      hint: 'Criticas abiertas',
+      hint: 'Críticas abiertas',
       hintTone: undefined as string | undefined,
       icon: AlertTriangle,
       tone: 'border-red-200/80 bg-red-50/80',
@@ -90,6 +89,30 @@ export function KanbanMetricsRow({ metrics, statuses = [], className }: KanbanMe
       labelTone: 'text-muted-foreground',
       visible: true,
     },
+    {
+      key: 'apertura-rojos',
+      label: 'Apertura rojos',
+      value: metrics.promedioAperturaRojosDias,
+      hint: 'Días promedio',
+      hintTone: undefined as string | undefined,
+      icon: Timer,
+      tone: 'border-rose-200/80 bg-rose-50/70',
+      valueTone: 'text-rose-700',
+      labelTone: 'text-rose-800/80',
+      visible: true,
+    },
+    {
+      key: 'apertura-total',
+      label: 'Apertura total',
+      value: metrics.promedioAperturaTotalDias,
+      hint: 'Días promedio',
+      hintTone: undefined as string | undefined,
+      icon: Timer,
+      tone: 'border-sky-200/80 bg-sky-50/70',
+      valueTone: 'text-sky-700',
+      labelTone: 'text-sky-800/80',
+      visible: true,
+    },
   ] as const
 
   const visibleItems = items.filter((item) => item.visible)
@@ -97,27 +120,33 @@ export function KanbanMetricsRow({ metrics, statuses = [], className }: KanbanMe
   return (
     <div
       className={cn(
-        'grid grid-cols-2 gap-2 sm:gap-3',
-        visibleItems.length >= 4 ? 'sm:grid-cols-4' : 'sm:grid-cols-3',
+        'grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6',
+        'sm:gap-2.5',
         className
       )}
     >
       {visibleItems.map((item) => (
         <div
           key={item.key}
-          className={cn('rounded-xl border px-3 py-2.5 shadow-sm sm:px-3.5 sm:py-3', item.tone)}
+          className={cn(
+            'rounded-xl border px-2.5 py-2 shadow-sm transition-colors sm:px-3 sm:py-2.5',
+            'hover:shadow-md',
+            item.tone
+          )}
         >
           <div className="flex items-center justify-between gap-2">
-            <p className={cn('text-[11px] font-semibold uppercase tracking-wide', item.labelTone)}>
+            <p className={cn('text-[10px] font-semibold uppercase tracking-wide', item.labelTone)}>
               {item.label}
             </p>
-            <item.icon className={cn('h-3.5 w-3.5 opacity-70', item.valueTone)} aria-hidden />
+            <item.icon className={cn('h-3 w-3 opacity-70', item.valueTone)} aria-hidden />
           </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <p className={cn('text-2xl font-bold tabular-nums leading-none sm:text-[1.75rem]', item.valueTone)}>
+          <div className="mt-1.5 flex items-end justify-between gap-2">
+            <p className={cn('text-xl font-bold tabular-nums leading-none sm:text-2xl', item.valueTone)}>
               {item.value}
             </p>
-            <p className={cn('text-[11px] text-muted-foreground', item.hintTone)}>{item.hint}</p>
+            <div className="text-right">
+              <p className={cn('text-[9px] leading-none text-muted-foreground', item.hintTone)}>{item.hint}</p>
+            </div>
           </div>
         </div>
       ))}

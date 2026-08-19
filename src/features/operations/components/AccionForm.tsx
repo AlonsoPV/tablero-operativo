@@ -115,6 +115,8 @@ export interface AccionFormProps {
   lockedAreaName?: string
   /** Quién asigna la acción; por defecto el usuario actual. */
   asignadorNombre?: string | null
+  /** Fecha/hora de creación para calcular antigüedad de acción abierta. */
+  openedAt?: string | null
 }
 
 export function AccionForm({
@@ -134,6 +136,7 @@ export function AccionForm({
   renderResponsibleSelector,
   lockedAreaName,
   asignadorNombre,
+  openedAt,
 }: AccionFormProps) {
   void _onCancel
 
@@ -211,6 +214,16 @@ export function AccionForm({
   const watchedFecha = form.watch('fecha')
   const watchedHoraLimite = form.watch('hora_limite')
   const prioridadSeleccionada = form.watch('prioridad')
+
+  const openAgeLabel = useMemo(() => {
+    if (!isEdit || !openedAt) return null
+    const started = Date.parse(openedAt)
+    if (!Number.isFinite(started)) return null
+    const now = Date.parse(`${todayWallClockCDMX()}T23:59:59`)
+    if (!Number.isFinite(now)) return null
+    const diffDays = Math.max(0, Math.floor((now - started) / 86_400_000))
+    return diffDays === 1 ? 'Abierta hace 1 día' : `Abierta hace ${diffDays} días`
+  }, [isEdit, openedAt])
 
   const priorityOptions = useMemo((): { id: string; nombre: string }[] => {
     const sorted = [...priorities].sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre))
@@ -394,10 +407,15 @@ export function AccionForm({
                 prioridadId={accionPrioridadId}
               />
             </AccionFormField>
-            <ReadonlyValue
-              label="Fecha y hora límite"
-              value={[form.watch('fecha'), form.watch('hora_limite')].filter(Boolean).join(' · ')}
-            />
+            <div>
+              <ReadonlyValue
+                label="Fecha y hora límite"
+                value={[form.watch('fecha'), form.watch('hora_limite')].filter(Boolean).join(' · ')}
+              />
+              {openAgeLabel ? (
+                <p className="mt-1 px-1 text-xs font-medium text-muted-foreground">{openAgeLabel}</p>
+              ) : null}
+            </div>
             <div className="sm:col-span-2">
               {isEdit ? (
                 <AccionFormField label="Descripción" htmlFor={fieldId('descripcion_simple')} required>
@@ -535,6 +553,9 @@ export function AccionForm({
               className={`${inputBase} h-10`}
             />
           </div>
+          {openAgeLabel ? (
+            <p className="mt-2 text-xs font-medium text-muted-foreground">{openAgeLabel}</p>
+          ) : null}
           {deadlineExtras?.({ fecha: watchedFecha, hora_limite: watchedHoraLimite })}
         </AccionFormField>
         </fieldset>

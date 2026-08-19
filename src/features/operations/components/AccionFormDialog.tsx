@@ -831,6 +831,7 @@ export function AccionFormDialog({
             asignadorNombre={
               isEdit ? userNameById(accionLive?.created_by) : currentUser?.nombre ?? null
             }
+            openedAt={isEdit ? (accionLive?.created_at ?? null) : null}
             validationExtras={
               !isEdit ? (
                 <>
