@@ -50,14 +50,14 @@ CREATE POLICY okr_key_results_select_authenticated
 ON public.okr_key_results
 FOR SELECT
 TO authenticated
-USING (true);
-
-DROP POLICY IF EXISTS okrs_select_authenticated ON public.okrs;
-CREATE POLICY okrs_select_authenticated
-ON public.okrs
-FOR SELECT
-TO authenticated
-USING (true);
+USING (
+  public.can_manage_catalogs()
+  OR public.has_business_role('Direccion')
+  OR public.has_business_role('Lider')
+  OR public.has_business_role('DG')
+  OR public.has_business_role('Sistemas')
+  OR public.has_business_role('super_admin')
+);
 
 CREATE OR REPLACE FUNCTION public.operational_okr_is_red_action(action_row public.acciones_diarias)
 RETURNS boolean
@@ -238,7 +238,6 @@ CREATE OR REPLACE FUNCTION public.get_operational_okr_dashboard()
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
-SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
