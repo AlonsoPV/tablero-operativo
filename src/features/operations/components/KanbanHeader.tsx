@@ -9,8 +9,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Plus, LayoutGrid, SlidersHorizontal, List, Check, Download, UserRoundCheck } from 'lucide-react'
+import { Plus, LayoutGrid, SlidersHorizontal, List, Check, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { KanbanMineToggle } from './KanbanMineToggle'
 
 export type KanbanViewMode = 'kanban' | 'lista'
 
@@ -19,6 +20,8 @@ export interface KanbanHeaderProps {
   onToggleFilters?: () => void
   /** Muestra indicador cuando hay filtros aplicados (incl. responsable por defecto). */
   hasActiveFilters?: boolean
+  /** Cantidad de filtros activos; si se pasa, el badge muestra el número. */
+  activeFilterCount?: number
   onNewAction?: () => void
   onExportExcel?: () => void
   exportDisabled?: boolean
@@ -50,6 +53,7 @@ export function KanbanHeader({
   filtersExpanded,
   onToggleFilters,
   hasActiveFilters = false,
+  activeFilterCount,
   onNewAction,
   onExportExcel,
   exportDisabled = false,
@@ -62,13 +66,16 @@ export function KanbanHeader({
   rightOfTitle,
   className,
 }: KanbanHeaderProps) {
+  const filterCount = activeFilterCount ?? (hasActiveFilters ? 1 : 0)
+  const filtersActive = filterCount > 0
+
   return (
     <header
       id="kanban-header"
       className={cn('kanban-header flex min-w-0 flex-col gap-2.5', className)}
     >
       <div className="kanban-header-title-area min-w-0 space-y-2.5">
-        <div className="grid min-w-0 gap-2.5 md:grid-cols-[minmax(0,auto)_minmax(0,1fr)] md:items-start md:gap-x-4 lg:gap-x-5">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 md:grid-cols-[minmax(0,auto)_minmax(0,1fr)_auto] md:items-center md:gap-x-4 lg:gap-x-5">
           <h1
             id="kanban-title"
             className="kanban-title text-xl font-semibold tracking-tight text-foreground md:pt-0.5 md:text-2xl"
@@ -76,10 +83,74 @@ export function KanbanHeader({
             Kanban
           </h1>
           {rightOfTitle ? (
-            <div className="kanban-header-right-slot min-w-0 w-full md:max-w-none lg:max-w-md">
+            <div className="kanban-header-right-slot col-span-2 min-w-0 w-full md:col-span-1 md:max-w-none lg:max-w-md">
               {rightOfTitle}
             </div>
-          ) : null}
+          ) : (
+            <div className="hidden min-w-0 md:block" aria-hidden />
+          )}
+          <div className="col-start-2 row-start-1 ml-auto flex shrink-0 items-center justify-end gap-2 md:col-start-3">
+            {onExportExcel ? (
+              <Button
+                id="kanban-btn-export-excel"
+                className={cn('kanban-btn-export-excel', ACTION_BTN, SECONDARY_ACTION_BTN, 'w-auto')}
+                variant="outline"
+                size="sm"
+                onClick={onExportExcel}
+                disabled={exportDisabled}
+                title={exportLabel}
+                aria-label={exportLabel}
+              >
+                <Download className="h-4 w-4 shrink-0 stroke-[2.25]" />
+                <span className="truncate">Excel</span>
+              </Button>
+            ) : null}
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  id="kanban-btn-view"
+                  className={cn(
+                    'kanban-btn-view',
+                    ACTION_BTN,
+                    SECONDARY_ACTION_BTN,
+                    'w-auto'
+                  )}
+                  variant="outline"
+                  size="sm"
+                >
+                  {viewMode === 'kanban' ? (
+                    <LayoutGrid className="h-4 w-4 shrink-0 stroke-[2.25]" />
+                  ) : (
+                    <List className="h-4 w-4 shrink-0 stroke-[2.25]" />
+                  )}
+                  <span className="truncate">Vista</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[160px]">
+                <DropdownMenuItem
+                  onClick={() => onViewModeChange?.('kanban')}
+                  className="flex items-center justify-between"
+                >
+                  <span className="flex items-center gap-2">
+                    <LayoutGrid className="h-4 w-4" />
+                    {VIEW_LABELS.kanban}
+                  </span>
+                  {viewMode === 'kanban' ? <Check className="h-4 w-4 text-primary" /> : null}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => onViewModeChange?.('lista')}
+                  className="flex items-center justify-between"
+                >
+                  <span className="flex items-center gap-2">
+                    <List className="h-4 w-4" />
+                    {VIEW_LABELS.lista}
+                  </span>
+                  {viewMode === 'lista' ? <Check className="h-4 w-4 text-primary" /> : null}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         <p className="kanban-subtitle max-w-2xl text-xs leading-relaxed text-muted-foreground sm:text-sm">
@@ -111,11 +182,11 @@ export function KanbanHeader({
             <Button
               id="kanban-btn-filters"
               className={cn(
-                'kanban-btn-filters relative flex-col gap-0.5 sm:flex-row sm:gap-2',
+                'kanban-btn-filters gap-2',
                 ACTION_BTN,
                 SECONDARY_ACTION_BTN,
                 filtersExpanded && 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20',
-                hasActiveFilters &&
+                filtersActive &&
                   !filtersExpanded &&
                   'border-primary/50 bg-primary/5 text-primary ring-2 ring-primary/15'
               )}
@@ -123,115 +194,33 @@ export function KanbanHeader({
               size="sm"
               onClick={onToggleFilters}
               aria-expanded={filtersExpanded}
+              aria-label={
+                filtersActive
+                  ? `Filtros, ${filterCount} activo${filterCount === 1 ? '' : 's'}`
+                  : 'Filtros'
+              }
             >
-              <SlidersHorizontal className="h-4 w-4 shrink-0 stroke-[2.25]" />
+              <SlidersHorizontal className="h-4 w-4 shrink-0 stroke-[2.25]" aria-hidden />
               <span className="truncate">Filtros</span>
-              {hasActiveFilters ? (
+              {filtersActive ? (
                 <span
-                  className="absolute right-1 top-1 h-2 w-2 rounded-full border border-card bg-primary shadow-sm sm:-right-0.5 sm:-top-0.5 sm:h-2.5 sm:w-2.5 sm:border-2"
-                  aria-label="Filtros activos"
-                />
+                  className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold tabular-nums leading-none text-primary-foreground"
+                  aria-hidden
+                >
+                  {filterCount}
+                </span>
               ) : null}
             </Button>
           ) : null}
 
           {onToggleMine ? (
-            <Button
-              id="kanban-btn-mine"
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onToggleMine}
+            <KanbanMineToggle
+              active={mineActive}
               disabled={mineDisabled}
-              aria-pressed={mineActive}
-              title={mineActive ? 'Quitar filtro Mias' : 'Mostrar acciones donde soy responsable o creador'}
-              className={cn(
-                'kanban-btn-mine h-11 min-h-11 w-full min-w-0 justify-between rounded-full border-2 px-2.5 text-[11px] font-bold shadow-sm transition-all sm:h-10 sm:min-h-10 sm:w-auto sm:min-w-[7.5rem] sm:px-3 sm:text-sm',
-                mineActive
-                  ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20'
-                  : 'border-border bg-card text-muted-foreground hover:bg-muted/60 hover:text-foreground'
-              )}
-            >
-              <span className="inline-flex min-w-0 items-center gap-1.5">
-                <UserRoundCheck className="h-4 w-4 shrink-0 stroke-[2.4]" aria-hidden />
-                <span className="truncate">Mias</span>
-              </span>
-              <span
-                className={cn(
-                  'relative h-5 w-9 shrink-0 rounded-full transition-colors',
-                  mineActive ? 'bg-primary' : 'bg-muted-foreground/25'
-                )}
-                aria-hidden
-              >
-                <span
-                  className={cn(
-                    'absolute top-0.5 h-4 w-4 rounded-full bg-background shadow-sm transition-transform',
-                    mineActive ? 'translate-x-4' : 'translate-x-0.5'
-                  )}
-                />
-              </span>
-            </Button>
+              onClick={onToggleMine}
+            />
           ) : null}
 
-          {onExportExcel ? (
-            <Button
-              id="kanban-btn-export-excel"
-              className={cn('kanban-btn-export-excel', ACTION_BTN, SECONDARY_ACTION_BTN)}
-              variant="outline"
-              size="sm"
-              onClick={onExportExcel}
-              disabled={exportDisabled}
-              title={exportLabel}
-              aria-label={exportLabel}
-            >
-              <Download className="h-4 w-4 shrink-0 stroke-[2.25]" />
-              <span className="truncate">Excel</span>
-            </Button>
-          ) : null}
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                id="kanban-btn-view"
-                className={cn(
-                  'kanban-btn-view flex-col gap-0.5 sm:flex-row sm:gap-2',
-                  ACTION_BTN,
-                  SECONDARY_ACTION_BTN
-                )}
-                variant="outline"
-                size="sm"
-              >
-                {viewMode === 'kanban' ? (
-                  <LayoutGrid className="h-4 w-4 shrink-0 stroke-[2.25]" />
-                ) : (
-                  <List className="h-4 w-4 shrink-0 stroke-[2.25]" />
-                )}
-                <span className="truncate">Vista</span>
-              </Button>
-            </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[160px]">
-                <DropdownMenuItem
-                  onClick={() => onViewModeChange?.('kanban')}
-                  className="flex items-center justify-between"
-                >
-                  <span className="flex items-center gap-2">
-                    <LayoutGrid className="h-4 w-4" />
-                    {VIEW_LABELS.kanban}
-                  </span>
-                  {viewMode === 'kanban' ? <Check className="h-4 w-4 text-primary" /> : null}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => onViewModeChange?.('lista')}
-                  className="flex items-center justify-between"
-                >
-                  <span className="flex items-center gap-2">
-                    <List className="h-4 w-4" />
-                    {VIEW_LABELS.lista}
-                  </span>
-                  {viewMode === 'lista' ? <Check className="h-4 w-4 text-primary" /> : null}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </div>
     </header>

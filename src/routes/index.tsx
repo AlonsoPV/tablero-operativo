@@ -87,8 +87,22 @@ const router = createBrowserRouter([
           {
             path: ROUTES.TEAM_KANBAN,
             lazy: async () => {
+              const { TeamHubPage } = await importWithReload(() => import('@/features/team-kanban'))
+              return { Component: TeamHubPage }
+            },
+          },
+          {
+            path: ROUTES.TEAM_KANBAN_BOARD,
+            lazy: async () => {
               const { TeamKanbanPage } = await importWithReload(() => import('@/features/team-kanban'))
               return { Component: TeamKanbanPage }
+            },
+          },
+          {
+            path: ROUTES.DASHBOARD_TEAMS,
+            lazy: async () => {
+              const { TeamDashboardPage } = await importWithReload(() => import('@/features/team-kanban'))
+              return { Component: TeamDashboardPage }
             },
           },
           {

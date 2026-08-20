@@ -53,5 +53,21 @@ export type TeamBoard = {
   actions: TeamAction[]
   series?: TeamSeries[]
 }
-export type TeamFilters = { search:string; priority:string; stateId:string; dateFrom:string; dateTo:string; mine:boolean }
-export const EMPTY_TEAM_FILTERS:TeamFilters={search:'',priority:'all',stateId:'all',dateFrom:'',dateTo:'',mine:false}
+export type TeamFilters = {
+  search: string
+  priority: string
+  stateId: string
+  dateFrom: string
+  dateTo: string
+  mine: boolean
+  assigneeId?: string
+  alert?: string
+}
+export const EMPTY_TEAM_FILTERS: TeamFilters = {
+  search: '',
+  priority: 'all',
+  stateId: 'all',
+  dateFrom: '',
+  dateTo: '',
+  mine: false,
+}

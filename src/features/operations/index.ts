@@ -46,6 +46,7 @@ export {
   KanbanToolbar,
   createKanbanDefaultFilter,
   hasKanbanActiveFilters,
+  countKanbanActiveFilters,
 } from './components/KanbanToolbar'
 export type { KanbanToolbarLayout } from './components/KanbanToolbar'
 export { CountdownTimer } from './components/CountdownTimer'

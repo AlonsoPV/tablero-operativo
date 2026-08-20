@@ -17,6 +17,7 @@ import {
   createKanbanDefaultFilter,
   KanbanMetricsRow,
   hasKanbanActiveFilters,
+  countKanbanActiveFilters,
   AccionesControlTable,
   AccionFormDialog,
   KanbanNextDeadline,
@@ -238,6 +239,7 @@ export function KanbanPage() {
   )
 
   const hasActiveFilters = useMemo(() => hasKanbanActiveFilters(filter), [filter])
+  const activeFilterCount = useMemo(() => countKanbanActiveFilters(filter), [filter])
 
   const handleSelectAccion = useCallback((accion: AccionDiaria) => {
     void prefetchEvidenceCatalog()
@@ -287,6 +289,7 @@ export function KanbanPage() {
         filtersExpanded={filtersExpanded}
         onToggleFilters={isAnalyst ? undefined : () => setFiltersExpanded((v) => !v)}
         hasActiveFilters={hasActiveFilters}
+        activeFilterCount={activeFilterCount}
         onNewAction={isAnalyst ? undefined : handleNewAction}
         onExportExcel={() => void handleExportExcel()}
         exportDisabled={listLoading || accionesDisplay.length === 0 || isExportingExcel}

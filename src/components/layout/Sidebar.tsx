@@ -38,7 +38,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: ROUTES.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard },
       { to: ROUTES.KANBAN, label: 'Kanban', icon: Columns3 },
-      { to: ROUTES.TEAM_KANBAN, label: 'Kanban por Equipos', icon: FolderKanban },
+      { to: ROUTES.TEAM_KANBAN, label: 'Equipos', icon: FolderKanban },
       { to: ROUTES.ORG_CHART, label: 'Organigrama', icon: Network },
       { to: ROUTES.DISCIPLINA, label: 'Disciplina', icon: Target },
       { to: ROUTES.CALENDARIO, label: 'Calendario', icon: Calendar },
@@ -107,7 +107,7 @@ export function Sidebar() {
   ) => {
     const { showLabels, mobile, onActivate } = opts
     const { to, label, icon: Icon } = item
-    const isActive = location.pathname === to
+    const isActive = location.pathname === to || location.pathname.startsWith(`${to}/`)
     return (
       <Link
         key={to}

@@ -16,7 +16,6 @@ import {
   Plus,
   Repeat2,
   SlidersHorizontal,
-  UserRoundCheck,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -29,7 +28,6 @@ import { Badge } from '@/components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { getAppNow } from '@/lib/clock'
 import { cn } from '@/lib/utils'
-import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
 import type { Priority } from '@/features/catalogs/types/catalogs.types'
 import { AccionPriorityBadge } from '@/features/operations/components/AccionPriorityBadge'
@@ -43,35 +41,31 @@ import {
   type FechaCompromisoChangeReasonKey,
 } from '@/features/operations/constants/fechaCompromisoChangeReasons'
 import { teamKanbanService } from './service'
+import { teamKanbanQueryKeys } from './queryKeys'
 import {
   EMPTY_TEAM_FILTERS,
   type TeamAction,
-  type TeamArea,
   type TeamBoard,
   type TeamFilters,
   type TeamSeries,
 } from './types'
 import { TeamActionFormDialog } from './TeamActionFormDialog'
 import { TeamKanbanFilters } from './TeamKanbanFilters'
+import { TeamAreaSelector } from './components/TeamAreaSelector'
 import { TeamActionComentarios } from './components/TeamActionComentarios'
 import { TeamActionChecklistManage } from './components/TeamActionChecklistManage'
 import { TeamMemberSelect } from './components/TeamMemberSelect'
+import { KanbanMineToggle } from '@/features/operations/components/KanbanMineToggle'
 import { useTeamActionCommentCounts } from './hooks/useTeamActionComentarios'
+import { useTeamAreaScope } from './hooks/useTeamAreaScope'
 import { formatRecurrenceLabel, upcomingOccurrenceDate } from './utils/recurrence'
 import {
   boardForTeamAction,
-  filterAssignedTeamAreas,
   mergeTeamBoards,
   resolveTeamAssigneeName,
 } from './utils/teamAreaView'
 
-const qk = {
-  areas: ['team-kanban', 'areas'] as const,
-  assignedAreas: (userId: string) => ['team-kanban', 'assigned-areas', userId] as const,
-  board: (id: string) => ['team-kanban', 'board', id] as const,
-}
-
-const ALL_TEAM_AREAS = '__all_team_areas__'
+const qk = teamKanbanQueryKeys
 
 function buildTeamActionPatch(
   board: TeamBoard,
@@ -151,6 +145,15 @@ function isCritical(action: TeamAction, board: TeamBoard) {
   return isOpenAction(action, board) && (priority.includes('crit') || priority.includes('p1'))
 }
 
+function isRedPriority(action: TeamAction) {
+  const priority = action.prioridad
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+  return priority.includes('rojo') || priority.includes('crit') || priority.includes('p1') || priority.includes('alta')
+}
+
 function normalizeTeamStateName(value: string) {
   return value
     .normalize('NFD')
@@ -217,6 +220,12 @@ function isTeamActionTodayButNotTime(action: TeamAction, now = getAppNow()) {
   if (!due) return false
   const current = getCdmxWallClockParts(now)
   return due.ymd === current.ymd && current.hm < due.hm
+}
+
+function isTeamActionDueToday(action: TeamAction, now = getAppNow()) {
+  const due = getTeamDueCdmxParts(action.fecha_limite)
+  if (!due) return false
+  return due.ymd === getCdmxWallClockParts(now).ymd
 }
 
 function getTeamFallbackBeforeTodayStateId(board: TeamBoard) {
@@ -330,8 +339,15 @@ function todayIso() {
 export function TeamKanbanPage() {
   const qc = useQueryClient()
   const [searchParams] = useSearchParams()
-  const { data: currentUser, isLoading: userLoading } = useCurrentUser()
-  const [areaId, setAreaId] = useState<string | null>(null)
+  const {
+    currentUser,
+    visibleAreas,
+    areaId,
+    setAreaId,
+    selectedArea,
+    isLoading: areasLoading,
+    error: areasError,
+  } = useTeamAreaScope()
   const [createOpen, setCreateOpen] = useState(false)
   const [escalating, setEscalating] = useState<TeamAction | null>(null)
   const [editingActionId, setEditingActionId] = useState<string | null>(null)
@@ -342,27 +358,11 @@ export function TeamKanbanPage() {
   const boardScrollRef = useRef<HTMLDivElement>(null)
   const statusNavRef = useRef<HTMLDivElement>(null)
 
-  const areas = useQuery({ queryKey: qk.areas, queryFn: teamKanbanService.areas })
-  const assignedAreas = useQuery({
-    queryKey: qk.assignedAreas(currentUser?.id ?? ''),
-    queryFn: () => teamKanbanService.assignedAreaIds(currentUser!.id),
-    enabled: Boolean(currentUser?.id),
-  })
   const { data: catalogPriorities = [] } = usePriorities({ activo: true })
   const priorityOptions = catalogPriorities.length > 0 ? catalogPriorities : LEGACY_TEAM_PRIORITIES
-  const areaParam = searchParams.get('area')
-  // La RPC trae el alcance organizacional completo; la vista inicia solo con asignaciones directas.
-  const directlyAssignedAreas = useMemo(() => {
-    return filterAssignedTeamAreas(
-      areas.data ?? [],
-      assignedAreas.data ?? [],
-      [currentUser?.area, ...(currentUser?.areas ?? [])]
-    )
-  }, [areas.data, assignedAreas.data, currentUser?.area, currentUser?.areas])
-  const visibleAreas = directlyAssignedAreas
   const selectedAreaIds = useMemo(
-    () => areaId === ALL_TEAM_AREAS ? visibleAreas.map((area) => area.id) : areaId ? [areaId] : [],
-    [areaId, visibleAreas]
+    () => areaId ? [areaId] : [],
+    [areaId]
   )
 
   const board = useQuery({
@@ -380,24 +380,12 @@ export function TeamKanbanPage() {
   })
 
   useEffect(() => {
-    if (!visibleAreas.length) {
-      if (areaId) setAreaId(null)
-      return
-    }
-    if (areaParam && visibleAreas.some((area) => area.id === areaParam)) {
-      if (areaId !== areaParam) setAreaId(areaParam)
-      return
-    }
-    if (areaId === ALL_TEAM_AREAS) return
-    if (areaId && visibleAreas.some((area) => area.id === areaId)) return
-    setAreaId(visibleAreas[0].id)
-  }, [visibleAreas, areaId, areaParam])
-
-  useEffect(() => {
-    setFilters(EMPTY_TEAM_FILTERS)
+    const alert = searchParams.get('alert') ?? undefined
+    const assigneeId = searchParams.get('user') ?? undefined
+    setFilters({ ...EMPTY_TEAM_FILTERS, alert, assigneeId })
     setFiltersExpanded(false)
     setActiveStateId(null)
-  }, [areaId])
+  }, [areaId, searchParams])
 
   useEffect(() => {
     if (!board.data?.states.length) return
@@ -441,9 +429,6 @@ export function TeamKanbanPage() {
     )
     active?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
   }, [activeStateId])
-
-  const selectedArea = visibleAreas.find((a) => a.id === areaId)
-  const isAllAreas = areaId === ALL_TEAM_AREAS
 
   const scrollToState = (stateId: string) => {
     setActiveStateId(stateId)
@@ -598,8 +583,20 @@ export function TeamKanbanPage() {
       ) {
         return false
       }
+      if (filters.assigneeId && action.asignado_a !== filters.assigneeId) return false
       if (filters.priority !== 'all' && action.prioridad !== filters.priority) return false
       if (filters.stateId !== 'all' && board.data && getEffectiveTeamStateId(action, board.data) !== filters.stateId) return false
+      if (filters.alert && board.data) {
+        const isOpen = isOpenAction(action, board.data)
+        const isBlocked = isOpen && action.bloqueada
+        const isOverdueAlert = isEnRetrasoTeam(action, board.data)
+        const isRedToday = isOpen && isRedPriority(action) && isTeamActionDueToday(action)
+        if (filters.alert === 'active' && !isOpen) return false
+        if ((filters.alert === 'overdue' || filters.alert === 'vencida') && !isOverdueAlert) return false
+        if ((filters.alert === 'blocked' || filters.alert === 'bloqueada') && !isBlocked) return false
+        if ((filters.alert === 'roja_hoy' || filters.alert === 'red-today') && !isRedToday) return false
+        if (filters.alert === 'attention' && !isOverdueAlert && !isBlocked && !isRedToday) return false
+      }
       if (
         filters.mine &&
         currentUser?.id &&
@@ -637,17 +634,19 @@ export function TeamKanbanPage() {
     filters.dateTo,
     filters.priority !== 'all' ? 'x' : '',
     filters.stateId !== 'all' ? 'x' : '',
-    filters.mine && currentUser?.id ? 'x' : '',
+    filters.assigneeId ? 'x' : '',
+    filters.alert ? 'x' : '',
   ].filter(Boolean).length
+  const filtersActive = activeFilterCount > 0
 
-  if (areas.isLoading || userLoading || (currentUser?.id && assignedAreas.isLoading)) {
+  if (areasLoading) {
     return <p className="py-16 text-center text-muted-foreground">Cargando areas...</p>
   }
 
-  if (areas.error) {
+  if (areasError) {
     return (
       <p className="m-6 rounded-lg border border-destructive/30 p-4 text-destructive">
-        {areas.error.message}
+        {areasError.message}
       </p>
     )
   }
@@ -667,82 +666,67 @@ export function TeamKanbanPage() {
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Kanban por Equipos
           </p>
-          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div className="min-w-0">
-              <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-                {isAllAreas ? 'Todas mis areas' : selectedArea?.nombre ?? 'Tablero de equipo'}
-              </h1>
-              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground sm:text-sm">
-                Acciones privadas del equipo por estado. Cambia de area sin salir del tablero.
-              </p>
-            </div>
-            <div className="grid w-full min-w-0 grid-cols-3 gap-2 sm:flex sm:w-auto sm:items-center">
-              <Button
-                className="h-11 justify-center gap-2 px-4 text-sm font-semibold shadow-md ring-2 ring-primary/25 sm:h-10"
-                onClick={() => setCreateOpen(true)}
-                disabled={!board.data || isAllAreas}
-                title={isAllAreas ? 'Selecciona un area para crear una accion' : undefined}
-              >
-                <Plus className="h-4 w-4 stroke-[2.5]" />
-                Nueva accion
-              </Button>
-              <Button
-                variant="outline"
-                className={cn(
-                  'relative h-11 justify-center gap-2 border-2 font-semibold shadow-sm sm:h-10',
-                  (filtersExpanded || activeFilterCount) && 'border-primary/50 bg-primary/5 text-primary'
-                )}
-                onClick={() => setFiltersExpanded((v) => !v)}
-                aria-expanded={filtersExpanded}
-                disabled={!board.data}
-              >
-                <SlidersHorizontal className="h-4 w-4" />
-                Filtros
-                {activeFilterCount ? (
-                  <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary" />
-                ) : null}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className={cn(
-                  'h-11 justify-between rounded-full border-2 px-2.5 text-xs font-bold shadow-sm transition-all sm:h-10 sm:min-w-[7.5rem] sm:px-3 sm:text-sm',
-                  filters.mine
-                    ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20'
-                    : 'border-border bg-card text-muted-foreground hover:bg-muted/60 hover:text-foreground'
-                )}
-                onClick={() => setFilters((current) => ({ ...current, mine: !current.mine }))}
-                disabled={!board.data || !currentUser?.id}
-                aria-pressed={filters.mine}
-                title={filters.mine ? 'Quitar filtro Mias' : 'Mostrar acciones donde soy responsable o creador'}
-              >
-                <span className="inline-flex min-w-0 items-center gap-1.5">
-                  <UserRoundCheck className="h-4 w-4 shrink-0 stroke-[2.4]" aria-hidden />
-                  <span className="truncate">Mias</span>
-                </span>
-                <span
-                  className={cn(
-                    'relative h-5 w-9 shrink-0 rounded-full transition-colors',
-                    filters.mine ? 'bg-primary' : 'bg-muted-foreground/25'
-                  )}
-                  aria-hidden
-                >
-                  <span
-                    className={cn(
-                      'absolute top-0.5 h-4 w-4 rounded-full bg-background shadow-sm transition-transform',
-                      filters.mine ? 'translate-x-4' : 'translate-x-0.5'
-                    )}
-                  />
-                </span>
-              </Button>
-            </div>
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+              {selectedArea?.nombre ?? 'Tablero de equipo'}
+            </h1>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground sm:text-sm">
+              Acciones privadas del equipo por estado. Cambia de area sin salir del tablero.
+            </p>
           </div>
         </div>
 
-        <AreaSelector
+        <TeamAreaSelector
           areas={visibleAreas}
           selectedId={areaId}
           onSelect={setAreaId}
+          actions={
+            <>
+              <Button
+                className="h-11 justify-center gap-1.5 px-3 text-xs font-semibold shadow-md ring-2 ring-primary/25 sm:gap-2 sm:px-4 sm:text-sm"
+                onClick={() => setCreateOpen(true)}
+                disabled={!board.data}
+              >
+                <Plus className="h-4 w-4 stroke-[2.5]" />
+                <span className="truncate sm:hidden">Nueva</span>
+                <span className="hidden truncate sm:inline">Nueva accion</span>
+              </Button>
+              <Button
+                variant="outline"
+                className={cn(
+                  'h-11 justify-center gap-2 border-2 bg-card font-semibold shadow-sm',
+                  filtersExpanded && 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20',
+                  filtersActive &&
+                    !filtersExpanded &&
+                    'border-primary/50 bg-primary/5 text-primary ring-2 ring-primary/15'
+                )}
+                onClick={() => setFiltersExpanded((v) => !v)}
+                aria-expanded={filtersExpanded}
+                aria-label={
+                  filtersActive
+                    ? `Filtros, ${activeFilterCount} activo${activeFilterCount === 1 ? '' : 's'}`
+                    : 'Filtros'
+                }
+                disabled={!board.data}
+              >
+                <SlidersHorizontal className="h-4 w-4 shrink-0 stroke-[2.25]" aria-hidden />
+                <span className="truncate">Filtros</span>
+                {filtersActive ? (
+                  <span
+                    className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold tabular-nums leading-none text-primary-foreground"
+                    aria-hidden
+                  >
+                    {activeFilterCount}
+                  </span>
+                ) : null}
+              </Button>
+              <KanbanMineToggle
+                active={filters.mine}
+                disabled={!board.data || !currentUser?.id}
+                onClick={() => setFilters((current) => ({ ...current, mine: !current.mine }))}
+              />
+            </>
+          }
         />
       </header>
 
@@ -911,9 +895,7 @@ export function TeamKanbanPage() {
                             key={action.id}
                             action={action}
                             board={actionBoard}
-                            areaName={isAllAreas
-                              ? visibleAreas.find((area) => area.id === action.area_id)?.nombre
-                              : undefined}
+                            areaName={undefined}
                             priorities={priorityOptions}
                             commentCount={commentCounts[action.id] ?? 0}
                             onOpenDetail={() => setEditingActionId(action.id)}
@@ -946,18 +928,16 @@ export function TeamKanbanPage() {
                             Sin acciones en {state.nombre}
                           </p>
                           <p className="mt-0.5 text-xs text-muted-foreground/80">
-                            {isAllAreas ? 'No hay acciones en tus areas' : 'Arrastra aqui o crea una nueva'}
+                            Arrastra aqui o crea una nueva
                           </p>
-                          {!isAllAreas ? (
-                            <button
-                              type="button"
-                              onClick={() => setCreateOpen(true)}
-                              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                            >
-                              <Plus className="h-3.5 w-3.5" aria-hidden />
-                              Nueva acción
-                            </button>
-                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => setCreateOpen(true)}
+                            className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          >
+                            <Plus className="h-3.5 w-3.5" aria-hidden />
+                            Nueva acción
+                          </button>
                         </div>
                       ) : null}
                     </div>
@@ -969,7 +949,7 @@ export function TeamKanbanPage() {
         </div>
       ) : null}
 
-      {board.data && areaId && !isAllAreas ? (
+      {board.data && areaId ? (
         <TeamActionFormDialog
           open={createOpen}
           onOpenChange={setCreateOpen}
@@ -1033,72 +1013,6 @@ export function TeamKanbanPage() {
         onClose={() => setClosingSeries(null)}
         onDone={refresh}
       />
-    </div>
-  )
-}
-
-function AreaSelector({
-  areas,
-  selectedId,
-  onSelect,
-}: {
-  areas: TeamArea[]
-  selectedId: string | null
-  onSelect: (id: string) => void
-}) {
-  return (
-    <div className="space-y-2">
-      <p className="text-xs font-medium text-muted-foreground">Elige area</p>
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => onSelect(ALL_TEAM_AREAS)}
-          className={cn(
-            'inline-flex min-h-10 items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition',
-            selectedId === ALL_TEAM_AREAS
-              ? 'border-primary bg-primary text-primary-foreground shadow-sm'
-              : 'border-border/70 bg-card text-foreground hover:border-primary/40 hover:bg-primary/5'
-          )}
-        >
-          <span>Todas</span>
-          <span
-            className={cn(
-              'rounded-full px-1.5 py-0.5 text-[10px] tabular-nums',
-              selectedId === ALL_TEAM_AREAS
-                ? 'bg-primary-foreground/15'
-                : 'bg-muted text-muted-foreground'
-            )}
-          >
-            {areas.reduce((total, area) => total + area.open_count, 0)}
-          </span>
-        </button>
-        {areas.map((area) => {
-          const selected = area.id === selectedId
-          return (
-            <button
-              key={area.id}
-              type="button"
-              onClick={() => onSelect(area.id)}
-              className={cn(
-                'inline-flex min-h-10 items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition',
-                selected
-                  ? 'border-primary bg-primary text-primary-foreground shadow-sm'
-                  : 'border-border/70 bg-card text-foreground hover:border-primary/40 hover:bg-primary/5'
-              )}
-            >
-              <span>{area.nombre}</span>
-              <span
-                className={cn(
-                  'rounded-full px-1.5 py-0.5 text-[10px] tabular-nums',
-                  selected ? 'bg-primary-foreground/15' : 'bg-muted text-muted-foreground'
-                )}
-              >
-                {area.open_count}
-              </span>
-            </button>
-          )
-        })}
-      </div>
     </div>
   )
 }

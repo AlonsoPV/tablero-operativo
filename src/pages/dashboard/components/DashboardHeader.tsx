@@ -104,7 +104,7 @@ export function DashboardHeader({
       {filtersExpanded && filtersPanel ? (
         <div
           id="dashboard-toolbar"
-          className="dashboard-toolbar-wrapper rounded-xl border border-border/50 bg-background/70 p-3 sm:p-4"
+          className="dashboard-toolbar-wrapper relative z-10 overflow-visible rounded-xl border border-border/50 bg-background/70 p-3 sm:p-4"
           role="region"
           aria-label="Filtros del tablero"
         >

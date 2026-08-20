@@ -6,13 +6,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import type { AccionesFilter } from '@/services/acciones.service'
 import type { ActionStatus } from '@/types'
 import type { Status } from '@/features/catalogs/types/catalogs.types'
@@ -25,6 +18,8 @@ import { activeEstadoFilterOptions } from '../utils/statusCatalog'
 import { Label } from '@/components/ui/label'
 import { Check, ChevronDown, Search, X, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { KanbanDateRangeFilter } from './KanbanDateRangeFilter'
+import { KanbanFilterPopover } from './KanbanFilterPopover'
 
 const FILTER_FIELD_ACTIVE =
   'border-primary/55 bg-primary/[0.06] shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.1)] ring-2 ring-primary/15'
@@ -91,9 +86,10 @@ const DEFAULT_FILTER_INPUT_CLASS =
 const DEFAULT_FILTER_SELECT_CLASS =
   'h-9 min-h-9 min-w-0 w-full rounded-md border-border/60 bg-background px-2.5 py-0 text-sm transition-[box-shadow,border-color,background-color] [&>span]:line-clamp-1 [&>span]:truncate [&>span]:text-left'
 
-/** Dropdown amplio y desplazable para ver nombres completos en filtros Kanban. */
-const KANBAN_FILTER_SELECT_CONTENT_CLASS =
-  'z-[200] max-h-[min(18rem,72dvh)] min-w-[var(--radix-select-trigger-width)] [&>*:nth-child(2)]:!h-auto [&>*:nth-child(2)]:max-h-[min(17rem,68dvh)]'
+const KANBAN_FILTER_DROPDOWN_PANEL =
+  'overflow-hidden rounded-lg border border-border bg-popover shadow-lg'
+
+const KANBAN_FILTER_DROPDOWN_LIST = 'max-h-[min(17rem,68dvh)] overflow-y-auto p-1'
 
 function normalizeEstadoFilter(estado: AccionesFilter['estado']): ActionStatus[] {
   if (estado == null) return []
@@ -117,6 +113,8 @@ function EstadoMultiSelect({
 }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const statusOptions = options.filter((option) => option.value !== ALL_FILTER_VALUE)
   const selectedLabels = statusOptions
     .filter((option) => value.includes(option.value as ActionStatus))
@@ -132,9 +130,9 @@ function EstadoMultiSelect({
   useEffect(() => {
     if (!open) return
     const onDoc = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        setOpen(false)
-      }
+      const target = event.target as Node
+      if (rootRef.current?.contains(target) || panelRef.current?.contains(target)) return
+      setOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
@@ -150,6 +148,7 @@ function EstadoMultiSelect({
   return (
     <div ref={rootRef} className="relative min-w-0">
       <button
+        ref={triggerRef}
         type="button"
         id={id}
         className={cn(
@@ -165,16 +164,15 @@ function EstadoMultiSelect({
         <ChevronDown className={cn('h-4 w-4 shrink-0 opacity-50', open && 'rotate-180')} aria-hidden />
       </button>
 
-      {open ? (
-        <div
-          className={cn(
-            'absolute z-[200] mt-1 w-full min-w-[14rem] overflow-hidden rounded-lg border border-border bg-popover shadow-lg',
-            KANBAN_FILTER_SELECT_CONTENT_CLASS
-          )}
-          role="listbox"
-          aria-multiselectable="true"
-          aria-label="Estados"
-        >
+      <KanbanFilterPopover
+        ref={panelRef}
+        open={open}
+        triggerRef={triggerRef}
+        className={KANBAN_FILTER_DROPDOWN_PANEL}
+        role="listbox"
+        aria-multiselectable="true"
+        aria-label="Estados"
+      >
           <div className="flex items-center justify-between gap-2 border-b border-border/60 px-2 py-1.5">
             <p className="text-[11px] font-medium text-muted-foreground">Selecciona uno o más</p>
             {value.length > 0 ? (
@@ -187,7 +185,7 @@ function EstadoMultiSelect({
               </button>
             ) : null}
           </div>
-          <ul className="max-h-[min(17rem,68dvh)] overflow-y-auto p-1">
+          <ul className={KANBAN_FILTER_DROPDOWN_LIST}>
             {statusOptions.map((option) => {
               const checked = value.includes(option.value as ActionStatus)
               return (
@@ -218,8 +216,132 @@ function EstadoMultiSelect({
               )
             })}
           </ul>
-        </div>
-      ) : null}
+      </KanbanFilterPopover>
+    </div>
+  )
+}
+
+function KanbanSingleSelect({
+  id,
+  options,
+  value,
+  onChange,
+  triggerClassName,
+  active,
+  placeholder,
+  allValue = ALL_FILTER_VALUE,
+  panelHint = 'Selecciona una opción',
+  ariaLabel,
+}: {
+  id: string
+  options: { value: string; label: string }[]
+  value: string
+  onChange: (next: string | undefined) => void
+  triggerClassName: string
+  active: boolean
+  placeholder: string
+  allValue?: string
+  panelHint?: string
+  ariaLabel: string
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const selectedOption = options.find((option) => option.value === value)
+  const triggerLabel = kanbanFilterTriggerLabel(value, placeholder, selectedOption?.label, allValue)
+  const isFiltered = value !== allValue
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (rootRef.current?.contains(target) || panelRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  const selectValue = (nextValue: string) => {
+    onChange(nextValue === allValue ? undefined : nextValue)
+    setOpen(false)
+  }
+
+  return (
+    <div ref={rootRef} className="relative min-w-0">
+      <button
+        ref={triggerRef}
+        type="button"
+        id={id}
+        className={cn(
+          'kanban-toolbar-select flex w-full items-center justify-between gap-2 px-3 text-left',
+          triggerClassName,
+          active && 'text-foreground'
+        )}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="min-w-0 truncate">{triggerLabel}</span>
+        <ChevronDown className={cn('h-4 w-4 shrink-0 opacity-50', open && 'rotate-180')} aria-hidden />
+      </button>
+
+      <KanbanFilterPopover
+        ref={panelRef}
+        open={open}
+        triggerRef={triggerRef}
+        className={KANBAN_FILTER_DROPDOWN_PANEL}
+        role="listbox"
+        aria-label={ariaLabel}
+      >
+          <div className="flex items-center justify-between gap-2 border-b border-border/60 px-2 py-1.5">
+            <p className="text-[11px] font-medium text-muted-foreground">{panelHint}</p>
+            {isFiltered ? (
+              <button
+                type="button"
+                className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-primary hover:bg-primary/10"
+                onClick={() => {
+                  onChange(undefined)
+                  setOpen(false)
+                }}
+              >
+                Limpiar
+              </button>
+            ) : null}
+          </div>
+          <ul className={KANBAN_FILTER_DROPDOWN_LIST}>
+            {options.map((option) => {
+              const checked = option.value === value
+              return (
+                <li key={option.value}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={checked}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors',
+                      checked ? 'bg-primary/10' : 'hover:bg-muted/60'
+                    )}
+                    onClick={() => selectValue(option.value)}
+                  >
+                    <span
+                      className={cn(
+                        'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border',
+                        checked
+                          ? 'border-primary bg-primary text-primary-foreground'
+                          : 'border-border bg-background'
+                      )}
+                    >
+                      {checked ? <Check className="h-3 w-3" aria-hidden /> : null}
+                    </span>
+                    <span className="min-w-0 flex-1 whitespace-normal leading-snug">{option.label}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+      </KanbanFilterPopover>
     </div>
   )
 }
@@ -235,8 +357,12 @@ export function hasKanbanActiveFilters(filter: AccionesFilter): boolean {
 export function countKanbanActiveFilters(filter: AccionesFilter): number {
   let count = 0
   if (filter.search != null && filter.search.trim() !== '') count++
-  if (filter.fecha_min != null && filter.fecha_min !== '') count++
-  if (filter.fecha_max != null && filter.fecha_max !== '') count++
+  if (
+    (filter.fecha_min != null && filter.fecha_min !== '') ||
+    (filter.fecha_max != null && filter.fecha_max !== '')
+  ) {
+    count++
+  }
   if (filter.estado != null) count++
   if (filter.prioridad != null || filter.prioridad_id != null) count++
   if (filter.area != null && filter.area !== '') count++
@@ -322,8 +448,7 @@ export function KanbanToolbar({
   const creadaPorActive = creadaPorValue !== ALL_FILTER_VALUE
   const responsableActive = responsableValue !== ALL_FILTER_VALUE
   const searchActive = Boolean(filter.search?.trim())
-  const fechaDesdeActive = Boolean(filter.fecha_min)
-  const fechaHastaActive = Boolean(filter.fecha_max)
+  const fechaRangeActive = Boolean(filter.fecha_min || filter.fecha_max)
 
   const showAdvancedRow = layout !== 'dashboard' || advancedExpanded !== false
 
@@ -354,110 +479,68 @@ export function KanbanToolbar({
         />
       </KanbanToolbarField>
       <KanbanToolbarField label="Prioridad" htmlFor="kanban-filter-prioridad" active={prioridadActive} compact={compact}>
-        <Select
+        <KanbanSingleSelect
+          id="kanban-filter-prioridad"
+          placeholder="Prioridad"
+          ariaLabel="Prioridad"
+          options={priorityOptions}
           value={prioridadValue}
-          onValueChange={(v) => {
+          active={prioridadActive}
+          triggerClassName={selectTriggerClass(prioridadActive)}
+          onChange={(v) => {
+            if (!v) {
+              onFilterChange({ prioridad_id: undefined, prioridad: undefined })
+              return
+            }
             const priority = priorities.find((p) => p.id === v)
-            onFilterChange({
-              prioridad_id: v === 'all' ? undefined : v,
-              prioridad: v === 'all' ? undefined : (priority?.nombre ?? undefined),
-            })
+            onFilterChange({ prioridad_id: v, prioridad: priority?.nombre ?? undefined })
           }}
-        >
-          <SelectTrigger id="kanban-filter-prioridad" className={cn('kanban-toolbar-prioridad', selectTriggerClass(prioridadActive))}>
-            <SelectValue placeholder="Prioridad">
-              {kanbanFilterTriggerLabel(
-                prioridadValue,
-                'Prioridad',
-                priorityOptions.find((o) => o.value === prioridadValue)?.label
-              )}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent className={KANBAN_FILTER_SELECT_CONTENT_CLASS} position="popper">
-            {priorityOptions.map((o) => (
-              <SelectItem key={o.value} value={o.value} className="whitespace-normal">
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        />
       </KanbanToolbarField>
       <KanbanToolbarField label="Área" htmlFor="kanban-filter-area" active={areaActive} compact={compact}>
-        <Select
+        <KanbanSingleSelect
+          id="kanban-filter-area"
+          placeholder="Área"
+          ariaLabel="Área"
+          options={[
+            { value: ALL_FILTER_VALUE, label: 'Todas las áreas' },
+            ...areas.map((area) => ({ value: area.nombre, label: area.nombre })),
+          ]}
           value={areaValue}
-          onValueChange={(v) => onFilterChange({ area: v === ALL_FILTER_VALUE ? undefined : v })}
-        >
-          <SelectTrigger id="kanban-filter-area" className={cn('kanban-toolbar-area', selectTriggerClass(areaActive))}>
-            <SelectValue placeholder="Área">
-              {kanbanFilterTriggerLabel(areaValue, 'Área', areaValue !== ALL_FILTER_VALUE ? areaValue : undefined)}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent className={KANBAN_FILTER_SELECT_CONTENT_CLASS} position="popper">
-            <SelectItem value={ALL_FILTER_VALUE} className="whitespace-normal">
-              Todas las áreas
-            </SelectItem>
-            {areas.map((a) => (
-              <SelectItem key={a.id} value={a.nombre} className="whitespace-normal">
-                {a.nombre}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          active={areaActive}
+          triggerClassName={selectTriggerClass(areaActive)}
+          onChange={(v) => onFilterChange({ area: v === ALL_FILTER_VALUE || !v ? undefined : v })}
+        />
       </KanbanToolbarField>
       <KanbanToolbarField label="Creada por" htmlFor="kanban-filter-creada-por" active={creadaPorActive} compact={compact}>
-        <Select
+        <KanbanSingleSelect
+          id="kanban-filter-creada-por"
+          placeholder="Creada por"
+          ariaLabel="Creada por"
+          options={[
+            { value: ALL_FILTER_VALUE, label: 'Todos los creadores' },
+            ...users.map((user) => ({ value: user.id, label: user.nombre })),
+          ]}
           value={creadaPorValue}
-          onValueChange={(v) => onFilterChange({ created_by: v === ALL_FILTER_VALUE ? undefined : v })}
-        >
-          <SelectTrigger id="kanban-filter-creada-por" className={cn('kanban-toolbar-creada-por', selectTriggerClass(creadaPorActive))}>
-            <SelectValue placeholder="Creada por">
-              {kanbanFilterTriggerLabel(
-                creadaPorValue,
-                'Creada por',
-                users.find((u) => u.id === creadaPorValue)?.nombre
-              )}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent className={KANBAN_FILTER_SELECT_CONTENT_CLASS} position="popper">
-            <SelectItem value={ALL_FILTER_VALUE} className="whitespace-normal">
-              Todos los creadores
-            </SelectItem>
-            {users.map((u) => (
-              <SelectItem key={u.id} value={u.id} className="whitespace-normal">
-                {u.nombre}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          active={creadaPorActive}
+          triggerClassName={selectTriggerClass(creadaPorActive)}
+          onChange={(v) => onFilterChange({ created_by: v === ALL_FILTER_VALUE || !v ? undefined : v })}
+        />
       </KanbanToolbarField>
       <KanbanToolbarField label="Responsable" htmlFor="kanban-filter-responsable" active={responsableActive} compact={compact}>
-        <Select
+        <KanbanSingleSelect
+          id="kanban-filter-responsable"
+          placeholder="Responsable"
+          ariaLabel="Responsable"
+          options={[
+            { value: ALL_FILTER_VALUE, label: 'Todos los responsables' },
+            ...users.map((user) => ({ value: user.id, label: user.nombre })),
+          ]}
           value={responsableValue}
-          onValueChange={(v) => onFilterChange({ responsable: v === ALL_FILTER_VALUE ? undefined : v })}
-        >
-          <SelectTrigger
-            id="kanban-filter-responsable"
-            className={cn('kanban-toolbar-responsable', selectTriggerClass(responsableActive))}
-          >
-            <SelectValue placeholder="Responsable">
-              {kanbanFilterTriggerLabel(
-                responsableValue,
-                'Responsable',
-                users.find((u) => u.id === responsableValue)?.nombre
-              )}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent className={KANBAN_FILTER_SELECT_CONTENT_CLASS} position="popper">
-            <SelectItem value={ALL_FILTER_VALUE} className="whitespace-normal">
-              Todos los responsables
-            </SelectItem>
-            {users.map((u) => (
-              <SelectItem key={u.id} value={u.id} className="whitespace-normal">
-                {u.nombre}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          active={responsableActive}
+          triggerClassName={selectTriggerClass(responsableActive)}
+          onChange={(v) => onFilterChange({ responsable: v === ALL_FILTER_VALUE || !v ? undefined : v })}
+        />
       </KanbanToolbarField>
     </>
   )
@@ -477,7 +560,7 @@ export function KanbanToolbar({
       >
         {/* Fila 1: búsqueda, fechas y acciones */}
         <div
-          className="kanban-toolbar-row-primary grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-[minmax(0,1fr)_7.25rem_7.25rem_auto] lg:items-center"
+          className="kanban-toolbar-row-primary grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center"
           role="group"
           aria-label="Búsqueda y rango de fechas"
         >
@@ -526,25 +609,14 @@ export function KanbanToolbar({
             </div>
           </div>
 
-          <Input
-            id="kanban-filter-fecha-desde"
-            className={cn('kanban-toolbar-fecha-desde min-w-0', inputFieldClass(fechaDesdeActive))}
-            type="date"
-            value={filter.fecha_min ?? ''}
-            onChange={(e) => onFilterChange({ fecha_min: e.target.value || undefined })}
-            aria-label="Fecha límite desde"
-            title="Desde"
-          />
-
-          <Input
-            id="kanban-filter-fecha-hasta"
-            className={cn('kanban-toolbar-fecha-hasta min-w-0', inputFieldClass(fechaHastaActive))}
-            type="date"
-            value={filter.fecha_max ?? ''}
-            onChange={(e) => onFilterChange({ fecha_max: e.target.value || undefined })}
-            aria-label="Fecha límite hasta"
-            title="Hasta"
-          />
+          <div className="min-w-0 lg:w-auto lg:max-w-[11rem]">
+            <KanbanDateRangeFilter
+              dateFrom={filter.fecha_min}
+              dateTo={filter.fecha_max}
+              onChange={onFilterChange}
+              active={fechaRangeActive}
+            />
+          </div>
 
           <div className="hidden items-center justify-end gap-1.5 lg:flex">
             {activeFilterCount > 0 ? (
@@ -615,7 +687,7 @@ export function KanbanToolbar({
         ) : null}
       </div>
 
-      <div className="grid min-w-0 grid-cols-3 gap-2">
+      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
         <div className="relative min-w-0">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -631,21 +703,12 @@ export function KanbanToolbar({
           />
         </div>
 
-        <Input
-          id="kanban-filter-fecha-desde"
-          className={inputFieldClass(Boolean(filter.fecha_min))}
-          type="date"
-          value={filter.fecha_min ?? ''}
-          onChange={(e) => onFilterChange({ fecha_min: e.target.value || undefined })}
-          title="Fecha límite desde"
-        />
-        <Input
-          id="kanban-filter-fecha-hasta"
-          className={inputFieldClass(Boolean(filter.fecha_max))}
-          type="date"
-          value={filter.fecha_max ?? ''}
-          onChange={(e) => onFilterChange({ fecha_max: e.target.value || undefined })}
-          title="Fecha límite hasta"
+        <KanbanDateRangeFilter
+          dateFrom={filter.fecha_min}
+          dateTo={filter.fecha_max}
+          onChange={onFilterChange}
+          compact
+          active={fechaRangeActive}
         />
       </div>
 

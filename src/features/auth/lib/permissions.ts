@@ -21,6 +21,8 @@ const KANBAN_ACTION_EDITOR_ROLES = ['kanban', 'editor_kanban', 'kanban_editor'] 
 
 const STRICT_ANALYST_ALLOWED_ROUTES = [
   ROUTES.TEAM_KANBAN,
+  ROUTES.TEAM_KANBAN_BOARD,
+  ROUTES.DASHBOARD_TEAMS,
   ROUTES.DISCIPLINA,
   ROUTES.CALENDARIO,
 ] as const
@@ -41,8 +43,10 @@ const ANALYST_ALLOWED_ROUTES = [
 
 const DIRECTION_ALLOWED_ROUTES = [
   ROUTES.DASHBOARD,
+  ROUTES.DASHBOARD_TEAMS,
   ...ANALYST_ALLOWED_ROUTES,
   ROUTES.TEAM_KANBAN,
+  ROUTES.TEAM_KANBAN_BOARD,
   ROUTES.SETTINGS_USERS,
   ROUTES.SETTINGS_USERS_DETAIL,
   ROUTES.ORG_CHART,
@@ -237,7 +241,7 @@ export function canAccessRouteByRole(
   pathname: string,
   appRole?: string | null | undefined
 ): boolean {
-  if (routeMatches(pathname, ROUTES.TEAM_KANBAN)) {
+  if (routeMatches(pathname, ROUTES.TEAM_KANBAN) || routeMatches(pathname, ROUTES.DASHBOARD_TEAMS)) {
     return (
       isSuperAdminByRole(rol) ||
       isDirectionByRole(rol) ||

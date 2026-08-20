@@ -16,6 +16,7 @@ const MODULE_ROUTES: Array<[string, string]> = [
   [ROUTES.SETTINGS_USERS, 'settings_users'],
   [ROUTES.SETTINGS_REMINDERS, 'settings_reminders'],
   [ROUTES.SETTINGS_PROFILE, 'settings_profile'],
+  [ROUTES.DASHBOARD_TEAMS, 'team_dashboard'],
   [ROUTES.TEAM_KANBAN, 'team_kanban'],
   [ROUTES.DASHBOARD, 'dashboard'],
   [ROUTES.KANBAN, 'kanban'],
@@ -34,6 +35,7 @@ const MODULE_ROUTES: Array<[string, string]> = [
 
 const MODULE_DEFAULT_ROUTES: Array<[string, string]> = [
   ['dashboard', ROUTES.DASHBOARD],
+  ['team_dashboard', ROUTES.DASHBOARD_TEAMS],
   ['kanban', ROUTES.KANBAN],
   ['team_kanban', ROUTES.TEAM_KANBAN],
   ['tickets', ROUTES.TICKETS],
@@ -73,8 +75,17 @@ export function canAccessRouteWithModules(
   moduleKeys: string[] | null | undefined
 ) {
   // La regla de seguridad del Kanban por Equipos siempre prevalece sobre el catalogo de modulos.
-  if (pathname === ROUTES.TEAM_KANBAN || pathname.startsWith(`${ROUTES.TEAM_KANBAN}/`)) {
-    return canAccessRouteByRole(rol, pathname, appRole) || moduleKeys?.includes('team_kanban') === true
+  if (
+    pathname === ROUTES.TEAM_KANBAN ||
+    pathname.startsWith(`${ROUTES.TEAM_KANBAN}/`) ||
+    pathname === ROUTES.DASHBOARD_TEAMS ||
+    pathname.startsWith(`${ROUTES.DASHBOARD_TEAMS}/`)
+  ) {
+    return (
+      canAccessRouteByRole(rol, pathname, appRole) ||
+      moduleKeys?.includes('team_kanban') === true ||
+      moduleKeys?.includes('team_dashboard') === true
+    )
   }
 
   if (isAnalystByRole(rol)) return canAccessRouteByRole(rol, pathname, appRole)
