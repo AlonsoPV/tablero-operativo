@@ -14,7 +14,7 @@ import {
 } from '@/features/operations'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { usesOperationalDashboardByRole } from '@/features/auth/lib/permissions'
+import { isOperativeByRole, usesOperationalDashboardByRole } from '@/features/auth/lib/permissions'
 import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
 import { useStatuses } from '@/features/catalogs/hooks/useStatuses'
 import type { AccionDiaria } from '@/types'
@@ -30,7 +30,9 @@ import { DashboardUserLoginChartSection } from './components/DashboardUserLoginC
 import { DashboardRedUploadsByWeekSection } from './components/DashboardRedUploadsByWeekSection'
 import { DashboardFechaCompromisoChangesSection } from './components/DashboardFechaCompromisoChangesSection'
 import { DashboardExecutivePanel } from './components/DashboardExecutivePanel'
+import { DashboardOperationalOkrSection } from './components/DashboardOperationalOkrSection'
 import { useOperationalDashboardMetrics } from './hooks/useOperationalDashboardMetrics'
+import { useOperationalOKR } from './hooks/useOperationalOKR'
 import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { accionComentariosService } from '@/services/accionComentarios.service'
@@ -149,6 +151,13 @@ export function DashboardPage() {
   const { data: users = [] } = useUsers({ activo: true })
   const { data: priorities = [] } = usePriorities({ activo: true })
   const { data: statuses = [] } = useStatuses()
+  const {
+    data: operationalOkr,
+    isLoading: operationalOkrLoading,
+    isError: operationalOkrError,
+    error: operationalOkrErrorObj,
+    refetch: retryOperationalOkr,
+  } = useOperationalOKR()
 
   const executiveMetrics = useOperationalDashboardMetrics({
     actions: acciones,
@@ -241,6 +250,16 @@ export function DashboardPage() {
             onDrillDown={handleDrillDown}
           />
         </section>
+
+        <DashboardOperationalOkrSection
+          data={operationalOkr}
+          isLoading={operationalOkrLoading}
+          isError={operationalOkrError}
+          error={operationalOkrErrorObj}
+          canDrillDown={!isOperativeByRole(currentUser?.rol)}
+          onRetry={() => void retryOperationalOkr()}
+          onDrillDown={handleDrillDown}
+        />
 
         {false ? (
         <section
