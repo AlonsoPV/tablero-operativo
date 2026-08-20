@@ -316,7 +316,11 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
     evidenciaOpciones.find((option) => option.value === evidenceSelect)?.value.trim().toLowerCase() ===
       'otro'
 
-  const defaults: Partial<AccionFormInput> = { area: areaName, descripcion_modo: 'simple' }
+  const defaults: Partial<AccionFormInput> = {
+    area: areaName,
+    descripcion_modo: 'simple',
+    prioridad: priorities[0]?.nombre,
+  }
   const isSubmitting = mutation.isPending || frequentMutation.isPending
   const assigneeName = board.members.find((member) => member.id === frequentForm.assignee)?.nombre
   const frequencyLabel = ({

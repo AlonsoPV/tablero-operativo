@@ -32,6 +32,7 @@ import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
 import type { Priority } from '@/features/catalogs/types/catalogs.types'
 import { AccionPriorityBadge } from '@/features/operations/components/AccionPriorityBadge'
+import { findCatalogPriority } from '@/features/operations/utils/priorityCatalog'
 import { AccionFormField, AccionFormSection } from '@/features/operations/components/AccionFormSection'
 import { AccionAsignadorNote } from '@/features/operations/components/form/AccionAsignadorNote'
 import { notificacionesService } from '@/services/notificaciones.service'
@@ -1407,7 +1408,7 @@ function TeamActionEditDialog({
     draftStateId !== action.estado_id ||
     draftAssignee !== action.asignado_a ||
     draftPriority !== action.prioridad
-  const priority = priorities.find((item) => item.nombre === draftPriority)
+  const priority = findCatalogPriority(priorities, draftPriority)
   const overdue = isOverdue(action, board)
   const statusName = teamActionStatusLabel(
     { ...action, estado_id: draftStateId, prioridad: draftPriority, asignado_a: draftAssignee },
@@ -1688,7 +1689,7 @@ function ActionCard({
   const canManage = board.canManage ?? board.isLeader
   const recurrence = formatRecurrence(action)
   const isRecurring = Boolean(action.serie_id) || Boolean(action.es_frecuente)
-  const priority = priorities.find((item) => item.nombre === action.prioridad)
+  const priority = findCatalogPriority(priorities, action.prioridad)
   const priorityName = priority?.nombre ?? action.prioridad
   const expanded = false
   const [dueReason, setDueReason] = useState<FechaCompromisoChangeReasonKey | ''>('')

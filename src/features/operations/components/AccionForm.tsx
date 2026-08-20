@@ -31,6 +31,7 @@ import { AccionFormBlock } from './form/AccionFormBlock'
 import { AccionAsignadorNote } from './form/AccionAsignadorNote'
 import { AccionPrioridadSelect, resolveDefaultPrioridadNombre } from './form/AccionPrioridadSelect'
 import { resolveAccionPrioridadNombre } from '../utils/resolveAccionPrioridad'
+import { isActiveCatalogPriority } from '../utils/priorityCatalog'
 import { EvidenceOptionPicker } from './form/EvidenceOptionPicker'
 import { CatalogLoadError } from './form/CatalogLoadError'
 import { AccionDescripcionTextarea } from './form/AccionDescripcionTextarea'
@@ -225,15 +226,6 @@ export function AccionForm({
     return diffDays === 1 ? 'Abierta hace 1 día' : `Abierta hace ${diffDays} días`
   }, [isEdit, openedAt])
 
-  const priorityOptions = useMemo((): { id: string; nombre: string }[] => {
-    const sorted = [...priorities].sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre))
-    const nombre = (prioridadSeleccionada ?? '').trim()
-    if (nombre && !sorted.some((p) => p.nombre === nombre)) {
-      return [{ id: `legacy-${nombre}`, nombre }, ...sorted.map((p) => ({ id: p.id, nombre: p.nombre }))]
-    }
-    return sorted.map((p) => ({ id: p.id, nombre: p.nombre }))
-  }, [priorities, prioridadSeleccionada])
-
   const defaultPrioridadNombre = useMemo(() => resolveDefaultPrioridadNombre(priorities), [priorities])
 
   const principalSummary = useMemo(() => {
@@ -251,10 +243,10 @@ export function AccionForm({
     if (prioritiesLoading || priorities.length === 0) return
     if (isEdit) return
     const current = form.getValues('prioridad')
-    if (!current || !priorityOptions.some((p) => p.nombre === current)) {
+    if (!isActiveCatalogPriority(priorities, current)) {
       form.setValue('prioridad', defaultPrioridadNombre, { shouldValidate: true })
     }
-  }, [isEdit, prioritiesLoading, priorities.length, defaultPrioridadNombre, priorityOptions, form])
+  }, [isEdit, prioritiesLoading, priorities, defaultPrioridadNombre, form])
 
   useEffect(() => {
     if (!defaultValues?.prioridad && !accionPrioridadId) return
