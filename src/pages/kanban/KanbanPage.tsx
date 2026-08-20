@@ -58,6 +58,7 @@ function normalizeKanbanFilter(filter: AccionesFilter): AccionesFilter {
   if (filter.area != null && filter.area !== '') normalized.area = filter.area
   if (filter.responsable != null && filter.responsable !== '') normalized.responsable = filter.responsable
   if (filter.created_by != null && filter.created_by !== '') normalized.created_by = filter.created_by
+  if (filter.involved_user_id != null && filter.involved_user_id !== '') normalized.involved_user_id = filter.involved_user_id
   if (filter.tipo_accion != null) normalized.tipo_accion = filter.tipo_accion
   if (filter.sprint_id != null && filter.sprint_id !== '') normalized.sprint_id = filter.sprint_id
 
@@ -325,6 +326,7 @@ export function KanbanPage() {
           onFilterChange={handleFilterChange}
           onClear={handleClearFilters}
           statuses={kanbanStatuses}
+          currentUserId={currentUser?.id}
           visible
         />
       ) : null}

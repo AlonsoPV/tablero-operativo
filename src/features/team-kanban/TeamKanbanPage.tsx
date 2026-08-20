@@ -599,12 +599,21 @@ export function TeamKanbanPage() {
       }
       if (filters.priority !== 'all' && action.prioridad !== filters.priority) return false
       if (filters.stateId !== 'all' && board.data && getEffectiveTeamStateId(action, board.data) !== filters.stateId) return false
+      if (
+        filters.mine &&
+        currentUser?.id &&
+        action.asignado_a !== currentUser.id &&
+        action.creado_por !== currentUser.id &&
+        action.lider_id !== currentUser.id
+      ) {
+        return false
+      }
       const due = action.fecha_limite?.slice(0, 10) ?? ''
       if (filters.dateFrom && (!due || due < filters.dateFrom)) return false
       if (filters.dateTo && (!due || due > filters.dateTo)) return false
       return true
     })
-  }, [board.data, filters])
+  }, [board.data, currentUser?.id, filters])
 
   const { data: commentCounts = {} } = useTeamActionCommentCounts(filteredActions.map((action) => action.id))
 
@@ -627,6 +636,7 @@ export function TeamKanbanPage() {
     filters.dateTo,
     filters.priority !== 'all' ? 'x' : '',
     filters.stateId !== 'all' ? 'x' : '',
+    filters.mine && currentUser?.id ? 'x' : '',
   ].filter(Boolean).length
 
   if (areas.isLoading || userLoading || (currentUser?.id && assignedAreas.isLoading)) {
@@ -723,6 +733,7 @@ export function TeamKanbanPage() {
               value={filters}
               states={board.data.states}
               priorities={priorityOptions}
+              currentUserId={currentUser?.id}
               onChange={setFilters}
               onClear={() => setFilters(EMPTY_TEAM_FILTERS)}
             />

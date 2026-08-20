@@ -23,7 +23,7 @@ import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
 import { priorityDisplayLabel } from '../utils/priorityLabels'
 import { activeEstadoFilterOptions } from '../utils/statusCatalog'
 import { Label } from '@/components/ui/label'
-import { Check, ChevronDown, Search, X, SlidersHorizontal } from 'lucide-react'
+import { Check, ChevronDown, Search, X, SlidersHorizontal, UserRoundCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const FILTER_FIELD_ACTIVE =
@@ -242,6 +242,7 @@ export function countKanbanActiveFilters(filter: AccionesFilter): number {
   if (filter.area != null && filter.area !== '') count++
   if (filter.responsable != null) count++
   if (filter.created_by != null) count++
+  if (filter.involved_user_id != null) count++
   return count
 }
 
@@ -271,6 +272,8 @@ export interface KanbanToolbarProps {
   advancedExpanded?: boolean
   /** Si se omite, el filtro de estado usa solo claves internas (legacy). */
   statuses?: Status[]
+  /** Usuario actual para activar el atajo "Mías". */
+  currentUserId?: string
   className?: string
 }
 
@@ -282,6 +285,7 @@ export function KanbanToolbar({
   layout = 'default',
   advancedExpanded,
   statuses = [],
+  currentUserId,
   className,
 }: KanbanToolbarProps) {
   const { data: users = [] } = useUsers({ activo: true })
@@ -314,6 +318,7 @@ export function KanbanToolbar({
   const areaValue = filter.area ?? ALL_FILTER_VALUE
   const creadaPorValue = filter.created_by ?? ALL_FILTER_VALUE
   const responsableValue = filter.responsable ?? ALL_FILTER_VALUE
+  const mineActive = Boolean(currentUserId && filter.involved_user_id === currentUserId)
 
   const estadoActive = estadoValues.length > 0
   const prioridadActive = prioridadValue !== ALL_FILTER_VALUE
@@ -339,6 +344,36 @@ export function KanbanToolbar({
     layout === 'dashboard'
       ? cn(DASHBOARD_FILTER_FIELD, active && DASHBOARD_FILTER_FIELD_ACTIVE)
       : cn(DEFAULT_FILTER_INPUT_CLASS, active && FILTER_FIELD_ACTIVE)
+
+  const toggleMineFilter = () => {
+    if (!currentUserId) return
+    onFilterChange(
+      mineActive
+        ? { involved_user_id: undefined }
+        : { involved_user_id: currentUserId, responsable: undefined, created_by: undefined }
+    )
+  }
+
+  const mineButton = (compact = false) => currentUserId ? (
+    <Button
+      type="button"
+      variant={mineActive ? 'default' : 'outline'}
+      size={compact ? 'icon' : 'sm'}
+      className={cn(
+        'h-9 shrink-0 gap-1.5 font-semibold',
+        mineActive
+          ? 'bg-primary text-primary-foreground shadow-sm'
+          : 'border-border/70 bg-background text-muted-foreground hover:text-foreground'
+      )}
+      onClick={toggleMineFilter}
+      aria-pressed={mineActive}
+      aria-label={mineActive ? 'Quitar filtro Mias' : 'Mostrar mis acciones'}
+      title={mineActive ? 'Quitar filtro Mias' : 'Mostrar acciones donde soy responsable o creador'}
+    >
+      <UserRoundCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      {compact ? <span className="sr-only">Mias</span> : <span>Mias</span>}
+    </Button>
+  ) : null
 
   const advancedSelects = (compact = false) => (
     <>
@@ -500,6 +535,7 @@ export function KanbanToolbar({
               />
             </div>
             <div className="flex shrink-0 items-center gap-1.5 lg:hidden">
+              {mineButton(true)}
               {activeFilterCount > 0 ? (
                 <span
                   className="inline-flex h-9 items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-2 text-[11px] font-semibold text-primary"
@@ -546,6 +582,7 @@ export function KanbanToolbar({
           />
 
           <div className="hidden items-center justify-end gap-1.5 lg:flex">
+            {mineButton()}
             {activeFilterCount > 0 ? (
               <span className="inline-flex h-9 items-center gap-1.5 rounded-md border border-primary/20 bg-primary/5 px-2.5 text-[11px] font-semibold text-primary">
                 <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -599,19 +636,22 @@ export function KanbanToolbar({
             </span>
           ) : null}
         </div>
-        {hasFilters ? (
-          <Button
-            id="kanban-toolbar-clear"
-            className="h-8 shrink-0 gap-1.5 px-2.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground sm:h-9 sm:text-xs"
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onClear}
-          >
-            <X className="h-3.5 w-3.5 shrink-0" />
-            Limpiar filtros
-          </Button>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {mineButton()}
+          {hasFilters ? (
+            <Button
+              id="kanban-toolbar-clear"
+              className="h-8 shrink-0 gap-1.5 px-2.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground sm:h-9 sm:text-xs"
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onClear}
+            >
+              <X className="h-3.5 w-3.5 shrink-0" />
+              Limpiar filtros
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid min-w-0 grid-cols-3 gap-2">

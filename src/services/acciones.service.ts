@@ -210,6 +210,8 @@ export interface AccionesFilter {
   responsable?: string
   /** Usuario que creó la acción (usuarios.id). Independiente de `responsable`. */
   created_by?: string
+  /** Usuario involucrado como responsable o creador (OR). */
+  involved_user_id?: string
   tipo_accion?: TipoAccion | TipoAccion[]
   sprint_id?: string
   search?: string
@@ -287,8 +289,12 @@ function buildAccionesListQuery(filter: AccionesFilter = {}) {
     q = q.in('prioridad', prioridades)
   }
   if (filter.area != null && filter.area !== '') q = q.eq('area', filter.area)
-  if (filter.responsable) q = q.eq('responsable', filter.responsable)
-  if (filter.created_by) q = q.eq('created_by', filter.created_by)
+  if (filter.involved_user_id) {
+    q = q.or(`responsable.eq.${filter.involved_user_id},created_by.eq.${filter.involved_user_id}`)
+  } else {
+    if (filter.responsable) q = q.eq('responsable', filter.responsable)
+    if (filter.created_by) q = q.eq('created_by', filter.created_by)
+  }
   if (filter.tipo_accion) {
     const tipos = Array.isArray(filter.tipo_accion) ? filter.tipo_accion : [filter.tipo_accion]
     q = q.in('tipo_accion', tipos)
