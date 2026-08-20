@@ -175,6 +175,18 @@ export function KanbanPage() {
     }, { replace: true })
   }, [currentUser?.id, isAnalyst, setSearchParams])
 
+  const mineActive = Boolean(currentUser?.id && filter.involved_user_id === currentUser.id)
+  const handleToggleMine = useCallback(() => {
+    if (!currentUser?.id) return
+    setFilter((prev) =>
+      normalizeKanbanFilter(
+        mineActive
+          ? { ...prev, involved_user_id: undefined }
+          : { ...prev, involved_user_id: currentUser.id, responsable: undefined, created_by: undefined }
+      )
+    )
+  }, [currentUser?.id, mineActive])
+
   const clearGapFilter = useCallback(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
@@ -283,6 +295,9 @@ export function KanbanPage() {
             ? 'Generando archivo Excel'
             : `Exportar ${accionesDisplay.length} acción${accionesDisplay.length === 1 ? '' : 'es'} visible${accionesDisplay.length === 1 ? '' : 's'} a Excel`
         }
+        mineActive={mineActive}
+        onToggleMine={currentUser?.id ? handleToggleMine : undefined}
+        mineDisabled={!currentUser?.id}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         rightOfTitle={
@@ -326,7 +341,6 @@ export function KanbanPage() {
           onFilterChange={handleFilterChange}
           onClear={handleClearFilters}
           statuses={kanbanStatuses}
-          currentUserId={currentUser?.id}
           visible
         />
       ) : null}

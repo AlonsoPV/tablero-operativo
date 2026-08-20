@@ -1,4 +1,4 @@
-import { Search, SlidersHorizontal, UserRoundCheck, X } from 'lucide-react'
+import { Search, SlidersHorizontal, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -10,7 +10,6 @@ type TeamKanbanFiltersProps = {
   value: TeamFilters
   states: TeamState[]
   priorities: Priority[]
-  currentUserId?: string
   onChange: (value: TeamFilters) => void
   onClear: () => void
 }
@@ -19,7 +18,6 @@ export function TeamKanbanFilters({
   value,
   states,
   priorities,
-  currentUserId,
   onChange,
   onClear,
 }: TeamKanbanFiltersProps) {
@@ -29,32 +27,9 @@ export function TeamKanbanFilters({
     value.dateTo,
     value.priority !== 'all' ? 'x' : '',
     value.stateId !== 'all' ? 'x' : '',
-    currentUserId && value.mine ? 'x' : '',
   ].filter(Boolean).length
   const field = 'h-9 min-w-0 rounded-md border-border/60 bg-background text-sm transition-[box-shadow,border-color,background-color]'
   const active = 'border-primary/55 bg-primary/[0.06] ring-2 ring-primary/15'
-
-  const mineButton = (
-    <Button
-      type="button"
-      variant={value.mine ? 'default' : 'outline'}
-      size="sm"
-      className={cn(
-        'h-9 shrink-0 gap-1.5 font-semibold',
-        value.mine
-          ? 'bg-primary text-primary-foreground shadow-sm'
-          : 'border-border/70 bg-background text-muted-foreground hover:text-foreground'
-      )}
-      onClick={() => onChange({ ...value, mine: !value.mine })}
-      disabled={!currentUserId}
-      aria-pressed={value.mine}
-      aria-label={value.mine ? 'Quitar filtro Mias' : 'Mostrar mis acciones'}
-      title={value.mine ? 'Quitar filtro Mias' : 'Mostrar acciones donde soy responsable o creador'}
-    >
-      <UserRoundCheck className="h-3.5 w-3.5" aria-hidden />
-      Mias
-    </Button>
-  )
 
   return (
     <div
@@ -98,7 +73,6 @@ export function TeamKanbanFilters({
           className={cn(field, value.dateTo && active)}
         />
         <div className="hidden items-center justify-end gap-1.5 lg:flex">
-          {mineButton}
           {count ? (
             <span className="inline-flex h-9 items-center gap-1.5 rounded-md border border-primary/20 bg-primary/5 px-2.5 text-[11px] font-semibold text-primary">
               <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
@@ -124,7 +98,7 @@ export function TeamKanbanFilters({
         </div>
       </div>
 
-      <div className="grid min-w-0 grid-cols-2 gap-2 border-t border-border/40 pt-2 lg:grid-cols-[1fr_1fr_auto]">
+      <div className="grid min-w-0 grid-cols-2 gap-2 border-t border-border/40 pt-2">
         <Select value={value.stateId} onValueChange={(stateId) => onChange({ ...value, stateId })}>
           <SelectTrigger
             aria-label="Estado"
@@ -157,21 +131,18 @@ export function TeamKanbanFilters({
             ))}
           </SelectContent>
         </Select>
-        <div className="col-span-2 flex gap-2 lg:col-span-1 lg:hidden">
-          {mineButton}
-          {count ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 flex-1 gap-1 border-primary/25 bg-primary/5 text-primary"
-              onClick={onClear}
-            >
-              <X className="h-3.5 w-3.5" aria-hidden />
-              Limpiar filtros
-            </Button>
-          ) : null}
-        </div>
       </div>
+      {count ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 gap-1 border-primary/25 bg-primary/5 text-primary lg:hidden"
+          onClick={onClear}
+        >
+          <X className="h-3.5 w-3.5" aria-hidden />
+          Limpiar filtros
+        </Button>
+      ) : null}
     </div>
   )
 }

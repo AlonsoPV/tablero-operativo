@@ -9,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Plus, LayoutGrid, SlidersHorizontal, List, Check, Download } from 'lucide-react'
+import { Plus, LayoutGrid, SlidersHorizontal, List, Check, Download, UserRoundCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export type KanbanViewMode = 'kanban' | 'lista'
@@ -23,6 +23,9 @@ export interface KanbanHeaderProps {
   onExportExcel?: () => void
   exportDisabled?: boolean
   exportLabel?: string
+  mineActive?: boolean
+  onToggleMine?: () => void
+  mineDisabled?: boolean
   viewMode?: KanbanViewMode
   onViewModeChange?: (mode: KanbanViewMode) => void
   rightOfTitle?: React.ReactNode
@@ -51,6 +54,9 @@ export function KanbanHeader({
   onExportExcel,
   exportDisabled = false,
   exportLabel = 'Exportar Excel',
+  mineActive = false,
+  onToggleMine,
+  mineDisabled = false,
   viewMode = 'kanban',
   onViewModeChange,
   rightOfTitle,
@@ -126,6 +132,44 @@ export function KanbanHeader({
                   aria-label="Filtros activos"
                 />
               ) : null}
+            </Button>
+          ) : null}
+
+          {onToggleMine ? (
+            <Button
+              id="kanban-btn-mine"
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onToggleMine}
+              disabled={mineDisabled}
+              aria-pressed={mineActive}
+              title={mineActive ? 'Quitar filtro Mias' : 'Mostrar acciones donde soy responsable o creador'}
+              className={cn(
+                'kanban-btn-mine h-11 min-h-11 w-full min-w-0 justify-between rounded-full border-2 px-2.5 text-[11px] font-bold shadow-sm transition-all sm:h-10 sm:min-h-10 sm:w-auto sm:min-w-[7.5rem] sm:px-3 sm:text-sm',
+                mineActive
+                  ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20'
+                  : 'border-border bg-card text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+              )}
+            >
+              <span className="inline-flex min-w-0 items-center gap-1.5">
+                <UserRoundCheck className="h-4 w-4 shrink-0 stroke-[2.4]" aria-hidden />
+                <span className="truncate">Mias</span>
+              </span>
+              <span
+                className={cn(
+                  'relative h-5 w-9 shrink-0 rounded-full transition-colors',
+                  mineActive ? 'bg-primary' : 'bg-muted-foreground/25'
+                )}
+                aria-hidden
+              >
+                <span
+                  className={cn(
+                    'absolute top-0.5 h-4 w-4 rounded-full bg-background shadow-sm transition-transform',
+                    mineActive ? 'translate-x-4' : 'translate-x-0.5'
+                  )}
+                />
+              </span>
             </Button>
           ) : null}
 

@@ -16,6 +16,7 @@ import {
   Plus,
   Repeat2,
   SlidersHorizontal,
+  UserRoundCheck,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -675,7 +676,7 @@ export function TeamKanbanPage() {
                 Acciones privadas del equipo por estado. Cambia de area sin salir del tablero.
               </p>
             </div>
-            <div className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
+            <div className="grid w-full min-w-0 grid-cols-3 gap-2 sm:flex sm:w-auto sm:items-center">
               <Button
                 className="h-11 justify-center gap-2 px-4 text-sm font-semibold shadow-md ring-2 ring-primary/25 sm:h-10"
                 onClick={() => setCreateOpen(true)}
@@ -700,6 +701,39 @@ export function TeamKanbanPage() {
                 {activeFilterCount ? (
                   <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary" />
                 ) : null}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={cn(
+                  'h-11 justify-between rounded-full border-2 px-2.5 text-xs font-bold shadow-sm transition-all sm:h-10 sm:min-w-[7.5rem] sm:px-3 sm:text-sm',
+                  filters.mine
+                    ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20'
+                    : 'border-border bg-card text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                )}
+                onClick={() => setFilters((current) => ({ ...current, mine: !current.mine }))}
+                disabled={!board.data || !currentUser?.id}
+                aria-pressed={filters.mine}
+                title={filters.mine ? 'Quitar filtro Mias' : 'Mostrar acciones donde soy responsable o creador'}
+              >
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <UserRoundCheck className="h-4 w-4 shrink-0 stroke-[2.4]" aria-hidden />
+                  <span className="truncate">Mias</span>
+                </span>
+                <span
+                  className={cn(
+                    'relative h-5 w-9 shrink-0 rounded-full transition-colors',
+                    filters.mine ? 'bg-primary' : 'bg-muted-foreground/25'
+                  )}
+                  aria-hidden
+                >
+                  <span
+                    className={cn(
+                      'absolute top-0.5 h-4 w-4 rounded-full bg-background shadow-sm transition-transform',
+                      filters.mine ? 'translate-x-4' : 'translate-x-0.5'
+                    )}
+                  />
+                </span>
               </Button>
             </div>
           </div>
@@ -733,7 +767,6 @@ export function TeamKanbanPage() {
               value={filters}
               states={board.data.states}
               priorities={priorityOptions}
-              currentUserId={currentUser?.id}
               onChange={setFilters}
               onClear={() => setFilters(EMPTY_TEAM_FILTERS)}
             />
