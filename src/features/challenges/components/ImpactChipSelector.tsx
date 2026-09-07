@@ -23,10 +23,10 @@ export function ImpactChipSelector({
             type="button"
             onClick={() => toggle(option.value)}
             className={cn(
-              'rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+              'rounded-full border px-3 py-1.5 text-xs font-semibold transition duration-200',
               selected
-                ? 'border-primary/40 bg-primary/10 text-primary'
-                : 'border-border/70 bg-background text-muted-foreground hover:border-border hover:text-foreground'
+                ? 'scale-[1.03] border-primary/40 bg-primary/10 text-primary shadow-sm shadow-primary/10'
+                : 'border-border/70 bg-background text-muted-foreground hover:border-border hover:text-foreground active:scale-95'
             )}
             aria-pressed={selected}
           >

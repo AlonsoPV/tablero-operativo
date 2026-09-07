@@ -109,4 +109,35 @@ describe('kanbanHealthFromAcciones', () => {
     expect(metrics.vencidasRojas).toBe(1)
     expect(metrics.rojos).toBe(2)
   })
+
+  it('mantiene rojas en Hecho abiertas para edad hasta Verificado', () => {
+    const metrics = kanbanHealthFromAcciones(
+      [
+        action({
+          id: 'red-hecho',
+          prioridad: 'P1_Critica',
+          prioridad_id: 'p1',
+          estado: 'Hecho',
+          completed_at: '2026-07-16T10:00:00Z',
+        }),
+        action({
+          id: 'red-verificado',
+          prioridad: 'P1_Critica',
+          prioridad_id: 'p1',
+          estado: 'Verificado',
+          completed_at: '2026-07-16T10:00:00Z',
+          verified_at: '2026-07-17T10:00:00Z',
+        }),
+        action({
+          id: 'red-open',
+          prioridad: 'P1_Critica',
+          prioridad_id: 'p1',
+        }),
+      ],
+      priorities
+    )
+
+    expect(metrics.rojos).toBe(2)
+    expect(metrics.abiertas).toBe(1)
+  })
 })

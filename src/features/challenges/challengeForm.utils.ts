@@ -36,8 +36,12 @@ export function buildChallengeDescription(context: string, question: string) {
   return ctx || q
 }
 
-export function validateChallengeForm(
-  values: ChallengeFormValues
+export type ChallengeFormStep = 0 | 1 | 2 | 3
+
+export function validateChallengeFormStep(
+  values: ChallengeFormValues,
+  step: ChallengeFormStep,
+  options?: { adminMode?: boolean }
 ): ChallengeFormValidationResult {
   const title = values.title.trim()
   const context = values.context.trim()
@@ -46,34 +50,51 @@ export function validateChallengeForm(
   const startDate = values.proposed_start_date || values.start_date
   const endDate = values.proposed_end_date || values.end_date
 
-  if (title.length < 5) return { ok: false, message: 'Agrega un título de al menos 5 caracteres.' }
-  if (title.length > 120) return { ok: false, message: 'El título debe tener máximo 120 caracteres.' }
-  if (context.length < 10) return { ok: false, message: 'Agrega contexto suficiente (mínimo 10 caracteres).' }
-  if (question.length < 10) return { ok: false, message: 'Formula la pregunta del challenge (mínimo 10 caracteres).' }
-
-  if (values.impacts.length === 0) {
-    return { ok: false, message: 'Selecciona al menos un impacto esperado.' }
-  }
-  if (values.impacts.includes('other') && otherImpact.length < 2) {
-    return { ok: false, message: 'Especifica el impacto cuando seleccionas Otro.' }
+  if (step === 0) {
+    if (title.length < 5) return { ok: false, message: 'Agrega un título de al menos 5 caracteres.' }
+    if (title.length > 120) return { ok: false, message: 'El título debe tener máximo 120 caracteres.' }
+    if (context.length < 10) return { ok: false, message: 'Agrega contexto suficiente (mínimo 10 caracteres).' }
+    if (question.length < 10) return { ok: false, message: 'Formula la pregunta del challenge (mínimo 10 caracteres).' }
+    return { ok: true }
   }
 
-  if (values.audience_type === 'single_area' && !values.audience_area_id) {
-    return { ok: false, message: 'Selecciona el área de la audiencia.' }
-  }
-  if (values.audience_type === 'multiple_areas' && values.audience_area_ids.length < 2) {
-    return { ok: false, message: 'Selecciona al menos dos áreas para la audiencia.' }
-  }
-
-  if (!startDate || !endDate) {
-    return { ok: false, message: 'Agrega el periodo del Challenge: inicio y cierre.' }
-  }
-
-  const success = values.success_criteria.trim()
-  if (success && success.length < 5) {
-    return { ok: false, message: 'El criterio de éxito debe ser más descriptivo.' }
+  if (step === 1) {
+    if (values.impacts.length === 0) {
+      return { ok: false, message: 'Selecciona al menos un impacto esperado.' }
+    }
+    if (values.impacts.includes('other') && otherImpact.length < 2) {
+      return { ok: false, message: 'Especifica el impacto cuando seleccionas Otro.' }
+    }
+    return { ok: true }
   }
 
+  if (step === 2) {
+    if (values.audience_type === 'single_area' && !values.audience_area_id) {
+      return { ok: false, message: 'Selecciona el área de la audiencia.' }
+    }
+    if (values.audience_type === 'multiple_areas' && values.audience_area_ids.length < 2) {
+      return { ok: false, message: 'Selecciona al menos dos áreas para la audiencia.' }
+    }
+    if (!options?.adminMode && (!startDate || !endDate)) {
+      return { ok: false, message: 'Agrega el periodo del Challenge: inicio y cierre.' }
+    }
+    const success = values.success_criteria.trim()
+    if (success && success.length < 5) {
+      return { ok: false, message: 'El criterio de éxito debe ser más descriptivo.' }
+    }
+    return { ok: true }
+  }
+
+  return { ok: true }
+}
+
+export function validateChallengeForm(
+  values: ChallengeFormValues
+): ChallengeFormValidationResult {
+  for (const step of [0, 1, 2] as ChallengeFormStep[]) {
+    const result = validateChallengeFormStep(values, step)
+    if (!result.ok) return result
+  }
   return { ok: true }
 }
 

@@ -31,6 +31,8 @@ export type KanbanHealthMetrics = {
 }
 
 const ESTADOS_CERRADOS = new Set(['Hecho', 'Verificado'])
+/** Para edad de rojos: solo Verificado cierra; Hecho sigue abierto. */
+const ESTADOS_VERIFICADOS = new Set(['Verificado'])
 
 function isAccionRoja(accion: AccionDiaria, priorities: Priority[]): boolean {
   const priority = findPriorityForAccion(accion, priorities)
@@ -77,7 +79,10 @@ export function kanbanHealthFromAcciones(
 ): KanbanHealthMetrics {
   const open = acciones.filter((accion) => !ESTADOS_CERRADOS.has(accion.estado))
   const vencidas = open.filter((accion) => isEnColumnaRetraso(accion))
-  const openRojas = open.filter((accion) => isAccionRoja(accion, priorities))
+  /** Rojas aún no verificadas (Hecho sigue contando para edad). */
+  const openRojas = acciones.filter(
+    (accion) => !ESTADOS_VERIFICADOS.has(accion.estado) && isAccionRoja(accion, priorities)
+  )
 
   return {
     rojos: openRojas.length,

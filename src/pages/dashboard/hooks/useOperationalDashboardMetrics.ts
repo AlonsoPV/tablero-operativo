@@ -10,6 +10,8 @@ import {
 
 const DAY_MS = 86_400_000
 const CLOSED_FALLBACK = new Set(['hecho', 'verificado', 'cerrado', 'realizado'])
+/** Cierre operativo para edad/ciclo de rojos: solo Verificado (Hecho sigue abierto). */
+const VERIFIED_FALLBACK = new Set(['verificado'])
 const BLOCKED_FALLBACK = new Set(['bloqueado'])
 
 export type MetricTone = 'green' | 'yellow' | 'red' | 'neutral'
@@ -135,15 +137,23 @@ function statusByKey(statuses: Status[]): Map<string, Status> {
   return map
 }
 
+function statusKey(action: AccionDiaria, statusesByKey: Map<string, Status>): string {
+  const status = statusesByKey.get(clean(action.estado))
+  return clean(status?.estado_key ?? status?.nombre ?? action.estado)
+}
+
 function isClosed(action: AccionDiaria, statusesByKey: Map<string, Status>): boolean {
   const status = statusesByKey.get(clean(action.estado))
   return Boolean(status?.es_cierre) || CLOSED_FALLBACK.has(clean(action.estado))
 }
 
+/** Solo Verificado cierra el reloj de edad promedio de rojos; Hecho sigue abierto. */
+function isVerified(action: AccionDiaria, statusesByKey: Map<string, Status>): boolean {
+  return VERIFIED_FALLBACK.has(statusKey(action, statusesByKey))
+}
+
 function isBlocked(action: AccionDiaria, statusesByKey: Map<string, Status>): boolean {
-  const status = statusesByKey.get(clean(action.estado))
-  const key = clean(status?.estado_key ?? status?.nombre ?? action.estado)
-  return BLOCKED_FALLBACK.has(key)
+  return BLOCKED_FALLBACK.has(statusKey(action, statusesByKey))
 }
 
 function priorityColorForAction(action: AccionDiaria, priorities: Priority[]): PriorityColor {
@@ -165,6 +175,11 @@ function userForAction(action: AccionDiaria, usersById: Map<string, UserProfile>
 
 function completedAt(action: AccionDiaria): string | null {
   return action.completed_at ?? action.verified_at ?? action.updated_at ?? null
+}
+
+/** Fin del ciclo de un rojo: primera vez en Verificado. */
+function verifiedAt(action: AccionDiaria): string | null {
+  return action.verified_at ?? action.updated_at ?? null
 }
 
 function closedOnTime(action: AccionDiaria): boolean {
@@ -217,22 +232,29 @@ function calculateCoreMetrics(
     actionsByPriorityColor[priorityColorForAction(action, priorities)].push(action)
   }
   const redActions = actionsByPriorityColor.rojo
-  const redClosedActions = redActions.filter((action) => isClosed(action, statusesByKey))
+  /** Rojas cerradas para edad: solo Verificado (Hecho sigue contando como abierto). */
+  const redClosedActions = redActions.filter((action) => isVerified(action, statusesByKey))
   const otherClosedActions = closedActions.filter((action) => !isRedPriority(action, priorities))
   const overdueActions = openActions.filter((action) => action.fecha < today)
   const blockedActions = openActions.filter((action) => isBlocked(action, statusesByKey))
-  const redOpenActions = openActions.filter((action) => isRedPriority(action, priorities))
+  const redOpenActions = redActions.filter((action) => !isVerified(action, statusesByKey))
   const otherOpenActions = openActions.filter((action) => !isRedPriority(action, priorities))
   const dueTodayActions = openActions.filter((action) => action.fecha === today)
   const openAgeDays = (action: AccionDiaria) =>
     daysBetween(action.created_at, `${today}T00:00:00`) ?? 0
   const closeAgeDays = (action: AccionDiaria) =>
     daysBetween(action.created_at, completedAt(action)) ?? 0
+  const redVerifiedAgeDays = (action: AccionDiaria) =>
+    daysBetween(action.created_at, verifiedAt(action)) ?? 0
   const avgOpenAgeDays = round(avg(openActions.map(openAgeDays)))
-  const avgOpenAgeRedDays = round(avg(redClosedActions.map(closeAgeDays)))
+  const avgOpenAgeRedDays = round(avg(redClosedActions.map(redVerifiedAgeDays)))
   const avgOpenAgeOthersDays = round(avg(otherClosedActions.map(closeAgeDays)))
   const avgCloseDays = round(avg(closedActions.map((action) => daysBetween(action.created_at, completedAt(action)) ?? 0)))
-  const redClosedOnTimePct = pct(redClosedActions.filter(closedOnTime).length, redClosedActions.length)
+  const redClosedOnTime = (action: AccionDiaria) => {
+    const closed = toDateOnly(verifiedAt(action))
+    return Boolean(closed) && closed <= action.fecha
+  }
+  const redClosedOnTimePct = pct(redClosedActions.filter(redClosedOnTime).length, redClosedActions.length)
   const ico = pct(closedActions.filter(closedOnTime).length, closedActions.length)
 
   return {
@@ -334,8 +356,9 @@ export function useOperationalDashboardMetrics(input: {
       totalActions: input.actions,
       openActions: current.openActions,
       closedActions: currentPeriodCore.closedActions,
-      redClosedActions: currentPeriodCore.closedActions.filter((action) =>
-        isRedPriority(action, input.priorities)
+      redClosedActions: currentPeriodActions.filter(
+        (action) =>
+          isRedPriority(action, input.priorities) && isVerified(action, current.statusesByKey)
       ),
       otherClosedActions: currentPeriodCore.closedActions.filter(
         (action) => !isRedPriority(action, input.priorities)

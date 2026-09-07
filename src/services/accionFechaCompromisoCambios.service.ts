@@ -20,6 +20,15 @@ export type AccionFechaCompromisoCambio = {
   created_at: string
 }
 
+export type AccionFechaCompromisoCambioResumen = {
+  accion_id: string
+  accion_titulo: string
+  motivo_label: string
+  cambios_count: number
+  changed_by_nombre: string | null
+  created_at: string
+}
+
 export type CreateAccionFechaCompromisoCambioInput = {
   origen: AccionFechaCompromisoOrigen
   accionId: string
@@ -87,5 +96,35 @@ export const accionFechaCompromisoCambiosService = {
 
     if (error) throw new Error(error.message)
     return (data ?? []) as AccionFechaCompromisoCambio[]
+  },
+
+  async listRecentByAccion(limit = 50): Promise<AccionFechaCompromisoCambioResumen[]> {
+    const safeLimit = Math.min(Math.max(limit, 1), 200)
+    const { data, error } = await supabase
+      .from('accion_fecha_compromiso_cambios')
+      .select(SELECT_FIELDS)
+      .order('created_at', { ascending: false })
+      .limit(1000)
+
+    if (error) throw new Error(error.message)
+
+    const byAccion = new Map<string, AccionFechaCompromisoCambioResumen>()
+    for (const row of (data ?? []) as AccionFechaCompromisoCambio[]) {
+      const existing = byAccion.get(row.accion_id)
+      if (!existing) {
+        byAccion.set(row.accion_id, {
+          accion_id: row.accion_id,
+          accion_titulo: row.accion_titulo,
+          motivo_label: row.motivo_label,
+          cambios_count: 1,
+          changed_by_nombre: row.changed_by_nombre,
+          created_at: row.created_at,
+        })
+        continue
+      }
+      existing.cambios_count += 1
+    }
+
+    return Array.from(byAccion.values()).slice(0, safeLimit)
   },
 }

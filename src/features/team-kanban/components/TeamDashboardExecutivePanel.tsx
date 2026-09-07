@@ -428,8 +428,8 @@ export function TeamDashboardExecutivePanel({
             <TeamCloseAgeMetricCard
               title="Tiempo prom. rojos"
               value={metrics.avgCloseAgeRedDays}
-              description="Acciones rojas ya cerradas. Promedio de días desde la creación hasta el cierre."
-              formula="fecha cierre − fecha creación (rojas cerradas en periodo)"
+              description="Acciones rojas en Verificado. Promedio de días desde la creación hasta Verificado. En Hecho siguen abiertas."
+              formula="fecha Verificado − fecha creación (rojas verificadas en periodo)"
               tone={toneForDays(metrics.avgCloseAgeRedDays ?? 0)}
               onDrillDown={() => onDrillDown({ title: 'Tiempo prom. rojos' })}
               loading={isLoading}

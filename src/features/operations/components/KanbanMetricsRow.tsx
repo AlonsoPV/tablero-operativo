@@ -93,7 +93,7 @@ export function KanbanMetricsRow({ metrics, statuses = [], className }: KanbanMe
       key: 'edad-rojos',
       label: 'Edad prom. rojos',
       value: metrics.promedioAperturaRojosDias,
-      hint: 'días · rojas abiertas',
+      hint: 'días · hasta Verificado',
       hintTone: undefined as string | undefined,
       icon: Timer,
       tone: 'border-rose-200/80 bg-rose-50/70',

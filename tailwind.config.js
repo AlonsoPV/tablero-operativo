@@ -76,6 +76,30 @@ export default {
         "gradient-danger": "var(--gradient-danger)",
         "gradient-dark": "var(--gradient-dark)",
       },
+      keyframes: {
+        "challenge-fade-up": {
+          from: { opacity: "0", transform: "translateY(12px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        "challenge-float": {
+          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
+          "50%": { transform: "translate(10px, -12px) scale(1.06)" },
+        },
+        "challenge-pulse-soft": {
+          "0%, 100%": { opacity: "0.45" },
+          "50%": { opacity: "0.85" },
+        },
+        "challenge-progress": {
+          from: { transform: "scaleX(0)" },
+          to: { transform: "scaleX(1)" },
+        },
+      },
+      animation: {
+        "challenge-fade-up": "challenge-fade-up 0.45s ease-out both",
+        "challenge-float": "challenge-float 9s ease-in-out infinite",
+        "challenge-pulse-soft": "challenge-pulse-soft 4.5s ease-in-out infinite",
+        "challenge-progress": "challenge-progress 0.7s ease-out both",
+      },
     },
   },
   plugins: [require("tailwindcss-animate")],

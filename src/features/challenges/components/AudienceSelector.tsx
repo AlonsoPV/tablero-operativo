@@ -42,10 +42,10 @@ export function AudienceSelector({
           <label
             key={option.value}
             className={cn(
-              'flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition',
+              'flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition duration-200',
               audienceType === option.value
-                ? 'border-primary/35 bg-primary/[0.05]'
-                : 'border-border/60 bg-background hover:border-border'
+                ? 'border-primary/35 bg-primary/[0.05] shadow-sm shadow-primary/5 ring-1 ring-primary/10'
+                : 'border-border/60 bg-background hover:-translate-y-0.5 hover:border-border hover:shadow-sm'
             )}
           >
             <input

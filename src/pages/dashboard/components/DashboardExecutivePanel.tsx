@@ -1162,10 +1162,10 @@ function CargaOperativaSection({
     () => filterAgingBuckets(metrics.agingBuckets, filteredOpenActions),
     [filteredOpenActions, metrics.agingBuckets]
   )
-  const backlogByArea = useMemo(
-    () => filterBacklogByArea(metrics.backlogByArea, filteredOpenActions),
-    [filteredOpenActions, metrics.backlogByArea]
-  )
+  // const backlogByArea = useMemo(
+  //   () => filterBacklogByArea(metrics.backlogByArea, filteredOpenActions),
+  //   [filteredOpenActions, metrics.backlogByArea]
+  // )
   const avgOpenAgeDays = useMemo(
     () =>
       averageOpenAgeMetric(
@@ -1216,6 +1216,7 @@ function CargaOperativaSection({
             total={openTotal}
             onDrillDown={onDrillDown}
           />
+          {/* Backlog por área — oculto temporalmente
           <div className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
             <BacklogByAreaChart
               items={backlogByArea}
@@ -1229,6 +1230,13 @@ function CargaOperativaSection({
               loading={isLoading}
             />
           </div>
+          */}
+          <AverageOpenAgeCard
+            metric={avgOpenAgeDays}
+            actions={filteredOpenActions}
+            onDrillDown={onDrillDown}
+            loading={isLoading}
+          />
         </SectionCardBody>
       </SectionCard>
     </section>
@@ -1269,8 +1277,8 @@ export function DashboardExecutivePanel({
                 title="Tiempo prom. rojos"
                 value={metrics.avgOpenAgeRedDays.value}
                 suffix="días"
-                description="Acciones rojas ya cerradas. Promedio de días desde la creación hasta el cierre operativo."
-                formula="fecha cierre − fecha creación (rojas cerradas)"
+                description="Acciones rojas verificadas. Promedio de días desde la creación hasta Verificado. En Hecho siguen abiertas."
+                formula="verified_at − created_at (rojas en Verificado)"
                 metric={metrics.avgOpenAgeRedDays}
                 tone={toneForDays(metrics.avgOpenAgeRedDays.value)}
                 actions={metrics.redClosedActions}
@@ -1296,6 +1304,7 @@ export function DashboardExecutivePanel({
         </SectionCard>
       </section>
 
+      {/* Confiabilidad de compromisos / ICO — oculto temporalmente
       <section className="scroll-mt-4">
         <SectionCard>
           <SectionCardHeader
@@ -1338,6 +1347,7 @@ export function DashboardExecutivePanel({
           </SectionCardBody>
         </SectionCard>
       </section>
+      */}
 
       <CargaOperativaSection
         metrics={metrics}
@@ -1346,6 +1356,7 @@ export function DashboardExecutivePanel({
         onDrillDown={onDrillDown}
       />
 
+      {/* Cumplimiento por área — oculto temporalmente
       <section className="scroll-mt-4">
         <SectionCard>
           <SectionCardHeader
@@ -1359,7 +1370,19 @@ export function DashboardExecutivePanel({
           </SectionCardBody>
         </SectionCard>
       </section>
+      */}
     </div>
   )
 }
+
+// Conservar símbolos de secciones ocultas temporalmente (ICO / backlog / cumplimiento).
+void [
+  BacklogByAreaChart,
+  PercentRanking,
+  IcoHeroCard,
+  IcoRankingPanel,
+  filterBacklogByArea,
+  Building2,
+  Users,
+]
 

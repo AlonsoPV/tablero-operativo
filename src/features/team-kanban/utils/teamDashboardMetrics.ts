@@ -252,7 +252,11 @@ export function buildTeamDashboardMetrics(
     (a, b) => b.value - a.value || a.label.localeCompare(b.label, 'es')
   )
 
-  const redClosedActions = closedInPeriod.filter((action) => priorityBucket(action) === 'rojo')
+  const redClosedActions = closedInPeriod.filter((action) => {
+    if (priorityBucket(action) !== 'rojo') return false
+    const state = board.states.find((item) => item.id === action.estado_id)
+    return normalize(state?.nombre).includes('verific')
+  })
   const otherClosedActions = closedInPeriod.filter((action) => priorityBucket(action) !== 'rojo')
   const avgCloseAgeRedDays = average(
     redClosedActions

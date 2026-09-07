@@ -27,7 +27,7 @@ export function ChallengeIdeaCard({
   const hidden = idea.moderation_status === 'hidden'
   return (
     <article className={cn(
-      'rounded-xl border border-border/60 bg-card p-4 shadow-sm transition hover:border-border hover:shadow-md',
+      'rounded-xl border border-border/60 bg-card p-4 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md hover:shadow-primary/5',
       compact ? 'space-y-3' : 'space-y-4',
       hidden && 'opacity-70'
     )}>

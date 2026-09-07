@@ -18,6 +18,7 @@ import { useUsers } from '@/features/users/hooks/useUsers'
 import { useAreas } from '@/features/catalogs/hooks/useAreas'
 import { ChallengeCard } from '../components/ChallengeCard'
 import { ChallengeFormDialog } from '../components/ChallengeFormDialog'
+import { AmbientOrbs, AnimatedNumber, StaggerItem } from '../components/ChallengeMotion'
 import { useChallenges } from '../hooks/useChallenges'
 import type { ChallengeListItem } from '../types'
 
@@ -132,14 +133,15 @@ export function ChallengesPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 overflow-x-hidden px-3 py-4 sm:px-6 sm:py-5">
-      <header className="overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-card via-card to-primary/[0.06] shadow-sm">
-        <div className="flex flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-center lg:justify-between">
+      <header className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-card via-card to-primary/[0.08] shadow-sm animate-challenge-fade-up motion-reduce:animate-none">
+        <AmbientOrbs />
+        <div className="relative flex flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-primary">
-              <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
+              <Sparkles className="h-3.5 w-3.5 animate-challenge-pulse-soft motion-reduce:animate-none" aria-hidden />
               Comunidad e innovación
             </div>
-            <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-foreground sm:text-[1.75rem]">
+            <h1 className="mt-2.5 text-2xl font-semibold tracking-tight text-foreground sm:text-[1.85rem]">
               Challenges
             </h1>
             <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted-foreground">
@@ -148,7 +150,7 @@ export function ChallengesPage() {
           </div>
           <Button
             type="button"
-            className="h-10 shrink-0 gap-1.5 self-start shadow-sm lg:self-center"
+            className="h-11 shrink-0 gap-1.5 self-start shadow-md shadow-primary/20 transition duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 lg:self-center"
             onClick={() => setDialogOpen(true)}
           >
             <Plus className="h-4 w-4" aria-hidden />
@@ -156,10 +158,10 @@ export function ChallengesPage() {
           </Button>
         </div>
 
-        <div className="grid border-t border-border/50 bg-muted/15 sm:grid-cols-3">
-          <StatPill icon={Target} label="Activos" value={stats.active} />
-          <StatPill icon={ThumbsUp} label="Apoyos en activos" value={stats.support} />
-          <StatPill icon={Users} label="Participantes" value={stats.participants} />
+        <div className="relative grid border-t border-border/50 bg-background/40 backdrop-blur-sm sm:grid-cols-3">
+          <StatPill icon={Target} label="Activos" value={stats.active} delay={0} />
+          <StatPill icon={ThumbsUp} label="Apoyos en activos" value={stats.support} delay={80} />
+          <StatPill icon={Users} label="Participantes" value={stats.participants} delay={160} />
         </div>
       </header>
 
@@ -172,16 +174,16 @@ export function ChallengesPage() {
                 type="button"
                 onClick={() => setStatus(item.key)}
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+                  'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition duration-200',
                   status === item.key
-                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    ? 'scale-[1.03] border-primary/40 bg-primary/10 text-primary shadow-sm shadow-primary/10'
                     : 'border-border/70 bg-background text-muted-foreground hover:border-border hover:text-foreground'
                 )}
               >
                 {item.label}
                 <span
                   className={cn(
-                    'rounded-full px-1.5 py-0.5 text-[10px] tabular-nums',
+                    'rounded-full px-1.5 py-0.5 text-[10px] tabular-nums transition',
                     status === item.key ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
                   )}
                 >
@@ -197,14 +199,14 @@ export function ChallengesPage() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Buscar por título o problema..."
-              className="h-9 rounded-full border-border/70 bg-background pl-9 text-sm"
+              className="h-9 rounded-full border-border/70 bg-background pl-9 text-sm transition focus-visible:ring-primary/30"
               aria-label="Buscar challenges"
             />
           </div>
         </div>
 
         {!isLoading && !isError ? (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground transition-opacity">
             {filtered.length === 0
               ? 'Sin resultados'
               : `${filtered.length} challenge${filtered.length === 1 ? '' : 's'}${deferredSearch.trim() ? ' encontrados' : ''}`}
@@ -229,13 +231,19 @@ export function ChallengesPage() {
       ) : isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2, 3, 4, 5].map((item) => (
-            <div key={item} className="h-56 animate-pulse rounded-xl bg-muted/50" />
+            <div
+              key={item}
+              className="h-56 animate-pulse rounded-xl bg-muted/50"
+              style={{ animationDelay: `${item * 80}ms` }}
+            />
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <SectionCard>
+        <SectionCard className="animate-challenge-fade-up motion-reduce:animate-none">
           <SectionCardBody className="flex min-h-72 flex-col items-center justify-center gap-3 px-4 text-center">
-            <Lightbulb className="h-10 w-10 text-muted-foreground/60" aria-hidden />
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <Lightbulb className="h-7 w-7" aria-hidden />
+            </div>
             <div>
               <p className="text-base font-semibold text-foreground">{emptyCopy}</p>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">
@@ -258,13 +266,14 @@ export function ChallengesPage() {
         </SectionCard>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((challenge) => (
-            <ChallengeCard
-              key={challenge.id}
-              challenge={challenge}
-              creatorName={userNames[challenge.created_by] ?? 'Usuario'}
-              areaName={challenge.area_id ? areaNames[challenge.area_id] : null}
-            />
+          {filtered.map((challenge, index) => (
+            <StaggerItem key={challenge.id} index={index}>
+              <ChallengeCard
+                challenge={challenge}
+                creatorName={userNames[challenge.created_by] ?? 'Usuario'}
+                areaName={challenge.area_id ? areaNames[challenge.area_id] : null}
+              />
+            </StaggerItem>
           ))}
         </div>
       )}
@@ -283,18 +292,25 @@ function StatPill({
   icon: Icon,
   label,
   value,
+  delay = 0,
 }: {
   icon: typeof Target
   label: string
   value: number
+  delay?: number
 }) {
   return (
-    <div className="flex items-center gap-3 border-border/40 px-4 py-3 sm:border-r last:sm:border-r-0">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+    <div
+      className="flex items-center gap-3 border-border/40 px-4 py-3.5 transition hover:bg-primary/[0.03] sm:border-r last:sm:border-r-0"
+      style={{ animationDelay: `${delay}ms` }}
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10 transition group-hover:scale-105">
         <Icon className="h-4 w-4" aria-hidden />
       </span>
       <div className="min-w-0">
-        <p className="text-lg font-bold tabular-nums leading-none text-foreground">{value}</p>
+        <p className="text-lg font-bold tabular-nums leading-none text-foreground">
+          <AnimatedNumber value={value} />
+        </p>
         <p className="mt-1 text-[11px] text-muted-foreground">{label}</p>
       </div>
     </div>
