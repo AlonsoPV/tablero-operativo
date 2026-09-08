@@ -26,7 +26,7 @@ export function AcademyTrackingCard() {
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Formación O2C
               </p>
-              <CardTitle className="text-base font-semibold text-foreground">Seguimiento Academia O2C</CardTitle>
+              <CardTitle className="text-base font-semibold text-foreground">Seguimiento Academia</CardTitle>
               <CardDescription className="text-sm text-muted-foreground">
                 Avance de la ruta formativa (módulos y quizzes). Refuerza disciplina operativa y lectura de reportes
                 en contexto O2C.

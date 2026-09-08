@@ -280,6 +280,10 @@ export interface AccionesControlTableProps {
   /** Progreso de checklist por acción (misma fuente que Kanban). */
   checklistProgressByAccionId?: Record<string, { total: number; completed: number }>
   indicadoresMode?: IndicadoresMode
+  /** Mostrar columna Pts (default true). */
+  showPts?: boolean
+  /** Mostrar columna Indicadores/Checklist (default true). */
+  showIndicadores?: boolean
   /** Mensaje del empty state (opcional) */
   emptyMessage?: string
   /** Etiqueta del botón CTA en empty state (opcional) */
@@ -294,6 +298,8 @@ type AccionRowSharedProps = {
   responsableNames: Record<string, string>
   checklistProgressByAccionId: Record<string, { total: number; completed: number }>
   indicadoresMode: IndicadoresMode
+  showPts: boolean
+  showIndicadores: boolean
   priorities: Priority[]
   statusByKey: StatusCatalogMap
   onSelectAccion?: (accion: AccionDiaria) => void
@@ -321,6 +327,8 @@ function AccionControlMobileCard({
   responsableNames,
   checklistProgressByAccionId,
   indicadoresMode,
+  showPts,
+  showIndicadores,
   priorities,
   statusByKey,
   onSelectAccion,
@@ -362,10 +370,14 @@ function AccionControlMobileCard({
         <span className="max-w-[55%] truncate">
           {responsableNames[accion.responsable] ?? 'Sin responsable'}
         </span>
-        <span className="text-border/80" aria-hidden>
-          ·
-        </span>
-        <span className="font-semibold tabular-nums text-foreground">{formatStoryPoints(accion)} pts</span>
+        {showPts ? (
+          <>
+            <span className="text-border/80" aria-hidden>
+              ·
+            </span>
+            <span className="font-semibold tabular-nums text-foreground">{formatStoryPoints(accion)} pts</span>
+          </>
+        ) : null}
         <AccionPriorityBadge
           prioridad={priority?.nombre ?? accion.prioridad}
           catalogColor={priority?.color}
@@ -378,33 +390,35 @@ function AccionControlMobileCard({
           <span className="font-medium text-foreground/80">Fecha límite:</span>{' '}
           <span className="tabular-nums">{formatFechaLimite(accion.fecha)}</span>
         </span>
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
-          {indicadoresMode === 'checklist' ? (
-            <ChecklistStatusBadge progress={checklistProg} />
-          ) : (
-            <>
-              {comments > 0 && (
-                <span className="inline-flex items-center gap-0.5 rounded-md bg-muted/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  <MessageSquare className="h-3 w-3" />
-                  {comments}
-                </span>
-              )}
-              {checklistProg && checklistProg.total > 0 && (
-                <AccionChecklistProgressBadge
-                  completados={checklistProg.completed}
-                  total={checklistProg.total}
-                />
-              )}
-              <EvidenciaCargadaIndicator cargada={accion.evidencia_cargada} />
-              {isEnRetraso(accion) && (
-                <AlertTriangle className="h-3.5 w-3.5 text-orange-600" aria-label="En retraso" />
-              )}
-              {accion.estado === 'Bloqueado' && (
-                <AlertCircle className="h-3.5 w-3.5 text-destructive" aria-label="Bloqueado" />
-              )}
-            </>
-          )}
-        </div>
+        {showIndicadores ? (
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            {indicadoresMode === 'checklist' ? (
+              <ChecklistStatusBadge progress={checklistProg} />
+            ) : (
+              <>
+                {comments > 0 && (
+                  <span className="inline-flex items-center gap-0.5 rounded-md bg-muted/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    <MessageSquare className="h-3 w-3" />
+                    {comments}
+                  </span>
+                )}
+                {checklistProg && checklistProg.total > 0 && (
+                  <AccionChecklistProgressBadge
+                    completados={checklistProg.completed}
+                    total={checklistProg.total}
+                  />
+                )}
+                <EvidenciaCargadaIndicator cargada={accion.evidencia_cargada} />
+                {isEnRetraso(accion) && (
+                  <AlertTriangle className="h-3.5 w-3.5 text-orange-600" aria-label="En retraso" />
+                )}
+                {accion.estado === 'Bloqueado' && (
+                  <AlertCircle className="h-3.5 w-3.5 text-destructive" aria-label="Bloqueado" />
+                )}
+              </>
+            )}
+          </div>
+        ) : null}
       </div>
     </Wrapper>
   )
@@ -416,6 +430,8 @@ function AccionesControlMobileList({
   responsableNames,
   checklistProgressByAccionId,
   indicadoresMode,
+  showPts,
+  showIndicadores,
   priorities,
   statusByKey,
   onSelectAccion,
@@ -425,6 +441,8 @@ function AccionesControlMobileList({
   responsableNames: Record<string, string>
   checklistProgressByAccionId: Record<string, { total: number; completed: number }>
   indicadoresMode: IndicadoresMode
+  showPts: boolean
+  showIndicadores: boolean
   priorities: Priority[]
   statusByKey: StatusCatalogMap
   onSelectAccion?: (accion: AccionDiaria) => void
@@ -439,6 +457,8 @@ function AccionesControlMobileList({
             responsableNames={responsableNames}
             checklistProgressByAccionId={checklistProgressByAccionId}
             indicadoresMode={indicadoresMode}
+            showPts={showPts}
+            showIndicadores={showIndicadores}
             priorities={priorities}
             statusByKey={statusByKey}
             onSelectAccion={onSelectAccion}
@@ -457,6 +477,8 @@ export function AccionesControlTable({
   responsableNames = {},
   checklistProgressByAccionId = {},
   indicadoresMode = 'full',
+  showPts = true,
+  showIndicadores = true,
   emptyMessage = 'No hay acciones para mostrar. Ajusta los filtros o crea una nueva.',
   emptyActionLabel,
   onEmptyAction,
@@ -507,12 +529,16 @@ export function AccionesControlTable({
               <TableHead className="bg-muted/40 font-semibold">Descripción</TableHead>
               <TableHead className="bg-muted/40 font-semibold w-[120px]">Estado</TableHead>
               <TableHead className="bg-muted/40 font-semibold w-[140px]">Responsable</TableHead>
-              <TableHead className="bg-muted/40 font-semibold w-[56px]">Pts</TableHead>
+              {showPts ? (
+                <TableHead className="bg-muted/40 font-semibold w-[56px]">Pts</TableHead>
+              ) : null}
               <TableHead className="bg-muted/40 font-semibold w-[120px]">Fecha límite</TableHead>
               <TableHead className="bg-muted/40 font-semibold w-[90px]">Prioridad</TableHead>
-              <TableHead className="bg-muted/40 font-semibold w-[100px]">
-                {indicadoresMode === 'checklist' ? 'Checklist' : 'Indicadores'}
-              </TableHead>
+              {showIndicadores ? (
+                <TableHead className="bg-muted/40 font-semibold w-[100px]">
+                  {indicadoresMode === 'checklist' ? 'Checklist' : 'Indicadores'}
+                </TableHead>
+              ) : null}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -522,10 +548,14 @@ export function AccionesControlTable({
                 <TableCell className="py-3"><div className="h-4 w-48 animate-pulse rounded bg-muted/70" /></TableCell>
                 <TableCell className="py-3"><div className="h-6 w-20 animate-pulse rounded-full bg-muted/70" /></TableCell>
                 <TableCell className="py-3"><div className="h-4 w-24 animate-pulse rounded bg-muted/70" /></TableCell>
-                <TableCell className="py-3"><div className="h-4 w-12 animate-pulse rounded bg-muted/70" /></TableCell>
+                {showPts ? (
+                  <TableCell className="py-3"><div className="h-4 w-12 animate-pulse rounded bg-muted/70" /></TableCell>
+                ) : null}
                 <TableCell className="py-3"><div className="h-4 w-16 animate-pulse rounded bg-muted/70" /></TableCell>
                 <TableCell className="py-3"><div className="h-5 w-14 animate-pulse rounded bg-muted/70" /></TableCell>
-                <TableCell className="py-3"><div className="h-4 w-16 animate-pulse rounded bg-muted/70" /></TableCell>
+                {showIndicadores ? (
+                  <TableCell className="py-3"><div className="h-4 w-16 animate-pulse rounded bg-muted/70" /></TableCell>
+                ) : null}
               </TableRow>
             ))}
           </TableBody>
@@ -569,6 +599,8 @@ export function AccionesControlTable({
           responsableNames={responsableNames}
           checklistProgressByAccionId={checklistProgressByAccionId}
           indicadoresMode={indicadoresMode}
+          showPts={showPts}
+          showIndicadores={showIndicadores}
           priorities={priorities}
           statusByKey={statusByKey}
           onSelectAccion={onSelectAccion}
@@ -612,14 +644,16 @@ export function AccionesControlTable({
               onToggle={handleSortToggle}
               className="w-[140px]"
             />
-            <AccionSortHeader
-              columnKey="pts"
-              label="Pts"
-              sortKey={sortKey}
-              sortDir={sortDir}
-              onToggle={handleSortToggle}
-              className="w-[56px]"
-            />
+            {showPts ? (
+              <AccionSortHeader
+                columnKey="pts"
+                label="Pts"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onToggle={handleSortToggle}
+                className="w-[56px]"
+              />
+            ) : null}
             <AccionSortHeader
               columnKey="fecha"
               label="Fecha límite"
@@ -636,14 +670,16 @@ export function AccionesControlTable({
               onToggle={handleSortToggle}
               className="w-[90px]"
             />
-            <AccionSortHeader
-              columnKey="indicadores"
-              label={indicadoresMode === 'checklist' ? 'Checklist' : 'Indicadores'}
-              sortKey={sortKey}
-              sortDir={sortDir}
-              onToggle={handleSortToggle}
-              className="w-[100px]"
-            />
+            {showIndicadores ? (
+              <AccionSortHeader
+                columnKey="indicadores"
+                label={indicadoresMode === 'checklist' ? 'Checklist' : 'Indicadores'}
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onToggle={handleSortToggle}
+                className="w-[100px]"
+              />
+            ) : null}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -690,9 +726,11 @@ export function AccionesControlTable({
                 <TableCell className="py-3 text-muted-foreground text-sm align-middle">
                   {responsableNames[accion.responsable] ?? accion.responsable ?? '—'}
                 </TableCell>
-                <TableCell className="py-3 text-sm font-semibold tabular-nums text-foreground align-middle">
-                  {formatStoryPoints(accion)}
-                </TableCell>
+                {showPts ? (
+                  <TableCell className="py-3 text-sm font-semibold tabular-nums text-foreground align-middle">
+                    {formatStoryPoints(accion)}
+                  </TableCell>
+                ) : null}
                 <TableCell className="py-3 text-sm tabular-nums text-foreground align-middle">
                   {formatFechaLimite(accion.fecha)}
                 </TableCell>
@@ -704,6 +742,7 @@ export function AccionesControlTable({
                     className="max-w-[8rem]"
                   />
                 </TableCell>
+                {showIndicadores ? (
                 <TableCell className="py-3 align-middle">
                   <div
                     className={cn(
@@ -777,6 +816,7 @@ export function AccionesControlTable({
                       )}
                   </div>
                 </TableCell>
+                ) : null}
               </TableRow>
             )
           })}

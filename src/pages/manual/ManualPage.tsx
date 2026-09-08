@@ -47,7 +47,7 @@ const manualSections: ManualSection[] = [
     value: 'Gestiona acciones.',
   },
   {
-    title: 'Academia O2C',
+    title: 'Academia',
     route: ROUTES.ACADEMIA,
     icon: GraduationCap,
     value: 'Aprende la metodología.',

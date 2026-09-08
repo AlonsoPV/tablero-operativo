@@ -41,7 +41,7 @@ export function DisciplinaAcademyRegistro({ embedded = false }: { embedded?: boo
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Formación</p>
-                <h3 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">Academia O2C</h3>
+                <h3 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">Academia</h3>
               </div>
             </div>
             {isSaving ? <span className="shrink-0 text-[10px] text-muted-foreground">Guardando…</span> : null}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -12,6 +12,7 @@ import {
   Sparkles,
   FolderKanban,
   Network,
+  ChevronDown,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -28,34 +29,64 @@ type NavItem = {
 }
 
 type NavGroup = {
-  label?: string
+  id: string
+  label: string
   items: NavItem[]
 }
 
 /** Navegación por módulos (spec §5). */
 const navGroups: NavGroup[] = [
   {
-    label: 'Secciones',
+    id: 'operacion',
+    label: 'Operacion',
     items: [
       { to: ROUTES.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard },
       { to: ROUTES.KANBAN, label: 'Kanban', icon: Columns3 },
       { to: ROUTES.TEAM_KANBAN, label: 'Equipos', icon: FolderKanban },
+    ],
+  },
+  {
+    id: 'organizacion',
+    label: 'Organizacion',
+    items: [
       { to: ROUTES.ORG_CHART, label: 'Organigrama', icon: Network },
       { to: ROUTES.DISCIPLINA, label: 'Disciplina', icon: Target },
       { to: ROUTES.CALENDARIO, label: 'Calendario', icon: Calendar },
-      { to: ROUTES.ACADEMIA, label: 'Academia O2C', icon: GraduationCap },
-      { to: ROUTES.TICKETS, label: 'Tickets', icon: LifeBuoy },
+    ],
+  },
+  {
+    id: 'mejora',
+    label: 'Mejora',
+    items: [
       { to: ROUTES.CHALLENGES, label: 'Challenges', icon: Lightbulb },
+      { to: ROUTES.ACADEMIA, label: 'Academia', icon: GraduationCap },
+    ],
+  },
+  {
+    id: 'ayuda',
+    label: 'Ayuda',
+    items: [
+      { to: ROUTES.TICKETS, label: 'Tickets', icon: LifeBuoy },
       { to: ROUTES.MANUAL, label: 'Manual', icon: BookOpen },
       { to: ROUTES.AI_ASSIST, label: 'Asistente IA', icon: Sparkles },
     ],
   },
 ]
 
+const DEFAULT_OPEN_GROUP_IDS = new Set(['operacion'])
+
 const MOBILE_MQ = '(max-width: 1023px)'
 
 function isMobileViewport() {
   return typeof window !== 'undefined' && window.matchMedia(MOBILE_MQ).matches
+}
+
+function isRouteActive(pathname: string, to: string) {
+  return pathname === to || pathname.startsWith(`${to}/`)
+}
+
+function groupHasActiveRoute(pathname: string, items: NavItem[]) {
+  return items.some((item) => isRouteActive(pathname, item.to))
 }
 
 export function Sidebar() {
@@ -64,12 +95,28 @@ export function Sidebar() {
   const setSidebarOpen = useAppStore((s) => s.setSidebarOpen)
   const closeBtnRef = useRef<HTMLButtonElement>(null)
   const { canAccessRoute } = useRouteAccess()
+  const [openGroupIds, setOpenGroupIds] = useState<Set<string>>(() => new Set(DEFAULT_OPEN_GROUP_IDS))
+
   const visibleNavGroups = navGroups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => canAccessRoute(item.to)),
     }))
     .filter((group) => group.items.length > 0)
+
+  /** Al navegar, abrir el grupo de la ruta activa si estaba cerrado. */
+  useEffect(() => {
+    const activeGroup = navGroups.find((group) =>
+      group.items.some(
+        (item) => canAccessRoute(item.to) && isRouteActive(location.pathname, item.to)
+      )
+    )
+    if (!activeGroup) return
+    setOpenGroupIds((prev) => {
+      if (prev.has(activeGroup.id)) return prev
+      return new Set(prev).add(activeGroup.id)
+    })
+  }, [canAccessRoute, location.pathname])
 
   /** Antes del primer pintado en móvil: menú cerrado para evitar flash del overlay a pantalla completa. */
   useLayoutEffect(() => {
@@ -103,61 +150,139 @@ export function Sidebar() {
     }
   }, [setSidebarOpen])
 
+  const toggleGroup = useCallback((groupId: string) => {
+    setOpenGroupIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(groupId)) next.delete(groupId)
+      else next.add(groupId)
+      return next
+    })
+  }, [])
+
   const renderNavLink = (
     item: NavItem,
     opts: { showLabels: boolean; mobile?: boolean; onActivate?: () => void }
   ) => {
     const { showLabels, mobile, onActivate } = opts
     const { to, label, icon: Icon } = item
-    const isActive = location.pathname === to || location.pathname.startsWith(`${to}/`)
+    const isActive = isRouteActive(location.pathname, to)
     return (
       <Link
         key={to}
         to={to}
         onClick={() => onActivate?.()}
+        title={!showLabels ? label : undefined}
         className={cn(
-          'flex items-center gap-3 rounded-xl px-3 font-medium transition-colors',
-          mobile ? 'py-3.5 text-base' : 'py-2 text-sm',
+          'group/link relative flex items-center gap-3 font-medium transition-colors',
+          mobile ? 'rounded-xl px-3 py-3.5 text-base' : 'rounded-lg px-2.5 py-2 text-sm',
           isActive
             ? 'bg-sidebar-primary text-primary-foreground shadow-sm'
-            : 'text-sidebar-foreground/85 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+            : 'text-sidebar-foreground/80 hover:bg-sidebar-accent/80 hover:text-sidebar-foreground'
         )}
       >
-        <Icon className={mobile ? 'h-6 w-6' : 'h-5 w-5 shrink-0'} aria-hidden />
-        {showLabels ? <span className="flex-1 truncate">{label}</span> : null}
+        <Icon
+          className={cn(
+            'h-[18px] w-[18px] shrink-0 opacity-90',
+            mobile && 'h-6 w-6',
+            !isActive && 'text-sidebar-foreground/70 group-hover/link:text-sidebar-foreground'
+          )}
+          aria-hidden
+        />
+        {showLabels ? <span className="flex-1 truncate tracking-tight">{label}</span> : null}
       </Link>
     )
   }
 
   const renderNavGroups = (opts: { showLabels: boolean; mobile?: boolean; onActivate?: () => void }) => {
     const { showLabels, mobile, onActivate } = opts
-    return visibleNavGroups.map((group, groupIndex) => (
-      <div
-        key={group.label ?? `nav-group-${groupIndex}`}
-        className={cn(groupIndex > 0 && 'mt-2', group.label && groupIndex > 0 && showLabels && 'pt-1')}
-      >
-        {group.label ? (
-          showLabels ? (
-            <p
+
+    if (!showLabels) {
+      return visibleNavGroups.map((group, groupIndex) => (
+        <div key={group.id} className={cn('flex flex-col gap-1', groupIndex > 0 && 'mt-1.5')}>
+          {groupIndex > 0 ? (
+            <div className="mx-2 mb-1.5 border-t border-sidebar-accent/55" aria-hidden />
+          ) : null}
+          {group.items.map((item) =>
+            renderNavLink(item, { showLabels: false, mobile, onActivate })
+          )}
+        </div>
+      ))
+    }
+
+    return visibleNavGroups.map((group) => {
+      const isExpanded = openGroupIds.has(group.id)
+      const hasActive = groupHasActiveRoute(location.pathname, group.items)
+      const panelId = `nav-group-panel-${group.id}`
+      const triggerId = `nav-group-trigger-${group.id}`
+
+      return (
+        <section
+          key={group.id}
+          className={cn(
+            'overflow-hidden rounded-xl border transition-colors',
+            isExpanded
+              ? 'border-sidebar-accent/70 bg-sidebar-accent/25'
+              : hasActive
+                ? 'border-sidebar-primary/35 bg-sidebar-accent/15'
+                : 'border-transparent bg-transparent hover:border-sidebar-accent/40 hover:bg-sidebar-accent/10'
+          )}
+        >
+          <button
+            id={triggerId}
+            type="button"
+            aria-expanded={isExpanded}
+            aria-controls={panelId}
+            onClick={() => toggleGroup(group.id)}
+            className={cn(
+              'flex w-full items-center gap-2 px-2.5 text-left transition-colors',
+              mobile ? 'min-h-11 py-2.5' : 'min-h-9 py-2',
+              'hover:bg-sidebar-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-primary/40'
+            )}
+          >
+            <span
               className={cn(
-                'px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/45',
-                groupIndex > 0 ? 'pt-2' : 'pt-0.5'
+                'flex-1 text-[11px] font-semibold uppercase tracking-[0.08em]',
+                hasActive ? 'text-sidebar-foreground' : 'text-sidebar-foreground/55'
               )}
             >
               {group.label}
-            </p>
-          ) : groupIndex > 0 ? (
-            <div
-              className="mx-2 mb-1.5 border-t border-sidebar-accent/60"
+            </span>
+            {hasActive && !isExpanded ? (
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sidebar-primary" aria-hidden />
+            ) : null}
+            <ChevronDown
+              className={cn(
+                'h-3.5 w-3.5 shrink-0 text-sidebar-foreground/45 transition-transform duration-200',
+                isExpanded && 'rotate-180 text-sidebar-foreground/70'
+              )}
               aria-hidden
             />
-          ) : null
-        ) : null}
-        <div className="flex flex-col gap-1">
-          {group.items.map((item) => renderNavLink(item, { showLabels, mobile, onActivate }))}
-        </div>
-      </div>
-    ))
+          </button>
+
+          <div
+            id={panelId}
+            role="region"
+            aria-labelledby={triggerId}
+            className={cn(
+              'grid transition-[grid-template-rows] duration-200 ease-out',
+              isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+            )}
+          >
+            <div className="overflow-hidden">
+              <div className={cn('flex flex-col gap-0.5 px-1.5 pb-1.5', mobile && 'gap-1 pb-2')}>
+                {group.items.map((item) =>
+                  renderNavLink(item, {
+                    showLabels: true,
+                    mobile,
+                    onActivate,
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      )
+    })
   }
 
   return (
@@ -169,7 +294,13 @@ export function Sidebar() {
           sidebarOpen ? 'w-56' : 'w-16'
         )}
       >
-        <nav className="flex flex-1 flex-col gap-1 overflow-y-auto overscroll-contain p-2" aria-label="Navegación principal">
+        <nav
+          className={cn(
+            'flex flex-1 flex-col overflow-y-auto overscroll-contain p-2',
+            sidebarOpen ? 'gap-1.5' : 'gap-1'
+          )}
+          aria-label="Navegación principal"
+        >
           {renderNavGroups({ showLabels: sidebarOpen })}
         </nav>
       </aside>
@@ -207,7 +338,7 @@ export function Sidebar() {
             </Button>
           </header>
           <nav
-            className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain p-3 pb-8"
+            className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain p-3 pb-8"
             aria-label="Enlaces de la aplicación"
           >
             {renderNavGroups({ showLabels: true, mobile: true, onActivate: closeMobileMenu })}

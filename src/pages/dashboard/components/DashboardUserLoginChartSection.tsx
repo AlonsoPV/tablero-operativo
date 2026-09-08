@@ -16,12 +16,12 @@ import {
   type UserLoginPerson,
 } from '../utils/dashboardUserLoginStats'
 
-const CHART_WIDTH = 760
-const CHART_HEIGHT = 260
-const PAD_LEFT = 46
-const PAD_RIGHT = 18
-const PAD_TOP = 18
-const PAD_BOTTOM = 54
+const CHART_WIDTH = 520
+const CHART_HEIGHT = 168
+const PAD_LEFT = 36
+const PAD_RIGHT = 10
+const PAD_TOP = 16
+const PAD_BOTTOM = 36
 
 function LoginBars({
   buckets,
@@ -37,15 +37,15 @@ function LoginBars({
   const innerWidth = CHART_WIDTH - PAD_LEFT - PAD_RIGHT
   const innerHeight = CHART_HEIGHT - PAD_TOP - PAD_BOTTOM
   const slotWidth = innerWidth / Math.max(1, buckets.length)
-  const barWidth = Math.min(52, slotWidth * 0.58)
+  const barWidth = Math.min(36, slotWidth * 0.55)
   const yAt = (percentage: number) => PAD_TOP + innerHeight * (1 - percentage / 100)
-  const ticks = [0, 25, 50, 75, 100]
+  const ticks = [0, 50, 100]
 
   return (
-    <div className="w-full overflow-x-auto pb-1">
+    <div className="w-full overflow-x-auto">
       <svg
         viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-        className="min-w-[640px] text-muted-foreground"
+        className="min-w-full text-muted-foreground"
         role="img"
         aria-label="Porcentaje de usuarios activos que iniciaron sesión en cada periodo"
       >
@@ -59,9 +59,9 @@ function LoginBars({
                 x2={CHART_WIDTH - PAD_RIGHT}
                 y2={y}
                 stroke="currentColor"
-                strokeOpacity={0.14}
+                strokeOpacity={0.12}
               />
-              <text x={PAD_LEFT - 8} y={y + 4} textAnchor="end" className="fill-current text-[10px]">
+              <text x={PAD_LEFT - 6} y={y + 3} textAnchor="end" className="fill-current text-[9px]">
                 {tick}%
               </text>
             </g>
@@ -91,36 +91,22 @@ function LoginBars({
               }}
             >
               <title>
-                {label}: {bucket.usersLoggedIn} de {bucket.usersTotal} usuarios ({percentage}%). Clic para ver quién.
+                {label}: {bucket.usersLoggedIn}/{bucket.usersTotal} ({percentage}%)
               </title>
-              <rect
-                x={x}
-                y={PAD_TOP}
-                width={barWidth}
-                height={innerHeight}
-                className="fill-transparent"
-              />
+              <rect x={x} y={PAD_TOP} width={barWidth} height={innerHeight} className="fill-transparent" />
               <rect
                 x={x}
                 y={y}
                 width={barWidth}
                 height={height}
-                rx={5}
+                rx={4}
                 className={selected ? 'fill-foreground' : 'fill-primary'}
               />
               <text
                 x={x + barWidth / 2}
-                y={Math.max(PAD_TOP + 10, y - 7)}
+                y={CHART_HEIGHT - 14}
                 textAnchor="middle"
-                className="fill-foreground text-[10px] font-semibold"
-              >
-                {bucket.usersLoggedIn}/{bucket.usersTotal}
-              </text>
-              <text
-                x={x + barWidth / 2}
-                y={CHART_HEIGHT - 25}
-                textAnchor="middle"
-                className={cn('text-[10px]', selected ? 'fill-foreground font-semibold' : 'fill-current')}
+                className={cn('text-[9px]', selected ? 'fill-foreground font-semibold' : 'fill-current')}
               >
                 {label}
               </text>
@@ -140,15 +126,15 @@ function PersonRow({
   showLoginAt?: boolean
 }) {
   return (
-    <li className="flex items-start justify-between gap-3 rounded-lg border border-border/50 bg-background/70 px-3 py-2.5">
+    <li className="flex items-center justify-between gap-2 px-3 py-2">
       <div className="min-w-0">
         <p className="truncate text-sm font-medium text-foreground">{person.nombre}</p>
-        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+        <p className="truncate text-[11px] text-muted-foreground">
           {[person.rol, person.area].filter(Boolean).join(' · ') || 'Sin área/rol'}
         </p>
       </div>
       {showLoginAt ? (
-        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
           {formatLoginTimestamp(person.lastLoginAt)}
         </span>
       ) : null}
@@ -164,55 +150,57 @@ function PeriodPeoplePanel({
   granularity: LoginGranularity
 }) {
   const [tab, setTab] = useState<'in' | 'out'>('in')
-  const range = loginBucketDateRangeLabel(bucket)
-  const label = loginBucketLabel(bucket, granularity)
   const people = tab === 'in' ? bucket.loggedInUsers : bucket.absentUsers
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border/60 bg-muted/15">
-      <div className="flex flex-col gap-3 border-b border-border/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/50">
+      <div className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">
-            Periodo {label}
+          <p className="truncate text-xs font-semibold text-foreground">
+            {loginBucketLabel(bucket, granularity)}
           </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Del {range}. Se cuenta 1 acceso por usuario (último login del periodo).
+          <p className="truncate text-[10px] text-muted-foreground">
+            {loginBucketDateRangeLabel(bucket)}
           </p>
         </div>
-        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Presentes o ausentes">
-          <Button
+        <div className="flex shrink-0 gap-1" role="tablist" aria-label="Presentes o ausentes">
+          <button
             type="button"
-            size="sm"
-            variant={tab === 'in' ? 'secondary' : 'outline'}
-            className="h-8 gap-1.5 text-xs"
+            className={cn(
+              'inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition',
+              tab === 'in'
+                ? 'bg-muted text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
             aria-selected={tab === 'in'}
             onClick={() => setTab('in')}
           >
-            <UserRoundCheck className="h-3.5 w-3.5" aria-hidden />
-            Entraron ({bucket.loggedInUsers.length})
-          </Button>
-          <Button
+            <UserRoundCheck className="h-3 w-3" aria-hidden />
+            {bucket.loggedInUsers.length}
+          </button>
+          <button
             type="button"
-            size="sm"
-            variant={tab === 'out' ? 'secondary' : 'outline'}
-            className="h-8 gap-1.5 text-xs"
+            className={cn(
+              'inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition',
+              tab === 'out'
+                ? 'bg-muted text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
             aria-selected={tab === 'out'}
             onClick={() => setTab('out')}
           >
-            <UserRoundX className="h-3.5 w-3.5" aria-hidden />
-            No entraron ({bucket.absentUsers.length})
-          </Button>
+            <UserRoundX className="h-3 w-3" aria-hidden />
+            {bucket.absentUsers.length}
+          </button>
         </div>
       </div>
 
       {people.length === 0 ? (
-        <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-          {tab === 'in'
-            ? 'Nadie de la base activa inició sesión en este periodo.'
-            : 'Todos los usuarios activos iniciaron sesión en este periodo.'}
+        <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+          {tab === 'in' ? 'Nadie inició sesión.' : 'Todos iniciaron sesión.'}
         </p>
       ) : (
-        <ul className="grid max-h-72 gap-2 overflow-y-auto p-3 sm:grid-cols-2">
+        <ul className="min-h-0 flex-1 divide-y divide-border/35 overflow-y-auto overscroll-contain">
           {people.map((person) => (
             <PersonRow key={person.userId} person={person} showLoginAt={tab === 'in'} />
           ))}
@@ -245,25 +233,25 @@ export function DashboardUserLoginChartSection() {
   return (
     <section
       id="dashboard-section-user-logins"
-      className="scroll-mt-4"
+      className="flex h-full min-h-0 scroll-mt-4 flex-col"
       aria-labelledby="dashboard-user-logins-title"
     >
-      <SectionCard>
+      <SectionCard className="flex h-full flex-col">
         <SectionCardHeader
           icon={CalendarCheck}
           eyebrow="Adopción"
-          title="Inicios de sesión de usuarios"
+          title="Inicios de sesión"
           titleId="dashboard-user-logins-title"
-          subtitle="Quién de la base activa entró al menos una vez en cada periodo. Elige una barra para ver nombres y horarios."
+          subtitle="Usuarios activos que entraron al menos una vez."
           action={
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Agrupar actividad por periodo">
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Agrupar por periodo">
               {LOGIN_GRANULARITY_OPTIONS.map((option) => (
                 <Button
                   key={option.value}
                   type="button"
                   variant={granularity === option.value ? 'secondary' : 'outline'}
                   size="sm"
-                  className="h-8 text-xs"
+                  className="h-7 px-2 text-[11px]"
                   aria-pressed={granularity === option.value}
                   onClick={() => setGranularity(option.value)}
                 >
@@ -273,34 +261,32 @@ export function DashboardUserLoginChartSection() {
             </div>
           }
         />
-        <SectionCardBody>
+        <SectionCardBody className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4 md:p-5">
           {isLoading ? (
-            <div className="h-[260px] animate-pulse rounded-lg bg-muted/45" aria-label="Cargando actividad" />
+            <div className="h-48 animate-pulse rounded-lg bg-muted/45" aria-label="Cargando actividad" />
           ) : isError ? (
-            <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/60 text-center">
-              <p className="text-sm text-destructive">No se pudo cargar la actividad de acceso.</p>
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+              <p className="text-sm text-destructive">No se pudo cargar la actividad.</p>
               <Button variant="outline" size="sm" className="gap-2" onClick={() => void refetch()}>
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden />
                 Reintentar
               </Button>
             </div>
           ) : buckets.length === 0 ? (
-            <p className="py-16 text-center text-sm text-muted-foreground">
+            <p className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
               Aún no hay periodos disponibles.
             </p>
           ) : (
-            <div className="space-y-4">
+            <>
               {latest ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-2xl font-semibold tabular-nums text-foreground">
-                    {latest.usersLoggedIn} de {latest.usersTotal}
+                <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
+                  <span className="text-2xl font-semibold tabular-nums leading-none text-foreground">
+                    {latest.usersLoggedIn}/{latest.usersTotal}
                   </span>
-                  <span className="text-sm text-muted-foreground">
-                    usuarios activos en el periodo actual ({loginBucketPercentage(latest)}%)
-                  </span>
-                  <Badge variant="outline" className="tabular-nums">
-                    {loginBucketDateRangeLabel(latest)}
+                  <Badge variant="secondary" className="h-6 tabular-nums">
+                    {loginBucketPercentage(latest)}%
                   </Badge>
+                  <span className="text-xs text-muted-foreground">periodo actual</span>
                 </div>
               ) : null}
 
@@ -311,20 +297,14 @@ export function DashboardUserLoginChartSection() {
                 onSelect={(bucket) => setSelectedStart(bucket.bucketStart)}
               />
 
-              {selected ? (
-                <PeriodPeoplePanel bucket={selected} granularity={granularity} />
-              ) : null}
+              {selected ? <PeriodPeoplePanel bucket={selected} granularity={granularity} /> : null}
 
-              {allEmpty ? (
-                <p className="text-xs text-muted-foreground">
-                  El historial se alimenta con cada inicio de sesión (o primer acceso del día). Si está vacío, aún no hay eventos registrados.
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Fuente: eventos de login reales. Un usuario cuenta una sola vez por periodo aunque entre varias veces.
-                </p>
-              )}
-            </div>
+              <p className="text-[11px] text-muted-foreground">
+                {allEmpty
+                  ? 'Aún no hay eventos de login registrados.'
+                  : 'Toca una barra para ver quién entró o faltó.'}
+              </p>
+            </>
           )}
         </SectionCardBody>
       </SectionCard>

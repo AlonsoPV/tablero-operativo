@@ -14,7 +14,6 @@ export interface DashboardActionsSectionProps {
   isLoading?: boolean
   commentCounts?: Record<string, number>
   responsableNames?: Record<string, string>
-  checklistProgressByAccionId?: Record<string, { total: number; completed: number }>
   onSelectAccion?: (accion: AccionDiaria) => void
   onNewAction?: () => void
   fechaResumen: string
@@ -29,7 +28,6 @@ export function DashboardActionsSection({
   isLoading,
   commentCounts = {},
   responsableNames = {},
-  checklistProgressByAccionId = {},
   onSelectAccion,
   onNewAction,
   fechaResumen,
@@ -57,15 +55,11 @@ export function DashboardActionsSection({
   const isDrillDown = Boolean(onClearDrillDown)
 
   return (
-    <div id="dashboard-actions-section" className="dashboard-actions-section">
+    <section id="dashboard-actions-section" className="dashboard-actions-section scroll-mt-4">
       <SectionCard
-        className={cn(
-          'overflow-hidden',
-          isDrillDown && 'flex min-h-[calc(100dvh-3rem)] flex-col'
-        )}
+        className={cn(isDrillDown && 'flex min-h-[calc(100dvh-3rem)] flex-col')}
       >
         <SectionCardHeader
-          className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
           icon={ClipboardList}
           eyebrow={eyebrow}
           title={title}
@@ -77,25 +71,9 @@ export function DashboardActionsSection({
                   Ver filtro normal
                 </Button>
               ) : null}
-              {hasMore ? (
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    'justify-center font-medium tabular-nums',
-                    showAll
-                      ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100'
-                      : 'border-primary/20 bg-primary/10 text-primary'
-                  )}
-                >
-                  {showAll ? (
-                    <>Lista completa · {total}</>
-                  ) : (
-                    <>
-                      Resumen · {ACCIONES_VISTA_INICIAL}/{total}
-                    </>
-                  )}
-                </Badge>
-              ) : null}
+              <Badge variant="secondary" className="h-7 px-2.5 tabular-nums">
+                {total} accion{total !== 1 ? 'es' : ''}
+              </Badge>
             </div>
           }
         />
@@ -113,8 +91,8 @@ export function DashboardActionsSection({
               commentCounts={commentCounts}
               onSelectAccion={onSelectAccion}
               responsableNames={responsableNames}
-              checklistProgressByAccionId={checklistProgressByAccionId}
-              indicadoresMode="checklist"
+              showPts={false}
+              showIndicadores={false}
               emptyMessage="No hay acciones para este criterio."
               emptyActionLabel="Crear accion"
               onEmptyAction={onNewAction}
@@ -128,7 +106,7 @@ export function DashboardActionsSection({
           </div>
 
           {hasMore && !isLoading ? (
-            <div className="border-t border-border/50 bg-muted/25 px-3 py-3 sm:px-4 sm:py-3.5 md:px-6">
+            <div className="border-t border-border/50 bg-muted/25 px-4 py-3 sm:px-6 sm:py-3.5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <p className="text-center text-xs text-muted-foreground sm:text-left sm:text-sm">
                   {showAll ? (
@@ -173,6 +151,6 @@ export function DashboardActionsSection({
           ) : null}
         </SectionCardBody>
       </SectionCard>
-    </div>
+    </section>
   )
 }

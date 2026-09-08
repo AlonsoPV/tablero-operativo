@@ -22,6 +22,8 @@ type DashboardRedUploadsByWeekSectionProps = {
   onDrillDown: (input: DrillDownInput) => void
 }
 
+const WEEK_COUNT = 6
+
 export function DashboardRedUploadsByWeekSection({
   actions,
   users,
@@ -31,7 +33,7 @@ export function DashboardRedUploadsByWeekSection({
   onDrillDown,
 }: DashboardRedUploadsByWeekSectionProps) {
   const data = useMemo(
-    () => buildRedUploadsByWeek({ actions, users, priorities, today, weekCount: 8 }),
+    () => buildRedUploadsByWeek({ actions, users, priorities, today, weekCount: WEEK_COUNT }),
     [actions, users, priorities, today]
   )
 
@@ -39,136 +41,126 @@ export function DashboardRedUploadsByWeekSection({
     1,
     ...data.rows.flatMap((row) => data.weeks.map((week) => row.weeks[week.weekStart]?.count ?? 0))
   )
+  const visibleRows = data.rows.slice(0, 8)
+  const hiddenCount = Math.max(0, data.rows.length - visibleRows.length)
 
   return (
     <section
       id="dashboard-section-red-uploads"
-      className="scroll-mt-4"
+      className="flex h-full min-h-0 scroll-mt-4 flex-col"
       aria-labelledby="dashboard-red-uploads-title"
     >
-      <SectionCard>
+      <SectionCard className="flex h-full flex-col">
         <SectionCardHeader
           icon={AlertTriangle}
           eyebrow="Prioridad crítica"
-          title="Rojos subidos por usuario"
+          title="Rojos por usuario"
           titleId="dashboard-red-uploads-title"
-          subtitle="Acciones rojas creadas por semana (lunes a domingo, CDMX), según quién las subió."
+          subtitle="Acciones rojas creadas por semana (CDMX)."
           action={
-            <Badge variant="secondary" className="h-7 gap-1.5 px-2.5 tabular-nums">
-              {data.grandTotal} {data.grandTotal === 1 ? 'rojo' : 'rojos'} · 8 semanas
+            <Badge variant="secondary" className="h-7 px-2.5 tabular-nums">
+              {data.grandTotal} rojo{data.grandTotal === 1 ? '' : 's'}
             </Badge>
           }
         />
-        <SectionCardBody>
+        <SectionCardBody className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4 md:p-5">
           {isLoading ? (
-            <div className="h-56 animate-pulse rounded-lg bg-muted/45" aria-label="Cargando rojos por semana" />
+            <div className="h-48 animate-pulse rounded-lg bg-muted/45" aria-label="Cargando rojos por semana" />
           ) : data.rows.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-border/70 px-4 py-12 text-center text-sm text-muted-foreground">
-              No hay acciones rojas creadas en las últimas 8 semanas.
+            <p className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border/60 px-4 py-10 text-center text-sm text-muted-foreground">
+              Sin rojos creados en las últimas {WEEK_COUNT} semanas.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] border-separate border-spacing-0 text-sm">
-                <thead>
-                  <tr>
-                    <th className="sticky left-0 z-10 bg-card px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
-                      Usuario
-                    </th>
-                    {data.weeks.map((week) => (
-                      <th
-                        key={week.weekStart}
-                        className="px-2 py-2 text-center text-[11px] font-semibold text-muted-foreground"
+            <>
+              <div className="flex flex-wrap gap-1.5">
+                {data.weeks.map((week) => {
+                  const total = data.weekTotals[week.weekStart] ?? 0
+                  return (
+                    <button
+                      key={week.weekStart}
+                      type="button"
+                      className="rounded-md border border-border/50 bg-muted/25 px-2 py-1 text-left transition hover:bg-muted/40"
+                      onClick={() =>
+                        onDrillDown({
+                          title: `Rojos · ${week.label}`,
+                          actions: data.rows.flatMap((row) => row.weeks[week.weekStart]?.actions ?? []),
+                        })
+                      }
+                    >
+                      <span className="block text-[10px] text-muted-foreground">{week.label}</span>
+                      <span className="text-xs font-semibold tabular-nums text-foreground">{total}</span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-xl border border-border/50">
+                <ul className="divide-y divide-border/40">
+                  {visibleRows.map((row) => (
+                    <li key={row.userId}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-muted/30"
+                        onClick={() =>
+                          onDrillDown({
+                            title: `Rojos subidos · ${row.nombre}`,
+                            actions: row.actions,
+                          })
+                        }
                       >
-                        <span className="block whitespace-nowrap">{week.label}</span>
-                        <button
-                          type="button"
-                          className="mt-1 text-[10px] font-medium tabular-nums text-red-700 hover:underline"
-                          onClick={() =>
-                            onDrillDown({
-                              title: `Rojos · ${week.label}`,
-                              actions: data.rows.flatMap((row) => row.weeks[week.weekStart]?.actions ?? []),
-                            })
-                          }
-                        >
-                          {data.weekTotals[week.weekStart] ?? 0} total
-                        </button>
-                      </th>
-                    ))}
-                    <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.rows.map((row) => (
-                    <tr key={row.userId} className="border-t border-border/40">
-                      <td className="sticky left-0 z-10 bg-card px-3 py-2.5">
-                        <button
-                          type="button"
-                          className="text-left hover:underline"
-                          onClick={() =>
-                            onDrillDown({
-                              title: `Rojos subidos · ${row.nombre}`,
-                              actions: row.actions,
-                            })
-                          }
-                        >
-                          <span className="block font-medium text-foreground">{row.nombre}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-foreground">
+                            {row.nombre}
+                          </span>
                           {row.area ? (
-                            <span className="block text-[11px] text-muted-foreground">{row.area}</span>
+                            <span className="block truncate text-[11px] text-muted-foreground">
+                              {row.area}
+                            </span>
                           ) : null}
-                        </button>
-                      </td>
-                      {data.weeks.map((week) => {
-                        const cell = row.weeks[week.weekStart]
-                        const count = cell?.count ?? 0
-                        const intensity = count === 0 ? 0 : Math.max(0.18, count / maxCell)
-                        return (
-                          <td key={week.weekStart} className="px-2 py-2 text-center">
-                            <button
-                              type="button"
-                              disabled={count === 0}
-                              className={cn(
-                                'mx-auto flex h-9 w-full min-w-12 items-center justify-center rounded-md border text-xs font-semibold tabular-nums transition',
-                                count === 0
-                                  ? 'border-transparent text-muted-foreground/50'
-                                  : 'border-red-500/20 text-red-800 hover:-translate-y-0.5 hover:shadow-sm'
-                              )}
-                              style={
-                                count > 0
-                                  ? { backgroundColor: `rgba(239, 68, 68, ${intensity * 0.55})` }
-                                  : undefined
-                              }
-                              onClick={() =>
-                                onDrillDown({
-                                  title: `Rojos · ${row.nombre} · ${week.label}`,
-                                  actions: cell?.actions ?? [],
-                                })
-                              }
-                              aria-label={`${row.nombre}, semana ${week.label}: ${count} rojos`}
-                            >
-                              {count || '—'}
-                            </button>
-                          </td>
-                        )
-                      })}
-                      <td className="px-3 py-2 text-right">
-                        <button
-                          type="button"
-                          className="font-bold tabular-nums text-red-700 hover:underline"
-                          onClick={() =>
-                            onDrillDown({
-                              title: `Rojos subidos · ${row.nombre}`,
-                              actions: row.actions,
-                            })
-                          }
-                        >
-                          {row.total}
-                        </button>
-                      </td>
-                    </tr>
+                          <span className="mt-1.5 flex gap-0.5">
+                            {data.weeks.map((week) => {
+                              const count = row.weeks[week.weekStart]?.count ?? 0
+                              const intensity = count === 0 ? 0 : Math.max(0.2, count / maxCell)
+                              return (
+                                <span
+                                  key={week.weekStart}
+                                  title={`${week.label}: ${count}`}
+                                  className={cn(
+                                    'h-1.5 flex-1 rounded-sm',
+                                    count === 0 ? 'bg-muted' : 'bg-red-500'
+                                  )}
+                                  style={
+                                    count > 0
+                                      ? { opacity: 0.35 + intensity * 0.65 }
+                                      : undefined
+                                  }
+                                />
+                              )
+                            })}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-right">
+                          <span className="block text-base font-semibold tabular-nums text-red-700 dark:text-red-300">
+                            {row.total}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">total</span>
+                        </span>
+                      </button>
+                    </li>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </ul>
+              </div>
+
+              {hiddenCount > 0 ? (
+                <p className="text-[11px] text-muted-foreground">
+                  +{hiddenCount} usuario{hiddenCount === 1 ? '' : 's'} más con rojos en el periodo.
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  Últimas {WEEK_COUNT} semanas · toca un usuario o semana para ver detalle.
+                </p>
+              )}
+            </>
           )}
         </SectionCardBody>
       </SectionCard>

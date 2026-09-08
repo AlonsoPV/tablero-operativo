@@ -70,6 +70,7 @@ export type OperationalDashboardMetrics = {
   ico: DashboardMetric
   icoByArea: DashboardAreaMetric[]
   icoByUser: DashboardAreaMetric[]
+  avgCloseDaysByUser: DashboardAreaMetric[]
   overdueByPriority: DashboardAreaMetric[]
   overdueByArea: DashboardAreaMetric[]
   blockedByArea: DashboardAreaMetric[]
@@ -337,6 +338,23 @@ export function useOperationalDashboardMetrics(input: {
       .map((item) => ({ ...item, value: pct(item.actions.filter(closedOnTime).length, item.actions.length), total: item.actions.length }))
       .sort((a, b) => b.value - a.value || a.area.localeCompare(b.area))
 
+    const avgCloseDaysByUser = groupActions(
+      currentPeriodCore.closedActions,
+      (action) => userForAction(action, current.usersById)
+    )
+      .map((item) => {
+        const ages = item.actions
+          .map((action) => daysBetween(action.created_at, completedAt(action)))
+          .filter((value): value is number => value != null)
+        return {
+          ...item,
+          value: round(avg(ages)),
+          total: item.actions.length,
+        }
+      })
+      .filter((item) => (item.total ?? 0) > 0)
+      .sort((a, b) => a.value - b.value || a.area.localeCompare(b.area))
+
     const agingBuckets: DashboardAgingBucket[] = [
       { label: '0-2 dias', min: 0, max: 2, count: 0, actions: [] },
       { label: '3-5 dias', min: 3, max: 5, count: 0, actions: [] },
@@ -387,6 +405,7 @@ export function useOperationalDashboardMetrics(input: {
       ico: valueMetric(currentPeriodCore.ico, previous.ico, true),
       icoByArea,
       icoByUser,
+      avgCloseDaysByUser,
       overdueByPriority: groupActions(current.overdueActions, priorityName),
       overdueByArea: groupActions(current.overdueActions, areaName),
       blockedByArea: groupActions(current.blockedActions, areaName),

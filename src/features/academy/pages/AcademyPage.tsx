@@ -56,7 +56,7 @@ export function AcademyPage() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Formacion O2C</p>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Academia O2C</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Academia</h1>
           <p className="max-w-2xl text-sm text-muted-foreground">
             Ruta formativa con desbloqueo progresivo, quiz obligatorio y progreso persistente por usuario.
           </p>

@@ -3,18 +3,17 @@
  */
 
 import { useMemo, useState, useCallback } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   useAcciones,
   useCommentCounts,
-  useChecklistProgressByAccionIds,
   AccionFormDialog,
   KanbanToolbar,
   hasKanbanActiveFilters,
 } from '@/features/operations'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { isOperativeByRole, usesOperationalDashboardByRole } from '@/features/auth/lib/permissions'
+import { usesOperationalDashboardByRole } from '@/features/auth/lib/permissions'
 import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
 import { useStatuses } from '@/features/catalogs/hooks/useStatuses'
 import type { AccionDiaria } from '@/types'
@@ -25,17 +24,17 @@ import {
 } from '@/features/catalogs/hooks/useDropdownOptions'
 import { DashboardHeader } from './components/DashboardHeader'
 import { DashboardActionsSection } from './components/DashboardActionsSection'
-import { DashboardUserActionsSummarySection } from './components/DashboardUserActionsSummarySection'
+// import { DashboardUserActionsSummarySection } from './components/DashboardUserActionsSummarySection'
 import { DashboardUserLoginChartSection } from './components/DashboardUserLoginChartSection'
 import { DashboardRedUploadsByWeekSection } from './components/DashboardRedUploadsByWeekSection'
 import { DashboardFechaCompromisoChangesSection } from './components/DashboardFechaCompromisoChangesSection'
 import { DashboardExecutivePanel } from './components/DashboardExecutivePanel'
-import { DashboardOperationalOkrSection } from './components/DashboardOperationalOkrSection'
+// import { DashboardOperationalOkrSection } from './components/DashboardOperationalOkrSection'
 import { useOperationalDashboardMetrics } from './hooks/useOperationalDashboardMetrics'
-import { useOperationalOKR } from './hooks/useOperationalOKR'
+// import { useOperationalOKR } from './hooks/useOperationalOKR'
 import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
-import { accionComentariosService } from '@/services/accionComentarios.service'
+// import { accionComentariosService } from '@/services/accionComentarios.service'
 
 const DEFAULT_FILTER: AccionesFilter = {}
 const DEFAULT_TREND_DAYS = 30
@@ -97,7 +96,6 @@ export function DashboardPage() {
 
   const filterForQuery = useMemo(() => ({ ...filter }), [filter])
   const currentPeriod = useMemo(() => currentPeriodFromFilter(filterForQuery, today), [filterForQuery, today])
-  const gamificationHistoryStart = useMemo(() => addDays(today, -90), [today])
   const redUploadsHistoryStart = useMemo(() => addDays(today, -(7 * 8 - 1)), [today])
   const previousFilterForQuery = useMemo(
     () => previousFilterFromPeriod(filterForQuery, currentPeriod),
@@ -111,9 +109,6 @@ export function DashboardPage() {
     refetch: retryAcciones,
   } = useAcciones(filterForQuery)
   const { data: previousAcciones = [], isLoading: previousAccionesLoading } = useAcciones(previousFilterForQuery)
-  const { data: gamificationAcciones = [], isLoading: gamificationAccionesLoading } = useAcciones({
-    fecha_min: gamificationHistoryStart,
-  })
   const redUploadsFilter = useMemo(
     (): AccionesFilter => ({
       created_at_min: redUploadsHistoryStart,
@@ -128,36 +123,10 @@ export function DashboardPage() {
     isLoading: redUploadAccionesLoading,
   } = useAcciones(redUploadsFilter)
   const accionIds = useMemo(() => acciones.map((a) => a.id), [acciones])
-  const gamificationAccionIds = useMemo(
-    () => gamificationAcciones.map((accion) => accion.id),
-    [gamificationAcciones]
-  )
   const { data: commentCounts = {} } = useCommentCounts(accionIds)
-  const { data: checklistProgressByAccionId = {} } = useChecklistProgressByAccionIds(accionIds)
-  const { data: accionComentarios = [], isLoading: comentariosLoading } = useQuery({
-    queryKey: ['dashboard', 'accion-comentarios', accionIds],
-    queryFn: () => accionComentariosService.listByAccionIds(accionIds),
-    enabled: accionIds.length > 0,
-    staleTime: 5 * 60_000,
-    retry: 1,
-  })
-  const { data: gamificationComentarios = [], isLoading: gamificationComentariosLoading } = useQuery({
-    queryKey: ['dashboard', 'gamification-comentarios', gamificationAccionIds],
-    queryFn: () => accionComentariosService.listByAccionIds(gamificationAccionIds),
-    enabled: gamificationAccionIds.length > 0,
-    staleTime: 5 * 60_000,
-    retry: 1,
-  })
   const { data: users = [] } = useUsers({ activo: true })
   const { data: priorities = [] } = usePriorities({ activo: true })
   const { data: statuses = [] } = useStatuses()
-  const {
-    data: operationalOkr,
-    isLoading: operationalOkrLoading,
-    isError: operationalOkrError,
-    error: operationalOkrErrorObj,
-    refetch: retryOperationalOkr,
-  } = useOperationalOKR()
 
   const executiveMetrics = useOperationalDashboardMetrics({
     actions: acciones,
@@ -246,11 +215,13 @@ export function DashboardPage() {
           <DashboardExecutivePanel
             metrics={executiveMetrics}
             priorities={priorities}
+            statuses={statuses}
             isLoading={isLoading || previousAccionesLoading}
             onDrillDown={handleDrillDown}
           />
         </section>
 
+        {/* OKR operativo — oculto temporalmente
         <DashboardOperationalOkrSection
           data={operationalOkr}
           isLoading={operationalOkrLoading}
@@ -260,6 +231,7 @@ export function DashboardPage() {
           onRetry={() => void retryOperationalOkr()}
           onDrillDown={handleDrillDown}
         />
+        */}
 
         {false ? (
         <section
@@ -287,6 +259,7 @@ export function DashboardPage() {
           </section>
         ) : null}
 
+        {/* Carga operativa por usuario — oculto temporalmente
         {!accionesError ? (
           <DashboardUserActionsSummarySection
             users={users}
@@ -300,6 +273,7 @@ export function DashboardPage() {
             isGamificationLoading={gamificationAccionesLoading || gamificationComentariosLoading}
           />
         ) : null}
+        */}
 
         <div id="dashboard-section-actions" className="dashboard-section-actions min-w-0 w-full scroll-mt-4">
           {accionesError ? (
@@ -329,7 +303,6 @@ export function DashboardPage() {
               isLoading={isLoading}
               commentCounts={commentCounts}
               responsableNames={responsableNames}
-              checklistProgressByAccionId={checklistProgressByAccionId}
               onSelectAccion={handleSelectAccion}
               onNewAction={handleCreate}
               fechaResumen={filter.fecha_max ?? filter.fecha_min ?? today}
@@ -345,16 +318,17 @@ export function DashboardPage() {
           )}
         </div>
 
-        <DashboardUserLoginChartSection />
-
-        <DashboardRedUploadsByWeekSection
-          actions={redUploadAcciones}
-          users={users}
-          priorities={priorities}
-          today={today}
-          isLoading={redUploadAccionesLoading}
-          onDrillDown={handleDrillDown}
-        />
+        <div className="grid items-stretch gap-4 lg:grid-cols-2">
+          <DashboardUserLoginChartSection />
+          <DashboardRedUploadsByWeekSection
+            actions={redUploadAcciones}
+            users={users}
+            priorities={priorities}
+            today={today}
+            isLoading={redUploadAccionesLoading}
+            onDrillDown={handleDrillDown}
+          />
+        </div>
 
         <DashboardFechaCompromisoChangesSection />
 
