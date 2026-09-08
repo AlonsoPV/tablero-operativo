@@ -71,6 +71,8 @@ export type OperationalDashboardMetrics = {
   icoByArea: DashboardAreaMetric[]
   icoByUser: DashboardAreaMetric[]
   avgCloseDaysByUser: DashboardAreaMetric[]
+  /** Edad abierta promedio por responsable (creación → hoy). */
+  avgOpenAgeByUser: DashboardAreaMetric[]
   overdueByPriority: DashboardAreaMetric[]
   overdueByArea: DashboardAreaMetric[]
   blockedByArea: DashboardAreaMetric[]
@@ -355,6 +357,23 @@ export function useOperationalDashboardMetrics(input: {
       .filter((item) => (item.total ?? 0) > 0)
       .sort((a, b) => a.value - b.value || a.area.localeCompare(b.area))
 
+    const avgOpenAgeByUser = groupActions(
+      current.openActions,
+      (action) => userForAction(action, current.usersById)
+    )
+      .map((item) => {
+        const ages = item.actions.map(
+          (action) => daysBetween(action.created_at, `${input.today}T00:00:00`) ?? 0
+        )
+        return {
+          ...item,
+          value: round(avg(ages)),
+          total: item.actions.length,
+        }
+      })
+      .filter((item) => (item.total ?? 0) > 0)
+      .sort((a, b) => b.value - a.value || a.area.localeCompare(b.area))
+
     const agingBuckets: DashboardAgingBucket[] = [
       { label: '0-2 dias', min: 0, max: 2, count: 0, actions: [] },
       { label: '3-5 dias', min: 3, max: 5, count: 0, actions: [] },
@@ -406,6 +425,7 @@ export function useOperationalDashboardMetrics(input: {
       icoByArea,
       icoByUser,
       avgCloseDaysByUser,
+      avgOpenAgeByUser,
       overdueByPriority: groupActions(current.overdueActions, priorityName),
       overdueByArea: groupActions(current.overdueActions, areaName),
       blockedByArea: groupActions(current.blockedActions, areaName),

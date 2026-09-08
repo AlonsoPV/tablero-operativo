@@ -25,6 +25,7 @@ import type { Priority, Status } from '@/features/catalogs/types/catalogs.types'
 import { findPriorityForAccion } from '@/features/operations/utils/resolveAccionPrioridad'
 import { priorityDisplayLabel } from '@/features/operations/utils/priorityLabels'
 import { priorityColorFor } from '@/features/operations/utils/priorityColors'
+import { kanbanHealthFromAcciones } from '@/features/operations/utils/metricas'
 import type {
   DashboardAgingBucket,
   DashboardAreaMetric,
@@ -128,6 +129,15 @@ function groupActionsByKey(
     .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label))
 }
 
+function isVerifiedStatusAction(action: AccionDiaria, statuses: Status[]): boolean {
+  const key = cleanKey(action.estado)
+  if (key === 'verificado') return true
+  const matched = statuses.find(
+    (status) => cleanKey(status.nombre) === key || cleanKey(status.estado_key) === key
+  )
+  return cleanKey(matched?.estado_key) === 'verificado' || cleanKey(matched?.nombre) === 'verificado'
+}
+
 function groupActionsByDimension(
   actions: AccionDiaria[],
   dimension: ActionsBreakdownDimension,
@@ -156,6 +166,7 @@ function groupActionsByDimension(
   }
 
   if (dimension === 'estatus') {
+    const openLikeActions = actions.filter((action) => !isVerifiedStatusAction(action, statuses))
     const statusByName = new Map(
       statuses.map((status) => [cleanKey(status.nombre), status] as const)
     )
@@ -165,7 +176,7 @@ function groupActionsByDimension(
         .map((status) => [cleanKey(status.estado_key), status] as const)
     )
     return groupActionsByKey(
-      actions,
+      openLikeActions,
       (action) => {
         const key = cleanKey(action.estado)
         return (
@@ -433,11 +444,14 @@ function ActionsByAreaModule({
 }) {
   const [dimension, setDimension] = useState<ActionsBreakdownDimension>('estatus')
 
-  const actions = metrics.totalActions
-  const total = actions.length
+  const scopedActions = useMemo(() => {
+    if (dimension !== 'estatus') return metrics.totalActions
+    return metrics.totalActions.filter((action) => !isVerifiedStatusAction(action, statuses))
+  }, [dimension, metrics.totalActions, statuses])
+  const total = scopedActions.length
   const segments = useMemo(
-    () => groupActionsByDimension(actions, dimension, statuses, priorities),
-    [actions, dimension, priorities, statuses]
+    () => groupActionsByDimension(scopedActions, dimension, statuses, priorities),
+    [scopedActions, dimension, priorities, statuses]
   )
   const chartBackground = conicGradientFor(segments, total)
 
@@ -459,7 +473,7 @@ function ActionsByAreaModule({
       iconClassName="bg-primary/10 text-primary ring-primary/15"
       title="Acciones"
       subtitle={dimensionMeta[dimension]}
-      hint="Muestra todas las acciones del tablero (según sus filtros globales) segmentadas por estatus, prioridad o área."
+      hint="Muestra las acciones del tablero segmentadas por estatus (sin Verificado), prioridad o área."
       accentClassName="to-muted/30"
       toolbar={
         <ModuleFilterToggle
@@ -480,14 +494,18 @@ function ActionsByAreaModule({
           value={total}
           unit="acciones"
           loading={loading}
-          onClick={() => onDrillDown({ title: 'Acciones', actions })}
+          onClick={() => onDrillDown({ title: 'Acciones', actions: scopedActions })}
           ariaLabel={`Ver ${total} acciones`}
           caption={`${captionCountLabel} · toca para detalle`}
         />
         <SegmentLegendList
           segments={segments}
           total={total}
-          emptyLabel="No hay acciones para los filtros del tablero."
+          emptyLabel={
+            dimension === 'estatus'
+              ? 'No hay acciones abiertas (sin Verificado) para mostrar.'
+              : 'No hay acciones para los filtros del tablero.'
+          }
           titlePrefix="Acciones"
           onSelect={(segment) =>
             onDrillDown({ title: `Acciones · ${segment.label}`, actions: segment.actions })
@@ -498,50 +516,49 @@ function ActionsByAreaModule({
   )
 }
 
-const DAY_MS = 86_400_000
+const ESTADOS_CERRADOS_KANBAN = new Set(['Hecho', 'Verificado'])
+const ESTADOS_VERIFICADOS_KANBAN = new Set(['Verificado'])
 
-function verifiedCloseEnd(action: AccionDiaria): string | null {
-  if (action.verified_at) return action.verified_at
-  if (cleanKey(action.estado) === 'verificado') return action.updated_at ?? null
-  return null
-}
-
-function verifiedCloseAgeDays(action: AccionDiaria): number | null {
-  const end = verifiedCloseEnd(action)
-  if (!end) return null
-  const start = Date.parse(action.created_at)
-  const finish = Date.parse(end)
-  if (!Number.isFinite(start) || !Number.isFinite(finish)) return null
-  return Math.max(0, (finish - start) / DAY_MS)
-}
-
-function AvgVerifiedCloseModule({
+function AvgOpenAgeMatchKanbanModule({
   metrics,
+  priorities,
   onDrillDown,
   loading,
 }: {
   metrics: OperationalDashboardMetrics
+  priorities: Priority[]
   onDrillDown: (input: DrillDownInput) => void
   loading?: boolean
 }) {
   const [scope, setScope] = useState<'rojos' | 'todos'>('rojos')
 
-  const verifiedActions = useMemo(() => {
-    if (scope === 'rojos') return metrics.redClosedActions
-    return metrics.totalActions.filter((action) => verifiedCloseEnd(action) != null)
-  }, [metrics.redClosedActions, metrics.totalActions, scope])
+  const health = useMemo(
+    () => kanbanHealthFromAcciones(metrics.totalActions, priorities),
+    [metrics.totalActions, priorities]
+  )
 
-  const ages = verifiedActions
-    .map(verifiedCloseAgeDays)
-    .filter((value): value is number => value != null)
+  const scopedActions = useMemo(() => {
+    if (scope === 'rojos') {
+      return metrics.totalActions.filter(
+        (action) =>
+          !ESTADOS_VERIFICADOS_KANBAN.has(action.estado) &&
+          priorityColorFor(
+            findPriorityForAccion(action, priorities)?.nombre ?? action.prioridad,
+            findPriorityForAccion(action, priorities)?.color
+          ) === 'rojo'
+      )
+    }
+    return metrics.totalActions.filter((action) => !ESTADOS_CERRADOS_KANBAN.has(action.estado))
+  }, [metrics.totalActions, priorities, scope])
+
   const avgDays =
-    ages.length > 0 ? Math.round((ages.reduce((sum, value) => sum + value, 0) / ages.length) * 10) / 10 : 0
+    scope === 'rojos' ? health.promedioAperturaRojosDias : health.promedioAperturaTotalDias
   const tone = toneForDays(avgDays)
   const scaleMax = Math.max(10, Math.ceil(avgDays / 5) * 5 || 10)
   const marker = Math.min(100, (avgDays / scaleMax) * 100)
-  const sample = verifiedActions.length
-  const drillTitle = scope === 'rojos' ? 'Tiempo a verificado · Rojos' : 'Tiempo a verificado'
-  const openDetail = () => onDrillDown({ title: drillTitle, actions: verifiedActions })
+  const sample = scope === 'rojos' ? health.rojos : health.abiertas
+  const drillTitle = scope === 'rojos' ? 'Edad prom. rojos' : 'Edad prom. total'
+  const openDetail = () => onDrillDown({ title: drillTitle, actions: scopedActions })
 
   const toneHero: Record<MetricTone, string> = {
     green: 'bg-emerald-500/[0.06]',
@@ -553,11 +570,19 @@ function AvgVerifiedCloseModule({
   return (
     <InsightModuleShell
       icon={<Timer className="h-5 w-5" aria-hidden />}
-      iconClassName="bg-red-500/10 text-red-600 ring-red-500/15"
-      title="Tiempo a verificado"
-      subtitle="Promedio creación → Verificado"
-      hint="Promedio de días desde la creación hasta Verificado. En Hecho las acciones siguen abiertas y no entran al cálculo."
-      accentClassName="to-red-500/[0.04]"
+      iconClassName="bg-rose-500/10 text-rose-700 ring-rose-500/15"
+      title={scope === 'rojos' ? 'Edad prom. rojos' : 'Edad prom. total'}
+      subtitle={
+        scope === 'rojos'
+          ? 'Días abiertos · hasta Verificado'
+          : 'Días abiertos · todas abiertas'
+      }
+      hint={
+        scope === 'rojos'
+          ? 'Misma métrica que Kanban: promedio de días desde creación hasta hoy en rojos aún no Verificados (Hecho sigue contando).'
+          : 'Misma métrica que Kanban: promedio de días desde creación hasta hoy en acciones abiertas (sin Hecho ni Verificado).'
+      }
+      accentClassName="to-rose-500/[0.04]"
       toolbar={
         <ModuleFilterToggle
           ariaLabel="Alcance del promedio"
@@ -576,8 +601,8 @@ function AvgVerifiedCloseModule({
           unit="días prom."
           loading={loading}
           onClick={openDetail}
-          ariaLabel={`${avgDays} días promedio a verificado`}
-          caption={`${sample} verificada${sample === 1 ? '' : 's'} · toca para detalle`}
+          ariaLabel={`${avgDays} días de edad promedio`}
+          caption={`${sample} accion${sample === 1 ? '' : 'es'} · toca para detalle`}
           toneClassName={toneHero[tone]}
         />
 
@@ -588,11 +613,12 @@ function AvgVerifiedCloseModule({
                 Escala
               </p>
               <Badge variant="secondary" className="h-5 px-1.5 text-[10px] tabular-nums">
-                {scope === 'rojos' ? 'Solo rojos' : 'Todas'}
+                {scope === 'rojos' ? 'Solo rojos' : 'Abiertas'}
               </Badge>
             </div>
             <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-              <span className="font-medium text-foreground/80">verified_at − created_at</span>
+              <span className="font-medium text-foreground/80">ahora − created_at</span>
+              {scope === 'rojos' ? ' · excluye Verificado' : ' · excluye Hecho y Verificado'}
             </p>
             <div className="mt-3.5">
               <div className="relative h-2.5 rounded-full bg-muted/90">
@@ -606,8 +632,8 @@ function AvgVerifiedCloseModule({
               </div>
               <div className="mt-1.5 flex justify-between text-[10px] tabular-nums text-muted-foreground">
                 <span>0 d</span>
-                <span className="text-emerald-700/80 dark:text-emerald-300/80">rápido</span>
-                <span className="text-red-700/80 dark:text-red-300/80">lento</span>
+                <span className="text-emerald-700/80 dark:text-emerald-300/80">fresco</span>
+                <span className="text-red-700/80 dark:text-red-300/80">viejo</span>
                 <span>{scaleMax} d</span>
               </div>
             </div>
@@ -615,7 +641,9 @@ function AvgVerifiedCloseModule({
 
           {sample === 0 ? (
             <p className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
-              No hay acciones verificadas para este alcance.
+              {scope === 'rojos'
+                ? 'No hay rojos abiertos (sin Verificado) en el alcance.'
+                : 'No hay acciones abiertas en el alcance.'}
             </p>
           ) : (
             <button
@@ -770,17 +798,27 @@ function AverageDaysStat({
   )
 }
 
-function AvgCloseByUserList({
+function DaysByUserList({
   items,
+  title,
+  hint,
+  emptyMessage,
+  sampleLabel,
+  drillTitlePrefix,
   onDrillDown,
 }: {
   items: DashboardAreaMetric[]
+  title: string
+  hint: string
+  emptyMessage: string
+  sampleLabel: (count: number) => string
+  drillTitlePrefix: string
   onDrillDown: (input: DrillDownInput) => void
 }) {
   if (items.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">
-        No hay cierres para calcular el promedio por usuario.
+        {emptyMessage}
       </p>
     )
   }
@@ -790,8 +828,8 @@ function AvgCloseByUserList({
   return (
     <div className="space-y-2">
       <div className="flex items-baseline justify-between gap-2 px-0.5">
-        <p className="text-xs font-medium text-muted-foreground">Tiempo de cierre por responsable</p>
-        <p className="text-[11px] text-muted-foreground">creación → cierre</p>
+        <p className="text-xs font-medium text-muted-foreground">{title}</p>
+        <p className="text-[11px] text-muted-foreground">{hint}</p>
       </div>
       <div className="divide-y divide-border/40 overflow-hidden rounded-xl border border-border/50">
         {items.map((item) => {
@@ -804,7 +842,7 @@ function AvgCloseByUserList({
               className="flex w-full items-center gap-3 px-3.5 py-2.5 text-left transition hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-4"
               onClick={() =>
                 onDrillDown({
-                  title: `Cierre prom. · ${item.area}`,
+                  title: `${drillTitlePrefix} · ${item.area}`,
                   actions: item.actions,
                 })
               }
@@ -813,7 +851,7 @@ function AvgCloseByUserList({
                 <span className="flex items-baseline justify-between gap-2">
                   <span className="truncate text-sm font-medium text-foreground">{item.area}</span>
                   <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                    {sample} cierre{sample === 1 ? '' : 's'}
+                    {sampleLabel(sample)}
                   </span>
                 </span>
                 <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-muted">
@@ -1368,6 +1406,33 @@ function filterCloseByUser(
     .sort((a, b) => a.value - b.value || a.area.localeCompare(b.area))
 }
 
+function filterOpenAgeByUser(
+  items: DashboardAreaMetric[],
+  openActions: AccionDiaria[],
+  today: string
+): DashboardAreaMetric[] {
+  const ids = new Set(openActions.map((action) => action.id))
+  const dayMs = 86_400_000
+  const end = Date.parse(`${today}T00:00:00`)
+
+  return items
+    .map((item) => {
+      const actions = item.actions.filter((action) => ids.has(action.id))
+      if (actions.length === 0) {
+        return { ...item, actions, value: 0, total: 0 }
+      }
+      const sum = actions.reduce((acc, action) => {
+        const start = Date.parse(action.created_at)
+        if (!Number.isFinite(start) || !Number.isFinite(end)) return acc
+        return acc + Math.max(0, (end - start) / dayMs)
+      }, 0)
+      const value = Math.round((sum / actions.length) * 10) / 10
+      return { ...item, actions, value, total: actions.length }
+    })
+    .filter((item) => (item.total ?? 0) > 0)
+    .sort((a, b) => b.value - a.value || a.area.localeCompare(b.area))
+}
+
 function CargaOperativaSection({
   metrics,
   priorities,
@@ -1380,6 +1445,8 @@ function CargaOperativaSection({
   onDrillDown: (input: DrillDownInput) => void
 }) {
   const [priorityFilter, setPriorityFilter] = useState('all')
+  const [view, setView] = useState<'acciones' | 'usuarios'>('acciones')
+  const [userMetric, setUserMetric] = useState<'edad' | 'cierre'>('edad')
 
   const priorityOptions = useMemo(() => {
     const sorted = [...priorities].sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre))
@@ -1425,6 +1492,10 @@ function CargaOperativaSection({
     () => filterCloseByUser(metrics.avgCloseDaysByUser, priorityFilter, priorities),
     [metrics.avgCloseDaysByUser, priorities, priorityFilter]
   )
+  const openAgeByUser = useMemo(
+    () => filterOpenAgeByUser(metrics.avgOpenAgeByUser, filteredOpenActions, metrics.today),
+    [filteredOpenActions, metrics.avgOpenAgeByUser, metrics.today]
+  )
 
   return (
     <section className="scroll-mt-4">
@@ -1432,7 +1503,7 @@ function CargaOperativaSection({
         <SectionCardHeader
           eyebrow="Carga operativa"
           title="Antigüedad y cierre"
-          subtitle="Qué tan viejo está el backlog abierto y cuánto tarda cada responsable en cerrar."
+          subtitle="Antigüedad del backlog por acciones o por responsable."
           icon={Timer}
           action={
             <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1459,30 +1530,76 @@ function CargaOperativaSection({
           }
         />
         <SectionCardBody className="space-y-4 p-3 sm:space-y-5 sm:p-4 md:p-6">
-          <AgingDistributionChart
-            buckets={agingBuckets}
-            total={openTotal}
-            onDrillDown={onDrillDown}
-          />
-          <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
-            <AverageDaysStat
-              label="Edad promedio abierta"
-              hint="Creación → hoy"
-              value={avgOpenAgeDays.value}
-              actions={filteredOpenActions}
-              onDrillDown={onDrillDown}
-              loading={isLoading}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <ModuleFilterToggle
+              ariaLabel="Vista de antigüedad"
+              value={view}
+              onChange={(value) => setView(value as 'acciones' | 'usuarios')}
+              options={[
+                { value: 'acciones', label: 'Acciones' },
+                { value: 'usuarios', label: 'Usuarios' },
+              ]}
             />
-            <AverageDaysStat
-              label="Tiempo promedio de cierre"
-              hint="Creación → cierre"
-              value={avgCloseDays.value}
-              actions={filteredClosedActions}
-              onDrillDown={onDrillDown}
-              loading={isLoading}
-            />
+            {view === 'usuarios' ? (
+              <ModuleFilterToggle
+                ariaLabel="Métrica por usuario"
+                value={userMetric}
+                onChange={(value) => setUserMetric(value as 'edad' | 'cierre')}
+                options={[
+                  { value: 'edad', label: 'Edad abierta' },
+                  { value: 'cierre', label: 'Tiempo cierre' },
+                ]}
+              />
+            ) : null}
           </div>
-          <AvgCloseByUserList items={closeByUser} onDrillDown={onDrillDown} />
+
+          {view === 'acciones' ? (
+            <div className="space-y-4 sm:space-y-5">
+              <AgingDistributionChart
+                buckets={agingBuckets}
+                total={openTotal}
+                onDrillDown={onDrillDown}
+              />
+              <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
+                <AverageDaysStat
+                  label="Edad promedio abierta"
+                  hint="Creación → hoy"
+                  value={avgOpenAgeDays.value}
+                  actions={filteredOpenActions}
+                  onDrillDown={onDrillDown}
+                  loading={isLoading}
+                />
+                <AverageDaysStat
+                  label="Tiempo promedio de cierre"
+                  hint="Creación → cierre"
+                  value={avgCloseDays.value}
+                  actions={filteredClosedActions}
+                  onDrillDown={onDrillDown}
+                  loading={isLoading}
+                />
+              </div>
+            </div>
+          ) : userMetric === 'edad' ? (
+            <DaysByUserList
+              items={openAgeByUser}
+              title="Edad abierta por responsable"
+              hint="creación → hoy"
+              emptyMessage="No hay acciones abiertas para calcular la edad por usuario."
+              sampleLabel={(count) => `${count} abierta${count === 1 ? '' : 's'}`}
+              drillTitlePrefix="Edad abierta"
+              onDrillDown={onDrillDown}
+            />
+          ) : (
+            <DaysByUserList
+              items={closeByUser}
+              title="Tiempo de cierre por responsable"
+              hint="creación → cierre"
+              emptyMessage="No hay cierres para calcular el promedio por usuario."
+              sampleLabel={(count) => `${count} cierre${count === 1 ? '' : 's'}`}
+              drillTitlePrefix="Cierre prom."
+              onDrillDown={onDrillDown}
+            />
+          )}
         </SectionCardBody>
       </SectionCard>
     </section>
@@ -1503,7 +1620,7 @@ export function DashboardExecutivePanel({
           <SectionCardHeader
             eyebrow="Salud operativa"
             title="Atencion inmediata"
-            subtitle="Distribucion de acciones y velocidad de cierre a Verificado."
+            subtitle="Distribucion de acciones y edad abierta (misma regla que Kanban)."
             icon={AlertTriangle}
           />
           <SectionCardBody className="space-y-3 p-3 sm:space-y-4 sm:p-4 md:p-6">
@@ -1515,8 +1632,9 @@ export function DashboardExecutivePanel({
                 onDrillDown={onDrillDown}
                 loading={isLoading}
               />
-              <AvgVerifiedCloseModule
+              <AvgOpenAgeMatchKanbanModule
                 metrics={metrics}
+                priorities={priorities}
                 onDrillDown={onDrillDown}
                 loading={isLoading}
               />
