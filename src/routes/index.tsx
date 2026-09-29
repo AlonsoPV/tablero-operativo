@@ -50,6 +50,13 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <HomeRedirect /> },
           {
+            path: ROUTES.OKRS,
+            lazy: async () => {
+              const { OkrPage } = await importWithReload(() => import('@/features/okrs/OkrPage'))
+              return { Component: OkrPage }
+            },
+          },
+          {
             path: ROUTES.DASHBOARD,
             lazy: async () => {
               const { DashboardPage } = await importWithReload(() => import('@/pages/dashboard/DashboardPage'))

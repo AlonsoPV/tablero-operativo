@@ -41,6 +41,7 @@ const navGroups: NavGroup[] = [
     label: 'Operacion',
     items: [
       { to: ROUTES.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard },
+      { to: ROUTES.OKRS, label: 'OKRs', icon: Target },
       { to: ROUTES.KANBAN, label: 'Kanban', icon: Columns3 },
       { to: ROUTES.TEAM_KANBAN, label: 'Equipos', icon: FolderKanban },
     ],

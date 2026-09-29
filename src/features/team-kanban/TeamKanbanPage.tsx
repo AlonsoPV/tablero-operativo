@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { ActionOkrLinks } from '@/features/okrs/ActionOkrLinks'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import {
@@ -338,7 +339,7 @@ function todayIso() {
 
 export function TeamKanbanPage() {
   const qc = useQueryClient()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const {
     currentUser,
     visibleAreas,
@@ -378,6 +379,17 @@ export function TeamKanbanPage() {
     },
     enabled: selectedAreaIds.length > 0,
   })
+
+  useEffect(() => {
+    const actionId = searchParams.get('accion')
+    if (!actionId || !board.data?.actions.some((action) => action.id === actionId)) return
+    setEditingActionId(actionId)
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous)
+      next.delete('accion')
+      return next
+    }, { replace: true })
+  }, [board.data, searchParams, setSearchParams])
 
   useEffect(() => {
     const alert = searchParams.get('alert') ?? undefined
@@ -1422,6 +1434,7 @@ function TeamActionEditDialog({
         aria-describedby={undefined}
       >
         <DialogTitle className="sr-only">Editar accion de equipo</DialogTitle>
+        <ActionOkrLinks actionId={action.id} kind="team" />
         <div className="accion-form-dialog-header shrink-0 border-b border-border/60 bg-card px-3 py-2.5 pr-11 sm:px-4 sm:py-3 sm:pr-12">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 flex-1 pr-1">

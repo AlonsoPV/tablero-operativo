@@ -10,6 +10,7 @@ export const ROUTES = {
   FORGOT_PASSWORD: '/forgot-password',
   RESET_PASSWORD: '/reset-password',
   DASHBOARD: '/dashboard',
+  OKRS: '/okrs',
   /** Cadena causa–efecto: BHAG, FCE, procesos O2C, ejecución. */
   ESTRATEGIA: '/estrategia',
   DASHBOARD_KPIS: '/dashboard/kpis',

@@ -3,6 +3,16 @@
  */
 
 import { useMemo, useState, useCallback } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Activity, Target } from 'lucide-react'
+import { useRouteAccess } from '@/features/auth/hooks/useRouteAccess'
+import { ROUTES } from '@/constants'
+import { OkrReportingPanel } from '@/features/okrs/OkrReportingPanel'
+import {
+  emptyReportFilters,
+  type ReportFilters,
+} from '@/features/okrs/reporting'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   useAcciones,
@@ -32,7 +42,11 @@ import { DashboardExecutivePanel } from './components/DashboardExecutivePanel'
 // import { DashboardOperationalOkrSection } from './components/DashboardOperationalOkrSection'
 import { useOperationalDashboardMetrics } from './hooks/useOperationalDashboardMetrics'
 // import { useOperationalOKR } from './hooks/useOperationalOKR'
-import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
+import {
+  SectionCard,
+  SectionCardBody,
+  SectionCardHeader,
+} from '@/components/SectionCard'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 // import { accionComentariosService } from '@/services/accionComentarios.service'
 
@@ -50,19 +64,35 @@ function addDays(ymd: string, days: number): string {
 function diffDaysInclusive(start: string, end: string): number {
   const startMs = Date.parse(`${start}T00:00:00Z`)
   const endMs = Date.parse(`${end}T00:00:00Z`)
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return DEFAULT_TREND_DAYS
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs)
+    return DEFAULT_TREND_DAYS
   return Math.max(1, Math.round((endMs - startMs) / 86_400_000) + 1)
 }
 
-function currentPeriodFromFilter(filter: AccionesFilter, today: string): Period {
+function currentPeriodFromFilter(
+  filter: AccionesFilter,
+  today: string
+): Period {
   if (filter.fecha) return { start: filter.fecha, end: filter.fecha }
-  if (filter.fecha_min && filter.fecha_max) return { start: filter.fecha_min, end: filter.fecha_max }
-  if (filter.fecha_min) return { start: filter.fecha_min, end: addDays(filter.fecha_min, DEFAULT_TREND_DAYS - 1) }
-  if (filter.fecha_max) return { start: addDays(filter.fecha_max, -(DEFAULT_TREND_DAYS - 1)), end: filter.fecha_max }
+  if (filter.fecha_min && filter.fecha_max)
+    return { start: filter.fecha_min, end: filter.fecha_max }
+  if (filter.fecha_min)
+    return {
+      start: filter.fecha_min,
+      end: addDays(filter.fecha_min, DEFAULT_TREND_DAYS - 1),
+    }
+  if (filter.fecha_max)
+    return {
+      start: addDays(filter.fecha_max, -(DEFAULT_TREND_DAYS - 1)),
+      end: filter.fecha_max,
+    }
   return { start: addDays(today, -(DEFAULT_TREND_DAYS - 1)), end: today }
 }
 
-function previousFilterFromPeriod(filter: AccionesFilter, period: Period): AccionesFilter {
+function previousFilterFromPeriod(
+  filter: AccionesFilter,
+  period: Period
+): AccionesFilter {
   const days = diffDaysInclusive(period.start, period.end)
   const previousEnd = addDays(period.start, -1)
   const previousStart = addDays(previousEnd, -(days - 1))
@@ -74,10 +104,122 @@ function previousFilterFromPeriod(filter: AccionesFilter, period: Period): Accio
 }
 
 export function DashboardPage() {
+  const [params, setParams] = useSearchParams()
+  const { canAccessRoute } = useRouteAccess()
+  const canSeeOkrs = canAccessRoute(ROUTES.OKRS)
+  const selected = params.get('tab') === 'okrs' && canSeeOkrs ? 'okrs' : 'bau'
+  const [bauFilter, setBauFilter] = useState<AccionesFilter>({
+    ...DEFAULT_FILTER,
+  })
+  const [okrFilters, setOkrFilters] =
+    useState<ReportFilters>(emptyReportFilters)
+  const tabs = [
+    ...(canSeeOkrs
+      ? [
+          {
+            key: 'okrs',
+            label: 'OKRs',
+            description: 'Resultados e históricos',
+            Icon: Target,
+          },
+        ]
+      : []),
+    {
+      key: 'bau',
+      label: 'BAU',
+      description: 'Business as usual · Operación diaria',
+      Icon: Activity,
+    },
+  ]
+  function selectTab(key: string) {
+    setParams((previous) => {
+      const next = new URLSearchParams(previous)
+      next.set('tab', key)
+      return next
+    })
+  }
+  return (
+    <div className="min-w-0">
+      <div className="mx-auto w-full max-w-7xl px-3 pt-5 sm:px-6 sm:pt-6">
+        <div
+          role="tablist"
+          aria-label="Vista del dashboard"
+          className={`grid ${canSeeOkrs ? 'grid-cols-2' : 'grid-cols-1'} gap-2 rounded-xl border bg-muted/40 p-1.5`}
+        >
+          {tabs.map(({ key, label, description, Icon }, index) => (
+            <button
+              key={key}
+              id={`dashboard-tab-${key}`}
+              type="button"
+              role="tab"
+              aria-selected={selected === key}
+              aria-controls={`dashboard-panel-${key}`}
+              tabIndex={selected === key ? 0 : -1}
+              onClick={() => selectTab(key)}
+              onKeyDown={(event) => {
+                const nextIndex =
+                  event.key === 'ArrowRight'
+                    ? (index + 1) % tabs.length
+                    : event.key === 'ArrowLeft'
+                      ? (index - 1 + tabs.length) % tabs.length
+                      : event.key === 'Home'
+                        ? 0
+                        : event.key === 'End'
+                          ? tabs.length - 1
+                          : null
+                if (nextIndex == null) return
+                event.preventDefault()
+                selectTab(tabs[nextIndex].key)
+                document
+                  .getElementById(`dashboard-tab-${tabs[nextIndex].key}`)
+                  ?.focus()
+              }}
+              className={`min-h-16 min-w-0 rounded-lg px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected === key ? 'bg-card text-primary shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-card/60'}`}
+            >
+              <span className="flex items-center gap-2 font-semibold">
+                <Icon className="h-4 w-4 shrink-0" />
+                {label}
+              </span>
+              <span className="mt-1 block text-xs">{description}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div
+        id={`dashboard-panel-${selected}`}
+        role="tabpanel"
+        aria-labelledby={`dashboard-tab-${selected}`}
+        tabIndex={0}
+        className="min-w-0 outline-none"
+      >
+        {selected === 'okrs' ? (
+          <div className="mx-auto w-full max-w-7xl px-3 py-5 sm:px-6 sm:py-6">
+            <OkrReportingPanel
+              filters={okrFilters}
+              onFiltersChange={setOkrFilters}
+            />
+          </div>
+        ) : (
+          <BauDashboard filter={bauFilter} setFilter={setBauFilter} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function BauDashboard({
+  filter,
+  setFilter,
+}: {
+  filter: AccionesFilter
+  setFilter: Dispatch<SetStateAction<AccionesFilter>>
+}) {
   const qc = useQueryClient()
   const today = todayWallClockCDMX()
   const { data: currentUser } = useCurrentUser()
-  const usesOperationalDashboard = usesOperationalDashboardByRole(currentUser?.rol)
+  const usesOperationalDashboard = usesOperationalDashboardByRole(
+    currentUser?.rol
+  )
   const prefetchEvidenceCatalog = useCallback(async () => {
     await qc.prefetchQuery({
       queryKey: dropdownOptionsByCatalogKeyQueryKey('evidencia_esperada'),
@@ -86,17 +228,23 @@ export function DashboardPage() {
     })
   }, [qc])
 
-  const [filter, setFilter] = useState<AccionesFilter>(() => ({
-    ...DEFAULT_FILTER,
-  }))
   const [filtersExpanded, setFiltersExpanded] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingAccion, setEditingAccion] = useState<AccionDiaria | null>(null)
-  const [drillDown, setDrillDown] = useState<{ title: string; acciones: AccionDiaria[] } | null>(null)
+  const [drillDown, setDrillDown] = useState<{
+    title: string
+    acciones: AccionDiaria[]
+  } | null>(null)
 
   const filterForQuery = useMemo(() => ({ ...filter }), [filter])
-  const currentPeriod = useMemo(() => currentPeriodFromFilter(filterForQuery, today), [filterForQuery, today])
-  const redUploadsHistoryStart = useMemo(() => addDays(today, -(7 * 8 - 1)), [today])
+  const currentPeriod = useMemo(
+    () => currentPeriodFromFilter(filterForQuery, today),
+    [filterForQuery, today]
+  )
+  const redUploadsHistoryStart = useMemo(
+    () => addDays(today, -(7 * 8 - 1)),
+    [today]
+  )
   const previousFilterForQuery = useMemo(
     () => previousFilterFromPeriod(filterForQuery, currentPeriod),
     [currentPeriod, filterForQuery]
@@ -108,7 +256,8 @@ export function DashboardPage() {
     error: accionesErrorObj,
     refetch: retryAcciones,
   } = useAcciones(filterForQuery)
-  const { data: previousAcciones = [], isLoading: previousAccionesLoading } = useAcciones(previousFilterForQuery)
+  const { data: previousAcciones = [], isLoading: previousAccionesLoading } =
+    useAcciones(previousFilterForQuery)
   const redUploadsFilter = useMemo(
     (): AccionesFilter => ({
       created_at_min: redUploadsHistoryStart,
@@ -118,10 +267,8 @@ export function DashboardPage() {
     }),
     [filter.area, filter.created_by, filter.responsable, redUploadsHistoryStart]
   )
-  const {
-    data: redUploadAcciones = [],
-    isLoading: redUploadAccionesLoading,
-  } = useAcciones(redUploadsFilter)
+  const { data: redUploadAcciones = [], isLoading: redUploadAccionesLoading } =
+    useAcciones(redUploadsFilter)
   const accionIds = useMemo(() => acciones.map((a) => a.id), [acciones])
   const { data: commentCounts = {} } = useCommentCounts(accionIds)
   const { data: users = [] } = useUsers({ activo: true })
@@ -146,27 +293,38 @@ export function DashboardPage() {
     return map
   }, [users])
 
-  const advancedFiltersActive = useMemo(() => hasKanbanActiveFilters(filter), [filter])
+  const advancedFiltersActive = useMemo(
+    () => hasKanbanActiveFilters(filter),
+    [filter]
+  )
 
-  const handleFilterChange = useCallback((next: AccionesFilter | Partial<AccionesFilter>) => {
-    setDrillDown(null)
-    setFilter((prev) => {
-      const merged: AccionesFilter = { ...prev, ...next }
-      return merged
-    })
-  }, [])
+  const handleFilterChange = useCallback(
+    (next: AccionesFilter | Partial<AccionesFilter>) => {
+      setDrillDown(null)
+      setFilter((prev) => {
+        const merged: AccionesFilter = { ...prev, ...next }
+        return merged
+      })
+    },
+    [setFilter]
+  )
 
   const handleClearFilters = useCallback(() => {
     setDrillDown(null)
     setFilter({ ...DEFAULT_FILTER })
-  }, [])
+  }, [setFilter])
 
-  const handleDrillDown = useCallback((input: { title: string; actions: AccionDiaria[] }) => {
-    setDrillDown({ title: input.title, acciones: input.actions })
-    window.requestAnimationFrame(() => {
-      document.getElementById('dashboard-section-actions')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    })
-  }, [])
+  const handleDrillDown = useCallback(
+    (input: { title: string; actions: AccionDiaria[] }) => {
+      setDrillDown({ title: input.title, acciones: input.actions })
+      window.requestAnimationFrame(() => {
+        document
+          .getElementById('dashboard-section-actions')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    },
+    []
+  )
 
   const handleCreate = useCallback(() => {
     void prefetchEvidenceCatalog()
@@ -174,11 +332,14 @@ export function DashboardPage() {
     setDialogOpen(true)
   }, [prefetchEvidenceCatalog])
 
-  const handleSelectAccion = useCallback((accion: AccionDiaria) => {
-    void prefetchEvidenceCatalog()
-    setEditingAccion(accion)
-    setDialogOpen(true)
-  }, [prefetchEvidenceCatalog])
+  const handleSelectAccion = useCallback(
+    (accion: AccionDiaria) => {
+      void prefetchEvidenceCatalog()
+      setEditingAccion(accion)
+      setDialogOpen(true)
+    },
+    [prefetchEvidenceCatalog]
+  )
 
   const handleDialogSuccess = useCallback(() => {
     setEditingAccion(null)
@@ -194,7 +355,11 @@ export function DashboardPage() {
           <DashboardHeader
             filtersExpanded={filtersExpanded}
             advancedFiltersActive={advancedFiltersActive}
-            eyebrow={usesOperationalDashboard ? 'Tablero operativo' : 'Tablero ejecutivo'}
+            eyebrow={
+              usesOperationalDashboard
+                ? 'Tablero operativo'
+                : 'Tablero ejecutivo'
+            }
             onToggleFilters={() => setFiltersExpanded((v) => !v)}
             filtersPanel={
               <KanbanToolbar
@@ -234,7 +399,7 @@ export function DashboardPage() {
         */}
 
         {false ? (
-        <section
+          <section
             id="dashboard-section-metrics"
             className="dashboard-section-metrics scroll-mt-4"
           >
@@ -244,17 +409,17 @@ export function DashboardPage() {
               onDrillDown={handleDrillDown}
             />
             {false && false ? (
-            <SectionCard>
-              <SectionCardHeader
-                className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
-                eyebrow="Pulso"
-                title="Resumen de acciones"
-                subtitle="Totales según filtros activos."
-              />
-              <SectionCardBody className="p-3 sm:p-4 md:p-6">
-                {null}
-              </SectionCardBody>
-            </SectionCard>
+              <SectionCard>
+                <SectionCardHeader
+                  className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
+                  eyebrow="Pulso"
+                  title="Resumen de acciones"
+                  subtitle="Totales según filtros activos."
+                />
+                <SectionCardBody className="p-3 sm:p-4 md:p-6">
+                  {null}
+                </SectionCardBody>
+              </SectionCard>
             ) : null}
           </section>
         ) : null}
@@ -275,7 +440,10 @@ export function DashboardPage() {
         ) : null}
         */}
 
-        <div id="dashboard-section-actions" className="dashboard-section-actions min-w-0 w-full scroll-mt-4">
+        <div
+          id="dashboard-section-actions"
+          className="dashboard-section-actions min-w-0 w-full scroll-mt-4"
+        >
           {accionesError ? (
             <SectionCard>
               <SectionCardHeader
@@ -313,7 +481,9 @@ export function DashboardPage() {
                   ? `${drillDown.acciones.length} accion${drillDown.acciones.length !== 1 ? 'es' : ''} relacionadas con ${drillDown.title}.`
                   : undefined
               }
-              onClearDrillDown={drillDown ? () => setDrillDown(null) : undefined}
+              onClearDrillDown={
+                drillDown ? () => setDrillDown(null) : undefined
+              }
             />
           )}
         </div>
@@ -333,22 +503,22 @@ export function DashboardPage() {
         <DashboardFechaCompromisoChangesSection />
 
         {false ? (
-        <section
-          id="dashboard-section-metrics"
-          className="dashboard-section-metrics scroll-mt-4 border-t border-border/40 pt-4 sm:pt-6"
-        >
-          <SectionCard>
-            <SectionCardHeader
-              className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
-              eyebrow="Pulso"
-              title="Resumen de acciones"
-              subtitle="Totales según filtros activos."
-            />
-            <SectionCardBody className="p-3 sm:p-4 md:p-6">
-              {null}
-            </SectionCardBody>
-          </SectionCard>
-        </section>
+          <section
+            id="dashboard-section-metrics"
+            className="dashboard-section-metrics scroll-mt-4 border-t border-border/40 pt-4 sm:pt-6"
+          >
+            <SectionCard>
+              <SectionCardHeader
+                className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
+                eyebrow="Pulso"
+                title="Resumen de acciones"
+                subtitle="Totales según filtros activos."
+              />
+              <SectionCardBody className="p-3 sm:p-4 md:p-6">
+                {null}
+              </SectionCardBody>
+            </SectionCard>
+          </section>
         ) : null}
       </div>
 

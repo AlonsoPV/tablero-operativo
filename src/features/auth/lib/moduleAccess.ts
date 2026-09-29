@@ -8,6 +8,7 @@ import {
 } from './permissions'
 
 const MODULE_ROUTES: Array<[string, string]> = [
+  [ROUTES.OKRS, 'okrs'],
   [ROUTES.DASHBOARD_KPIS, 'kpis'],
   [ROUTES.DASHBOARD_GAPS, 'gaps'],
   [ROUTES.DASHBOARD_IMPACTO, 'impact'],
@@ -36,6 +37,7 @@ const MODULE_ROUTES: Array<[string, string]> = [
 ]
 
 const MODULE_DEFAULT_ROUTES: Array<[string, string]> = [
+  ['okrs', ROUTES.OKRS],
   ['dashboard', ROUTES.DASHBOARD],
   ['team_dashboard', ROUTES.DASHBOARD_TEAMS],
   ['kanban', ROUTES.KANBAN],

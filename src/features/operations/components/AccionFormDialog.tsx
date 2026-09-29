@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { AccionForm } from './AccionForm'
+import { ActionOkrLinks } from '@/features/okrs/ActionOkrLinks'
 import { AccionFormSection } from './AccionFormSection'
 import { AccionDialogHeaderMeta } from './AccionDialogHeaderMeta'
 import { AccionEvidenciasSection } from './AccionEvidenciasSection'
@@ -784,6 +785,7 @@ export function AccionFormDialog({
         <DialogTitle className="sr-only">
           {isEdit ? 'Editar acción' : 'Nueva acción'}
         </DialogTitle>
+        {isEdit && accionLive && <ActionOkrLinks actionId={accionLive.id} kind="company" />}
         <div
           id={`${formBaseId}-dialog-header`}
           className="accion-form-dialog-header shrink-0 border-b border-border/60 bg-card px-3 py-2.5 pr-11 sm:px-4 sm:py-3 sm:pr-12"
