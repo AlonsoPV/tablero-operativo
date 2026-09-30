@@ -327,9 +327,7 @@ export function DisciplinaCalendarioSection({
     <section id="disciplina-calendario" aria-labelledby="disciplina-calendario-heading">
       <SectionCard>
         <SectionCardHeader
-          className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
           titleId="disciplina-calendario-heading"
-          eyebrow="Calendario"
           title="Recordatorios y minutas"
           subtitle="Acceso rápido a lo reciente."
           icon={CalendarDays}
@@ -344,7 +342,7 @@ export function DisciplinaCalendarioSection({
             </Button>
           }
         />
-        <SectionCardBody className="space-y-3 p-3 sm:space-y-4 sm:p-4 md:p-6">
+        <SectionCardBody className="space-y-3 p-4 sm:space-y-4 sm:p-5">
           <DisciplinaCalendarioContent
             reminders={reminders}
             notes={notes}

@@ -31,8 +31,13 @@ import { okrService } from './service'
 import { KeyResultForm, ObjectiveForm } from './OkrForms'
 import { useRouteAccess } from '@/features/auth/hooks/useRouteAccess'
 import { TeamInitiativeCreator } from './TeamInitiativeCreator'
-import { OkrExecutionSummary } from './OkrExecutionSummary'
+import {
+  OkrExecutionSummary,
+  planTimelineMetrics,
+} from './OkrExecutionSummary'
 import { OkrObjectiveCard } from './OkrObjectiveCard'
+import { OkrKpiStrip } from './OkrKpiStrip'
+import { OkrDetailWorkspace } from './OkrDetailWorkspace'
 import { OkrLinkInitiativePanel } from './OkrLinkInitiativePanel'
 import { ProgressBar, toolbarField, toolbarInput } from './okrPresentation'
 import {
@@ -160,17 +165,16 @@ export function OkrPage() {
 
   const focusedObjectiveId =
     modal && 'objective' in modal ? modal.objective?.id : undefined
+  // Expand only when editing/creating via modal — list stays collapsed on load.
   useEffect(() => {
-    const fromUrl = searchParams.get('objective')
-    const nextId = focusedObjectiveId ?? fromUrl
-    if (!nextId) return
+    if (!focusedObjectiveId) return
     setExpandedIds((current) => {
-      if (current.has(nextId)) return current
+      if (current.has(focusedObjectiveId)) return current
       const next = new Set(current)
-      next.add(nextId)
+      next.add(focusedObjectiveId)
       return next
     })
-  }, [focusedObjectiveId, searchParams])
+  }, [focusedObjectiveId])
 
   async function archiveObjective(objective: Objective) {
     if (
@@ -237,29 +241,44 @@ export function OkrPage() {
   const canCreate =
     data.can_manage_company || data.areas.some((item) => item.can_manage)
   const report = reportingSummary(filtered, data)
-  const activeObjectives = filtered.filter(
-    (item) => objectivePeriod(item, today) === 'Activo'
-  ).length
-  const activeKeyResults = data.keyResults.filter(
-    (kr) =>
-      krProgress(kr) < 100 &&
-      filtered.some(
-        (item) =>
-          item.id === kr.okr_id && objectivePeriod(item, today) === 'Activo'
-      )
-  ).length
-  const needsAttention = report.missingKrs + report.withoutCheckIn
+  const filteredKrIds = new Set(filtered.map((item) => item.id))
+  const filteredKeyResults = data.keyResults.filter((kr) =>
+    filteredKrIds.has(kr.okr_id)
+  )
+  const initiativesForScope = data.initiatives.filter((item) =>
+    filteredKeyResults.some((kr) => kr.id === item.key_result_id)
+  )
+  const initiativesDone = initiativesForScope.filter((item) => {
+    const action = (actions.data ?? []).find(
+      (option) =>
+        option.id === (item.action_id ?? item.team_action_id) &&
+        option.kind === (item.action_id ? 'company' : 'team')
+    )
+    return Boolean(action?.closed)
+  }).length
+  const onTrackShare = filteredKeyResults.length
+    ? (filteredKeyResults.filter((kr) => krProgress(kr) >= 70).length /
+        filteredKeyResults.length) *
+      100
+    : null
+  const timeline = planTimelineMetrics(filtered, today)
+  const focusedObjective =
+    filtered.find((item) => item.id === searchParams.get('objective')) ??
+    filtered.find((item) => expandedIds.has(item.id)) ??
+    filtered.find((item) => item.can_manage && item.activo) ??
+    filtered[0] ??
+    null
 
   return (
     <TooltipProvider delayDuration={120}>
-    <main className="mx-auto w-full min-w-0 max-w-6xl space-y-8 p-4 sm:p-6 lg:p-8 [&_button]:min-h-11 [&_button]:touch-manipulation">
+    <main className="mx-auto w-full min-w-0 max-w-6xl space-y-6 p-4 sm:p-6 lg:p-8 [&_button]:min-h-11 [&_button]:touch-manipulation">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 max-w-2xl">
           <h1 className="text-xl font-semibold leading-snug tracking-tight sm:text-[1.35rem]">
             Objetivos y resultados clave
           </h1>
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-            Define, mide y da seguimiento a los resultados del equipo.
+            Plan, avance e iniciativas en una sola vista.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -300,12 +319,14 @@ export function OkrPage() {
         </div>
       </header>
 
-      <div className="overflow-hidden rounded-2xl bg-card shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
         <OkrExecutionSummary
-          activeObjectives={activeObjectives}
+          daysLeft={timeline.daysLeft}
+          timelineProgress={timeline.timelineProgress}
           averageProgress={report.average}
-          activeKeyResults={activeKeyResults}
-          needsAttention={needsAttention}
+          initiativesDone={initiativesDone}
+          initiativesTotal={initiativesForScope.length}
+          onTrackShare={onTrackShare}
         />
 
         <section
@@ -428,7 +449,7 @@ export function OkrPage() {
         </p>
       )}
       {!filtered.length && (
-        <div className="rounded-2xl bg-card px-6 py-12 text-center">
+        <div className="rounded-2xl border border-border/70 bg-card px-6 py-12 text-center">
           <h2 className="text-lg font-semibold">
             {data.objectives.length
               ? 'No encontramos objetivos con estos filtros'
@@ -454,55 +475,110 @@ export function OkrPage() {
           </div>
         </div>
       )}
-      <div className="space-y-3">
-        {filtered.map((objective) => {
-          const krFor = (id: string) =>
-            data.keyResults.find((item) => item.id === id)
-          return (
-            <OkrObjectiveCard
-              key={objective.id}
-              objective={objective}
-              data={data}
-              actions={actions.data ?? []}
-              actionsPending={actions.isPending}
-              actionsError={actions.isError}
-              busy={busy}
-              expanded={
-                expandedIds.has(objective.id) ||
-                focusedObjectiveId === objective.id
-              }
-              onExpandedChange={(open) => {
-                setExpandedIds((current) => {
-                  const next = new Set(current)
-                  if (open) next.add(objective.id)
-                  else next.delete(objective.id)
-                  return next
-                })
-              }}
-              onEdit={() => setModal({ type: 'objective', objective })}
-              onHistory={() => setHistorySelection({ objective })}
-              onArchive={() => void archiveObjective(objective)}
-              onAddKr={() => setModal({ type: 'kr', objective })}
-              onCheckIn={(krId) => {
-                const kr = krFor(krId)
-                if (kr) setModal({ type: 'checkin', objective, kr })
-              }}
-              onEditKr={(krId) => {
-                const kr = krFor(krId)
-                if (kr) setModal({ type: 'kr', objective, kr })
-              }}
-              onKrHistory={(krId) =>
-                setHistorySelection({ objective, krId })
-              }
-              onLink={(krId) => {
-                const kr = krFor(krId)
-                if (kr) setModal({ type: 'link', objective, kr })
-              }}
-              onUnlink={(id) => void unlink(id)}
-            />
-          )
-        })}
-      </div>
+
+      {filteredKeyResults.length > 0 && (
+        <OkrDetailWorkspace
+          objectives={filtered}
+          data={data}
+          actions={actions.data ?? []}
+          onAddInitiative={(objective, krId) => {
+            const kr = data.keyResults.find((item) => item.id === krId)
+            if (kr) setModal({ type: 'link', objective, kr })
+          }}
+          onLink={(objective, krId) => {
+            const kr = data.keyResults.find((item) => item.id === krId)
+            if (kr) setModal({ type: 'link', objective, kr })
+          }}
+        />
+      )}
+
+      {filtered.length > 0 && (
+        <section
+          aria-label="Árbol de objetivos"
+          className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm"
+        >
+          <div className="border-b border-border/50 px-4 py-3 sm:px-5">
+            <h2 className="text-base font-semibold tracking-tight">
+              Objetivos
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Expande cada objetivo para ver sus resultados clave.
+            </p>
+          </div>
+          <div>
+            {filtered.map((objective) => {
+              const krFor = (id: string) =>
+                data.keyResults.find((item) => item.id === id)
+              return (
+                <OkrObjectiveCard
+                  key={objective.id}
+                  objective={objective}
+                  data={data}
+                  actions={actions.data ?? []}
+                  actionsPending={actions.isPending}
+                  actionsError={actions.isError}
+                  busy={busy}
+                  expanded={expandedIds.has(objective.id)}
+                  onExpandedChange={(open) => {
+                    setExpandedIds((current) => {
+                      const next = new Set(current)
+                      if (open) next.add(objective.id)
+                      else next.delete(objective.id)
+                      return next
+                    })
+                  }}
+                  onEdit={() => setModal({ type: 'objective', objective })}
+                  onHistory={() => setHistorySelection({ objective })}
+                  onArchive={() => void archiveObjective(objective)}
+                  onAddKr={() => setModal({ type: 'kr', objective })}
+                  onCheckIn={(krId) => {
+                    const kr = krFor(krId)
+                    if (kr) setModal({ type: 'checkin', objective, kr })
+                  }}
+                  onEditKr={(krId) => {
+                    const kr = krFor(krId)
+                    if (kr) setModal({ type: 'kr', objective, kr })
+                  }}
+                  onKrHistory={(krId) =>
+                    setHistorySelection({ objective, krId })
+                  }
+                  onLink={(krId) => {
+                    const kr = krFor(krId)
+                    if (kr) setModal({ type: 'link', objective, kr })
+                  }}
+                  onUnlink={(id) => void unlink(id)}
+                />
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {filteredKeyResults.length > 0 && (
+        <OkrKpiStrip
+          keyResults={filteredKeyResults}
+          objectives={filtered}
+          checkIns={data.checkIns}
+          canAdd={canCreate}
+          onAdd={() => {
+            const target =
+              focusedObjective ??
+              filtered.find((item) => item.can_manage && item.activo)
+            if (target) setModal({ type: 'kr', objective: target })
+            else setModal({ type: 'objective' })
+          }}
+          onOpen={(kr) => {
+            const objective = filtered.find((item) => item.id === kr.okr_id)
+            if (!objective) return
+            setExpandedIds((current) => {
+              const next = new Set(current)
+              next.add(objective.id)
+              return next
+            })
+            setSearchParams({ objective: objective.id })
+          }}
+        />
+      )}
       <Dialog
         open={modal !== null}
         onOpenChange={(open) => {
@@ -517,7 +593,7 @@ export function OkrPage() {
           onEscapeKeyDown={(event) => {
             if (editorSaving) event.preventDefault()
           }}
-          className="flex max-h-[min(92dvh,48rem)] w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden rounded-xl p-0 sm:max-w-xl [&_button]:min-h-11 [&_button]:touch-manipulation"
+          className="flex max-h-[min(92dvh,48rem)] w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden rounded-2xl border-border/70 p-0 shadow-sm sm:max-w-xl [&_button]:min-h-11 [&_button]:touch-manipulation"
         >
           {modal?.type === 'objective' ? (
             <ObjectiveForm

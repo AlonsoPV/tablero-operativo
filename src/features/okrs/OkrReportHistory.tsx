@@ -210,7 +210,24 @@ export function OkrReportHistory({
           </div>
           {krId !== 'all' ? (
             <OkrHistoryChart
+              title={
+                data.keyResults.find((item) => item.id === krId)?.title ??
+                'Evolución del KR'
+              }
               measurements={measurementsFor(data.checkIns, krId)}
+              currentValue={
+                data.keyResults.find((item) => item.id === krId)?.current_value
+              }
+              unit={data.keyResults.find((item) => item.id === krId)?.unit}
+              baseline={
+                data.keyResults.find((item) => item.id === krId)?.baseline_value
+              }
+              target={
+                data.keyResults.find((item) => item.id === krId)?.target_value
+              }
+              periodStart={objective.start_date}
+              periodEnd={objective.end_date}
+              users={data.users}
             />
           ) : (
             <p className="text-sm text-muted-foreground">

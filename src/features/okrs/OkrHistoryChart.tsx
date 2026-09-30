@@ -1,25 +1,58 @@
 import { useId, useMemo, useState } from 'react'
-import { TrendingUp, CalendarRange } from 'lucide-react'
+import { CalendarRange } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { CheckIn } from './model'
-import { formatMetric } from './model'
-import { historicalProgress, reportTimestamp } from './reporting'
+import { formatMetric, krProgress } from './model'
+import {
+  comparableChange,
+  historicalProgress,
+  reportDate,
+  reportTimestamp,
+} from './reporting'
+import {
+  RingProgress,
+  StatusSquare,
+  calendarDaysBetween,
+  metricText,
+  periodRangeText,
+  progressTone,
+  toneTextClass,
+} from './okrPresentation'
+
+type ChartUser = { id: string; nombre: string }
 
 /** Historical values are never recalculated with today's target. */
 export function OkrHistoryChart({
   measurements,
   title = 'Evolución del KR',
+  currentValue,
+  unit = '',
+  baseline,
+  target,
+  progress,
+  periodStart,
+  periodEnd,
+  users = [],
 }: {
   measurements: CheckIn[]
   title?: string
+  currentValue?: number | null
+  unit?: string
+  baseline?: number | null
+  target?: number | null
+  progress?: number | null
+  periodStart?: string | null
+  periodEnd?: string | null
+  users?: ChartUser[]
 }) {
   const gradient = useId().replace(/:/g, '')
   const [mode, setMode] = useState<'progress' | 'value'>(() =>
-    measurements.some((m) => historicalProgress(m) != null)
-      ? 'progress'
-      : 'value'
+    measurements.some((m) => historicalProgress(m) != null) ? 'progress' : 'value'
   )
   const [range, setRange] = useState('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [timelineOpen, setTimelineOpen] = useState(true)
+
   const sorted = useMemo(
     () =>
       [...measurements].sort(
@@ -41,23 +74,83 @@ export function OkrHistoryChart({
   const selected = points.find((m) => m.id === selectedId) ?? points.at(-1)
   const value = (m: CheckIn) =>
     mode === 'progress' ? historicalProgress(m)! : m.value
+
+  const resolvedProgress =
+    progress ??
+    (baseline != null && target != null && currentValue != null
+      ? krProgress({
+          baseline_value: baseline,
+          target_value: target,
+          current_value: currentValue,
+        })
+      : latest
+        ? historicalProgress(latest)
+        : null)
+  const tone = progressTone(resolvedProgress ?? 0)
+  const today = new Date().toISOString().slice(0, 10)
+  const daysLeft =
+    periodEnd != null ? calendarDaysBetween(today, periodEnd) : null
+
   const values = points.map(value)
-  const min = mode === 'progress' ? 0 : Math.min(...values)
-  const max = mode === 'progress' ? 100 : Math.max(...values)
+  const targetLineValue =
+    mode === 'progress'
+      ? 100
+      : target != null
+        ? target
+        : values.length
+          ? Math.max(...values)
+          : 0
+  const baselineLineValue =
+    mode === 'progress'
+      ? 0
+      : baseline != null
+        ? baseline
+        : values.length
+          ? Math.min(...values)
+          : 0
+
+  const min =
+    mode === 'progress'
+      ? 0
+      : Math.min(...values, baselineLineValue, targetLineValue)
+  const max =
+    mode === 'progress'
+      ? 100
+      : Math.max(...values, baselineLineValue, targetLineValue)
   const padding =
-    mode === 'value' ? Math.max((max - min) * 0.1, Math.abs(max) * 0.05, 1) : 0
-  const low = min - padding,
-    high = max + padding
+    mode === 'value' ? Math.max((max - min) * 0.12, Math.abs(max) * 0.04, 1) : 0
+  const low = min - padding
+  const high = max + padding
+
+  const chartLeft = 52
+  const chartRight = 388
+  const chartTop = 28
+  const chartBottom = 188
   const firstTime = points.length ? Date.parse(points[0].created_at) : 0
   const lastTime = points.length ? Date.parse(points.at(-1)!.created_at) : 0
-  const x = (m: CheckIn) =>
-    lastTime === firstTime
-      ? 215
-      : 50 +
-        ((Date.parse(m.created_at) - firstTime) / (lastTime - firstTime)) * 330
-  const y = (m: CheckIn) => 190 - ((value(m) - low) / (high - low)) * 160
+  const periodEndMs = periodEnd
+    ? Date.parse(`${periodEnd.slice(0, 10)}T12:00:00Z`)
+    : Number.NaN
+  const axisEnd =
+    Number.isFinite(periodEndMs) && periodEndMs > lastTime
+      ? periodEndMs
+      : lastTime
+  const todayMs = Date.parse(`${today}T12:00:00Z`)
+
+  const xAt = (ms: number) => {
+    if (!Number.isFinite(ms) || axisEnd === firstTime) return (chartLeft + chartRight) / 2
+    return (
+      chartLeft +
+      ((ms - firstTime) / Math.max(1, axisEnd - firstTime)) *
+        (chartRight - chartLeft)
+    )
+  }
+  const x = (m: CheckIn) => xAt(Date.parse(m.created_at))
+  const y = (v: number) =>
+    chartBottom - ((v - low) / Math.max(high - low, 1e-9)) * (chartBottom - chartTop)
+
   const path = points
-    .map((m, i) => `${i ? 'L' : 'M'} ${x(m)} ${y(m)}`)
+    .map((m, i) => `${i ? 'L' : 'M'} ${x(m)} ${y(value(m))}`)
     .join(' ')
   const shortDate = (date: string) =>
     new Date(date).toLocaleDateString('es-MX', {
@@ -68,111 +161,132 @@ export function OkrHistoryChart({
   const multipleUnits =
     new Set(points.map((m) => m.unit_snapshot ?? 'Sin unidad histórica')).size >
     1
+
+  const yTicks = [high, (low + high) / 2, low]
+  const xLabels = (() => {
+    if (!points.length) return [] as string[]
+    const start = points[0].created_at
+    const end = periodEnd ?? points.at(-1)!.created_at
+    if (points.length === 1) return [shortDate(start)]
+    return [shortDate(start), shortDate(end)]
+  })()
+
+  const displayValue = metricText(
+    currentValue ?? latest?.value ?? null,
+    unit || latest?.unit_snapshot || ''
+  )
+  const change = comparableChange(
+    [...measurements].sort(
+      (a, b) =>
+        b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)
+    )
+  )
+
+  const timeline = [...sorted]
+    .reverse()
+    .filter((item) => item.note !== 'Línea base inicial')
+    .slice(0, 8)
+
   return (
-    <section
-      className="min-w-0 space-y-4 rounded-2xl border bg-card p-4 sm:p-5"
-      aria-label={title}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="flex items-center gap-2 text-sm font-semibold">
-            <TrendingUp className="h-4 w-4 text-primary" />
-            {title}
-          </h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {points.length} {points.length === 1 ? 'medición' : 'mediciones'}
-            {points.length > 0 && ' · selecciona un punto para ver su detalle'}
-          </p>
+    <section className="min-w-0 space-y-4" aria-label={title}>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <StatusSquare tone={tone} />
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold leading-snug tracking-tight sm:text-lg">
+              {title}
+            </h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {points.length}{' '}
+              {points.length === 1 ? 'medición' : 'mediciones'}
+              {points.length > 0 ? ' · toca un punto para ver detalle' : ''}
+            </p>
+          </div>
         </div>
-        <label className="flex items-center gap-2 text-xs">
-          <CalendarRange className="h-4 w-4" />
-          <span className="sr-only">Rango de la gráfica</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg bg-muted p-1" aria-label="Tipo de gráfica">
+            {(['progress', 'value'] as const).map((item) => (
+              <button
+                key={item}
+                type="button"
+                aria-pressed={mode === item}
+                onClick={() => {
+                  setMode(item)
+                  setSelectedId(null)
+                }}
+                className={cn(
+                  'min-h-9 rounded-md px-2.5 text-xs font-medium',
+                  mode === item
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground'
+                )}
+              >
+                {item === 'progress' ? 'Avance %' : 'Valor'}
+              </button>
+            ))}
+          </div>
           <select
-            className="min-h-11 rounded-lg border bg-background px-2"
+            className="min-h-9 rounded-lg border border-input bg-background px-2 text-xs"
             value={range}
+            aria-label="Rango de la gráfica"
             onChange={(e) => {
               setRange(e.target.value)
               setSelectedId(null)
             }}
           >
-            <option value="all">Todo el historial</option>
-            <option value="90">Últimos 90 días registrados</option>
-            <option value="30">Últimos 30 días registrados</option>
+            <option value="all">Todo</option>
+            <option value="90">90 días</option>
+            <option value="30">30 días</option>
           </select>
-        </label>
-      </div>
-      <div
-        className="inline-flex rounded-lg bg-muted p-1"
-        aria-label="Tipo de gráfica"
-      >
-        {(['progress', 'value'] as const).map((item) => (
-          <button
-            key={item}
-            type="button"
-            aria-pressed={mode === item}
-            onClick={() => {
-              setMode(item)
-              setSelectedId(null)
-            }}
-            className={`min-h-11 rounded-md px-3 text-sm font-medium ${mode === item ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground'}`}
-          >
-            {item === 'progress' ? 'Avance %' : 'Valor medido'}
-          </button>
-        ))}
-      </div>
-      {!points.length ? (
-        <p className="rounded-xl bg-muted/40 p-5 text-sm text-muted-foreground">
-          {measurements.length
-            ? 'Estas mediciones no conservan su meta histórica. Consulta «Valor medido» para ver los datos originales.'
-            : 'Registra la primera medición para comenzar a visualizar la evolución.'}
-        </p>
-      ) : (
-        <>
-          {mode === 'value' && multipleUnits ? (
-            <p className="rounded-lg bg-muted p-4 text-sm">
-              Hay cambios de unidad entre mediciones. Consulta los valores
-              individuales abajo; no se conectan unidades diferentes en una
-              gráfica.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <svg
-                viewBox="0 0 400 230"
-                className="w-full max-h-72 text-primary"
-                role="group"
-                aria-label={`${title}: ${mode === 'progress' ? 'porcentaje histórico' : 'valor medido'}`}
-              >
-                <defs>
-                  <linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1">
-                    <stop
-                      offset="0%"
-                      stopColor="currentColor"
-                      stopOpacity=".2"
-                    />
-                    <stop
-                      offset="100%"
-                      stopColor="currentColor"
-                      stopOpacity="0"
-                    />
-                  </linearGradient>
-                </defs>
-                {[low, (low + high) / 2, high].map((tick, i) => (
-                  <g key={i}>
+        </div>
+      </header>
+
+      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card p-3 shadow-sm sm:p-4">
+        {!points.length ? (
+          <p className="rounded-xl bg-muted/40 p-5 text-sm text-muted-foreground">
+            {measurements.length
+              ? 'Estas mediciones no conservan su meta histórica. Consulta «Valor» para ver los datos originales.'
+              : 'Registra la primera medición para comenzar a visualizar la evolución.'}
+          </p>
+        ) : mode === 'value' && multipleUnits ? (
+          <p className="rounded-lg bg-muted p-4 text-sm">
+            Hay cambios de unidad entre mediciones. Consulta los valores
+            individuales en la línea de tiempo.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <svg
+              viewBox="0 0 420 230"
+              className="h-auto w-full max-h-72"
+              role="group"
+              aria-label={`${title}: ${mode === 'progress' ? 'porcentaje histórico' : 'valor medido'}`}
+            >
+              <defs>
+                <linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#3b82f6" stopOpacity=".22" />
+                  <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+
+              {yTicks.map((tick, index) => {
+                const ty = y(tick)
+                return (
+                  <g key={`y-${index}`}>
                     <line
-                      x1="50"
-                      x2="380"
-                      y1={190 - i * 80}
-                      y2={190 - i * 80}
+                      x1={chartLeft}
+                      x2={chartRight}
+                      y1={ty}
+                      y2={ty}
                       stroke="currentColor"
-                      opacity=".12"
-                      strokeDasharray="4 4"
+                      className="text-border"
+                      opacity=".9"
                     />
                     <text
-                      x="42"
-                      y={194 - i * 80}
+                      x={chartLeft - 8}
+                      y={ty + 4}
                       textAnchor="end"
-                      fontSize="13"
-                      fill="currentColor"
+                      fontSize="11"
+                      className="fill-muted-foreground"
                     >
                       {tick.toLocaleString('es-MX', {
                         notation: 'compact',
@@ -181,19 +295,73 @@ export function OkrHistoryChart({
                       {mode === 'progress' ? '%' : ''}
                     </text>
                   </g>
-                ))}
-                <path
-                  d={`${path} L ${x(points.at(-1)!)} 190 L ${x(points[0])} 190 Z`}
-                  fill={`url(#${gradient})`}
-                />
-                <path
-                  d={path}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinejoin="round"
-                />
-                {points.map((m) => (
+                )
+              })}
+
+              {/* Target trajectory */}
+              <line
+                x1={xAt(firstTime)}
+                y1={y(baselineLineValue)}
+                x2={xAt(axisEnd)}
+                y2={y(targetLineValue)}
+                stroke="currentColor"
+                strokeDasharray="5 5"
+                className="text-muted-foreground"
+                opacity=".45"
+              />
+
+              {/* Today marker */}
+              {Number.isFinite(todayMs) &&
+                todayMs >= firstTime &&
+                todayMs <= axisEnd && (
+                  <g>
+                    <line
+                      x1={xAt(todayMs)}
+                      x2={xAt(todayMs)}
+                      y1={chartTop - 8}
+                      y2={chartBottom}
+                      stroke="currentColor"
+                      strokeDasharray="3 4"
+                      className="text-muted-foreground"
+                      opacity=".55"
+                    />
+                    <text
+                      x={xAt(todayMs)}
+                      y={chartTop - 12}
+                      textAnchor="middle"
+                      fontSize="10"
+                      className="fill-muted-foreground"
+                    >
+                      Hoy
+                    </text>
+                  </g>
+                )}
+
+              <path
+                d={`${path} L ${x(points.at(-1)!)} ${chartBottom} L ${x(points[0])} ${chartBottom} Z`}
+                fill={`url(#${gradient})`}
+              />
+              <path
+                d={path}
+                fill="none"
+                stroke="#3b82f6"
+                strokeWidth="2.75"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+
+              {points.map((m, index) => {
+                const last = index === points.length - 1
+                const hasNote = Boolean(m.note && m.note !== 'Línea base inicial')
+                const cx = x(m)
+                const cy = y(value(m))
+                const selectedPoint = selected?.id === m.id
+                const fill = last
+                  ? '#10b981'
+                  : hasNote
+                    ? '#f59e0b'
+                    : '#3b82f6'
+                return (
                   <g
                     key={m.id}
                     role="button"
@@ -206,93 +374,232 @@ export function OkrHistoryChart({
                         setSelectedId(m.id)
                       }
                     }}
-                    className="cursor-pointer outline-none focus:stroke-foreground"
+                    className="cursor-pointer outline-none"
                   >
-                    <circle cx={x(m)} cy={y(m)} r="12" fill="transparent" />
+                    <circle cx={cx} cy={cy} r="14" fill="transparent" />
                     <circle
-                      cx={x(m)}
-                      cy={y(m)}
-                      r={selected?.id === m.id ? 6 : 4}
-                      fill="currentColor"
-                      stroke="var(--background)"
+                      cx={cx}
+                      cy={cy}
+                      r={selectedPoint || last ? 6 : 4.5}
+                      fill={fill}
+                      stroke="#fff"
                       strokeWidth="2"
                     />
+                    {last && (
+                      <g transform={`translate(${cx + 10}, ${cy - 10})`}>
+                        <circle r="7" fill="#3b82f6" />
+                        <path
+                          d="M-3 0 L-1 2.5 L3.5 -2"
+                          fill="none"
+                          stroke="white"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </g>
+                    )}
+                    {hasNote && !last && (
+                      <g transform={`translate(${cx}, ${cy - 16})`}>
+                        <rect
+                          x={-7}
+                          y={-9}
+                          width={14}
+                          height={11}
+                          rx={3}
+                          fill="#94a3b8"
+                        />
+                        <text
+                          y={-1}
+                          textAnchor="middle"
+                          fontSize="8"
+                          fill="white"
+                          fontWeight="700"
+                        >
+                          1
+                        </text>
+                      </g>
+                    )}
                   </g>
-                ))}
-                <text x="50" y="220" fontSize="13" fill="currentColor">
-                  {shortDate(points[0].created_at)}
-                </text>
+                )
+              })}
+
+              {xLabels[0] && (
                 <text
-                  x="380"
-                  y="220"
-                  textAnchor="end"
-                  fontSize="13"
-                  fill="currentColor"
+                  x={chartLeft}
+                  y="218"
+                  fontSize="11"
+                  className="fill-muted-foreground"
                 >
-                  {shortDate(points.at(-1)!.created_at)}
+                  {xLabels[0]}
                 </text>
-              </svg>
-            </div>
-          )}
-          {selected && (
-            <div
-              aria-live="polite"
-              className="grid gap-2 rounded-xl bg-primary/5 p-3 sm:grid-cols-2"
-            >
-              <div>
-                <p className="text-xs text-muted-foreground">
-                  {reportTimestamp(selected.created_at)}
-                </p>
-                <p className="mt-1 text-xl font-semibold tabular-nums">
-                  {formatMetric(selected.value)}{' '}
-                  <span className="text-sm font-normal">
-                    {selected.unit_snapshot ?? ''}
-                  </span>
-                  {historicalProgress(selected) != null && (
-                    <span className="ml-3 text-sm text-primary">
-                      {formatMetric(historicalProgress(selected)!)}%
-                    </span>
-                  )}
-                </p>
-              </div>
-              <p className="self-center break-words text-sm text-muted-foreground">
-                {selected.note || 'Sin nota de seguimiento'}
+              )}
+              {xLabels[1] && (
+                <text
+                  x={chartRight}
+                  y="218"
+                  textAnchor="end"
+                  fontSize="11"
+                  className="fill-muted-foreground"
+                >
+                  {xLabels[1]}
+                </text>
+              )}
+            </svg>
+          </div>
+        )}
+
+        {selected && (
+          <div
+            aria-live="polite"
+            className="mt-3 rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5"
+          >
+            <p className="text-xs text-muted-foreground">
+              {reportTimestamp(selected.created_at)}
+            </p>
+            <p className="mt-0.5 text-sm font-semibold tabular-nums">
+              {formatMetric(selected.value)} {selected.unit_snapshot ?? unit}
+              {historicalProgress(selected) != null ? (
+                <span className="ml-2 text-sky-600 dark:text-sky-400">
+                  {formatMetric(historicalProgress(selected)!)}%
+                </span>
+              ) : null}
+            </p>
+            {selected.note ? (
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                {selected.note}
               </p>
-            </div>
-          )}
-          <details>
-            <summary className="min-h-11 cursor-pointer py-3 text-xs font-medium">
-              Ver todas las mediciones ({points.length})
-            </summary>
-            <ul className="max-h-64 space-y-1 overflow-y-auto">
-              {points
-                .slice()
-                .reverse()
-                .map((m) => (
-                  <li key={m.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(m.id)}
-                      className={`flex min-h-11 w-full flex-wrap items-center justify-between gap-2 rounded-lg px-3 text-left text-xs ${selected?.id === m.id ? 'bg-primary/10' : 'hover:bg-muted'}`}
-                    >
-                      <span>{reportTimestamp(m.created_at)}</span>
-                      <strong>
-                        {formatMetric(m.value)} {m.unit_snapshot}{' '}
-                        {historicalProgress(m) != null
-                          ? `· ${formatMetric(historicalProgress(m)!)}%`
+            ) : null}
+          </div>
+        )}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-card p-4 shadow-sm">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted-foreground">Progreso</p>
+            <p
+              className={cn(
+                'mt-1 text-xl font-semibold tabular-nums tracking-tight sm:text-2xl',
+                toneTextClass(tone === 'muted' ? 'success' : tone)
+              )}
+            >
+              {displayValue}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {resolvedProgress == null
+                ? 'Sin avance medido'
+                : `${Math.round(resolvedProgress)}% de la meta`}
+              {change != null ? (
+                <span
+                  className={cn(
+                    'ml-1 font-semibold',
+                    change > 0
+                      ? 'text-emerald-600'
+                      : change < 0
+                        ? 'text-rose-600'
+                        : 'text-muted-foreground'
+                  )}
+                >
+                  {change > 0 ? '+' : ''}
+                  {formatMetric(change)}%
+                </span>
+              ) : null}
+            </p>
+          </div>
+          <RingProgress
+            value={resolvedProgress ?? 0}
+            label="Progreso del resultado clave"
+            tone={tone === 'muted' ? 'success' : tone}
+            size={56}
+          />
+        </div>
+
+        <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-sm">
+          <p className="text-xs font-medium text-muted-foreground">
+            Días restantes
+          </p>
+          <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight">
+            {daysLeft == null
+              ? '—'
+              : daysLeft < 0
+                ? '0'
+                : String(daysLeft)}
+          </p>
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <CalendarRange className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="truncate">
+              {periodStart || periodEnd
+                ? periodRangeText(periodStart, periodEnd)
+                : points.length
+                  ? `${shortDate(points[0].created_at)} → ${shortDate(points.at(-1)!.created_at)}`
+                  : 'Sin periodo'}
+            </span>
+          </p>
+        </div>
+      </div>
+
+      <section className="overflow-hidden rounded-2xl border border-border/70 bg-muted/20 shadow-sm">
+        <button
+          type="button"
+          aria-expanded={timelineOpen}
+          onClick={() => setTimelineOpen((value) => !value)}
+          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+        >
+          <h4 className="text-sm font-semibold">Timeline</h4>
+          <span className="text-xs text-muted-foreground">
+            {timeline.length}{' '}
+            {timeline.length === 1 ? 'actualización' : 'actualizaciones'}
+          </span>
+        </button>
+        {timelineOpen && (
+          <div className="space-y-3 border-t border-border/50 px-4 py-3">
+            {!timeline.length ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                Todavía no hay mediciones en la línea de tiempo.
+              </p>
+            ) : (
+              timeline.map((item) => {
+                const actor =
+                  users.find((user) => user.id === item.created_by)?.nombre ??
+                  'Usuario'
+                const initials = actor
+                  .split(/\s+/)
+                  .slice(0, 2)
+                  .map((part) => part[0]?.toUpperCase() ?? '')
+                  .join('')
+                const itemProgress = historicalProgress(item)
+                return (
+                  <article key={item.id} className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-background text-[10px] font-semibold uppercase text-muted-foreground ring-1 ring-border/60">
+                        {initials || '?'}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{actor}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {reportTimestamp(item.created_at)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-card p-3">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                        {metricText(item.value, item.unit_snapshot ?? unit)}
+                        {itemProgress != null
+                          ? ` · ${Math.round(itemProgress)}%`
                           : ''}
-                      </strong>
-                    </button>
-                  </li>
-                ))}
-            </ul>
-          </details>
-        </>
-      )}
-      <p className="text-xs text-muted-foreground">
-        Cada porcentaje conserva la meta vigente al registrar la medición. Los
-        datos sin meta histórica están disponibles como valores medidos.
-      </p>
+                      </span>
+                      <p className="mt-2 text-sm leading-relaxed text-foreground/90">
+                        {item.note?.trim() ||
+                          `Medición del ${reportDate(item.created_at.slice(0, 10))}.`}
+                      </p>
+                    </div>
+                  </article>
+                )
+              })
+            )}
+          </div>
+        )}
+      </section>
     </section>
   )
 }

@@ -138,7 +138,12 @@ export function UserDetailPage() {
 
       <UserHierarchySection user={user} users={orgUsers} />
 
-      <PasswordManagementCard userEmail={email ?? null} />
+      <PasswordManagementCard
+        usuarioId={user.id}
+        userNombre={user.nombre}
+        userEmail={email ?? null}
+        hasAuthAccount={Boolean(user.user_id)}
+      />
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent

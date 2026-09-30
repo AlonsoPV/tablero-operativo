@@ -6,6 +6,7 @@ import {
   CalendarRange,
   Check,
   CheckCircle2,
+  Crosshair,
   Target,
   TrendingDown,
   TrendingUp,
@@ -28,7 +29,7 @@ import {
 } from './model'
 
 const control =
-  'min-h-11 w-full min-w-0 rounded-lg border border-input bg-background px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm'
+  'min-h-11 w-full min-w-0 rounded-xl border border-border/70 bg-background px-3 py-2 text-base outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring sm:text-sm'
 
 const UNIT_PRESETS = [
   { value: '%', label: '%' },
@@ -70,6 +71,7 @@ function focusField(id: string) {
 export function EditorFrame({
   title,
   description,
+  icon: Icon,
   steps,
   children,
   footer,
@@ -78,6 +80,7 @@ export function EditorFrame({
 }: {
   title: string
   description: string
+  icon?: LucideIcon
   steps?: ReactNode
   children: ReactNode
   footer?: ReactNode
@@ -86,14 +89,23 @@ export function EditorFrame({
 }) {
   const body = (
     <>
-      <DialogHeader className="shrink-0 space-y-2 border-b px-5 py-3 pr-12 text-left">
+      <DialogHeader className="shrink-0 space-y-3 border-b border-border/50 px-5 py-4 pr-12 text-left">
         {steps}
-        <DialogTitle className="text-left text-lg leading-snug">
-          {title}
-        </DialogTitle>
-        <DialogDescription className="text-left text-sm leading-snug text-muted-foreground">
-          {description}
-        </DialogDescription>
+        <div className="flex items-start gap-3">
+          {Icon ? (
+            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
+              <Icon className="h-4 w-4 text-muted-foreground" aria-hidden />
+            </span>
+          ) : null}
+          <div className="min-w-0 space-y-1">
+            <DialogTitle className="text-left text-base font-semibold leading-snug tracking-tight sm:text-lg">
+              {title}
+            </DialogTitle>
+            <DialogDescription className="text-left text-xs leading-relaxed text-muted-foreground sm:text-sm">
+              {description}
+            </DialogDescription>
+          </div>
+        </div>
       </DialogHeader>
       <div
         className={cn(
@@ -104,7 +116,9 @@ export function EditorFrame({
         {children}
       </div>
       {footer ? (
-        <div className="shrink-0 border-t bg-card px-5 py-3">{footer}</div>
+        <div className="shrink-0 border-t border-border/50 bg-muted/20 px-5 py-3.5">
+          {footer}
+        </div>
       ) : null}
     </>
   )
@@ -127,7 +141,7 @@ function StepTracker({
   return (
     <ol
       aria-label="Pasos"
-      className="flex flex-wrap items-center gap-x-1 gap-y-2"
+      className="flex flex-wrap items-center gap-1.5 rounded-xl border border-border/60 bg-muted/30 p-1.5"
     >
       {labels.map((label, index) => {
         const step = index + 1
@@ -136,26 +150,26 @@ function StepTracker({
         return (
           <li
             key={label}
-            className="flex items-center gap-1.5"
+            className={cn(
+              'flex min-h-8 items-center gap-1.5 rounded-lg px-2.5 py-1',
+              active && 'bg-background shadow-sm'
+            )}
             aria-current={active ? 'step' : undefined}
           >
-            {index > 0 && (
-              <span className="mx-1 h-px w-4 bg-border" aria-hidden />
-            )}
             <span
               className={cn(
-                'flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold',
-                active && 'bg-primary text-primary-foreground',
-                done && 'bg-primary/15 text-primary',
+                'flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-semibold',
+                active && 'bg-foreground text-background',
+                done && 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
                 !active && !done && 'bg-muted text-muted-foreground'
               )}
             >
-              {done ? <Check className="h-3.5 w-3.5" aria-hidden /> : step}
+              {done ? <Check className="h-3 w-3" aria-hidden /> : step}
             </span>
             <span
               className={cn(
                 'text-xs font-medium',
-                !active && !done && 'text-muted-foreground'
+                active ? 'text-foreground' : 'text-muted-foreground'
               )}
             >
               {label}
@@ -172,28 +186,26 @@ function Section({
   title,
   hint,
   children,
-  divided,
 }: {
   icon: LucideIcon
   title: string
   hint?: string
   children: ReactNode
-  divided?: boolean
 }) {
   return (
-    <section
-      className={cn('space-y-3', divided && 'border-t border-border/60 pt-5')}
-    >
-      <div className="space-y-1">
-        <h3 className="flex items-center gap-2 text-sm font-semibold">
-          <Icon className="h-4 w-4 text-primary" aria-hidden />
-          {title}
-        </h3>
-        {hint ? (
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {hint}
-          </p>
-        ) : null}
+    <section className="space-y-3 rounded-2xl border border-border/70 bg-background p-3.5 shadow-sm sm:p-4">
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+          <Icon className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+        </span>
+        <div className="min-w-0 space-y-0.5">
+          <h3 className="text-sm font-semibold tracking-tight">{title}</h3>
+          {hint ? (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {hint}
+            </p>
+          ) : null}
+        </div>
       </div>
       {children}
     </section>
@@ -215,7 +227,7 @@ function Field({
 }) {
   return (
     <div className="grid min-w-0 gap-1.5">
-      <label htmlFor={id} className="text-sm font-medium">
+      <label htmlFor={id} className="text-sm font-medium tracking-tight">
         {label}
       </label>
       {children}
@@ -245,9 +257,12 @@ function FormFooter({
   primary: ReactNode
 }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       {error ? (
-        <p role="alert" className="text-sm text-destructive">
+        <p
+          role="alert"
+          className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
           {error}
         </p>
       ) : null}
@@ -279,14 +294,21 @@ function ChoiceCard({
       aria-checked={selected}
       onClick={onSelect}
       className={cn(
-        'flex min-h-[4.75rem] flex-col items-start gap-1 rounded-xl border p-3 text-left transition-colors',
+        'flex min-h-[4.75rem] flex-col items-start gap-2 rounded-2xl border p-3 text-left transition-all',
         selected
-          ? 'border-primary bg-primary/5 ring-1 ring-primary'
-          : 'hover:bg-muted/50'
+          ? 'border-border bg-muted/40 shadow-sm ring-1 ring-foreground/10'
+          : 'border-border/70 hover:border-border hover:bg-muted/25'
       )}
     >
-      <span className="flex items-center gap-2 text-sm font-semibold">
-        <Icon className="h-4 w-4 text-primary" aria-hidden />
+      <span className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+        <span
+          className={cn(
+            'flex h-7 w-7 items-center justify-center rounded-full',
+            selected ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground'
+          )}
+        >
+          <Icon className="h-3.5 w-3.5" aria-hidden />
+        </span>
         {title}
       </span>
       <span className="text-xs leading-snug text-muted-foreground">{hint}</span>
@@ -444,6 +466,7 @@ export function ObjectiveForm({
     <EditorFrame
       onSubmit={handleSubmit}
       saving={saving}
+      icon={Target}
       steps={
         editing ? undefined : (
           <StepTracker labels={['Objetivo', 'Periodo']} current={step} />
@@ -502,7 +525,7 @@ export function ObjectiveForm({
         />
       }
     >
-      <div className="space-y-5">
+      <div className="space-y-3">
         {(editing || step === 1) && (
           <Section
             icon={Target}
@@ -544,10 +567,19 @@ export function ObjectiveForm({
         )}
 
         {!editing && step === 2 && (
-          <p className="rounded-xl bg-muted/50 px-3 py-2 text-sm leading-snug">
-            <span className="text-muted-foreground">Objetivo · </span>
-            <span className="font-medium">{nombre.trim()}</span>
-          </p>
+          <div className="flex items-start gap-2.5 rounded-2xl border border-border/70 bg-muted/25 px-3.5 py-3">
+            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+              <Target className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Objetivo
+              </p>
+              <p className="mt-0.5 text-sm font-semibold leading-snug">
+                {nombre.trim()}
+              </p>
+            </div>
+          </div>
         )}
 
         {(editing || step === 2) && (
@@ -559,10 +591,9 @@ export function ObjectiveForm({
                 ? undefined
                 : 'Empresa lo ve toda la organización. Equipo lo limita a un área.'
             }
-            divided={editing}
           >
             {scopeLocked ? (
-              <div className="rounded-xl border bg-muted/40 p-3 text-sm">
+              <div className="rounded-xl border border-border/60 bg-muted/30 p-3 text-sm">
                 <p className="font-medium">
                   {scope === 'company' ? 'Empresa' : `Equipo · ${areaName}`}
                 </p>
@@ -633,7 +664,6 @@ export function ObjectiveForm({
             icon={CalendarRange}
             title="Periodo"
             hint="El inicio y el fin cuentan dentro del seguimiento."
-            divided
           >
             <Field
               id="okr-owner"
@@ -670,10 +700,10 @@ export function ObjectiveForm({
                   disabled={saving || !value}
                   onClick={() => value && setEndDate(value)}
                   className={cn(
-                    'rounded-full border px-3 text-xs font-medium',
+                    'min-h-8 rounded-lg border px-3 text-xs font-medium transition-colors',
                     value && endDate === value
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted/60'
+                      ? 'border-border bg-muted/50 text-foreground shadow-sm'
+                      : 'border-border/70 text-muted-foreground hover:bg-muted/40'
                   )}
                 >
                   {label}
@@ -718,7 +748,6 @@ export function ObjectiveForm({
             icon={Archive}
             title="Seguimiento"
             hint="Archivar conserva el historial y bloquea mediciones e iniciativas nuevas."
-            divided
           >
             <div
               role="radiogroup"
@@ -739,10 +768,10 @@ export function ObjectiveForm({
                   disabled={saving}
                   onClick={() => setActivo(value)}
                   className={cn(
-                    'rounded-xl border px-3 py-2 text-sm font-medium',
+                    'rounded-xl border px-3 py-2.5 text-sm font-medium transition-all',
                     activo === value
-                      ? 'border-primary bg-primary/5 text-foreground ring-1 ring-primary'
-                      : 'text-muted-foreground hover:bg-muted/50'
+                      ? 'border-border bg-muted/40 text-foreground shadow-sm ring-1 ring-foreground/10'
+                      : 'border-border/70 text-muted-foreground hover:bg-muted/25'
                   )}
                 >
                   {label}
@@ -769,17 +798,28 @@ function ObjectiveContext({
   return (
     <div
       className={cn(
-        'flex items-center gap-2.5 rounded-lg px-3 py-2',
-        saved ? 'bg-primary/5' : 'bg-muted/40'
+        'flex items-start gap-2.5 rounded-2xl border border-border/70 px-3.5 py-3',
+        saved ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-muted/25'
       )}
     >
-      <Icon className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+      <span
+        className={cn(
+          'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
+          saved
+            ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+            : 'bg-muted text-muted-foreground'
+        )}
+      >
+        <Icon className="h-3.5 w-3.5" aria-hidden />
+      </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium leading-snug">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          {saved ? 'Objetivo guardado' : 'Objetivo'}
+        </p>
+        <p className="mt-0.5 truncate text-sm font-semibold leading-snug">
           {objective.nombre_okr}
         </p>
-        <p className="text-xs text-muted-foreground">
-          {saved ? 'Objetivo guardado · ' : ''}
+        <p className="mt-0.5 text-xs text-muted-foreground">
           {objective.scope === 'company'
             ? 'Empresa'
             : `Equipo · ${areaName ?? 'Equipo'}`}
@@ -914,6 +954,7 @@ export function KeyResultForm({
   if (saved) {
     return (
       <EditorFrame
+        icon={CheckCircle2}
         title="Resultado clave listo"
         description="Ya puedes medirlo o sumar otro resultado al mismo objetivo."
         steps={
@@ -935,17 +976,19 @@ export function KeyResultForm({
           </div>
         }
       >
-        <div className="space-y-3 py-1 text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <div className="space-y-3 rounded-2xl border border-border/70 bg-background p-5 text-center shadow-sm">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
             <CheckCircle2 className="h-6 w-6" aria-hidden />
           </div>
           <div className="space-y-1">
-            <p className="break-words text-base font-semibold">{saved.title}</p>
+            <p className="break-words text-base font-semibold tracking-tight">
+              {saved.title}
+            </p>
             {saved.story ? (
               <p className="text-sm text-muted-foreground">{saved.story}</p>
             ) : null}
           </div>
-          <p className="text-sm leading-relaxed text-muted-foreground">
+          <p className="text-xs leading-relaxed text-muted-foreground sm:text-sm">
             El avance se calcula de la línea base a la meta. Las iniciativas no
             modifican ese porcentaje.
           </p>
@@ -960,6 +1003,7 @@ export function KeyResultForm({
     <EditorFrame
       onSubmit={(event) => void handleSubmit(event)}
       saving={saving}
+      icon={Crosshair}
       steps={
         followUp ? (
           <StepTracker
@@ -1009,23 +1053,35 @@ export function KeyResultForm({
           areaName={areaName}
           saved={followUp}
         />
-        <Field id="kr-title" label="Qué vas a medir" error={show('title')}>
-          <textarea
-            id="kr-title"
-            autoFocus
-            rows={2}
-            maxLength={250}
-            value={title}
-            disabled={saving}
-            aria-invalid={Boolean(show('title'))}
-            placeholder="Una frase comprobable, p. ej. Reducir el tiempo de entrega de 10 a 4 días"
-            className={cn(control, 'resize-y font-medium')}
-            onChange={(event) => setTitle(event.target.value)}
-          />
-        </Field>
-        <div className="space-y-3">
+
+        <Section
+          icon={Crosshair}
+          title="Resultado"
+          hint="Una frase comprobable. El número se define abajo."
+        >
+          <Field id="kr-title" label="Qué vas a medir" error={show('title')}>
+            <textarea
+              id="kr-title"
+              autoFocus
+              rows={2}
+              maxLength={250}
+              value={title}
+              disabled={saving}
+              aria-invalid={Boolean(show('title'))}
+              placeholder="Reducir el tiempo de entrega de 10 a 4 días"
+              className={cn(control, 'resize-y font-medium')}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </Field>
+        </Section>
+
+        <Section
+          icon={TrendingUp}
+          title="Métrica"
+          hint="Define unidad, línea base y meta para calcular el avance."
+        >
           <div>
-            <p className="mb-1.5 text-sm font-medium">Unidad</p>
+            <p className="mb-1.5 text-sm font-medium tracking-tight">Unidad</p>
             <div
               role="radiogroup"
               aria-label="Unidad de medida"
@@ -1045,10 +1101,10 @@ export function KeyResultForm({
                       setUnit(item.value)
                     }}
                     className={cn(
-                      '!min-h-9 h-9 rounded-full border px-3 text-sm font-medium',
+                      '!min-h-9 h-9 rounded-lg border px-3 text-sm font-medium transition-colors',
                       selected
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'text-muted-foreground hover:bg-muted/60'
+                        ? 'border-border bg-muted/50 text-foreground shadow-sm'
+                        : 'border-border/70 text-muted-foreground hover:bg-muted/40'
                     )}
                   >
                     {item.label}
@@ -1065,10 +1121,10 @@ export function KeyResultForm({
                   if (isPresetUnit(unit)) setUnit('')
                 }}
                 className={cn(
-                  '!min-h-9 h-9 rounded-full border px-3 text-sm font-medium',
+                  '!min-h-9 h-9 rounded-lg border px-3 text-sm font-medium transition-colors',
                   customUnit
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:bg-muted/60'
+                    ? 'border-border bg-muted/50 text-foreground shadow-sm'
+                    : 'border-border/70 text-muted-foreground hover:bg-muted/40'
                 )}
               >
                 Otra
@@ -1090,7 +1146,8 @@ export function KeyResultForm({
               </div>
             )}
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+
+          <div className="grid gap-3 sm:grid-cols-2">
             <Field id="kr-baseline" label="Línea base" error={show('baseline')}>
               <input
                 id="kr-baseline"
@@ -1119,49 +1176,29 @@ export function KeyResultForm({
                 onChange={(event) => setTarget(event.target.value)}
               />
             </Field>
-            <Field
-              id="kr-owner"
-              label="Quién da seguimiento"
-              error={show('owner')}
-            >
-              <select
-                id="kr-owner"
-                required
-                value={ownerId}
-                disabled={saving}
-                aria-invalid={Boolean(show('owner'))}
-                className={control}
-                onChange={(event) => setOwnerId(event.target.value)}
-              >
-                <option value="">Seleccionar</option>
-                {ownerId && !users.some((user) => user.id === ownerId) && (
-                  <option value={ownerId}>Responsable actual</option>
-                )}
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.nombre}
-                  </option>
-                ))}
-              </select>
-            </Field>
           </div>
+
           <p
             className={cn(
-              'flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm leading-snug',
+              'flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm leading-snug',
               story?.direction === 'same'
-                ? 'bg-destructive/10 text-destructive'
+                ? 'border-destructive/30 bg-destructive/10 text-destructive'
                 : story
-                  ? 'bg-primary/5 text-foreground'
-                  : 'bg-muted/40 text-muted-foreground'
+                  ? 'border-border/70 bg-muted/30 text-foreground'
+                  : 'border-border/60 bg-muted/20 text-muted-foreground'
             )}
             aria-live="polite"
           >
             {story && story.direction !== 'same' ? (
-              <TrendIcon className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+              <TrendIcon
+                className="h-4 w-4 shrink-0 text-muted-foreground"
+                aria-hidden
+              />
             ) : null}
             {story?.label ??
               'Completa línea base y meta para ver si el indicador sube o baja.'}
           </p>
+
           {editing && kr?.current_value != null && (
             <p className="text-xs leading-relaxed text-muted-foreground">
               Valor actual:{' '}
@@ -1172,7 +1209,39 @@ export function KeyResultForm({
               las mediciones.
             </p>
           )}
-        </div>
+        </Section>
+
+        <Section
+          icon={Users}
+          title="Responsable"
+          hint="Quién registra las mediciones de este resultado."
+        >
+          <Field
+            id="kr-owner"
+            label="Quién da seguimiento"
+            error={show('owner')}
+          >
+            <select
+              id="kr-owner"
+              required
+              value={ownerId}
+              disabled={saving}
+              aria-invalid={Boolean(show('owner'))}
+              className={control}
+              onChange={(event) => setOwnerId(event.target.value)}
+            >
+              <option value="">Seleccionar</option>
+              {ownerId && !users.some((user) => user.id === ownerId) && (
+                <option value={ownerId}>Responsable actual</option>
+              )}
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.nombre}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </Section>
       </div>
     </EditorFrame>
   )

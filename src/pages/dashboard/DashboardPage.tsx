@@ -39,6 +39,7 @@ import { DashboardUserLoginChartSection } from './components/DashboardUserLoginC
 import { DashboardRedUploadsByWeekSection } from './components/DashboardRedUploadsByWeekSection'
 import { DashboardFechaCompromisoChangesSection } from './components/DashboardFechaCompromisoChangesSection'
 import { DashboardExecutivePanel } from './components/DashboardExecutivePanel'
+import { BauDashboardOverview } from './components/BauDashboardOverview'
 // import { DashboardOperationalOkrSection } from './components/DashboardOperationalOkrSection'
 import { useOperationalDashboardMetrics } from './hooks/useOperationalDashboardMetrics'
 // import { useOperationalOKR } from './hooks/useOperationalOKR'
@@ -355,6 +356,7 @@ function BauDashboard({
           <DashboardHeader
             filtersExpanded={filtersExpanded}
             advancedFiltersActive={advancedFiltersActive}
+            title="Salud operativa"
             eyebrow={
               usesOperationalDashboard
                 ? 'Tablero operativo'
@@ -372,6 +374,15 @@ function BauDashboard({
             }
           />
         </section>
+
+        <BauDashboardOverview
+          metrics={executiveMetrics}
+          priorities={priorities}
+          responsableNames={responsableNames}
+          isLoading={isLoading || previousAccionesLoading}
+          onDrillDown={handleDrillDown}
+          onSelectAccion={handleSelectAccion}
+        />
 
         <section
           id="dashboard-section-metrics"

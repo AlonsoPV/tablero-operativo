@@ -3,7 +3,10 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   AlertTriangle,
+  ArrowUpRight,
+  BookOpen,
   CheckCircle2,
+  Columns3,
   Flame,
   Gauge,
   GraduationCap,
@@ -34,15 +37,28 @@ import {
   type ActionGamificationTone,
 } from '@/features/disciplina/utils/actionGamification'
 import { DisciplinaOperativoSection } from './components/DisciplinaOperativoSection'
+import { DisciplinaOverview } from './components/DisciplinaOverview'
 import { useAcademyProgress } from '@/features/academy'
 import { orgChartScoreService } from '@/features/disciplina/services/orgChartScore.service'
 
 const RECENT_CALENDAR_ITEMS_LIMIT = 6
 type MetricTone = 'neutral' | 'good' | 'warn' | 'risk'
+type WorkspaceTab = 'hoy' | 'score' | 'lectura'
+
+const WORKSPACE_TABS: {
+  id: WorkspaceTab
+  label: string
+  icon: typeof Columns3
+}[] = [
+  { id: 'hoy', label: 'Hoy', icon: Columns3 },
+  { id: 'score', label: 'Score', icon: Gauge },
+  { id: 'lectura', label: 'Lectura', icon: BookOpen },
+]
 
 export function DisciplinaPage() {
   const today = todayWallClockCDMX()
   const [fecha] = useState(today)
+  const [workspace, setWorkspace] = useState<WorkspaceTab>('hoy')
   const { data: currentUser } = useCurrentUser()
   const historyStart = useMemo(() => addCalendarDays(today, -90), [today])
   const {
@@ -137,58 +153,128 @@ export function DisciplinaPage() {
   )
   const loading = loadingActions || loadingComments || orgChartScoreLoading
   const hasError = actionsError
+  const next = nextAction(personalMetrics)
+  const NextIcon = next.icon
+  const activeRulesCount =
+    positiveRules.filter((rule) => rule.count > 0).length +
+    consequenceRules.filter((rule) => rule.count > 0).length
 
   return (
     <div
       id="disciplina-page"
-      className="disciplina-page mx-auto w-full max-w-7xl space-y-4 overflow-x-hidden px-3 py-4 sm:space-y-6 sm:px-6 sm:py-6"
+      className="disciplina-page mx-auto w-full max-w-7xl space-y-3 overflow-x-hidden px-3 py-4 sm:space-y-4 sm:px-6 sm:py-5"
     >
       <header
         id="disciplina-header"
-        className="disciplina-header overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm"
+        className="disciplina-header sticky top-0 z-20 overflow-hidden rounded-2xl border border-border/70 bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/90"
       >
-        <div className="grid gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4 md:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
-              <Gauge className="h-4 w-4 text-muted-foreground" aria-hidden />
-            </div>
+        <div className="flex flex-col gap-3 p-3 sm:p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Disciplina</p>
-              <h1 className="mt-0.5 text-xl font-semibold leading-snug tracking-tight text-foreground sm:text-2xl">
-                Tu disciplina operativa
+              <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight sm:text-xl">
+                <Gauge className="h-5 w-5 shrink-0 text-primary" aria-hidden />
+                Disciplina
               </h1>
-              <p className="mt-0.5 max-w-3xl text-xs leading-relaxed text-muted-foreground sm:text-sm">
+              <p className="mt-0.5 truncate text-xs text-muted-foreground sm:text-sm">
                 {heroStoryCopy(personalMetrics, blockedActions)}
               </p>
             </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button asChild size="sm" className="h-9">
+                <Link to={`${ROUTES.KANBAN}?fecha=${encodeURIComponent(fecha)}`}>
+                  Ir a Kanban
+                  <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
+                </Link>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9"
+                onClick={() => setWorkspace('hoy')}
+              >
+                <NextIcon className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                {next.title}
+              </Button>
+            </div>
           </div>
-          <div className="grid min-w-0 grid-cols-3 gap-1.5 sm:gap-2 lg:min-w-[420px]">
+
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
             <HeroMetric
               label="Cumplimiento"
               value={`${personalMetrics.fulfillmentPercent}%`}
-              helper="Ganado / posible"
+              helper={`${personalMetrics.earnedPoints}/${personalMetrics.possiblePoints} pts`}
               tone={personalMetrics.levelTone}
+              onClick={() => setWorkspace('score')}
             />
             <HeroMetric
-              label="Racha"
-              value={String(personalMetrics.participationStreak)}
-              helper={`Dia${personalMetrics.participationStreak === 1 ? '' : 's'} de cadencia`}
+              label="Hoy"
+              value={String(todayOwnedActions.length)}
+              helper={
+                todayBlockedActions > 0
+                  ? `${todayBlockedActions} bloqueada${todayBlockedActions === 1 ? '' : 's'}`
+                  : 'acciones'
+              }
+              tone={todayBlockedActions > 0 ? 'warning' : 'neutral'}
+              onClick={() => setWorkspace('hoy')}
             />
             <HeroMetric
               label="Retrasos"
               value={String(personalMetrics.overdue)}
-              helper="Riesgo"
+              helper={`Racha ${personalMetrics.participationStreak}d`}
               tone={personalMetrics.overdue > 0 ? 'negative' : 'neutral'}
+              onClick={() => setWorkspace('score')}
             />
+          </div>
+
+          <div
+            className="grid grid-cols-3 gap-1 rounded-xl border border-border/60 bg-muted/25 p-1"
+            role="tablist"
+            aria-label="Espacios de Disciplina"
+          >
+            {WORKSPACE_TABS.map((tab) => {
+              const Icon = tab.icon
+              const selected = workspace === tab.id
+              const badge =
+                tab.id === 'hoy'
+                  ? todayOwnedActions.length
+                  : tab.id === 'score'
+                    ? personalMetrics.fulfillmentPercent
+                    : activeRulesCount
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  className={cn(
+                    'flex min-h-10 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition-colors sm:text-sm',
+                    selected
+                      ? 'bg-background text-foreground shadow-sm ring-1 ring-border/60'
+                      : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'
+                  )}
+                  onClick={() => setWorkspace(tab.id)}
+                >
+                  <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  {tab.label}
+                  <span className="rounded-full bg-muted px-1.5 py-px text-[10px] tabular-nums text-muted-foreground">
+                    {badge}
+                    {tab.id === 'score' ? '%' : ''}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         </div>
       </header>
 
       {hasError ? (
         <SectionCard>
-          <SectionCardBody className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4 md:p-6">
+          <SectionCardBody className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">No se pudo cargar tu información operativa.</p>
+              <p className="text-sm font-semibold text-foreground">
+                No se pudo cargar tu información operativa.
+              </p>
               <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground sm:text-sm">
                 Puedes reintentar sin salir de Disciplina.
               </p>
@@ -196,7 +282,7 @@ export function DisciplinaPage() {
             <Button
               variant="outline"
               size="sm"
-              className="h-9 w-full shrink-0 rounded-lg text-xs sm:w-auto sm:text-sm"
+              className="h-9 w-full shrink-0 text-xs sm:w-auto sm:text-sm"
               onClick={() => {
                 void retryActions()
                 if (commentsError) void retryComments()
@@ -210,50 +296,77 @@ export function DisciplinaPage() {
       ) : null}
 
       {loading ? (
-        <div className="grid gap-4 sm:gap-6">
-          <SkeletonBlock className="h-64 sm:h-72" />
-          <SkeletonBlock className="h-56 sm:h-72" />
+        <div className="space-y-3">
+          <SkeletonBlock className="h-40" />
+          <SkeletonBlock className="h-56" />
         </div>
       ) : currentUser ? (
-        <div className="grid gap-4 sm:gap-6">
-          <DisciplinaOperativoSection
-            fecha={fecha}
-            usuarioId={currentUser.id}
-            accionesCount={todayOwnedActions.length}
-            accionesBloqueadas={todayBlockedActions}
-            reminders={recentReminders}
-            notes={recentNotes}
-            remindersLoading={remindersLoading}
-            notesLoading={notesLoading}
-            remindersError={remindersError}
-            notesError={notesError}
-          />
+        <div className="min-w-0">
+          {workspace === 'hoy' ? (
+            <DisciplinaOperativoSection
+              fecha={fecha}
+              usuarioId={currentUser.id}
+              accionesCount={todayOwnedActions.length}
+              accionesBloqueadas={todayBlockedActions}
+              reminders={recentReminders}
+              notes={recentNotes}
+              remindersLoading={remindersLoading}
+              notesLoading={notesLoading}
+              remindersError={remindersError}
+              notesError={notesError}
+            />
+          ) : null}
 
-          <section id="disciplina-indicadores" aria-labelledby="disciplina-acciones-heading">
-            <SectionCard className="h-full">
-              <SectionCardHeader
-                className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
-                titleId="disciplina-acciones-heading"
-                eyebrow="Disciplina"
-                title="Tu cumplimiento explicado como historia"
-                subtitle="Primero la lectura, luego la causa y al final el siguiente movimiento recomendado."
-                icon={Target}
-              />
-              <SectionCardBody className="space-y-3 p-3 sm:space-y-4 sm:p-4 md:p-6">
-                <DisciplinaScoreExplained
-                  metrics={personalMetrics}
-                  positiveRules={positiveRules}
-                  consequenceRules={consequenceRules}
+          {workspace === 'score' ? (
+            <DisciplinaOverview
+              metrics={personalMetrics}
+              nextActionTitle={next.title}
+              nextActionText={next.text}
+              onOpenHoy={() => setWorkspace('hoy')}
+            />
+          ) : null}
+
+          {workspace === 'lectura' ? (
+            <section
+              id="disciplina-indicadores"
+              aria-labelledby="disciplina-acciones-heading"
+            >
+              <SectionCard>
+                <SectionCardHeader
+                  titleId="disciplina-acciones-heading"
+                  title="Cómo se lee tu cumplimiento"
+                  subtitle="Lectura, impacto y siguiente movimiento."
+                  icon={Target}
+                  action={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      onClick={() => setWorkspace('hoy')}
+                    >
+                      Volver a Hoy
+                    </Button>
+                  }
                 />
-              </SectionCardBody>
-            </SectionCard>
-          </section>
+                <SectionCardBody className="space-y-4 p-4 sm:p-5">
+                  <DisciplinaScoreExplained
+                    metrics={personalMetrics}
+                    positiveRules={positiveRules}
+                    consequenceRules={consequenceRules}
+                  />
+                </SectionCardBody>
+              </SectionCard>
+            </section>
+          ) : null}
         </div>
       ) : (
         <SectionCard>
-          <SectionCardBody className="p-3 sm:p-4 md:p-6">
-            <div className="rounded-lg border border-dashed border-border/60 bg-muted/20 px-4 py-8 text-center">
-              <p className="text-sm font-medium text-foreground">Inicia sesion para ver tu disciplina operativa.</p>
+          <SectionCardBody className="p-4 sm:p-5">
+            <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-8 text-center">
+              <p className="text-sm font-medium text-foreground">
+                Inicia sesión para ver tu disciplina operativa.
+              </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Tu cumplimiento, racha y retrasos se calculan con tus acciones.
               </p>
@@ -274,26 +387,43 @@ function HeroMetric({
   value,
   helper,
   tone = 'neutral',
+  onClick,
 }: {
   label: string
   value: string
   helper?: string
   tone?: ActionGamificationTone
+  onClick?: () => void
 }) {
-  return (
-    <div
-      className={cn(
-        'flex flex-col justify-center rounded-lg border px-2 py-2 sm:px-3 sm:py-2.5',
-        toneSurface(scoreToneToMetricTone(tone))
-      )}
-    >
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-0.5 text-xl font-semibold leading-none tracking-tight tabular-nums text-foreground sm:text-2xl">
+  const className = cn(
+    'flex flex-col justify-center rounded-xl border px-2.5 py-2 text-left sm:px-3 sm:py-2.5',
+    toneSurface(scoreToneToMetricTone(tone)),
+    onClick &&
+      'cursor-pointer outline-none transition-colors hover:bg-background/70 focus-visible:ring-2 focus-visible:ring-ring'
+  )
+  const content = (
+    <>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-0.5 text-lg font-semibold leading-none tracking-tight tabular-nums text-foreground sm:text-xl">
         {value}
       </p>
-      {helper ? <p className="mt-1 text-[10px] leading-tight text-muted-foreground">{helper}</p> : null}
-    </div>
+      {helper ? (
+        <p className="mt-1 truncate text-[10px] leading-tight text-muted-foreground">
+          {helper}
+        </p>
+      ) : null}
+    </>
   )
+  if (onClick) {
+    return (
+      <button type="button" className={className} onClick={onClick}>
+        {content}
+      </button>
+    )
+  }
+  return <div className={className}>{content}</div>
 }
 
 function DisciplinaScoreExplained({
@@ -328,27 +458,30 @@ function ScoreSectionLabel({
 }: {
   step: string
   title: string
-  /** Para `aria-labelledby` en la sección contenedora. */
   titleId?: string
   subtitle?: string
-  /** Cifra de referencia alineada a la derecha del encabezado. */
   meta?: string
 }) {
   return (
-    <div className="mb-2 flex items-start gap-3">
-      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-bold text-muted-foreground">
+    <div className="mb-2 flex items-center gap-2.5">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
         {step}
       </span>
       <div className="min-w-0 flex-1">
-        <h3 id={titleId} className="text-[15px] font-semibold leading-snug text-foreground sm:text-base">
+        <h3
+          id={titleId}
+          className="text-sm font-semibold leading-snug tracking-tight text-foreground sm:text-[15px]"
+        >
           {title}
         </h3>
         {subtitle ? (
-          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground sm:text-sm">{subtitle}</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+            {subtitle}
+          </p>
         ) : null}
       </div>
       {meta ? (
-        <span className="mt-0.5 shrink-0 rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-xs font-medium tabular-nums text-foreground">
+        <span className="shrink-0 rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-xs font-medium tabular-nums text-foreground">
           {meta}
         </span>
       ) : null}
@@ -863,7 +996,14 @@ function NextActionPanel({ metrics }: { metrics: PersonalMetrics }) {
 }
 
 function SkeletonBlock({ className }: { className?: string }) {
-  return <div className={cn('h-64 animate-pulse rounded-xl border border-border/60 bg-muted/20', className)} />
+  return (
+    <div
+      className={cn(
+        'h-64 animate-pulse rounded-2xl border border-border/70 bg-muted/20',
+        className
+      )}
+    />
+  )
 }
 
 function toneSurface(tone: MetricTone) {

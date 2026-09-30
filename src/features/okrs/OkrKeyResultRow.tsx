@@ -1,4 +1,11 @@
-import { History, Link2, MoreHorizontal, Pencil } from 'lucide-react'
+import { useState } from 'react'
+import {
+  ChevronRight,
+  History,
+  Link2,
+  MoreHorizontal,
+  Pencil,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -6,23 +13,24 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { cn } from '@/lib/utils'
 import {
-  formatMetric,
   krProgress,
   type ActionOption,
+  type CheckIn,
   type Initiative,
   type KeyResult,
   type Objective,
 } from './model'
-import type { CheckIn } from './model'
 import { measurementLabel, measurementsFor } from './reporting'
 import { LinkedInitiativeRow } from './OkrInitiativeVisuals'
 import {
-  KrTrajectory,
+  ProgressBar,
+  StatusSquare,
   lastMeasurementCaption,
-  measurementHeadline,
   metricText,
-  remainingToTargetCopy,
+  progressTone,
+  toneTextClass,
 } from './okrPresentation'
 
 export function OkrKeyResultRow({
@@ -34,6 +42,7 @@ export function OkrKeyResultRow({
   actionsPending,
   actionsError,
   busy,
+  tree,
   onCheckIn,
   onEdit,
   onHistory,
@@ -48,12 +57,15 @@ export function OkrKeyResultRow({
   actionsPending: boolean
   actionsError: boolean
   busy: boolean
+  /** Draw hierarchy connectors under an objective. */
+  tree?: boolean
   onCheckIn: () => void
   onEdit: () => void
   onHistory: () => void
   onLink: () => void
   onUnlink: (id: string) => void
 }) {
+  const [open, setOpen] = useState(false)
   const links = initiatives.filter((item) => item.key_result_id === kr.id)
   const linked = links.map((link) => ({
     link,
@@ -66,191 +78,222 @@ export function OkrKeyResultRow({
   const unknown = linked.some((item) => !item.action)
   const manual = kr.metric_type.startsWith('manual:')
   const progress = krProgress(kr)
+  const tone = progressTone(progress)
   const history = measurementsFor(checkIns, kr.id)
   const lastCheck = measurementLabel(kr, history)
   const canEdit = objective.can_manage && objective.activo && manual
-  const storyLabel = measurementHeadline(
-    kr.baseline_value,
-    kr.target_value,
-    kr.unit
-  )
-  const remaining = remainingToTargetCopy(kr)
-  const updated = lastMeasurementCaption(lastCheck)
-  const showStory =
-    Boolean(storyLabel) &&
-    kr.baseline_value != null &&
-    kr.target_value != null &&
-    !(
-      kr.title.includes(formatMetric(kr.baseline_value)) &&
-      kr.title.includes(formatMetric(kr.target_value))
-    )
+  const currentLabel = metricText(kr.current_value, kr.unit)
 
   return (
-    <section className="min-w-0 rounded-xl border border-border/60 bg-muted/20 p-3 sm:p-3.5">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-2">
-            <span className="mt-0.5 inline-flex shrink-0 items-center rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-primary">
-              KR
-            </span>
-            <h3 className="min-w-0 text-[15px] font-semibold leading-snug">
-              {kr.title}
-            </h3>
-          </div>
-          <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-            {showStory ? (
-              <p className="min-w-0 text-[13px] leading-snug text-muted-foreground">
-                {storyLabel}
-              </p>
-            ) : (
-              <span />
+    <section className={cn(tree && 'relative pl-6 sm:pl-8')}>
+      {tree ? (
+        <>
+          <span
+            aria-hidden
+            className="absolute bottom-0 left-3 top-0 w-px bg-border sm:left-4"
+          />
+          <span
+            aria-hidden
+            className="absolute left-3 top-5 h-px w-3 bg-border sm:left-4 sm:w-4"
+          />
+        </>
+      ) : null}
+
+      <div className="flex min-w-0 items-center gap-2 rounded-lg px-1 py-2.5 hover:bg-muted/40 sm:gap-3 sm:px-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={open ? 'Ocultar detalle del KR' : 'Ver detalle del KR'}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => setOpen((value) => !value)}
+        >
+          <ChevronRight
+            className={cn(
+              'h-4 w-4 transition-transform',
+              open && 'rotate-90'
             )}
-            <p className="shrink-0 text-[13px] tabular-nums text-muted-foreground">
-              <span className="font-semibold text-foreground">
-                {Math.round(progress)}%
-              </span>{' '}
-              avance
+            aria-hidden
+          />
+        </button>
+
+        <StatusSquare tone={tone} />
+
+        <button
+          type="button"
+          className="min-w-0 flex-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => setOpen((value) => !value)}
+        >
+          <p className="truncate text-sm font-medium leading-snug sm:text-[15px]">
+            {kr.title}
+          </p>
+        </button>
+
+        <div className="hidden shrink-0 items-center gap-3 sm:flex">
+          <span
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-[10px] font-semibold uppercase text-muted-foreground"
+            title="Dueño del KR"
+            aria-hidden
+          >
+            KR
+          </span>
+          <div className="w-36 min-w-0">
+            <p
+              className={cn(
+                'truncate text-right text-xs font-semibold tabular-nums',
+                toneTextClass(tone)
+              )}
+            >
+              {currentLabel}
             </p>
+            <div className="mt-1">
+              <ProgressBar
+                value={progress}
+                label={`Avance de ${kr.title}`}
+                size="sm"
+                tone={tone}
+              />
+            </div>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
-          {kr.can_update && manual && (
+
+        <div className="flex shrink-0 items-center gap-0.5 sm:hidden">
+          <span
+            className={cn(
+              'text-xs font-semibold tabular-nums',
+              toneTextClass(tone)
+            )}
+          >
+            {Math.round(progress)}%
+          </span>
+        </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
             <Button
-              size="sm"
-              variant="outline"
-              className="h-9 px-2.5 text-[13px] font-medium"
-              onClick={onCheckIn}
+              size="icon"
+              variant="ghost"
+              className="h-9 w-9 shrink-0"
+              aria-label={`Más acciones de ${kr.title}`}
             >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {kr.can_update && manual && (
+              <DropdownMenuItem onClick={onCheckIn}>
+                Actualizar avance
+              </DropdownMenuItem>
+            )}
+            {canEdit && (
+              <DropdownMenuItem onClick={onEdit}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Editar
+              </DropdownMenuItem>
+            )}
+            {kr.can_update && (
+              <DropdownMenuItem onClick={onLink}>
+                <Link2 className="mr-2 h-4 w-4" />
+                Vincular iniciativa
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={onHistory}>
+              <History className="mr-2 h-4 w-4" />
+              Ver historial
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {open && (
+        <div className="mb-2 ml-8 space-y-3 rounded-xl border border-border/60 bg-muted/20 p-3 sm:ml-10 sm:p-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <p className="text-xs text-muted-foreground">Actual</p>
+              <p className="mt-0.5 text-base font-semibold tabular-nums">
+                {metricText(kr.current_value, kr.unit)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Meta</p>
+              <p className="mt-0.5 text-base font-semibold tabular-nums">
+                {metricText(kr.target_value, kr.unit)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Avance</p>
+              <p className="mt-0.5 text-base font-semibold tabular-nums">
+                {Math.round(progress)}%
+              </p>
+            </div>
+          </div>
+          <ProgressBar
+            value={progress}
+            label={`Avance de ${kr.title}`}
+            tone={tone}
+          />
+          <p className="text-xs text-muted-foreground">
+            {lastMeasurementCaption(lastCheck)}
+          </p>
+          {kr.can_update && manual && (
+            <Button size="sm" variant="outline" onClick={onCheckIn}>
               Actualizar avance
             </Button>
           )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-9 w-9"
-                aria-label={`Más acciones de ${kr.title}`}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {canEdit && (
-                <DropdownMenuItem onClick={onEdit}>
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Editar
-                </DropdownMenuItem>
-              )}
+
+          <div className="rounded-lg border border-dashed border-border/80 bg-background/80 px-2.5 py-2">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <Link2 className="h-3.5 w-3.5" aria-hidden />
+                Iniciativas
+                {links.length > 0 ? ` · ${links.length}` : ''}
+              </p>
               {kr.can_update && (
-                <DropdownMenuItem onClick={onLink}>
-                  <Link2 className="mr-2 h-4 w-4" />
-                  Vincular iniciativa
-                </DropdownMenuItem>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-xs"
+                  onClick={onLink}
+                >
+                  Vincular
+                </Button>
               )}
-              <DropdownMenuItem onClick={onHistory}>
-                <History className="mr-2 h-4 w-4" />
-                Ver historial
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-
-      <div className="mt-2.5 flex items-start justify-between gap-6">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Actual
-          </p>
-          <p className="mt-0.5 text-lg font-semibold tabular-nums tracking-tight">
-            {metricText(kr.current_value, kr.unit)}
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Meta
-          </p>
-          <p className="mt-0.5 text-lg font-semibold tabular-nums tracking-tight">
-            {metricText(kr.target_value, kr.unit)}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-2.5">
-        <KrTrajectory
-          baseline={kr.baseline_value}
-          current={kr.current_value}
-          target={kr.target_value}
-          unit={kr.unit}
-          progress={progress}
-          title={kr.title}
-          history={history}
-        />
-      </div>
-
-      {remaining && (
-        <p className="mt-2 text-[13px] leading-snug text-foreground/80">
-          {remaining}
-        </p>
-      )}
-      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground sm:text-[13px]">
-        {updated}
-      </p>
-
-      <div className="mt-3 rounded-lg border border-dashed border-border/80 bg-background/80 px-2.5 py-2">
-        <div className="mb-1.5 flex items-center justify-between gap-2">
-          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            <Link2 className="h-3.5 w-3.5" aria-hidden />
-            Iniciativas
-            {links.length > 0 ? ` · ${links.length}` : ''}
-          </p>
-          {kr.can_update && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-8 px-2 text-xs"
-              onClick={onLink}
-            >
-              <Link2 className="mr-1 h-3.5 w-3.5" />
-              Vincular
-            </Button>
-          )}
-        </div>
-        {actionsPending && links.length > 0 && (
-          <p className="mb-1.5 text-xs text-muted-foreground">
-            Cargando estado de las iniciativas…
-          </p>
-        )}
-        {actionsError && links.length > 0 && (
-          <p className="mb-1.5 text-xs text-muted-foreground">
-            No se pudo actualizar el estado de las iniciativas.
-          </p>
-        )}
-        {unknown && (
-          <p className="mb-1.5 text-xs text-muted-foreground">
-            Hay acciones sin acceso; no se calcula un porcentaje parcial.
-          </p>
-        )}
-        {links.length > 0 ? (
-          <div className="space-y-1.5">
-            {linked.map(({ link, action }) => (
-              <LinkedInitiativeRow
-                key={link.id}
-                action={action}
-                busy={busy}
-                canUnlink={kr.can_update}
-                onUnlink={() => onUnlink(link.id)}
-              />
-            ))}
+            </div>
+            {actionsPending && links.length > 0 && (
+              <p className="mb-1.5 text-xs text-muted-foreground">
+                Cargando estado de las iniciativas…
+              </p>
+            )}
+            {actionsError && links.length > 0 && (
+              <p className="mb-1.5 text-xs text-muted-foreground">
+                No se pudo actualizar el estado de las iniciativas.
+              </p>
+            )}
+            {unknown && (
+              <p className="mb-1.5 text-xs text-muted-foreground">
+                Hay acciones sin acceso; no se calcula un porcentaje parcial.
+              </p>
+            )}
+            {links.length > 0 ? (
+              <div className="space-y-1.5">
+                {linked.map(({ link, action }) => (
+                  <LinkedInitiativeRow
+                    key={link.id}
+                    action={action}
+                    busy={busy}
+                    canUnlink={kr.can_update}
+                    onUnlink={() => onUnlink(link.id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="px-0.5 py-1.5 text-xs leading-relaxed text-muted-foreground">
+                Todavía no hay iniciativas vinculadas a este resultado.
+              </p>
+            )}
           </div>
-        ) : (
-          <p className="px-0.5 py-1.5 text-xs leading-relaxed text-muted-foreground sm:text-[13px]">
-            Todavía no hay iniciativas. Vincula una acción del Kanban para
-            mostrar el trabajo que mueve este resultado.
-          </p>
-        )}
-      </div>
+        </div>
+      )}
     </section>
   )
 }

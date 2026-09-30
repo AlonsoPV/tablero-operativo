@@ -1,9 +1,6 @@
 /**
  * Servicio de administración de usuarios (tabla usuarios).
- * Gestiona perfiles; no maneja contraseñas (auth.users).
- *
- * Alta: `create` → Edge Function `invite-user` (service role) → `auth.admin.createUser`
- * + trigger `handle_new_user` → fila en `public.usuarios`. Contraseñas solo en Supabase Auth.
+ * Contraseñas solo en Auth: `invite-user` (alta) y `admin-set-password` (reset desde admin).
  */
 
 import { supabase } from '@/lib/supabase/client'
@@ -12,6 +9,7 @@ import type { UserProfile, CreateUserInput, UpdateUserInput, UsersFilter } from 
 const TABLE = 'usuarios'
 
 type InviteUserResponseBody = { ok?: boolean; message?: string; profile?: UserProfile | null }
+type AdminSetPasswordResponseBody = { ok?: boolean; message?: string }
 
 function isUnauthorizedListError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
@@ -301,6 +299,46 @@ function mapInviteUserFacingMessage(raw: string): string {
   return m
 }
 
+function mapSetPasswordUserFacingMessage(raw: string): string {
+  const m = raw.trim()
+  if (m === 'No autorizado' || m === 'Sesión inválida' || m === 'Sesion invalida') {
+    return 'Tu sesión caducó o no tienes permiso. Vuelve a iniciar sesión e inténtalo de nuevo.'
+  }
+  if (m === 'Solo administradores pueden cambiar contraseñas de usuarios') {
+    return 'Solo quienes administran la plataforma pueden cambiar contraseñas de otras personas.'
+  }
+  if (m === 'No se pudo validar permisos' || m === 'Faltan credenciales de Supabase') {
+    return 'No pudimos completar el cambio por un fallo del servidor. Inténtalo más tarde.'
+  }
+  return m
+}
+
+async function parseSetPasswordFunctionError(
+  error: Error,
+  data: AdminSetPasswordResponseBody | null
+): Promise<string> {
+  if (data && typeof data.message === 'string' && data.message.trim()) {
+    return mapSetPasswordUserFacingMessage(data.message)
+  }
+  const ctx = (error as { context?: Response }).context
+  if (ctx && typeof ctx.json === 'function') {
+    try {
+      const body: unknown = await ctx.json()
+      if (
+        body &&
+        typeof body === 'object' &&
+        'message' in body &&
+        typeof (body as { message: string }).message === 'string'
+      ) {
+        return mapSetPasswordUserFacingMessage((body as { message: string }).message)
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return mapSetPasswordUserFacingMessage(error.message || 'No pudimos actualizar la contraseña')
+}
+
 async function parseInviteFunctionError(
   error: Error,
   data: InviteUserResponseBody | null
@@ -507,5 +545,23 @@ export const usersAdminService = {
       return this.getById(profile.id)
     }
     return profile
+  },
+
+  /**
+   * Asigna una contraseña nueva en Auth. Requiere permiso de invitación (admin).
+   * El valor no se guarda en `public.usuarios`.
+   */
+  async setPassword(usuarioId: string, password: string): Promise<void> {
+    const { data, error } = await supabase.functions.invoke<AdminSetPasswordResponseBody>(
+      'admin-set-password',
+      { body: { usuario_id: usuarioId, password } }
+    )
+
+    if (error) {
+      throw new Error(await parseSetPasswordFunctionError(error, data ?? null))
+    }
+    if (data && data.ok === false && typeof data.message === 'string') {
+      throw new Error(mapSetPasswordUserFacingMessage(data.message))
+    }
   },
 }

@@ -1,100 +1,160 @@
-import { Gauge, ListChecks, Target, TriangleAlert } from 'lucide-react'
+import { Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { ProgressBar } from './okrPresentation'
+import {
+  RingProgress,
+  calendarDaysBetween,
+  progressTone,
+  type ProgressTone,
+} from './okrPresentation'
+
+type Metric = {
+  value: string
+  label: string
+  hint?: string
+  ring: number
+  tone: ProgressTone
+  segments?: { value: number; tone: ProgressTone }[]
+}
 
 export function OkrExecutionSummary({
-  activeObjectives,
+  daysLeft,
+  timelineProgress,
   averageProgress,
-  activeKeyResults,
-  needsAttention,
+  initiativesDone,
+  initiativesTotal,
+  onTrackShare,
 }: {
-  activeObjectives: number
+  daysLeft: number | null
+  timelineProgress: number | null
   averageProgress: number | null
-  activeKeyResults: number
-  needsAttention: number
+  initiativesDone: number
+  initiativesTotal: number
+  /** 0–100 share of KRs that are on track (>=70%). */
+  onTrackShare: number | null
 }) {
-  const averageLabel =
-    averageProgress == null ? '—' : `${Math.round(averageProgress)}%`
-  const items = [
+  const krTone =
+    averageProgress == null ? 'muted' : progressTone(averageProgress)
+  const initiativePct =
+    initiativesTotal > 0
+      ? (initiativesDone / initiativesTotal) * 100
+      : 0
+  const confidence = onTrackShare ?? 0
+  const atRisk = Math.max(0, 100 - confidence)
+
+  const items: Metric[] = [
     {
-      value: String(activeObjectives),
-      label: 'Objetivos activos',
-      icon: Target,
-      attention: false,
-      progress: null as number | null,
+      value:
+        daysLeft == null
+          ? '—'
+          : daysLeft <= 0
+            ? 'Finalizado'
+            : `${daysLeft} ${daysLeft === 1 ? 'día' : 'días'}`,
+      label: 'Cronograma',
+      ring: timelineProgress ?? 0,
+      tone: 'primary',
     },
     {
-      value: averageLabel,
-      label: 'Avance promedio',
-      icon: Gauge,
-      attention: false,
-      progress: averageProgress,
+      value:
+        averageProgress == null ? '—' : `${Math.round(averageProgress)}%`,
+      label: 'Resultados clave',
+      ring: averageProgress ?? 0,
+      tone: krTone === 'muted' ? 'primary' : krTone,
     },
     {
-      value: String(activeKeyResults),
-      label: 'KRs activos',
-      icon: ListChecks,
-      attention: false,
-      progress: null,
+      value: `${initiativesDone}/${initiativesTotal}`,
+      label: 'Iniciativas',
+      ring: initiativePct,
+      tone: 'primary',
     },
     {
-      value: String(needsAttention),
-      label: 'Requieren atención',
-      icon: TriangleAlert,
-      attention: needsAttention > 0,
-      progress: null,
+      value:
+        onTrackShare == null ? '—' : `${Math.round(onTrackShare)}%`,
+      label: 'Confianza',
+      hint: 'Porcentaje de KRs en buen ritmo (≥70% de avance).',
+      ring: confidence,
+      tone: progressTone(confidence),
+      segments:
+        onTrackShare == null
+          ? undefined
+          : [
+              { value: confidence, tone: 'success' },
+              { value: atRisk, tone: 'warning' },
+            ],
     },
   ]
 
   return (
-    <section aria-label="Resumen de objetivos" className="grid grid-cols-2 sm:grid-cols-4">
-      {items.map((item, index) => {
-        const Icon = item.icon
-        return (
+    <section aria-label="Detalle del plan" className="space-y-4 px-4 py-4 sm:px-5 sm:py-5">
+      <h2 className="text-base font-semibold tracking-tight sm:text-lg">
+        Detalle del plan
+      </h2>
+      <div className="grid grid-cols-2 sm:grid-cols-4">
+        {items.map((item, index) => (
           <div
             key={item.label}
             className={cn(
-              'min-w-0 px-4 py-3.5 sm:px-5 sm:py-4',
-              index % 2 === 1 && 'border-l border-border/50',
-              index >= 2 && 'border-t border-border/50 sm:border-t-0',
+              'flex min-w-0 items-center justify-between gap-3 px-1 py-3 sm:px-3 sm:py-1',
+              index % 2 === 1 && 'border-l border-border/60',
+              index >= 2 && 'border-t border-border/60 sm:border-t-0',
               index > 0 && 'sm:border-l'
             )}
           >
-            <div className="flex items-start justify-between gap-2">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {item.label}
+            <div className="min-w-0">
+              <p className="truncate text-lg font-semibold tabular-nums tracking-tight sm:text-xl">
+                {item.value}
               </p>
-              <span
-                className={cn(
-                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-                  item.attention
-                    ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                    : 'bg-primary/10 text-primary'
-                )}
-              >
-                <Icon className="h-4 w-4" aria-hidden />
-              </span>
+              <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                {item.label}
+                {item.hint ? (
+                  <span title={item.hint} className="inline-flex">
+                    <Info className="h-3 w-3" aria-hidden />
+                    <span className="sr-only">{item.hint}</span>
+                  </span>
+                ) : null}
+              </p>
             </div>
-            <p
-              className={cn(
-                'mt-2 text-2xl font-semibold tabular-nums tracking-tight sm:text-[1.65rem]',
-                item.attention && 'text-amber-700 dark:text-amber-300'
-              )}
-            >
-              {item.value}
-            </p>
-            {item.progress != null && (
-              <div className="mt-2.5">
-                <ProgressBar
-                  value={item.progress}
-                  label="Avance promedio"
-                  size="sm"
-                />
-              </div>
-            )}
+            <RingProgress
+              value={item.ring}
+              label={`${item.label}: ${Math.round(item.ring)}%`}
+              tone={item.tone}
+              segments={item.segments}
+            />
           </div>
-        )
-      })}
+        ))}
+      </div>
     </section>
   )
+}
+
+/** Days left and elapsed ratio across the nearest active objective end date. */
+export function planTimelineMetrics(
+  objectives: {
+    activo: boolean
+    start_date: string | null
+    end_date: string | null
+  }[],
+  today: string
+) {
+  const active = objectives.filter(
+    (o) =>
+      o.activo &&
+      o.start_date &&
+      o.end_date &&
+      o.start_date <= today &&
+      o.end_date >= today
+  )
+  if (!active.length) {
+    return { daysLeft: null as number | null, timelineProgress: null as number | null }
+  }
+  const nearest = [...active].sort((a, b) =>
+    (a.end_date ?? '').localeCompare(b.end_date ?? '')
+  )[0]
+  const daysLeft = calendarDaysBetween(today, nearest.end_date!)
+  const span = calendarDaysBetween(nearest.start_date!, nearest.end_date!)
+  const elapsed = calendarDaysBetween(nearest.start_date!, today)
+  const timelineProgress =
+    span != null && span > 0 && elapsed != null
+      ? Math.max(0, Math.min(100, (elapsed / span) * 100))
+      : null
+  return { daysLeft, timelineProgress }
 }

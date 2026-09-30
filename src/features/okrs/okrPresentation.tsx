@@ -105,14 +105,53 @@ function isPercentUnit(unit: string) {
   return value === '%' || value === 'pp' || value === 'porcentaje'
 }
 
+export type ProgressTone = 'primary' | 'success' | 'warning' | 'danger' | 'muted'
+
+export function progressTone(value: number): ProgressTone {
+  if (value >= 70) return 'success'
+  if (value >= 35) return 'warning'
+  if (value > 0) return 'danger'
+  return 'muted'
+}
+
+const toneFill: Record<ProgressTone, string> = {
+  primary: 'bg-sky-500',
+  success: 'bg-emerald-500',
+  warning: 'bg-amber-500',
+  danger: 'bg-rose-500',
+  muted: 'bg-muted-foreground/40',
+}
+
+const toneText: Record<ProgressTone, string> = {
+  primary: 'text-sky-600 dark:text-sky-400',
+  success: 'text-emerald-600 dark:text-emerald-400',
+  warning: 'text-amber-600 dark:text-amber-400',
+  danger: 'text-rose-600 dark:text-rose-400',
+  muted: 'text-muted-foreground',
+}
+
+const toneRing: Record<ProgressTone, string> = {
+  primary: 'stroke-sky-500',
+  success: 'stroke-emerald-500',
+  warning: 'stroke-amber-500',
+  danger: 'stroke-rose-500',
+  muted: 'stroke-muted-foreground/40',
+}
+
+export function toneTextClass(tone: ProgressTone) {
+  return toneText[tone]
+}
+
 export function ProgressBar({
   value,
   label,
   size = 'md',
+  tone = 'primary',
 }: {
   value: number
   label: string
   size?: 'sm' | 'md'
+  tone?: ProgressTone
 }) {
   const rounded = Math.round(value)
   return (
@@ -124,15 +163,122 @@ export function ProgressBar({
       aria-valuemax={100}
       className={cn(
         'overflow-hidden rounded-full bg-muted',
-        size === 'md' ? 'h-2.5' : 'h-2'
+        size === 'md' ? 'h-2.5' : 'h-1.5'
       )}
     >
       <div
-        className="h-full rounded-full bg-primary transition-all"
+        className={cn('h-full rounded-full transition-all', toneFill[tone])}
         style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
       />
     </div>
   )
+}
+
+/** Circular progress used in the Plan details summary strip. */
+export function RingProgress({
+  value,
+  label,
+  tone = 'primary',
+  size = 44,
+  segments,
+}: {
+  value: number
+  label: string
+  tone?: ProgressTone
+  size?: number
+  /** Optional multi-color ring: values sum conceptually to 100. */
+  segments?: { value: number; tone: ProgressTone }[]
+}) {
+  const stroke = 4
+  const radius = (size - stroke) / 2
+  const circumference = 2 * Math.PI * radius
+  const clamped = Math.max(0, Math.min(100, value))
+  const center = size / 2
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      className="shrink-0 -rotate-90"
+      role="img"
+      aria-label={label}
+    >
+      <circle
+        cx={center}
+        cy={center}
+        r={radius}
+        fill="none"
+        strokeWidth={stroke}
+        className="stroke-muted"
+      />
+      {segments?.length ? (
+        (() => {
+          let offset = 0
+          return segments.map((segment, index) => {
+            const portion = Math.max(0, Math.min(100, segment.value))
+            const length = (portion / 100) * circumference
+            const node = (
+              <circle
+                key={`${segment.tone}-${index}`}
+                cx={center}
+                cy={center}
+                r={radius}
+                fill="none"
+                strokeWidth={stroke}
+                strokeDasharray={`${length} ${circumference - length}`}
+                strokeDashoffset={-offset}
+                strokeLinecap="butt"
+                className={toneRing[segment.tone]}
+              />
+            )
+            offset += length
+            return node
+          })
+        })()
+      ) : (
+        <circle
+          cx={center}
+          cy={center}
+          r={radius}
+          fill="none"
+          strokeWidth={stroke}
+          strokeDasharray={`${(clamped / 100) * circumference} ${circumference}`}
+          strokeLinecap="round"
+          className={toneRing[tone]}
+        />
+      )}
+    </svg>
+  )
+}
+
+export function StatusSquare({ tone }: { tone: ProgressTone }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'mt-0.5 inline-block h-3.5 w-3.5 shrink-0 rounded-[4px]',
+        toneFill[tone]
+      )}
+    />
+  )
+}
+
+export function StatusDot({ tone }: { tone: ProgressTone }) {
+  return (
+    <span
+      aria-hidden
+      className={cn('inline-block h-2 w-2 shrink-0 rounded-full', toneFill[tone])}
+    />
+  )
+}
+
+/** Inclusive calendar days from `from` to `to` (YYYY-MM-DD). */
+export function calendarDaysBetween(from: string, to: string) {
+  const a = Date.parse(`${from.slice(0, 10)}T12:00:00Z`)
+  const b = Date.parse(`${to.slice(0, 10)}T12:00:00Z`)
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null
+  return Math.round((b - a) / 86400000)
 }
 
 function historyPoints(

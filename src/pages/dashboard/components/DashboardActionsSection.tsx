@@ -31,8 +31,8 @@ export function DashboardActionsSection({
   onSelectAccion,
   onNewAction,
   fechaResumen,
-  title = 'Acciones del dia',
-  eyebrow = 'Operacion',
+  title = 'Acciones del día',
+  eyebrow: _eyebrow = 'Operacion',
   subtitle: subtitleOverride,
   onClearDrillDown,
 }: DashboardActionsSectionProps) {
@@ -61,7 +61,6 @@ export function DashboardActionsSection({
       >
         <SectionCardHeader
           icon={ClipboardList}
-          eyebrow={eyebrow}
           title={title}
           subtitle={subtitle}
           action={

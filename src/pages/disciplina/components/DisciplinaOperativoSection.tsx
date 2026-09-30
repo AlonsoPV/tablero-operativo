@@ -128,14 +128,17 @@ export function DisciplinaOperativoSection({
     <section id="disciplina-operativo" aria-labelledby="disciplina-operativo-heading">
       <SectionCard className="flex h-full flex-col">
         <SectionCardHeader
-          className="px-3 py-3 sm:px-4 sm:py-4 md:px-6"
           titleId="disciplina-operativo-heading"
-          eyebrow="Tu día"
           title="Tu día operativo"
-          subtitle="Acciones, formación y calendario en un solo lugar."
+          subtitle={activeConfig.hint}
           icon={Columns3}
+          action={
+            <Button variant="outline" size="sm" className="h-8 text-xs" asChild>
+              <Link to={actionHref}>{activeConfig.actionLabel}</Link>
+            </Button>
+          }
         />
-        <SectionCardBody className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:gap-4 sm:p-4 md:p-6">
+        <SectionCardBody className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:gap-3 sm:p-4">
           <div
             className="grid grid-cols-3 gap-1 rounded-xl border border-border/60 bg-muted/25 p-1"
             role="tablist"
@@ -154,36 +157,21 @@ export function DisciplinaOperativoSection({
                   aria-selected={selected}
                   aria-controls={`disciplina-panel-${tab.id}`}
                   className={cn(
-                    'flex min-h-[3.75rem] touch-manipulation flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 transition-colors',
-                    'sm:min-h-11 sm:flex-row sm:gap-2 sm:px-3 sm:py-2.5',
+                    'flex min-h-11 touch-manipulation items-center justify-center gap-1.5 rounded-lg px-2 py-2 transition-colors',
                     selected
                       ? 'bg-background text-foreground shadow-sm ring-1 ring-border/60'
                       : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'
                   )}
                   onClick={() => setActiveTab(tab.id)}
                 >
-                  <Icon className="h-4 w-4 shrink-0 sm:h-4 sm:w-4" aria-hidden />
-                  <span className="max-w-full truncate text-center text-[10px] font-semibold leading-tight sm:text-xs md:text-sm">
+                  <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                  <span className="truncate text-xs font-semibold sm:text-sm">
                     {tab.label}
                   </span>
                   <TabBadge count={badge.value} tone={badge.tone} />
                 </button>
               )
             })}
-          </div>
-
-          <div className="flex flex-col gap-2.5 rounded-lg border border-border/50 bg-muted/10 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4">
-            <p className="min-w-0 text-xs leading-relaxed text-muted-foreground sm:text-sm">
-              <span className="font-semibold text-foreground">{activeConfig.label}:</span> {activeConfig.hint}
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 w-full shrink-0 rounded-lg text-xs sm:h-8 sm:w-auto sm:text-sm"
-              asChild
-            >
-              <Link to={actionHref}>{activeConfig.actionLabel}</Link>
-            </Button>
           </div>
 
           <div

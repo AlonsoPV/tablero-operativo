@@ -6,6 +6,7 @@
  * - Perfil de negocio: tabla `public.usuarios` vinculada a `auth.users.id`; nunca contraseñas en BD app.
  * - Alta: invitación admin → Edge Function `invite-user` + trigger `handle_new_user` (no registro público en UI).
  * - Cambio de contraseña autenticado: contraseña actual + `updateUser` (re-login interno en `changePassword`).
+ * - Admin asigna contraseña a otra persona: Edge Function `admin-set-password` (service role).
  */
 
 import { supabase } from '@/lib/supabase/client'

@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 /** Mínimo de caracteres; el administrador del proyecto puede exigir más en Supabase. */
 export const PASSWORD_MIN_LENGTH = 6
+/** Tope de bcrypt en Auth. */
+export const PASSWORD_MAX_LENGTH = 72
 
 export const emailFieldSchema = z
   .string()
@@ -12,6 +14,7 @@ export const emailFieldSchema = z
 export const newPasswordFieldSchema = z
   .string()
   .min(PASSWORD_MIN_LENGTH, `Al menos ${PASSWORD_MIN_LENGTH} caracteres`)
+  .max(PASSWORD_MAX_LENGTH, `Máximo ${PASSWORD_MAX_LENGTH} caracteres`)
 
 export const forgotPasswordEmailSchema = z.object({
   email: emailFieldSchema,

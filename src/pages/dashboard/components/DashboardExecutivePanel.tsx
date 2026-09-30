@@ -1501,9 +1501,8 @@ function CargaOperativaSection({
     <section className="scroll-mt-4">
       <SectionCard>
         <SectionCardHeader
-          eyebrow="Carga operativa"
           title="Antigüedad y cierre"
-          subtitle="Antigüedad del backlog por acciones o por responsable."
+          subtitle="Backlog por acciones o por responsable."
           icon={Timer}
           action={
             <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1614,79 +1613,47 @@ export function DashboardExecutivePanel({
   onDrillDown,
 }: DashboardExecutivePanelProps) {
   return (
-    <div id="dashboard-executive-panel" className="space-y-5">
-      <section className="scroll-mt-4">
-        <SectionCard>
-          <SectionCardHeader
-            eyebrow="Salud operativa"
-            title="Atencion inmediata"
-            subtitle="Distribucion de acciones y edad abierta (misma regla que Kanban)."
-            icon={AlertTriangle}
-          />
-          <SectionCardBody className="space-y-3 p-3 sm:space-y-4 sm:p-4 md:p-6">
-            <div className="grid items-stretch gap-3 sm:gap-4 lg:grid-cols-2">
-              <ActionsByAreaModule
-                metrics={metrics}
-                priorities={priorities}
-                statuses={statuses}
-                onDrillDown={onDrillDown}
-                loading={isLoading}
-              />
-              <AvgOpenAgeMatchKanbanModule
-                metrics={metrics}
-                priorities={priorities}
-                onDrillDown={onDrillDown}
-                loading={isLoading}
-              />
-            </div>
-          </SectionCardBody>
-        </SectionCard>
-      </section>
-
-      {/* Confiabilidad de compromisos / ICO — oculto temporalmente
-      <section className="scroll-mt-4">
-        <SectionCard>
-          <SectionCardHeader
-            eyebrow="Ejecución"
-            title="Confiabilidad de compromisos"
-            subtitle="Velocidad de cierre y cumplimiento contra fecha compromiso."
-            icon={ShieldCheck}
-            action={
-              <Badge variant="secondary" className="h-7 gap-1.5 px-2.5 tabular-nums">
-                <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
-                {metrics.closedActions.length}{' '}
-                {metrics.closedActions.length === 1 ? 'cierre' : 'cierres'}
-              </Badge>
-            }
-          />
-          <SectionCardBody className="space-y-5">
-            <IcoHeroCard
-              metric={metrics.ico}
-              closedCount={metrics.closedActions.length}
-              actions={metrics.closedActions}
+    <div id="dashboard-executive-panel" className="space-y-4">
+      <div className="grid items-stretch gap-4 lg:grid-cols-2">
+        <section className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+          <header className="flex items-center gap-2 border-b border-border/50 px-4 py-3 sm:px-5">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted">
+              <Building2 className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            </span>
+            <h2 className="text-sm font-semibold tracking-tight sm:text-[15px]">
+              Acciones por área
+            </h2>
+          </header>
+          <div className="p-4 sm:p-5">
+            <ActionsByAreaModule
+              metrics={metrics}
+              priorities={priorities}
+              statuses={statuses}
               onDrillDown={onDrillDown}
               loading={isLoading}
             />
-            <div className="grid gap-4 lg:grid-cols-2">
-              <IcoRankingPanel
-                title="ICO por área"
-                subtitle="Ranking de confiabilidad operativa por área."
-                items={metrics.icoByArea}
-                onDrillDown={onDrillDown}
-                icon={<Building2 className="h-4.5 w-4.5" aria-hidden />}
-              />
-              <IcoRankingPanel
-                title="ICO por usuario"
-                subtitle="Ranking de confiabilidad por responsable."
-                items={metrics.icoByUser}
-                onDrillDown={onDrillDown}
-                icon={<Users className="h-4.5 w-4.5" aria-hidden />}
-              />
-            </div>
-          </SectionCardBody>
-        </SectionCard>
-      </section>
-      */}
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+          <header className="flex items-center gap-2 border-b border-border/50 px-4 py-3 sm:px-5">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted">
+              <Timer className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            </span>
+            <h2 className="text-sm font-semibold tracking-tight sm:text-[15px]">
+              Edad abierta
+            </h2>
+          </header>
+          <div className="p-4 sm:p-5">
+            <AvgOpenAgeMatchKanbanModule
+              metrics={metrics}
+              priorities={priorities}
+              onDrillDown={onDrillDown}
+              loading={isLoading}
+            />
+          </div>
+        </section>
+      </div>
 
       <CargaOperativaSection
         metrics={metrics}
@@ -1694,22 +1661,6 @@ export function DashboardExecutivePanel({
         isLoading={isLoading}
         onDrillDown={onDrillDown}
       />
-
-      {/* Cumplimiento por área — oculto temporalmente
-      <section className="scroll-mt-4">
-        <SectionCard>
-          <SectionCardHeader
-            eyebrow="Desempeno"
-            title="Cumplimiento por area"
-            subtitle="Ranking de areas segun compromisos cerrados a tiempo."
-            icon={TrendingUp}
-          />
-          <SectionCardBody>
-            <PercentRanking items={metrics.complianceByArea} onDrillDown={onDrillDown} />
-          </SectionCardBody>
-        </SectionCard>
-      </section>
-      */}
     </div>
   )
 }
@@ -1722,8 +1673,12 @@ void [
   IcoRankingPanel,
   ReliabilityMetricCard,
   filterBacklogByArea,
-  Building2,
+  AlertTriangle,
   Users,
   ShieldCheck,
+  SectionCard,
+  SectionCardHeader,
+  SectionCardBody,
+  Badge,
 ]
 

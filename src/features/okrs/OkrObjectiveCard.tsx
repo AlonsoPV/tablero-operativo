@@ -1,8 +1,7 @@
 import {
   ChevronDown,
-  Gauge,
+  Flag,
   History,
-  Link2,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -25,9 +24,10 @@ import {
 } from './model'
 import { OkrKeyResultRow } from './OkrKeyResultRow'
 import {
+  ProgressBar,
   periodRangeText,
   periodTone,
-  ProgressBar,
+  progressTone,
 } from './okrPresentation'
 
 export function OkrObjectiveCard({
@@ -69,9 +69,6 @@ export function OkrObjectiveCard({
 }) {
   const today = todayWallClockCDMX()
   const results = data.keyResults.filter((kr) => kr.okr_id === objective.id)
-  const initiativeCount = data.initiatives.filter((item) =>
-    results.some((kr) => kr.id === item.key_result_id)
-  ).length
   const progress = results.length ? objectiveProgress(results) : null
   const period = objectivePeriod(objective, today)
   const scopeLabel =
@@ -87,122 +84,132 @@ export function OkrObjectiveCard({
       objective.end_date
   )
   const canAddKr = objective.can_manage && objective.activo
+  const tone = progress == null ? 'primary' : progressTone(progress)
 
   return (
-    <article className="min-w-0 rounded-2xl bg-card px-4 py-4 shadow-sm sm:px-5 sm:py-4">
-      <div className="flex items-start gap-2">
+    <article className="min-w-0 border-b border-border/50 last:border-b-0">
+      <div className="flex items-center gap-2 px-3 py-3.5 sm:gap-3 sm:px-4">
         <button
           type="button"
           aria-expanded={expanded}
           onClick={() => onExpandedChange(!expanded)}
-          className="min-w-0 flex-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-medium uppercase tracking-wide sm:text-[13px]">
+          <ChevronDown
+            className={cn(
+              'h-4 w-4 transition-transform',
+              !expanded && '-rotate-90'
+            )}
+            aria-hidden
+          />
+        </button>
+
+        <span
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-sky-500/15 text-sky-600 dark:text-sky-400"
+          aria-hidden
+        >
+          <Flag className="h-4 w-4" />
+        </span>
+
+        <button
+          type="button"
+          onClick={() => onExpandedChange(!expanded)}
+          className="min-w-0 flex-1 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             <span className={periodTone(period)}>{period}</span>
-            <span className="text-muted-foreground/50" aria-hidden>
-              ·
-            </span>
-            <span className="text-muted-foreground">{scopeLabel}</span>
-            <ChevronDown
-              className={cn(
-                'h-3.5 w-3.5 text-muted-foreground transition-transform',
-                expanded && 'rotate-180'
-              )}
-              aria-hidden
-            />
+            <span aria-hidden>·</span>
+            <span>{scopeLabel}</span>
           </div>
-          <div className="mt-1.5 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-            <h2 className="min-w-0 text-lg font-semibold leading-snug sm:text-xl">
-              {objective.nombre_okr}
-            </h2>
-            <div className="shrink-0 sm:text-right">
-              <p className="text-xl font-semibold tabular-nums tracking-tight sm:text-2xl">
-                {progress == null ? '—' : `${Math.round(progress)}%`}
-              </p>
-              <p className="text-xs text-muted-foreground">completado</p>
-            </div>
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground sm:text-[13px]">
+          <h2 className="mt-0.5 truncate text-[15px] font-semibold leading-snug sm:text-base">
+            {objective.nombre_okr}
+          </h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             {periodRangeText(objective.start_date, objective.end_date)}
           </p>
+        </button>
+
+        <div className="hidden w-40 shrink-0 sm:block">
+          <div className="flex items-baseline justify-between gap-2 text-xs">
+            <span className="text-muted-foreground">Progreso</span>
+            <span className="font-semibold tabular-nums">
+              {progress == null ? '—' : `${Math.round(progress)}%`}
+            </span>
+          </div>
           {progress != null && (
-            <div className="mt-2.5">
+            <div className="mt-1.5">
               <ProgressBar
                 value={progress}
-                label={`Avance del objetivo · ${results.length} ${results.length === 1 ? 'resultado clave' : 'resultados clave'}`}
+                label={`Avance de ${objective.nombre_okr}`}
+                size="sm"
+                tone={tone}
               />
             </div>
           )}
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-              <Gauge className="h-3.5 w-3.5 text-primary" aria-hidden />
-              {results.length}{' '}
-              {results.length === 1 ? 'resultado clave' : 'resultados clave'}
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-              <Link2 className="h-3.5 w-3.5" aria-hidden />
-              {initiativeCount}{' '}
-              {initiativeCount === 1 ? 'iniciativa' : 'iniciativas'}
-            </span>
-          </div>
-        </button>
-        <div className="flex shrink-0 items-center pt-0.5">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-10 w-10"
-                aria-label={`Más acciones de ${objective.nombre_okr}`}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {objective.can_manage && (
-                <DropdownMenuItem onClick={onEdit}>
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Editar objetivo
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onClick={onHistory}>
-                <History className="mr-2 h-4 w-4" />
-                Ver historial
-              </DropdownMenuItem>
-              {canArchive && (
-                <DropdownMenuItem onClick={onArchive}>Archivar</DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
+
+        <span className="tabular-nums text-sm font-semibold sm:hidden">
+          {progress == null ? '—' : `${Math.round(progress)}%`}
+        </span>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-9 w-9 shrink-0"
+              aria-label={`Más acciones de ${objective.nombre_okr}`}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {objective.can_manage && (
+              <DropdownMenuItem onClick={onEdit}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Editar objetivo
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={onHistory}>
+              <History className="mr-2 h-4 w-4" />
+              Ver historial
+            </DropdownMenuItem>
+            {canArchive && (
+              <DropdownMenuItem onClick={onArchive}>Archivar</DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {expanded && (
-        <div className="mt-4 space-y-2 border-t border-border/40 pt-3">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary">
-                <Gauge className="h-3.5 w-3.5" aria-hidden />
-              </span>
-              Resultados clave
-              {results.length > 0 ? ` · ${results.length}` : ''}
-            </h3>
+        <div className="pb-3">
+          <div className="mb-1 flex items-center justify-between gap-3 px-4 sm:px-5">
+            <p className="text-xs font-medium text-muted-foreground">
+              {results.length}{' '}
+              {results.length === 1 ? 'resultado clave' : 'resultados clave'}
+            </p>
             {canAddKr && (
-              <Button variant="ghost" size="sm" className="h-9 px-2" onClick={onAddKr}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2"
+                onClick={onAddKr}
+              >
                 <Plus className="mr-1 h-4 w-4" />
-                Agregar resultado
+                Agregar
               </Button>
             )}
           </div>
           {!results.length ? (
-            <p className="pb-1 text-sm text-muted-foreground">
+            <p className="px-4 pb-2 text-sm text-muted-foreground sm:px-5">
               Este objetivo todavía no tiene resultados clave.
             </p>
           ) : (
-            <div className="space-y-2.5">
+            <div>
               {results.map((kr) => (
                 <OkrKeyResultRow
                   key={kr.id}
+                  tree
                   kr={kr}
                   objective={objective}
                   checkIns={data.checkIns}
