@@ -1,12 +1,59 @@
 import { useId } from 'react'
+import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   formatMetric,
   krProgress,
   type CheckIn,
   type KeyResult,
+  type Objective,
 } from './model'
 import { reportDate } from './reporting'
+
+export function OkrScopeGroupHeader({
+  icon: Icon,
+  title,
+  count,
+}: {
+  icon: LucideIcon
+  title: string
+  count: number
+}) {
+  return (
+    <div className="flex items-center gap-2 border-b border-border/50 bg-muted/25 px-4 py-2.5 sm:px-5">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
+        <Icon className="h-3 w-3 text-muted-foreground" aria-hidden />
+      </span>
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </p>
+      <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+        {count}
+      </span>
+    </div>
+  )
+}
+
+export function partitionObjectivesByScope(
+  objectives: Objective[],
+  areaName?: (objective: Objective) => string
+) {
+  const byName = (a: Objective, b: Objective) =>
+    a.nombre_okr.localeCompare(b.nombre_okr, 'es')
+  const company = objectives
+    .filter((item) => item.scope === 'company')
+    .sort(byName)
+  const team = objectives
+    .filter((item) => item.scope === 'team')
+    .sort((a, b) => {
+      if (areaName) {
+        const byArea = areaName(a).localeCompare(areaName(b), 'es')
+        if (byArea) return byArea
+      }
+      return byName(a, b)
+    })
+  return { company, team }
+}
 
 export const compactControl =
   'h-11 min-h-11 w-full min-w-0 rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'

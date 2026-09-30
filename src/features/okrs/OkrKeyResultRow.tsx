@@ -240,19 +240,32 @@ export function OkrKeyResultRow({
             </Button>
           )}
 
-          <div className="rounded-lg border border-dashed border-border/80 bg-background/80 px-2.5 py-2">
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <Link2 className="h-3.5 w-3.5" aria-hidden />
-                Iniciativas
-                {links.length > 0 ? ` · ${links.length}` : ''}
-              </p>
+          <div className="space-y-3 rounded-2xl border border-border/70 bg-background p-3 shadow-sm sm:p-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                  <Link2
+                    className="h-3.5 w-3.5 text-muted-foreground"
+                    aria-hidden
+                  />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold tracking-tight">
+                    Iniciativas
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {links.length === 0
+                      ? 'Sin vínculos aún'
+                      : `${links.length} vinculada${links.length === 1 ? '' : 's'}`}
+                  </p>
+                </div>
+              </div>
               {kr.can_update && (
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
-                  className="h-8 px-2 text-xs"
+                  className="h-8 px-2.5 text-xs"
                   onClick={onLink}
                 >
                   Vincular
@@ -260,22 +273,22 @@ export function OkrKeyResultRow({
               )}
             </div>
             {actionsPending && links.length > 0 && (
-              <p className="mb-1.5 text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Cargando estado de las iniciativas…
               </p>
             )}
             {actionsError && links.length > 0 && (
-              <p className="mb-1.5 text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 No se pudo actualizar el estado de las iniciativas.
               </p>
             )}
             {unknown && (
-              <p className="mb-1.5 text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Hay acciones sin acceso; no se calcula un porcentaje parcial.
               </p>
             )}
             {links.length > 0 ? (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {linked.map(({ link, action }) => (
                   <LinkedInitiativeRow
                     key={link.id}
@@ -287,7 +300,7 @@ export function OkrKeyResultRow({
                 ))}
               </div>
             ) : (
-              <p className="px-0.5 py-1.5 text-xs leading-relaxed text-muted-foreground">
+              <p className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-3 py-3 text-xs leading-relaxed text-muted-foreground">
                 Todavía no hay iniciativas vinculadas a este resultado.
               </p>
             )}

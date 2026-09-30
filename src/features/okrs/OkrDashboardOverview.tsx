@@ -8,6 +8,7 @@ import {
   Flag,
   Target,
   UserRound,
+  Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -26,6 +27,7 @@ import {
   reportDate,
 } from './reporting'
 import {
+  OkrScopeGroupHeader,
   ProgressBar,
   StatusSquare,
   metricText,
@@ -408,6 +410,28 @@ function CompanyProgressCard({
   data: OkrData
 }) {
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set())
+  const companyRows = rows.filter((row) => row.objective.scope === 'company')
+  const teamRows = rows.filter((row) => row.objective.scope === 'team')
+
+  function renderRows(items: typeof rows) {
+    return items.map(({ kr, objective }) => (
+      <ProgressRow
+        key={kr.id}
+        kr={kr}
+        objective={objective}
+        data={data}
+        open={openIds.has(kr.id)}
+        onToggle={() =>
+          setOpenIds((current) => {
+            const next = new Set(current)
+            if (next.has(kr.id)) next.delete(kr.id)
+            else next.add(kr.id)
+            return next
+          })
+        }
+      />
+    ))
+  }
 
   return (
     <section className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
@@ -415,9 +439,14 @@ function CompanyProgressCard({
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted">
           <Target className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
         </span>
-        <h2 className="text-sm font-semibold tracking-tight sm:text-[15px]">
-          Avance de OKRs
-        </h2>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold tracking-tight sm:text-[15px]">
+            Avance de OKRs
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Agrupado por OKR de empresa y de equipo
+          </p>
+        </div>
       </header>
 
       <div className="hidden grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto_minmax(7rem,0.8fr)] gap-3 border-b border-border/50 px-4 py-2 text-xs font-medium text-muted-foreground sm:gap-4 sm:px-5 md:grid">
@@ -432,25 +461,28 @@ function CompanyProgressCard({
           No hay resultados clave en este alcance.
         </p>
       ) : (
-        <ul>
-          {rows.map(({ kr, objective }) => (
-            <ProgressRow
-              key={kr.id}
-              kr={kr}
-              objective={objective}
-              data={data}
-              open={openIds.has(kr.id)}
-              onToggle={() =>
-                setOpenIds((current) => {
-                  const next = new Set(current)
-                  if (next.has(kr.id)) next.delete(kr.id)
-                  else next.add(kr.id)
-                  return next
-                })
-              }
-            />
-          ))}
-        </ul>
+        <>
+          {companyRows.length > 0 ? (
+            <div>
+              <OkrScopeGroupHeader
+                icon={Building2}
+                title="OKR Empresa"
+                count={companyRows.length}
+              />
+              <ul>{renderRows(companyRows)}</ul>
+            </div>
+          ) : null}
+          {teamRows.length > 0 ? (
+            <div>
+              <OkrScopeGroupHeader
+                icon={Users}
+                title="OKR Equipo"
+                count={teamRows.length}
+              />
+              <ul>{renderRows(teamRows)}</ul>
+            </div>
+          ) : null}
+        </>
       )}
     </section>
   )

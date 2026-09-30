@@ -46,14 +46,14 @@ export function OrgChartUserSlidePanel({
 
       <aside
         className={cn(
-          'fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-border/70 bg-card shadow-2xl',
+          'fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-border/70 bg-background shadow-2xl',
           'animate-in slide-in-from-right duration-200'
         )}
         role="dialog"
         aria-modal="true"
         aria-label={`Ficha de ${user.nombre}`}
       >
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="min-h-0 flex-1 overflow-hidden">
           <OrgChartUserPanel
             user={user}
             users={users}

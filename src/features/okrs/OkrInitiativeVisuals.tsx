@@ -1,6 +1,11 @@
 import { Link } from 'react-router-dom'
-import { Check, Unlink } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import {
+  Building2,
+  Check,
+  Link2,
+  Unlink,
+  Users,
+} from 'lucide-react'
 import { ROUTES } from '@/constants'
 import { cn } from '@/lib/utils'
 import type { ActionOption } from './model'
@@ -14,23 +19,31 @@ export function actionHref(action: ActionOption) {
 export function ActionMetaBadges({
   action,
   areaName,
+  showStatus = true,
 }: {
   action: ActionOption
   areaName?: string | null
+  showStatus?: boolean
 }) {
+  const scope =
+    action.kind === 'team'
+      ? areaName
+        ? `Equipo · ${areaName}`
+        : 'Equipo'
+      : 'Empresa'
+  const status = action.closed ? 'Completada' : 'En curso'
+
   return (
-    <span className="flex flex-wrap items-center gap-1.5">
-      <Badge variant="muted" className="font-medium">
-        {action.kind === 'team' ? 'Equipo' : 'Empresa'}
-      </Badge>
-      {action.kind === 'team' && areaName ? (
-        <Badge variant="outline" className="font-medium">
-          {areaName}
-        </Badge>
+    <span className="text-xs leading-snug text-muted-foreground">
+      {scope}
+      {showStatus ? (
+        <>
+          <span className="mx-1.5 text-border" aria-hidden>
+            ·
+          </span>
+          {status}
+        </>
       ) : null}
-      <Badge variant={action.closed ? 'success' : 'secondary'} className="font-medium">
-        {action.closed ? 'Completada' : 'En curso'}
-      </Badge>
     </span>
   )
 }
@@ -44,23 +57,43 @@ export function LinkedInitiativeRow({
 }: {
   action: ActionOption | undefined
   areaName?: string | null
-  busy: boolean
-  canUnlink: boolean
-  onUnlink: () => void
+  busy?: boolean
+  canUnlink?: boolean
+  onUnlink?: () => void
 }) {
+  const closed = Boolean(action?.closed)
+  const ScopeIcon = action?.kind === 'team' ? Users : Building2
+
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-card px-3 py-2">
+    <div
+      className={cn(
+        'group flex items-start gap-3 rounded-xl border border-border/70 bg-background p-3 transition-all',
+        'hover:border-border hover:bg-muted/20 hover:shadow-sm'
+      )}
+    >
       <span
         className={cn(
-          'h-2.5 w-2.5 shrink-0 rounded-full',
-          action?.closed ? 'bg-emerald-500' : 'bg-sky-500'
+          'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
+          closed
+            ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+            : 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
         )}
         aria-hidden
-      />
+      >
+        {closed ? (
+          <Check className="h-3.5 w-3.5" />
+        ) : (
+          <Link2 className="h-3.5 w-3.5" />
+        )}
+      </span>
+
       <div className="min-w-0 flex-1">
         {action ? (
           <Link
-            className="block truncate text-sm font-medium leading-snug hover:underline"
+            className={cn(
+              'block truncate text-sm font-semibold leading-snug tracking-tight text-foreground outline-none hover:underline focus-visible:underline',
+              closed && 'text-muted-foreground'
+            )}
             to={actionHref(action)}
           >
             {action.title}
@@ -70,23 +103,45 @@ export function LinkedInitiativeRow({
             Acción no disponible para tu usuario
           </p>
         )}
-        {action && (
-          <div className="mt-1">
-            <ActionMetaBadges action={action} areaName={areaName} />
-          </div>
-        )}
+        {action ? (
+          <p className="mt-1 flex min-w-0 items-center gap-1.5">
+            <ScopeIcon
+              className="h-3 w-3 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
+            <ActionMetaBadges
+              action={action}
+              areaName={areaName}
+              showStatus={false}
+            />
+          </p>
+        ) : null}
       </div>
-      {canUnlink && (
+
+      {action ? (
+        <span
+          className={cn(
+            'mt-0.5 shrink-0 rounded-lg px-2 py-1 text-[11px] font-medium',
+            closed
+              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+              : 'bg-muted text-muted-foreground'
+          )}
+        >
+          {closed ? 'Hecho' : 'En curso'}
+        </span>
+      ) : null}
+
+      {canUnlink && onUnlink ? (
         <button
           type="button"
           disabled={busy}
           aria-label="Desvincular iniciativa"
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+          className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           onClick={onUnlink}
         >
-          <Unlink className="h-4 w-4" />
+          <Unlink className="h-3.5 w-3.5" />
         </button>
-      )}
+      ) : null}
     </div>
   )
 }
@@ -106,10 +161,10 @@ export function LinkActionChoice({
   return (
     <label
       className={cn(
-        'flex min-h-14 cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm transition-colors',
+        'flex min-h-14 cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm transition-all',
         selected
-          ? 'border-primary bg-primary/5 ring-1 ring-primary'
-          : 'hover:bg-muted/50'
+          ? 'border-border bg-muted/40 shadow-sm ring-1 ring-foreground/10'
+          : 'border-border/70 hover:border-border hover:bg-muted/25'
       )}
     >
       <input
@@ -124,7 +179,7 @@ export function LinkActionChoice({
         className={cn(
           'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border',
           selected
-            ? 'border-primary bg-primary text-primary-foreground'
+            ? 'border-foreground bg-foreground text-background'
             : 'border-muted-foreground/40'
         )}
         aria-hidden
@@ -132,8 +187,10 @@ export function LinkActionChoice({
         {selected && <Check className="h-3 w-3" />}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block font-medium leading-snug">{action.title}</span>
-        <span className="mt-1.5 block">
+        <span className="block font-semibold leading-snug tracking-tight">
+          {action.title}
+        </span>
+        <span className="mt-1 block">
           <ActionMetaBadges action={action} areaName={areaName} />
         </span>
       </span>

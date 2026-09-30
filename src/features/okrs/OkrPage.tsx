@@ -4,10 +4,12 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
+  Building2,
+  Link2,
   Plus,
   RefreshCw,
   Search,
-  Link2,
+  Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -39,7 +41,13 @@ import { OkrObjectiveCard } from './OkrObjectiveCard'
 import { OkrKpiStrip } from './OkrKpiStrip'
 import { OkrDetailWorkspace } from './OkrDetailWorkspace'
 import { OkrLinkInitiativePanel } from './OkrLinkInitiativePanel'
-import { ProgressBar, toolbarField, toolbarInput } from './okrPresentation'
+import {
+  OkrScopeGroupHeader,
+  ProgressBar,
+  partitionObjectivesByScope,
+  toolbarField,
+  toolbarInput,
+} from './okrPresentation'
 import {
   krProgress,
   objectivePeriod,
@@ -492,67 +500,91 @@ export function OkrPage() {
         />
       )}
 
-      {filtered.length > 0 && (
-        <section
-          aria-label="Árbol de objetivos"
-          className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm"
-        >
-          <div className="border-b border-border/50 px-4 py-3 sm:px-5">
-            <h2 className="text-base font-semibold tracking-tight">
-              Objetivos
-            </h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Expande cada objetivo para ver sus resultados clave.
-            </p>
-          </div>
-          <div>
-            {filtered.map((objective) => {
-              const krFor = (id: string) =>
-                data.keyResults.find((item) => item.id === id)
-              return (
-                <OkrObjectiveCard
-                  key={objective.id}
-                  objective={objective}
-                  data={data}
-                  actions={actions.data ?? []}
-                  actionsPending={actions.isPending}
-                  actionsError={actions.isError}
-                  busy={busy}
-                  expanded={expandedIds.has(objective.id)}
-                  onExpandedChange={(open) => {
-                    setExpandedIds((current) => {
-                      const next = new Set(current)
-                      if (open) next.add(objective.id)
-                      else next.delete(objective.id)
-                      return next
-                    })
-                  }}
-                  onEdit={() => setModal({ type: 'objective', objective })}
-                  onHistory={() => setHistorySelection({ objective })}
-                  onArchive={() => void archiveObjective(objective)}
-                  onAddKr={() => setModal({ type: 'kr', objective })}
-                  onCheckIn={(krId) => {
-                    const kr = krFor(krId)
-                    if (kr) setModal({ type: 'checkin', objective, kr })
-                  }}
-                  onEditKr={(krId) => {
-                    const kr = krFor(krId)
-                    if (kr) setModal({ type: 'kr', objective, kr })
-                  }}
-                  onKrHistory={(krId) =>
-                    setHistorySelection({ objective, krId })
-                  }
-                  onLink={(krId) => {
-                    const kr = krFor(krId)
-                    if (kr) setModal({ type: 'link', objective, kr })
-                  }}
-                  onUnlink={(id) => void unlink(id)}
+      {filtered.length > 0 && (() => {
+        const objectiveGroups = partitionObjectivesByScope(
+          filtered,
+          (objective) =>
+            data.areas.find((area) => area.id === objective.area_id)?.nombre ??
+            'Equipo'
+        )
+        const krFor = (id: string) =>
+          data.keyResults.find((item) => item.id === id)
+        const renderObjective = (objective: Objective) => (
+          <OkrObjectiveCard
+            key={objective.id}
+            objective={objective}
+            data={data}
+            actions={actions.data ?? []}
+            actionsPending={actions.isPending}
+            actionsError={actions.isError}
+            busy={busy}
+            expanded={expandedIds.has(objective.id)}
+            onExpandedChange={(open) => {
+              setExpandedIds((current) => {
+                const next = new Set(current)
+                if (open) next.add(objective.id)
+                else next.delete(objective.id)
+                return next
+              })
+            }}
+            onEdit={() => setModal({ type: 'objective', objective })}
+            onHistory={() => setHistorySelection({ objective })}
+            onArchive={() => void archiveObjective(objective)}
+            onAddKr={() => setModal({ type: 'kr', objective })}
+            onCheckIn={(krId) => {
+              const kr = krFor(krId)
+              if (kr) setModal({ type: 'checkin', objective, kr })
+            }}
+            onEditKr={(krId) => {
+              const kr = krFor(krId)
+              if (kr) setModal({ type: 'kr', objective, kr })
+            }}
+            onKrHistory={(krId) =>
+              setHistorySelection({ objective, krId })
+            }
+            onLink={(krId) => {
+              const kr = krFor(krId)
+              if (kr) setModal({ type: 'link', objective, kr })
+            }}
+            onUnlink={(id) => void unlink(id)}
+          />
+        )
+        return (
+          <section
+            aria-label="Árbol de objetivos"
+            className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm"
+          >
+            <div className="border-b border-border/50 px-4 py-3 sm:px-5">
+              <h2 className="text-base font-semibold tracking-tight">
+                Objetivos
+              </h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Agrupados por OKR de empresa y de equipo.
+              </p>
+            </div>
+            {objectiveGroups.company.length > 0 ? (
+              <div>
+                <OkrScopeGroupHeader
+                  icon={Building2}
+                  title="OKR Empresa"
+                  count={objectiveGroups.company.length}
                 />
-              )
-            })}
-          </div>
-        </section>
-      )}
+                {objectiveGroups.company.map(renderObjective)}
+              </div>
+            ) : null}
+            {objectiveGroups.team.length > 0 ? (
+              <div>
+                <OkrScopeGroupHeader
+                  icon={Users}
+                  title="OKR Equipo"
+                  count={objectiveGroups.team.length}
+                />
+                {objectiveGroups.team.map(renderObjective)}
+              </div>
+            ) : null}
+          </section>
+        )
+      })()}
 
       {filteredKeyResults.length > 0 && (
         <OkrKpiStrip
@@ -575,7 +607,9 @@ export function OkrPage() {
               next.add(objective.id)
               return next
             })
-            setSearchParams({ objective: objective.id })
+            document
+              .getElementById(`okr-objective-${objective.id}`)
+              ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
           }}
         />
       )}

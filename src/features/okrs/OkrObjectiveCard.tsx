@@ -87,7 +87,10 @@ export function OkrObjectiveCard({
   const tone = progress == null ? 'primary' : progressTone(progress)
 
   return (
-    <article className="min-w-0 border-b border-border/50 last:border-b-0">
+    <article
+      id={`okr-objective-${objective.id}`}
+      className="min-w-0 border-b border-border/50 last:border-b-0"
+    >
       <div className="flex items-center gap-2 px-3 py-3.5 sm:gap-3 sm:px-4">
         <button
           type="button"

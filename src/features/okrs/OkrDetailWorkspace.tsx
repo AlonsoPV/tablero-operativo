@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
+  Building2,
   CalendarRange,
   ChevronDown,
+  Link2,
   Plus,
-  Sparkles,
   TrendingUp,
+  Users,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -19,11 +20,13 @@ import {
   type OkrData,
 } from './model'
 import { OkrHistoryChart } from './OkrHistoryChart'
-import { actionHref } from './OkrInitiativeVisuals'
+import { LinkedInitiativeRow } from './OkrInitiativeVisuals'
 import {
+  OkrScopeGroupHeader,
   RingProgress,
   calendarDaysBetween,
   metricText,
+  partitionObjectivesByScope,
   periodRangeText,
   progressTone,
   toneTextClass,
@@ -44,11 +47,20 @@ export function OkrDetailWorkspace({
   onLink: (objective: Objective, krId: string) => void
 }) {
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set())
-  const visible = objectives.filter((objective) =>
-    data.keyResults.some((kr) => kr.okr_id === objective.id)
-  )
+  const groups = useMemo(() => {
+    const visible = objectives.filter((objective) =>
+      data.keyResults.some((kr) => kr.okr_id === objective.id)
+    )
+    return partitionObjectivesByScope(
+      visible,
+      (objective) =>
+        data.areas.find((area) => area.id === objective.area_id)?.nombre ??
+        'Equipo'
+    )
+  }, [objectives, data.keyResults, data.areas])
 
-  if (!visible.length) return null
+  const total = groups.company.length + groups.team.length
+  if (!total) return null
 
   function toggle(id: string) {
     setOpenIds((current) => {
@@ -59,25 +71,64 @@ export function OkrDetailWorkspace({
     })
   }
 
+  function renderItems(items: Objective[]) {
+    return items.map((objective) => (
+      <ObjectiveDetailItem
+        key={objective.id}
+        objective={objective}
+        data={data}
+        actions={actions}
+        open={openIds.has(objective.id)}
+        onToggle={() => toggle(objective.id)}
+        onAddInitiative={(krId) => onAddInitiative(objective, krId)}
+        onLink={(krId) => onLink(objective, krId)}
+      />
+    ))
+  }
+
   return (
     <section
       aria-label="Detalle de objetivos"
       className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm"
     >
-      <div>
-        {visible.map((objective) => (
-          <ObjectiveDetailItem
-            key={objective.id}
-            objective={objective}
-            data={data}
-            actions={actions}
-            open={openIds.has(objective.id)}
-            onToggle={() => toggle(objective.id)}
-            onAddInitiative={(krId) => onAddInitiative(objective, krId)}
-            onLink={(krId) => onLink(objective, krId)}
+      <header className="flex items-center gap-2 border-b border-border/50 px-4 py-3 sm:px-5">
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted">
+          <TrendingUp
+            className="h-3.5 w-3.5 text-muted-foreground"
+            aria-hidden
           />
-        ))}
-      </div>
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold tracking-tight sm:text-[15px]">
+            Detalle por objetivo
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Agrupado por OKR de empresa y de equipo
+          </p>
+        </div>
+      </header>
+
+      {groups.company.length > 0 ? (
+        <div>
+          <OkrScopeGroupHeader
+            icon={Building2}
+            title="OKR Empresa"
+            count={groups.company.length}
+          />
+          {renderItems(groups.company)}
+        </div>
+      ) : null}
+
+      {groups.team.length > 0 ? (
+        <div>
+          <OkrScopeGroupHeader
+            icon={Users}
+            title="OKR Equipo"
+            count={groups.team.length}
+          />
+          {renderItems(groups.team)}
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -111,6 +162,12 @@ function ObjectiveDetailItem({
       ? calendarDaysBetween(today, objective.end_date)
       : null
   const tone = progress == null ? 'primary' : progressTone(progress)
+  const scopeLabel =
+    objective.scope === 'company'
+      ? 'Empresa'
+      : (data.areas.find((area) => area.id === objective.area_id)?.nombre ??
+        'Equipo')
+  const ScopeIcon = objective.scope === 'company' ? Building2 : Users
   const initiatives = selected
     ? data.initiatives.filter((item) => item.key_result_id === selected.id)
     : []
@@ -143,11 +200,19 @@ function ObjectiveDetailItem({
           )}
           aria-hidden
         />
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+          <ScopeIcon
+            className="h-3.5 w-3.5 text-muted-foreground"
+            aria-hidden
+          />
+        </span>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-semibold sm:text-[15px]">
+          <h3 className="truncate text-sm font-semibold tracking-tight sm:text-[15px]">
             {objective.nombre_okr}
           </h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {scopeLabel}
+            {' · '}
             {periodRangeText(objective.start_date, objective.end_date)}
             {' · '}
             {results.length}{' '}
@@ -274,18 +339,30 @@ function ObjectiveDetailItem({
           )}
 
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-            <div className="rounded-xl border border-border/60 p-3 sm:p-4">
+            <div className="rounded-2xl border border-border/70 bg-background p-3 shadow-sm sm:p-3.5">
               <div className="mb-3 flex items-center justify-between gap-2">
-                <h4 className="flex items-center gap-2 text-sm font-semibold">
-                  Iniciativas
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                    {linked.length}
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                    <Link2
+                      className="h-3.5 w-3.5 text-muted-foreground"
+                      aria-hidden
+                    />
                   </span>
-                </h4>
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-semibold tracking-tight">
+                      Iniciativas
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      {linked.length === 0
+                        ? 'Sin vínculos aún'
+                        : `${linked.length} vinculada${linked.length === 1 ? '' : 's'}`}
+                    </p>
+                  </div>
+                </div>
                 {selected?.can_update && (
                   <Button
                     size="icon"
-                    variant="ghost"
+                    variant="outline"
                     className="h-8 w-8"
                     aria-label="Vincular iniciativa"
                     onClick={() => onLink(selected.id)}
@@ -295,14 +372,14 @@ function ObjectiveDetailItem({
                 )}
               </div>
               {!linked.length ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
                   Sin iniciativas vinculadas.
                   {selected?.can_update ? (
                     <>
                       {' '}
                       <button
                         type="button"
-                        className="font-medium text-primary underline-offset-2 hover:underline"
+                        className="font-medium text-foreground underline-offset-2 hover:underline"
                         onClick={() => onAddInitiative(selected.id)}
                       >
                         Vincular una acción
@@ -313,44 +390,8 @@ function ObjectiveDetailItem({
               ) : (
                 <ul className="space-y-2">
                   {linked.map(({ link, action }) => (
-                    <li
-                      key={link.id}
-                      className="flex items-center gap-3 rounded-lg border border-border/50 px-3 py-2"
-                    >
-                      <span
-                        className={cn(
-                          'h-2 w-2 shrink-0 rounded-full',
-                          action?.closed ? 'bg-emerald-500' : 'bg-sky-500'
-                        )}
-                        aria-hidden
-                      />
-                      <div className="min-w-0 flex-1">
-                        {action ? (
-                          <Link
-                            to={actionHref(action)}
-                            className={cn(
-                              'block truncate text-sm font-medium hover:underline',
-                              action.closed &&
-                                'text-muted-foreground line-through'
-                            )}
-                          >
-                            {action.title}
-                          </Link>
-                        ) : (
-                          <p className="truncate text-sm text-muted-foreground">
-                            Acción no disponible
-                          </p>
-                        )}
-                      </div>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {action?.closed ? 'Hecho' : 'En curso'}
-                      </span>
-                      <span
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background"
-                        aria-hidden
-                      >
-                        <Sparkles className="h-3.5 w-3.5" />
-                      </span>
+                    <li key={link.id}>
+                      <LinkedInitiativeRow action={action} />
                     </li>
                   ))}
                 </ul>

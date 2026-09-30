@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Network } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -247,15 +248,22 @@ export function OrgChartHierarchyEditor({
   const editingSelf = currentUserId === user.id
 
   return (
-    <section className="space-y-4 rounded-lg border border-primary/20 bg-primary/5 p-3">
-      <div>
-        <p className="text-sm font-semibold text-foreground">Editar jerarquía</p>
-        <p className="text-xs text-muted-foreground">
-          {editingSelf
-            ? 'Define a quién reportas y a quiénes supervisas.'
-            : `Asigna jefe y reportes de ${user.nombre}.`}{' '}
-          En «Supervisa a» puedes marcar varias personas; en «Reporta a» solo una.
-        </p>
+    <section className="space-y-4 rounded-2xl border border-border/70 bg-background p-3.5 shadow-sm">
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+          <Network className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold tracking-tight text-foreground">
+            Administrar jerarquía
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {editingSelf
+              ? 'Define a quién reportas y a quiénes supervisas.'
+              : `Asigna jefe y reportes de ${user.nombre}.`}{' '}
+            En «Supervisa a» puedes marcar varias personas; en «Reporta a» solo una.
+          </p>
+        </div>
       </div>
 
       <PersonChecklist
