@@ -1,10 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
+  ChevronDown,
   ChevronRight,
   History,
   Link2,
   MoreHorizontal,
   Pencil,
+  RefreshCw,
+  TrendingUp,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,7 +25,8 @@ import {
   type KeyResult,
   type Objective,
 } from './model'
-import { measurementLabel, measurementsFor } from './reporting'
+import { OkrHistoryChart } from './OkrHistoryChart'
+import { measurementLabel, measurementsFor, reportDate, reportTimestamp } from './reporting'
 import { LinkedInitiativeRow } from './OkrInitiativeVisuals'
 import {
   ProgressBar,
@@ -43,6 +47,8 @@ export function OkrKeyResultRow({
   actionsError,
   busy,
   tree,
+  highlighted,
+  users,
   onCheckIn,
   onEdit,
   onHistory,
@@ -59,6 +65,8 @@ export function OkrKeyResultRow({
   busy: boolean
   /** Draw hierarchy connectors under an objective. */
   tree?: boolean
+  highlighted?: boolean
+  users: { id: string; nombre: string }[]
   onCheckIn: () => void
   onEdit: () => void
   onHistory: () => void
@@ -66,6 +74,10 @@ export function OkrKeyResultRow({
   onUnlink: (id: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [chartOpen, setChartOpen] = useState(true)
+  useEffect(() => {
+    if (highlighted) setOpen(true)
+  }, [highlighted])
   const links = initiatives.filter((item) => item.key_result_id === kr.id)
   const linked = links.map((link) => ({
     link,
@@ -206,25 +218,37 @@ export function OkrKeyResultRow({
 
       {open && (
         <div className="mb-2 ml-8 space-y-3 rounded-xl border border-border/60 bg-muted/20 p-3 sm:ml-10 sm:p-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <p className="text-xs text-muted-foreground">Actual</p>
-              <p className="mt-0.5 text-base font-semibold tabular-nums">
-                {metricText(kr.current_value, kr.unit)}
-              </p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-3">
+              <div>
+                <p className="text-xs text-muted-foreground">Actual</p>
+                <p className="mt-0.5 text-base font-semibold tabular-nums">
+                  {metricText(kr.current_value, kr.unit)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Meta</p>
+                <p className="mt-0.5 text-base font-semibold tabular-nums">
+                  {metricText(kr.target_value, kr.unit)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Avance</p>
+                <p className="mt-0.5 text-base font-semibold tabular-nums">
+                  {Math.round(progress)}%
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Meta</p>
-              <p className="mt-0.5 text-base font-semibold tabular-nums">
-                {metricText(kr.target_value, kr.unit)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Avance</p>
-              <p className="mt-0.5 text-base font-semibold tabular-nums">
-                {Math.round(progress)}%
-              </p>
-            </div>
+            {kr.can_update && manual && (
+              <Button
+                type="button"
+                className="h-11 shrink-0 sm:mt-1"
+                onClick={onCheckIn}
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Actualizar avance
+              </Button>
+            )}
           </div>
           <ProgressBar
             value={progress}
@@ -234,11 +258,57 @@ export function OkrKeyResultRow({
           <p className="text-xs text-muted-foreground">
             {lastMeasurementCaption(lastCheck)}
           </p>
-          {kr.can_update && manual && (
-            <Button size="sm" variant="outline" onClick={onCheckIn}>
-              Actualizar avance
-            </Button>
-          )}
+
+          <div className="overflow-hidden rounded-2xl border border-border/70 bg-background shadow-sm">
+            <button
+              type="button"
+              aria-expanded={chartOpen}
+              onClick={() => setChartOpen((value) => !value)}
+              className="flex w-full items-center gap-2.5 px-3 py-3 text-left outline-none hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-300">
+                <TrendingUp className="h-4 w-4" aria-hidden />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold tracking-tight">
+                  Gráfica de avance
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  {chartOpen ? 'Ocultar evolución' : 'Ver evolución del resultado'}
+                </span>
+              </span>
+              <ChevronDown
+                className={cn(
+                  'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+                  !chartOpen && '-rotate-90'
+                )}
+                aria-hidden
+              />
+            </button>
+            {chartOpen && (
+              <div className="border-t border-border/50 p-3 sm:p-4">
+                <OkrHistoryChart
+                  key={kr.id}
+                  title={kr.title}
+                  measurements={history}
+                  currentValue={kr.current_value}
+                  unit={kr.unit}
+                  baseline={kr.baseline_value}
+                  target={kr.target_value}
+                  progress={progress}
+                  periodStart={objective.start_date}
+                  periodEnd={objective.end_date}
+                  users={users}
+                />
+              </div>
+            )}
+          </div>
+
+          <KrActivity
+            items={history.filter((item) => item.note !== 'Línea base inicial').slice(0, 4)}
+            kr={kr}
+            users={users}
+          />
 
           <div className="space-y-3 rounded-2xl border border-border/70 bg-background p-3 shadow-sm sm:p-3.5">
             <div className="flex items-center justify-between gap-2">
@@ -308,5 +378,45 @@ export function OkrKeyResultRow({
         </div>
       )}
     </section>
+  )
+}
+
+function KrActivity({
+  items,
+  kr,
+  users,
+}: {
+  items: CheckIn[]
+  kr: KeyResult
+  users: { id: string; nombre: string }[]
+}) {
+  if (!items.length) return null
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-muted-foreground">Actividad</p>
+      <ul className="space-y-2">
+        {items.map((item) => {
+          const actor =
+            users.find((user) => user.id === item.created_by)?.nombre ?? 'Usuario'
+          return (
+            <li
+              key={item.id}
+              className="rounded-lg border border-border/60 bg-background px-3 py-2"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="min-w-0 truncate text-xs font-medium">{actor}</p>
+                <span className="shrink-0 text-[11px] font-semibold tabular-nums">
+                  {metricText(item.value, item.unit_snapshot ?? kr.unit)}
+                </span>
+              </div>
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                {reportTimestamp(item.created_at)}
+                {item.note ? ` · ${item.note}` : ` · Medición del ${reportDate(item.created_at.slice(0, 10))}`}
+              </p>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
 }

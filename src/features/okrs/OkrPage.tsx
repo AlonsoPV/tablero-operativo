@@ -39,7 +39,6 @@ import {
 } from './OkrExecutionSummary'
 import { OkrObjectiveCard } from './OkrObjectiveCard'
 import { OkrKpiStrip } from './OkrKpiStrip'
-import { OkrDetailWorkspace } from './OkrDetailWorkspace'
 import { OkrLinkInitiativePanel } from './OkrLinkInitiativePanel'
 import {
   OkrScopeGroupHeader,
@@ -124,6 +123,7 @@ export function OkrPage() {
   const [busy, setBusy] = useState(false)
   const [editorSaving, setEditorSaving] = useState(false)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const [highlightedKrId, setHighlightedKrId] = useState<string | null>(null)
   const today = todayWallClockCDMX()
   const hasFilters =
     scope !== 'all' ||
@@ -484,22 +484,6 @@ export function OkrPage() {
         </div>
       )}
 
-      {filteredKeyResults.length > 0 && (
-        <OkrDetailWorkspace
-          objectives={filtered}
-          data={data}
-          actions={actions.data ?? []}
-          onAddInitiative={(objective, krId) => {
-            const kr = data.keyResults.find((item) => item.id === krId)
-            if (kr) setModal({ type: 'link', objective, kr })
-          }}
-          onLink={(objective, krId) => {
-            const kr = data.keyResults.find((item) => item.id === krId)
-            if (kr) setModal({ type: 'link', objective, kr })
-          }}
-        />
-      )}
-
       {filtered.length > 0 && (() => {
         const objectiveGroups = partitionObjectivesByScope(
           filtered,
@@ -547,6 +531,7 @@ export function OkrPage() {
               if (kr) setModal({ type: 'link', objective, kr })
             }}
             onUnlink={(id) => void unlink(id)}
+            highlightedKrId={highlightedKrId}
           />
         )
         return (
@@ -559,7 +544,7 @@ export function OkrPage() {
                 Objetivos
               </h2>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Agrupados por OKR de empresa y de equipo.
+                Empresa y equipo en un solo módulo: avance, gráfica, resultados clave e iniciativas.
               </p>
             </div>
             {objectiveGroups.company.length > 0 ? (
@@ -602,6 +587,7 @@ export function OkrPage() {
           onOpen={(kr) => {
             const objective = filtered.find((item) => item.id === kr.okr_id)
             if (!objective) return
+            setHighlightedKrId(kr.id)
             setExpandedIds((current) => {
               const next = new Set(current)
               next.add(objective.id)

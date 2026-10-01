@@ -48,6 +48,7 @@ export function OkrObjectiveCard({
   onKrHistory,
   onLink,
   onUnlink,
+  highlightedKrId,
 }: {
   objective: Objective
   data: OkrData
@@ -66,6 +67,7 @@ export function OkrObjectiveCard({
   onKrHistory: (krId: string) => void
   onLink: (krId: string) => void
   onUnlink: (id: string) => void
+  highlightedKrId?: string | null
 }) {
   const today = todayWallClockCDMX()
   const results = data.keyResults.filter((kr) => kr.okr_id === objective.id)
@@ -221,6 +223,8 @@ export function OkrObjectiveCard({
                   actionsPending={actionsPending}
                   actionsError={actionsError}
                   busy={busy}
+                  highlighted={highlightedKrId === kr.id}
+                  users={data.users}
                   onCheckIn={() => onCheckIn(kr.id)}
                   onEdit={() => onEditKr(kr.id)}
                   onHistory={() => onKrHistory(kr.id)}
