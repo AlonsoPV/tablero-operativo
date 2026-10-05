@@ -538,64 +538,68 @@ export function OkrHistoryChart({
         </div>
       </div>
 
-      <section className="overflow-hidden rounded-2xl border border-border/70 bg-muted/20 shadow-sm">
+      <section className="overflow-hidden rounded-2xl border border-border/70 bg-background shadow-sm">
         <button
           type="button"
           aria-expanded={timelineOpen}
           onClick={() => setTimelineOpen((value) => !value)}
-          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+          className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left outline-none hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-4"
         >
-          <h4 className="text-sm font-semibold">Timeline</h4>
+          <h4 className="text-sm font-semibold tracking-tight">Actividad</h4>
           <span className="text-xs text-muted-foreground">
             {timeline.length}{' '}
-            {timeline.length === 1 ? 'actualización' : 'actualizaciones'}
+            {timeline.length === 1 ? 'medición' : 'mediciones'}
           </span>
         </button>
         {timelineOpen && (
-          <div className="space-y-3 border-t border-border/50 px-4 py-3">
+          <div className="border-t border-border/50">
             {!timeline.length ? (
-              <p className="py-4 text-center text-sm text-muted-foreground">
-                Todavía no hay mediciones en la línea de tiempo.
+              <p className="px-3 py-4 text-center text-sm text-muted-foreground sm:px-4">
+                Todavía no hay mediciones registradas.
               </p>
             ) : (
-              timeline.map((item) => {
-                const actor =
-                  users.find((user) => user.id === item.created_by)?.nombre ??
-                  'Usuario'
-                const initials = actor
-                  .split(/\s+/)
-                  .slice(0, 2)
-                  .map((part) => part[0]?.toUpperCase() ?? '')
-                  .join('')
-                const itemProgress = historicalProgress(item)
-                return (
-                  <article key={item.id} className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-background text-[10px] font-semibold uppercase text-muted-foreground ring-1 ring-border/60">
+              <ul className="divide-y divide-border/50">
+                {timeline.map((item) => {
+                  const actor =
+                    users.find((user) => user.id === item.created_by)?.nombre ??
+                    'Usuario'
+                  const initials = actor
+                    .split(/\s+/)
+                    .slice(0, 2)
+                    .map((part) => part[0]?.toUpperCase() ?? '')
+                    .join('')
+                  const itemProgress = historicalProgress(item)
+                  return (
+                    <li
+                      key={item.id}
+                      className="flex items-start gap-2.5 px-3 py-2.5 sm:px-4"
+                    >
+                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold uppercase text-muted-foreground">
                         {initials || '?'}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{actor}</p>
-                        <p className="text-xs text-muted-foreground">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="min-w-0 truncate text-sm font-medium">
+                            {actor}
+                          </p>
+                          <span className="shrink-0 text-xs font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
+                            {metricText(item.value, item.unit_snapshot ?? unit)}
+                            {itemProgress != null
+                              ? ` · ${Math.round(itemProgress)}%`
+                              : ''}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
                           {reportTimestamp(item.created_at)}
+                          {item.note?.trim()
+                            ? ` · ${item.note.trim()}`
+                            : ` · Medición del ${reportDate(item.created_at.slice(0, 10))}`}
                         </p>
                       </div>
-                    </div>
-                    <div className="rounded-xl border border-border/60 bg-card p-3">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                        {metricText(item.value, item.unit_snapshot ?? unit)}
-                        {itemProgress != null
-                          ? ` · ${Math.round(itemProgress)}%`
-                          : ''}
-                      </span>
-                      <p className="mt-2 text-sm leading-relaxed text-foreground/90">
-                        {item.note?.trim() ||
-                          `Medición del ${reportDate(item.created_at.slice(0, 10))}.`}
-                      </p>
-                    </div>
-                  </article>
-                )
-              })
+                    </li>
+                  )
+                })}
+              </ul>
             )}
           </div>
         )}

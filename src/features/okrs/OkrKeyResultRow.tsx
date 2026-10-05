@@ -6,6 +6,7 @@ import {
   Link2,
   MoreHorizontal,
   Pencil,
+  Plus,
   RefreshCw,
   TrendingUp,
 } from 'lucide-react'
@@ -26,7 +27,7 @@ import {
   type Objective,
 } from './model'
 import { OkrHistoryChart } from './OkrHistoryChart'
-import { measurementLabel, measurementsFor, reportDate, reportTimestamp } from './reporting'
+import { measurementLabel, measurementsFor } from './reporting'
 import { LinkedInitiativeRow } from './OkrInitiativeVisuals'
 import {
   ProgressBar,
@@ -304,14 +305,8 @@ export function OkrKeyResultRow({
             )}
           </div>
 
-          <KrActivity
-            items={history.filter((item) => item.note !== 'Línea base inicial').slice(0, 4)}
-            kr={kr}
-            users={users}
-          />
-
-          <div className="space-y-3 rounded-2xl border border-border/70 bg-background p-3 shadow-sm sm:p-3.5">
-            <div className="flex items-center justify-between gap-2">
+          <div className="overflow-hidden rounded-2xl border border-border/70 bg-background shadow-sm">
+            <div className="flex items-center justify-between gap-2 px-3 py-2.5 sm:px-3.5">
               <div className="flex min-w-0 items-center gap-2">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
                   <Link2
@@ -319,18 +314,16 @@ export function OkrKeyResultRow({
                     aria-hidden
                   />
                 </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold tracking-tight">
-                    Iniciativas
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {links.length === 0
-                      ? 'Sin vínculos aún'
-                      : `${links.length} vinculada${links.length === 1 ? '' : 's'}`}
-                  </p>
-                </div>
+                <p className="text-sm font-semibold tracking-tight">
+                  Iniciativas
+                  {links.length > 0 ? (
+                    <span className="ml-1.5 text-xs font-medium text-muted-foreground">
+                      · {links.length}
+                    </span>
+                  ) : null}
+                </p>
               </div>
-              {kr.can_update && (
+              {kr.can_update && links.length > 0 ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -340,83 +333,65 @@ export function OkrKeyResultRow({
                 >
                   Vincular
                 </Button>
+              ) : null}
+            </div>
+
+            <div className="border-t border-border/50 px-3 py-3 sm:px-3.5">
+              {actionsPending && links.length > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Cargando estado de las iniciativas…
+                </p>
+              ) : null}
+              {actionsError && links.length > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No se pudo actualizar el estado de las iniciativas.
+                </p>
+              ) : null}
+              {unknown ? (
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Hay acciones sin acceso; no se calcula un porcentaje parcial.
+                </p>
+              ) : null}
+
+              {links.length > 0 ? (
+                <div className="space-y-2">
+                  {linked.map(({ link, action }) => (
+                    <LinkedInitiativeRow
+                      key={link.id}
+                      action={action}
+                      busy={busy}
+                      canUnlink={kr.can_update}
+                      onUnlink={() => onUnlink(link.id)}
+                    />
+                  ))}
+                </div>
+              ) : kr.can_update ? (
+                <button
+                  type="button"
+                  onClick={onLink}
+                  className="flex w-full items-center gap-3 rounded-xl border border-dashed border-border/80 bg-muted/15 px-3 py-3 text-left outline-none transition-colors hover:border-border hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-300">
+                    <Plus className="h-4 w-4" aria-hidden />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">
+                      Vincular una acción
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Conecta iniciativas del kanban a este resultado.
+                    </span>
+                  </span>
+                </button>
+              ) : (
+                <p className="py-1 text-xs text-muted-foreground">
+                  Sin iniciativas vinculadas.
+                </p>
               )}
             </div>
-            {actionsPending && links.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                Cargando estado de las iniciativas…
-              </p>
-            )}
-            {actionsError && links.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                No se pudo actualizar el estado de las iniciativas.
-              </p>
-            )}
-            {unknown && (
-              <p className="text-xs text-muted-foreground">
-                Hay acciones sin acceso; no se calcula un porcentaje parcial.
-              </p>
-            )}
-            {links.length > 0 ? (
-              <div className="space-y-2">
-                {linked.map(({ link, action }) => (
-                  <LinkedInitiativeRow
-                    key={link.id}
-                    action={action}
-                    busy={busy}
-                    canUnlink={kr.can_update}
-                    onUnlink={() => onUnlink(link.id)}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-3 py-3 text-xs leading-relaxed text-muted-foreground">
-                Todavía no hay iniciativas vinculadas a este resultado.
-              </p>
-            )}
           </div>
         </div>
       )}
     </section>
-  )
-}
-
-function KrActivity({
-  items,
-  kr,
-  users,
-}: {
-  items: CheckIn[]
-  kr: KeyResult
-  users: { id: string; nombre: string }[]
-}) {
-  if (!items.length) return null
-  return (
-    <div className="space-y-2">
-      <p className="text-xs font-semibold text-muted-foreground">Actividad</p>
-      <ul className="space-y-2">
-        {items.map((item) => {
-          const actor =
-            users.find((user) => user.id === item.created_by)?.nombre ?? 'Usuario'
-          return (
-            <li
-              key={item.id}
-              className="rounded-lg border border-border/60 bg-background px-3 py-2"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <p className="min-w-0 truncate text-xs font-medium">{actor}</p>
-                <span className="shrink-0 text-[11px] font-semibold tabular-nums">
-                  {metricText(item.value, item.unit_snapshot ?? kr.unit)}
-                </span>
-              </div>
-              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                {reportTimestamp(item.created_at)}
-                {item.note ? ` · ${item.note}` : ` · Medición del ${reportDate(item.created_at.slice(0, 10))}`}
-              </p>
-            </li>
-          )
-        })}
-      </ul>
-    </div>
   )
 }
