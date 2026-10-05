@@ -11,8 +11,12 @@ export function useRouteAccess() {
   const { data: moduleKeys, isLoading: modulesLoading } = useModuleAccess()
 
   const canAccessRoute = useCallback(
-    (pathname: string) => canAccessRouteWithModules(currentUser?.rol, pathname, appRole, moduleKeys),
-    [appRole, currentUser?.rol, moduleKeys]
+    (pathname: string) =>
+      canAccessRouteWithModules(currentUser?.rol, pathname, appRole, moduleKeys, {
+        area: currentUser?.area,
+        areas: currentUser?.areas,
+      }),
+    [appRole, currentUser?.area, currentUser?.areas, currentUser?.rol, moduleKeys]
   )
 
   return {

@@ -115,8 +115,17 @@ export function ProtectedRoute() {
     )
   }
 
-  if (profileStatus === 'loaded' && !canAccessRouteWithModules(profile?.rol, location.pathname, appRole, moduleKeys)) {
-    const fallbackRoute = getDefaultRouteWithModules(profile?.rol, appRole, moduleKeys)
+  if (
+    profileStatus === 'loaded' &&
+    !canAccessRouteWithModules(profile?.rol, location.pathname, appRole, moduleKeys, {
+      area: profile?.area,
+      areas: profile?.areas,
+    })
+  ) {
+    const fallbackRoute = getDefaultRouteWithModules(profile?.rol, appRole, moduleKeys, {
+      area: profile?.area,
+      areas: profile?.areas,
+    })
     if (fallbackRoute && fallbackRoute !== location.pathname) {
       return <Navigate to={fallbackRoute} replace />
     }

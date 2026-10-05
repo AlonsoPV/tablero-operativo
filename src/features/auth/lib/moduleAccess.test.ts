@@ -42,6 +42,34 @@ describe('module access', () => {
     expect(canAccessRouteWithModules('Operativo', '/kanban', null, null)).toBe(true)
   })
 
+  it('restringe OKRs a usuarios del area OKRS', () => {
+    expect(
+      canAccessRouteWithModules('Direccion', '/okrs', null, ['okrs'], {
+        area: 'Comercial',
+      })
+    ).toBe(false)
+    expect(
+      canAccessRouteWithModules('Direccion', '/okrs', null, ['okrs'], {
+        area: 'OKRS',
+      })
+    ).toBe(true)
+    expect(
+      canAccessRouteWithModules('Analista', '/okrs', null, null, {
+        areas: ['OKRS'],
+      })
+    ).toBe(true)
+    expect(
+      canAccessRouteWithModules('Analista', '/okrs', null, null, {
+        area: 'Operaciones',
+      })
+    ).toBe(false)
+    expect(
+      canAccessRouteWithModules('Operativo', '/okrs', 'super_admin', [], {
+        area: 'Comercial',
+      })
+    ).toBe(true)
+  })
+
   it('redirige a una seccion realmente habilitada y evita ciclos', () => {
     expect(getDefaultRouteWithModules('Direccion', null, ['tickets'])).toBe('/tickets')
     expect(getDefaultRouteWithModules('Direccion', null, [])).toBeNull()

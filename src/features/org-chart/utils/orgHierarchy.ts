@@ -256,5 +256,16 @@ export function mapManagerUpdateError(message: string): string {
   }
   if (low.includes('activo')) return 'El jefe directo debe ser un usuario activo.'
   if (low.includes('no existe')) return 'El jefe directo seleccionado no existe.'
+  if (
+    low.includes('no autorizado') ||
+    low.includes('not authorized') ||
+    low.includes('permission denied') ||
+    low.includes('42501')
+  ) {
+    return 'No tienes permiso para editar la jerarquía (se requiere área RH o Super Admin).'
+  }
+  if (low.includes('super admin no forma parte')) {
+    return 'Super Admin no forma parte del organigrama.'
+  }
   return message
 }

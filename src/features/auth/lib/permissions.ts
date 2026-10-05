@@ -225,11 +225,33 @@ function belongsToRhArea(
   area?: string | null | undefined,
   areas?: string[] | null | undefined
 ): boolean {
-  const names = [
-    ...(area ? [area] : []),
-    ...(areas ?? []),
-  ]
-  return names.some((name) => normalizeRole(name) === 'rh')
+  return userBelongsToArea('RH', area, areas)
+}
+
+/** True if the user primary/extra areas include the given catalog area name. */
+export function userBelongsToArea(
+  areaName: string,
+  area?: string | null | undefined,
+  areas?: string[] | null | undefined
+): boolean {
+  const target = normalizeRole(areaName)
+  if (!target) return false
+  const names = [...(area ? [area] : []), ...(areas ?? [])]
+  return names.some((name) => normalizeRole(name) === target)
+}
+
+/**
+ * OKRs (/okrs y pestaña del dashboard): solo área OKRS.
+ * Super Admin conserva acceso para soporte.
+ */
+export function canAccessOkrs(
+  rol?: string | null,
+  appRole?: string | null,
+  area?: string | null,
+  areas?: string[] | null
+): boolean {
+  if (isSuperAdminByRole(rol) || isAppSuperAdminByAppRole(appRole)) return true
+  return userBelongsToArea('OKRS', area, areas)
 }
 
 export function canManageActionsByRole(rol: string | null | undefined): boolean {

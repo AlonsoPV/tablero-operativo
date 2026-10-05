@@ -1,11 +1,17 @@
 import { ROUTES } from '@/constants'
 import {
+  canAccessOkrs,
   canAccessRouteByRole,
   getDefaultRouteByRole,
   isAppSuperAdminByAppRole,
   isAnalystByRole,
   isSuperAdminByRole,
 } from './permissions'
+
+export type RouteAccessContext = {
+  area?: string | null
+  areas?: string[] | null
+}
 
 const MODULE_ROUTES: Array<[string, string]> = [
   [ROUTES.OKRS, 'okrs'],
@@ -77,8 +83,13 @@ export function canAccessRouteWithModules(
   rol: string | null | undefined,
   pathname: string,
   appRole: string | null | undefined,
-  moduleKeys: string[] | null | undefined
+  moduleKeys: string[] | null | undefined,
+  context?: RouteAccessContext
 ) {
+  if (pathname === ROUTES.OKRS || pathname.startsWith(`${ROUTES.OKRS}/`)) {
+    if (!canAccessOkrs(rol, appRole, context?.area, context?.areas)) return false
+  }
+
   // La regla de seguridad del Kanban por Equipos siempre prevalece sobre el catalogo de modulos.
   if (
     pathname === ROUTES.TEAM_KANBAN ||
@@ -110,18 +121,26 @@ export function canAccessRouteWithModules(
 export function getDefaultRouteWithModules(
   rol: string | null | undefined,
   appRole: string | null | undefined,
-  moduleKeys: string[] | null | undefined
+  moduleKeys: string[] | null | undefined,
+  context?: RouteAccessContext
 ): string | null {
   const legacyDefault = getDefaultRouteByRole(rol)
   if (isAppSuperAdminByAppRole(appRole) || isSuperAdminByRole(rol) || !moduleKeys) {
     return legacyDefault
   }
 
-  if (canAccessRouteWithModules(rol, legacyDefault, appRole, moduleKeys)) {
+  if (
+    legacyDefault &&
+    canAccessRouteWithModules(rol, legacyDefault, appRole, moduleKeys, context)
+  ) {
     return legacyDefault
   }
 
-  return MODULE_DEFAULT_ROUTES.find(
-    ([key, route]) => moduleKeys.includes(key) && canAccessRouteWithModules(rol, route, appRole, moduleKeys)
-  )?.[1] ?? null
+  return (
+    MODULE_DEFAULT_ROUTES.find(
+      ([key, route]) =>
+        moduleKeys.includes(key) &&
+        canAccessRouteWithModules(rol, route, appRole, moduleKeys, context)
+    )?.[1] ?? null
+  )
 }
