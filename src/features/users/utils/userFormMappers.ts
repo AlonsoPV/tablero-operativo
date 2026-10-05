@@ -3,10 +3,11 @@ import type { UserFormValues } from '../schemas/user.schema'
 import type { AreaOption } from '../components/AreaMembershipFields'
 import { resolveAreaIdsForSave } from '../components/AreaMembershipFields'
 
-/** Payload explícito para UPDATE: siempre envía todos los campos editables. */
+/** Payload explícito para UPDATE: campos editables; manager solo si se autoriza. */
 export function toUpdateUserInput(
   values: UserFormValues,
-  catalogAreas: AreaOption[] = []
+  catalogAreas: AreaOption[] = [],
+  options?: { includeManager?: boolean }
 ): UpdateUserInput {
   const { primaryAreaId, areaIds } = resolveAreaIdsForSave(
     catalogAreas,
@@ -29,7 +30,9 @@ export function toUpdateUserInput(
     primary_area_id: primaryAreaId,
     area_ids: areaIds,
     activo: Boolean(values.activo),
-    manager_user_id: values.manager_user_id ?? null,
+    ...(options?.includeManager
+      ? { manager_user_id: values.manager_user_id ?? null }
+      : {}),
   }
 }
 

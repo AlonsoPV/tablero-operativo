@@ -65,7 +65,8 @@ export function UserDetailPage() {
         id,
         input: toUpdateUserInput(
           values,
-          catalogAreas.map((a) => ({ id: a.id, nombre: a.nombre }))
+          catalogAreas.map((a) => ({ id: a.id, nombre: a.nombre })),
+          { includeManager: canEditManager }
         ),
       },
       {

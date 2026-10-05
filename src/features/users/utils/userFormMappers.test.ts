@@ -15,7 +15,8 @@ describe('user form mappers', () => {
           manager_user_id: '11111111-1111-1111-1111-111111111111',
           direct_report_ids: [],
         },
-        [{ id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', nombre: 'Logistica' }]
+        [{ id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', nombre: 'Logistica' }],
+        { includeManager: true }
       )
     ).toEqual({
       nombre: 'Ana Perez',
@@ -26,6 +27,24 @@ describe('user form mappers', () => {
       activo: false,
       manager_user_id: '11111111-1111-1111-1111-111111111111',
     })
+  })
+
+  it('toUpdateUserInput omite manager si no se autoriza', () => {
+    expect(
+      toUpdateUserInput(
+        {
+          nombre: 'Ana',
+          rol: 'Operaciones',
+          area: null,
+          additional_area_ids: [],
+          activo: true,
+          manager_user_id: '11111111-1111-1111-1111-111111111111',
+          direct_report_ids: [],
+        },
+        [],
+        { includeManager: false }
+      )
+    ).not.toHaveProperty('manager_user_id')
   })
 
   it('toUpdateUserInput normaliza area vacia a null', () => {
