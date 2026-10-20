@@ -5,6 +5,7 @@ export interface Objective {
   scope: 'company' | 'team'
   area_id: string | null
   owner_user_id: string | null
+  parent_okr_id?: string | null
   start_date: string | null
   end_date: string | null
   activo: boolean
@@ -38,6 +39,7 @@ export interface ActionOption {
   kind: 'company' | 'team'
   area_id: string | null
   closed: boolean
+  es_okr?: boolean
 }
 
 export interface CheckIn {

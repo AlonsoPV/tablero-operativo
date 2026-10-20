@@ -68,7 +68,7 @@ export function OkrLinkInitiativePanel({
         <span>
           <span className="block text-sm font-medium">Crear acción nueva</span>
           <span className="mt-0.5 block text-xs text-muted-foreground">
-            Se abre el formulario de Kanban. Después puedes vincularla aquí.
+            Márcala como OKR al crearla. Después vuelve a vincularla aquí.
           </span>
         </span>
       </button>
@@ -103,7 +103,7 @@ export function OkrLinkInitiativePanel({
               No hay acciones para vincular
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Cambia la búsqueda o crea una acción nueva.
+              Marca la acción con la tag OKR al crearla, o cambia la búsqueda.
             </p>
           </div>
         )}

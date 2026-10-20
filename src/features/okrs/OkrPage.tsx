@@ -5,7 +5,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   Building2,
-  Link2,
   Plus,
   RefreshCw,
   Search,
@@ -13,6 +12,16 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   Dialog,
   DialogContent,
@@ -25,21 +34,22 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { AccionFormDialog } from '@/features/operations/components/AccionFormDialog'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants'
 import { okrService } from './service'
-import { KeyResultForm, ObjectiveForm } from './OkrForms'
-import { useRouteAccess } from '@/features/auth/hooks/useRouteAccess'
+import { EditorFrame, KeyResultForm, ObjectiveForm } from './OkrForms'
+import { OkrLinkInitiativePanel } from './OkrLinkInitiativePanel'
 import { TeamInitiativeCreator } from './TeamInitiativeCreator'
+import { useCanSeeOkrTags } from './useCanSeeOkrTags'
+import { AccionFormDialog } from '@/features/operations/components/AccionFormDialog'
+import { useRouteAccess } from '@/features/auth/hooks/useRouteAccess'
 import {
   OkrExecutionSummary,
   planTimelineMetrics,
 } from './OkrExecutionSummary'
 import { OkrObjectiveCard } from './OkrObjectiveCard'
 import { OkrKpiStrip } from './OkrKpiStrip'
-import { OkrLinkInitiativePanel } from './OkrLinkInitiativePanel'
 import {
   OkrScopeGroupHeader,
   ProgressBar,
@@ -50,10 +60,11 @@ import {
 import {
   krProgress,
   objectivePeriod,
+  type ActionOption,
+  type Initiative,
   type KeyResult,
   type Objective,
   type OkrData,
-  type ActionOption,
 } from './model'
 
 const control =
@@ -95,6 +106,7 @@ function FilterControl({
 
 export function OkrPage() {
   const { canAccessRoute } = useRouteAccess()
+  const canSeeOkrTags = useCanSeeOkrTags()
   const [searchParams, setSearchParams] = useSearchParams()
   const qc = useQueryClient()
   const query = useQuery({
@@ -114,14 +126,22 @@ export function OkrPage() {
   const [modal, setModal] = useState<Modal | null>(null)
   const [createAction, setCreateAction] = useState(false)
   const [resumeLink, setResumeLink] = useState<Modal | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [linkSearch, setLinkSearch] = useState('')
+  const [selectedAction, setSelectedAction] = useState('')
   const [scope, setScope] = useState('all')
   const [period, setPeriod] = useState('all')
   const [area, setArea] = useState('all')
   const [search, setSearch] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
-  const [busy, setBusy] = useState(false)
   const [editorSaving, setEditorSaving] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<{
+    type: 'objective' | 'kr'
+    id: string
+    title: string
+  } | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [highlightedKrId, setHighlightedKrId] = useState<string | null>(null)
   const today = todayWallClockCDMX()
@@ -148,14 +168,16 @@ export function OkrPage() {
       qc.invalidateQueries({ queryKey: ['okr-report-history'] }),
     ])
   }
+
   function closeActionCreator() {
     setCreateAction(false)
     if (resumeLink) {
       setModal(resumeLink)
       setResumeLink(null)
-      void refresh()
     }
+    void refresh()
   }
+
   async function unlink(id: string) {
     setBusy(true)
     try {
@@ -201,6 +223,7 @@ export function OkrPage() {
           scope: objective.scope,
           area_id: objective.area_id,
           owner_user_id: objective.owner_user_id,
+          parent_okr_id: objective.parent_okr_id ?? null,
           start_date: objective.start_date,
           end_date: objective.end_date,
           activo: false,
@@ -213,6 +236,31 @@ export function OkrPage() {
       toast.error(
         error instanceof Error ? error.message : 'No se pudo archivar'
       )
+    }
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return
+    setDeleting(true)
+    try {
+      if (pendingDelete.type === 'objective') {
+        await okrService.deleteObjective(pendingDelete.id)
+        toast.success('Objetivo eliminado')
+        if (searchParams.get('objective') === pendingDelete.id) {
+          setSearchParams({})
+        }
+      } else {
+        await okrService.deleteKeyResult(pendingDelete.id)
+        toast.success('Resultado clave eliminado')
+      }
+      setPendingDelete(null)
+      await refresh()
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'No se pudo eliminar'
+      )
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -253,17 +301,6 @@ export function OkrPage() {
   const filteredKeyResults = data.keyResults.filter((kr) =>
     filteredKrIds.has(kr.okr_id)
   )
-  const initiativesForScope = data.initiatives.filter((item) =>
-    filteredKeyResults.some((kr) => kr.id === item.key_result_id)
-  )
-  const initiativesDone = initiativesForScope.filter((item) => {
-    const action = (actions.data ?? []).find(
-      (option) =>
-        option.id === (item.action_id ?? item.team_action_id) &&
-        option.kind === (item.action_id ? 'company' : 'team')
-    )
-    return Boolean(action?.closed)
-  }).length
   const onTrackShare = filteredKeyResults.length
     ? (filteredKeyResults.filter((kr) => krProgress(kr) >= 70).length /
         filteredKeyResults.length) *
@@ -286,7 +323,7 @@ export function OkrPage() {
             Objetivos y resultados clave
           </h1>
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-            Plan, avance e iniciativas en una sola vista.
+            Plan y avance de objetivos y resultados clave.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -302,13 +339,13 @@ export function OkrPage() {
                 size="icon"
                 className="h-11 w-11"
                 aria-label="Actualizar OKRs"
-                disabled={query.isFetching || actions.isFetching}
+                disabled={query.isFetching}
                 onClick={() => void refresh()}
               >
                 <RefreshCw
                   className={cn(
                     'h-4 w-4',
-                    (query.isFetching || actions.isFetching) && 'animate-spin'
+                    query.isFetching && 'animate-spin'
                   )}
                 />
               </Button>
@@ -332,8 +369,6 @@ export function OkrPage() {
           daysLeft={timeline.daysLeft}
           timelineProgress={timeline.timelineProgress}
           averageProgress={report.average}
-          initiativesDone={initiativesDone}
-          initiativesTotal={initiativesForScope.length}
           onTrackShare={onTrackShare}
         />
 
@@ -445,17 +480,6 @@ export function OkrPage() {
           Ver todos los objetivos
         </Button>
       )}
-      {actions.isError && (
-        <p
-          role="alert"
-          className="rounded-md border border-destructive p-3 text-sm"
-        >
-          No se pudieron cargar las acciones: {actions.error.message}{' '}
-          <button className="underline" onClick={() => void actions.refetch()}>
-            Reintentar
-          </button>
-        </p>
-      )}
       {!filtered.length && (
         <div className="rounded-2xl border border-border/70 bg-card px-6 py-12 text-center">
           <h2 className="text-lg font-semibold">
@@ -502,6 +526,7 @@ export function OkrPage() {
             actionsPending={actions.isPending}
             actionsError={actions.isError}
             busy={busy}
+            showAlignmentTag={canSeeOkrTags}
             expanded={expandedIds.has(objective.id)}
             onExpandedChange={(open) => {
               setExpandedIds((current) => {
@@ -526,9 +551,29 @@ export function OkrPage() {
             onKrHistory={(krId) =>
               setHistorySelection({ objective, krId })
             }
+            onDelete={() =>
+              setPendingDelete({
+                type: 'objective',
+                id: objective.id,
+                title: objective.nombre_okr,
+              })
+            }
+            onDeleteKr={(krId) => {
+              const kr = krFor(krId)
+              if (!kr) return
+              setPendingDelete({
+                type: 'kr',
+                id: kr.id,
+                title: kr.title,
+              })
+            }}
             onLink={(krId) => {
               const kr = krFor(krId)
-              if (kr) setModal({ type: 'link', objective, kr })
+              if (kr) {
+                setLinkSearch('')
+                setSelectedAction('')
+                setModal({ type: 'link', objective, kr })
+              }
             }}
             onUnlink={(id) => void unlink(id)}
             highlightedKrId={highlightedKrId}
@@ -544,7 +589,7 @@ export function OkrPage() {
                 Objetivos
               </h2>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Empresa y equipo en un solo módulo: avance, gráfica, resultados clave e iniciativas.
+                Empresa y equipo en un solo módulo: avance, gráfica y resultados clave.
               </p>
             </div>
             {objectiveGroups.company.length > 0 ? (
@@ -621,6 +666,13 @@ export function OkrPage() {
               objective={modal.objective}
               areas={data.areas}
               users={data.users}
+              companyObjectives={data.objectives
+                .filter((item) => item.scope === 'company')
+                .map((item) => ({
+                  id: item.id,
+                  nombre_okr: item.nombre_okr,
+                }))}
+              showAlignmentTag={canSeeOkrTags}
               canManageCompany={data.can_manage_company}
               scopeLocked={
                 Boolean(modal.objective) &&
@@ -652,6 +704,43 @@ export function OkrPage() {
                 } else {
                   toast.success('Objetivo actualizado')
                   setModal(null)
+                }
+              }}
+            />
+          ) : modal?.type === 'link' ? (
+            <LinkInitiativeForm
+              kr={modal.kr}
+              objective={modal.objective}
+              actions={actions.data ?? []}
+              actionsReady={actions.isSuccess}
+              initiatives={data.initiatives}
+              areas={data.areas}
+              search={linkSearch}
+              onSearch={setLinkSearch}
+              selectedAction={selectedAction}
+              onSelect={setSelectedAction}
+              saving={busy}
+              onCancel={() => setModal(null)}
+              onCreateAction={() => {
+                setResumeLink(modal)
+                setModal(null)
+                setCreateAction(true)
+              }}
+              onSubmit={async (action) => {
+                setBusy(true)
+                try {
+                  await okrService.link(modal.kr.id, action)
+                  await refresh()
+                  toast.success('Iniciativa vinculada')
+                  setModal(null)
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : 'No se pudo vincular'
+                  )
+                } finally {
+                  setBusy(false)
                 }
               }}
             />
@@ -687,24 +776,39 @@ export function OkrPage() {
                 key={`${modal.type}-${modal.kr.id}`}
                 modal={modal}
                 data={data}
-                actions={actions.data ?? []}
-                actionsReady={actions.isSuccess}
                 onSavingChange={setEditorSaving}
                 onCancel={() => setModal(null)}
                 onSaved={async () => {
                   await refresh()
                   setModal(null)
                 }}
-                onCreateAction={() => {
-                  setResumeLink(modal)
-                  setModal(null)
-                  setCreateAction(true)
-                }}
               />
             </div>
           ) : null}
         </DialogContent>
       </Dialog>
+      {createAction && resumeLink?.type === 'link' && resumeLink.objective.area_id ? (
+        <TeamInitiativeCreator
+          areaId={resumeLink.objective.area_id}
+          areaName={
+            data.areas.find((a) => a.id === resumeLink.objective.area_id)
+              ?.nombre ?? 'Equipo'
+          }
+          onClose={closeActionCreator}
+          onDone={async () => {
+            await refresh()
+            closeActionCreator()
+          }}
+        />
+      ) : createAction ? (
+        <AccionFormDialog
+          open={createAction}
+          onOpenChange={(open) => {
+            if (!open) closeActionCreator()
+          }}
+          onSuccess={() => void closeActionCreator()}
+        />
+      ) : null}
       {historySelection && (
         <OkrReportHistory
           objective={historySelection.objective}
@@ -713,46 +817,143 @@ export function OkrPage() {
           onClose={() => setHistorySelection(null)}
         />
       )}
-      {createAction && resumeLink?.objective?.area_id ? (
-        <TeamInitiativeCreator
-          areaId={resumeLink.objective.area_id}
-          areaName={
-            data.areas.find((a) => a.id === resumeLink.objective?.area_id)
-              ?.nombre ?? 'Equipo'
-          }
-          onClose={closeActionCreator}
-          onDone={refresh}
-        />
-      ) : createAction ? (
-        <AccionFormDialog
-          open={createAction}
-          onOpenChange={(open) => {
-            if (!open) closeActionCreator()
-          }}
-          onSuccess={() => void refresh()}
-        />
-      ) : null}
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setPendingDelete(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingDelete?.type === 'kr'
+                ? 'Eliminar resultado clave'
+                : 'Eliminar objetivo'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete?.type === 'kr'
+                ? `Se eliminará «${pendingDelete.title}» y su historial de mediciones. Esta acción no se puede deshacer.`
+                : `Se eliminará «${pendingDelete?.title ?? ''}» junto con sus resultados clave e historial. Esta acción no se puede deshacer.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(event) => {
+                event.preventDefault()
+                void confirmDelete()
+              }}
+            >
+              {deleting ? 'Eliminando…' : 'Eliminar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
     </TooltipProvider>
+  )
+}
+
+function LinkInitiativeForm({
+  kr,
+  objective,
+  actions,
+  actionsReady,
+  initiatives,
+  areas,
+  search,
+  onSearch,
+  selectedAction,
+  onSelect,
+  saving,
+  onCancel,
+  onCreateAction,
+  onSubmit,
+}: {
+  kr: KeyResult
+  objective: Objective
+  actions: ActionOption[]
+  actionsReady: boolean
+  initiatives: Initiative[]
+  areas: { id: string; nombre: string }[]
+  search: string
+  onSearch: (value: string) => void
+  selectedAction: string
+  onSelect: (value: string) => void
+  saving: boolean
+  onCancel: () => void
+  onCreateAction: () => void
+  onSubmit: (action: ActionOption) => Promise<void>
+}) {
+  const available = actions.filter((action) => {
+    if (!action.es_okr) return false
+    if (objective.area_id && action.area_id !== objective.area_id) return false
+    if (
+      initiatives.some(
+        (item) =>
+          item.key_result_id === kr.id &&
+          (item.action_id ?? item.team_action_id) === action.id
+      )
+    )
+      return false
+    return action.title
+      .toLocaleLowerCase('es')
+      .includes(search.toLocaleLowerCase('es'))
+  })
+
+  return (
+    <EditorFrame
+      title="Vincular iniciativa"
+      description="Solo se listan acciones marcadas con la tag OKR."
+      saving={saving}
+      footer={
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-2">
+          <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            disabled={saving || !selectedAction}
+            className="w-full"
+            onClick={() => {
+              const action = actions.find(
+                (item) => `${item.kind}:${item.id}` === selectedAction
+              )
+              if (action) void onSubmit(action)
+            }}
+          >
+            {saving ? 'Vinculando…' : 'Vincular iniciativa'}
+          </Button>
+        </div>
+      }
+    >
+      <OkrLinkInitiativePanel
+        krTitle={kr.title}
+        search={search}
+        onSearch={onSearch}
+        selectedAction={selectedAction}
+        onSelect={onSelect}
+        available={available}
+        areas={areas}
+        actionsReady={actionsReady}
+        onCreateAction={onCreateAction}
+      />
+    </EditorFrame>
   )
 }
 
 function OkrEditor({
   modal,
   data,
-  actions,
-  actionsReady,
   onSaved,
-  onCreateAction,
   onSavingChange,
   onCancel,
 }: {
   modal: Modal
   data: OkrData
-  actions: ActionOption[]
-  actionsReady: boolean
   onSaved: (newObjectiveId?: string) => Promise<void>
-  onCreateAction: () => void
   onSavingChange: (saving: boolean) => void
   onCancel: () => void
 }) {
@@ -762,10 +963,8 @@ function OkrEditor({
   const [startDate, setStartDate] = useState(
     modal.objective?.start_date ?? todayWallClockCDMX()
   )
-  const [search, setSearch] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [selectedAction, setSelectedAction] = useState('')
   const [measurement, setMeasurement] = useState(
     'kr' in modal
       ? String(modal.kr?.current_value ?? modal.kr?.baseline_value ?? '')
@@ -819,13 +1018,6 @@ function OkrEditor({
           Number(values.value),
           String(values.note ?? '')
         )
-      if (modal.type === 'link') {
-        const action = actions.find(
-          (a) => `${a.kind}:${a.id}` === selectedAction
-        )
-        if (!action) throw new Error('Selecciona una acción.')
-        await okrService.link(modal.kr.id, action)
-      }
       toast.success('Cambios guardados')
       await onSaved(newObjectiveId)
     } catch (err) {
@@ -843,43 +1035,18 @@ function OkrEditor({
   const scopeLocked =
     modal.type === 'objective' &&
     data.keyResults.some((item) => item.okr_id === modal.objective?.id)
-  const available =
-    modal.type === 'link'
-      ? actions.filter(
-          (a) =>
-            (!modal.objective.area_id ||
-              a.area_id === modal.objective.area_id) &&
-            !data.initiatives.some(
-              (i) =>
-                i.key_result_id === modal.kr.id &&
-                (a.kind === 'company' ? i.action_id : i.team_action_id) === a.id
-            ) &&
-            a.title
-              .toLocaleLowerCase('es')
-              .includes(search.toLocaleLowerCase('es'))
-        )
-      : []
 
   return (
     <>
       <DialogTitle className="flex items-center gap-2">
-        {modal.type === 'link' && (
-          <Link2 className="h-5 w-5 text-primary" aria-hidden />
-        )}
         {titles[modal.type]}
       </DialogTitle>
-      {modal.type === 'link' ? (
-        <DialogDescription className="sr-only">
-          Elige una acción para convertirla en iniciativa de {kr?.title}.
-        </DialogDescription>
-      ) : (
-        <DialogDescription className="break-words pr-4">
-          {kr?.title ??
-            (modal.type === 'kr'
-              ? `Objetivo: ${modal.objective.nombre_okr}`
-              : 'Define el resultado que quieres alcanzar y su periodo de seguimiento.')}
-        </DialogDescription>
-      )}
+      <DialogDescription className="break-words pr-4">
+        {kr?.title ??
+          (modal.type === 'kr'
+            ? `Objetivo: ${modal.objective.nombre_okr}`
+            : 'Define el resultado que quieres alcanzar y su periodo de seguimiento.')}
+      </DialogDescription>
       {modal.type === 'history' ? (
         <div className="space-y-3">
           {!data.checkIns.some((c) => c.key_result_id === modal.kr.id) && (
@@ -1161,22 +1328,6 @@ function OkrEditor({
                 </Field>
               </>
             )}
-            {modal.type === 'link' && (
-              <OkrLinkInitiativePanel
-                krTitle={modal.kr.title}
-                search={search}
-                onSearch={(value) => {
-                  setSearch(value)
-                  setSelectedAction('')
-                }}
-                selectedAction={selectedAction}
-                onSelect={setSelectedAction}
-                available={available}
-                areas={data.areas}
-                actionsReady={actionsReady}
-                onCreateAction={onCreateAction}
-              />
-            )}
             {error && (
               <p role="alert" className="text-sm text-destructive">
                 {error}
@@ -1186,23 +1337,14 @@ function OkrEditor({
               <Button type="button" variant="outline" onClick={onCancel}>
                 Cancelar
               </Button>
-              <Button
-                type="submit"
-                disabled={
-                  saving ||
-                  (modal.type === 'link' && (!actionsReady || !selectedAction))
-                }
-                className="w-full"
-              >
+              <Button type="submit" disabled={saving} className="w-full">
                 {saving
                   ? 'Guardando…'
-                  : modal.type === 'link'
-                    ? 'Vincular iniciativa'
-                    : modal.type === 'objective' && !modal.objective
-                      ? 'Crear y agregar KR'
-                      : modal.type === 'checkin'
-                        ? 'Guardar medición'
-                        : 'Guardar'}
+                  : modal.type === 'objective' && !modal.objective
+                    ? 'Crear y agregar KR'
+                    : modal.type === 'checkin'
+                      ? 'Guardar medición'
+                      : 'Guardar'}
               </Button>
             </div>
           </fieldset>

@@ -48,6 +48,8 @@ export interface AccionDiaria {
   story_points: number
   catalog_kpi_id?: string | null
   okr_impactado: string | null
+  /** Marca de seguimiento OKR. Visible y editable solo para el área OKRS. */
+  es_okr?: boolean
   proceso: string | null
   area: string | null
   cliente_id: string | null

@@ -91,6 +91,7 @@ const accionInputShape = z.object({
   /** KPIs de catálogo impactados (tabla puente + columna primaria = primer id). */
   catalog_kpi_ids: z.array(z.string().uuid()).max(50).optional().default([]),
   okr_impactado: z.string().uuid().nullable().optional(),
+  es_okr: z.boolean().optional().default(false),
   proceso: z.string().uuid().nullable().optional(),
   area: z.string().trim().nullable().optional(),
   cliente_id: z.string().uuid().nullable().optional(),
@@ -235,6 +236,7 @@ export const accionUpdateSchema = z
     gap_ids: z.array(z.string().uuid()).max(50).optional(),
     catalog_kpi_ids: z.array(z.string().uuid()).max(50).optional(),
     okr_impactado: z.string().uuid().nullable().optional(),
+    es_okr: z.boolean().optional(),
     proceso: z.string().uuid().nullable().optional(),
     area: z.string().trim().nullable().optional(),
     cliente_id: z.string().uuid().nullable().optional(),

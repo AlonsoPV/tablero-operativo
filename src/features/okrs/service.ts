@@ -73,6 +73,10 @@ export const okrService = {
     }),
   checkIn: (id: string, value: number, note: string) =>
     rpc<void>('okr_check_in', { p_id: id, p_value: value, p_note: note }),
+  deleteObjective: (id: string) =>
+    rpc<void>('okr_delete_objective', { p_id: id }),
+  deleteKeyResult: (id: string) =>
+    rpc<void>('okr_delete_key_result', { p_id: id }),
   async link(krId: string, action: ActionOption) {
     const { error } = await supabase.from('okr_initiatives').insert({
       key_result_id: krId,
@@ -98,4 +102,6 @@ export const okrService = {
         'No se pudo desvincular la iniciativa. Verifica tus permisos.'
       )
   },
+  tagTeamAction: (id: string, esOkr: boolean) =>
+    rpc<void>('okr_tag_team_action', { p_id: id, p_es_okr: esOkr }),
 }

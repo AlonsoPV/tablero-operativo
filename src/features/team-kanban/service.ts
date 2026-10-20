@@ -39,6 +39,7 @@ export const teamKanbanService = {
     actionType?: string
     gapIds?: string[]
     catalogKpiIds?: string[]
+    esOkr?: boolean
     isFrequent?: boolean
     recurrenceType?: 'diaria' | 'semanal' | 'quincenal' | 'mensual' | null
     recurrenceWeekday?: number | null
@@ -62,7 +63,16 @@ export const teamKanbanService = {
       p_frecuencia_inicio: input.recurrenceStart ?? null,
     })
     if (error) throw new Error(error.message)
-    return unwrap(data, null) as TeamAction
+    const created = unwrap(data, null) as TeamAction
+    if (input.esOkr) {
+      const tagged = await supabase.rpc('okr_tag_team_action', {
+        p_id: created.id,
+        p_es_okr: true,
+      })
+      if (tagged.error) throw new Error(tagged.error.message)
+      created.es_okr = true
+    }
+    return created
   },
   async update(
     actionId: string,

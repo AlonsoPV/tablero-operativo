@@ -176,7 +176,6 @@ export function reportCsv(objectives: Objective[], data: OkrData): string {
       'Unidad',
       'Avance KR (%)',
       'Último seguimiento (CDMX)',
-      'Iniciativas vinculadas',
     ],
   ]
   for (const o of objectives) {
@@ -199,9 +198,6 @@ export function reportCsv(objectives: Objective[], data: OkrData): string {
         k?.unit,
         k ? Math.round(krProgress(k)) : '',
         k ? measurementLabel(k, measurementsFor(data.checkIns, k.id)) : '',
-        k
-          ? data.initiatives.filter((i) => i.key_result_id === k.id).length
-          : '',
       ])
     }
   }

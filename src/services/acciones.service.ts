@@ -38,6 +38,7 @@ const ACCION_COLUMNS = [
   'story_points',
   'catalog_kpi_id',
   'okr_impactado',
+  'es_okr',
   'proceso',
   'area',
   'cliente_id',
@@ -61,29 +62,51 @@ const ACCION_COLUMNS = [
 ] as const
 
 let prioridadIdColumnAvailable: boolean | null = null
+let esOkrColumnAvailable: boolean | null = null
+
+function isMissingColumn(
+  error: { code?: string; message?: string } | null,
+  column: string
+): boolean {
+  return error?.code === '42703' && (error.message?.includes(column) ?? false)
+}
 
 function isMissingPrioridadIdColumn(error: { code?: string; message?: string } | null): boolean {
-  return error?.code === '42703' && (error.message?.includes('prioridad_id') ?? false)
+  return isMissingColumn(error, 'prioridad_id')
 }
 
 function accionSelectColumns(): string {
-  if (prioridadIdColumnAvailable === false) {
-    return ACCION_COLUMNS.filter((column) => column !== 'prioridad_id').join(',')
-  }
-  return ACCION_COLUMNS.join(',')
+  return ACCION_COLUMNS.filter((column) => {
+    if (column === 'prioridad_id' && prioridadIdColumnAvailable === false) return false
+    if (column === 'es_okr' && esOkrColumnAvailable === false) return false
+    return true
+  }).join(',')
+}
+
+function stripUnavailableColumns<T extends Partial<AccionDiaria>>(payload: T): T {
+  const rest = { ...payload }
+  if (prioridadIdColumnAvailable === false) delete rest.prioridad_id
+  if (esOkrColumnAvailable === false) delete rest.es_okr
+  return rest as T
 }
 
 function stripPrioridadIdIfUnavailable<T extends Partial<AccionDiaria>>(payload: T): T {
-  if (prioridadIdColumnAvailable !== false) return payload
-  const rest = { ...payload }
-  delete rest.prioridad_id
-  return rest as T
+  return stripUnavailableColumns(payload)
 }
 
 function markPrioridadIdUnavailable(error: { code?: string; message?: string } | null): boolean {
   if (!isMissingPrioridadIdColumn(error)) return false
   prioridadIdColumnAvailable = false
   return true
+}
+
+function markOptionalColumnsUnavailable(error: { code?: string; message?: string } | null): boolean {
+  let marked = markPrioridadIdUnavailable(error)
+  if (isMissingColumn(error, 'es_okr')) {
+    esOkrColumnAvailable = false
+    marked = true
+  }
+  return marked
 }
 
 function isDoneEstado(s: ActionStatus): boolean {
@@ -316,7 +339,7 @@ export const accionesService = {
       .select(accionSelectColumns())
       .eq('fecha', fecha)
       .order('hora_limite', { ascending: true })
-    if (markPrioridadIdUnavailable(error)) {
+    if (markOptionalColumnsUnavailable(error)) {
       ;({ data, error } = await supabase
         .from(TABLE)
         .select(accionSelectColumns())
@@ -330,7 +353,7 @@ export const accionesService = {
   async list(filter: AccionesFilter = {}) {
     const { onlyRetraso } = buildAccionesListQuery(filter)
     let { data, error } = await buildAccionesListQuery(filter).query
-    if (markPrioridadIdUnavailable(error)) {
+    if (markOptionalColumnsUnavailable(error)) {
       ;({ data, error } = await buildAccionesListQuery(filter).query)
     }
     if (error) throw error
@@ -347,7 +370,7 @@ export const accionesService = {
       .select(accionSelectColumns())
       .eq('id', id)
       .limit(1)
-    if (markPrioridadIdUnavailable(error)) {
+    if (markOptionalColumnsUnavailable(error)) {
       ;({ data, error } = await supabase
         .from(TABLE)
         .select(accionSelectColumns())
@@ -398,7 +421,7 @@ export const accionesService = {
     let { error } = await supabase
       .from(TABLE)
       .insert(cleanPayload)
-    if (markPrioridadIdUnavailable(error)) {
+    if (markOptionalColumnsUnavailable(error)) {
       ;({ error } = await supabase
         .from(TABLE)
         .insert(stripPrioridadIdIfUnavailable(cleanPayload)))
@@ -463,7 +486,7 @@ export const accionesService = {
           .from(TABLE)
           .update(preClosePayload)
           .eq('id', id)
-        if (markPrioridadIdUnavailable(preCloseError)) {
+        if (markOptionalColumnsUnavailable(preCloseError)) {
           ;({ error: preCloseError } = await supabase
             .from(TABLE)
             .update(stripPrioridadIdIfUnavailable(preClosePayload))
@@ -496,7 +519,7 @@ export const accionesService = {
       .from(TABLE)
       .update(cleanPayload, { count: 'exact' })
       .eq('id', id)
-    if (markPrioridadIdUnavailable(error)) {
+    if (markOptionalColumnsUnavailable(error)) {
       ;({ count, error } = await supabase
         .from(TABLE)
         .update(stripPrioridadIdIfUnavailable(cleanPayload), { count: 'exact' })

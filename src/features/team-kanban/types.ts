@@ -32,6 +32,7 @@ export type TeamAction = {
   frecuencia_dia_semana?: number | null; frecuencia_dia_mes?: number | null; frecuencia_inicio?: string | null
   serie_id?: string | null; ocurrencia_fecha?: string | null
   bloqueada: boolean; escalada: boolean; completed_at: string | null; created_at: string
+  es_okr?: boolean
 }
 /** Plantilla de una accion frecuente: no vive en el tablero, genera ocurrencias. */
 export type TeamSeries = {

@@ -20,24 +20,16 @@ export function OkrExecutionSummary({
   daysLeft,
   timelineProgress,
   averageProgress,
-  initiativesDone,
-  initiativesTotal,
   onTrackShare,
 }: {
   daysLeft: number | null
   timelineProgress: number | null
   averageProgress: number | null
-  initiativesDone: number
-  initiativesTotal: number
   /** 0–100 share of KRs that are on track (>=70%). */
   onTrackShare: number | null
 }) {
   const krTone =
     averageProgress == null ? 'muted' : progressTone(averageProgress)
-  const initiativePct =
-    initiativesTotal > 0
-      ? (initiativesDone / initiativesTotal) * 100
-      : 0
   const confidence = onTrackShare ?? 0
   const atRisk = Math.max(0, 100 - confidence)
 
@@ -61,12 +53,6 @@ export function OkrExecutionSummary({
       tone: krTone === 'muted' ? 'primary' : krTone,
     },
     {
-      value: `${initiativesDone}/${initiativesTotal}`,
-      label: 'Iniciativas',
-      ring: initiativePct,
-      tone: 'primary',
-    },
-    {
       value:
         onTrackShare == null ? '—' : `${Math.round(onTrackShare)}%`,
       label: 'Confianza',
@@ -88,15 +74,13 @@ export function OkrExecutionSummary({
       <h2 className="text-base font-semibold tracking-tight sm:text-lg">
         Detalle del plan
       </h2>
-      <div className="grid grid-cols-2 sm:grid-cols-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3">
         {items.map((item, index) => (
           <div
             key={item.label}
             className={cn(
               'flex min-w-0 items-center justify-between gap-3 px-1 py-3 sm:px-3 sm:py-1',
-              index % 2 === 1 && 'border-l border-border/60',
-              index >= 2 && 'border-t border-border/60 sm:border-t-0',
-              index > 0 && 'sm:border-l'
+              index > 0 && 'border-t border-border/60 sm:border-t-0 sm:border-l'
             )}
           >
             <div className="min-w-0">

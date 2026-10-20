@@ -320,6 +320,8 @@ export function ObjectiveForm({
   objective,
   areas,
   users,
+  companyObjectives = [],
+  showAlignmentTag = false,
   canManageCompany,
   scopeLocked,
   onSubmit,
@@ -331,12 +333,15 @@ export function ObjectiveForm({
   users: { id: string; nombre: string }[]
   canManageCompany: boolean
   scopeLocked: boolean
+  companyObjectives?: { id: string; nombre_okr: string }[]
+  showAlignmentTag?: boolean
   onSubmit: (values: {
     nombre_okr: string
     descripcion: string
     scope: 'company' | 'team'
     area_id: string | null
     owner_user_id: string
+    parent_okr_id: string | null
     start_date: string
     end_date: string
     activo: boolean
@@ -364,6 +369,7 @@ export function ObjectiveForm({
   )
   const [endDate, setEndDate] = useState(objective?.end_date ?? '')
   const [ownerId, setOwnerId] = useState(objective?.owner_user_id ?? '')
+  const [parentOkrId, setParentOkrId] = useState(objective?.parent_okr_id ?? '')
   const [activo, setActivo] = useState(objective?.activo ?? true)
   const [attempted, setAttempted] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -428,6 +434,7 @@ export function ObjectiveForm({
         scope,
         area_id: scope === 'team' ? areaId : null,
         owner_user_id: ownerId,
+        parent_okr_id: scope === 'team' ? parentOkrId || null : null,
         start_date: startDate,
         end_date: endDate,
         activo: editing ? activo : true,
@@ -614,7 +621,10 @@ export function ObjectiveForm({
                     title="Empresa"
                     hint="Toda la organización"
                     icon={Building2}
-                    onSelect={() => setScope('company')}
+                    onSelect={() => {
+                      setScope('company')
+                      setParentOkrId('')
+                    }}
                   />
                 )}
                 {teamAvailable && (
@@ -653,6 +663,30 @@ export function ObjectiveForm({
                       {area.nombre}
                     </option>
                   ))}
+                </select>
+              </Field>
+            )}
+            {showAlignmentTag && scope === 'team' && (
+              <Field
+                id="okr-parent"
+                label="Alineado a"
+                hint="Opcional. Conecta este OKR de equipo con un objetivo de empresa."
+              >
+                <select
+                  id="okr-parent"
+                  value={parentOkrId}
+                  disabled={saving}
+                  className={control}
+                  onChange={(event) => setParentOkrId(event.target.value)}
+                >
+                  <option value="">Sin alinear</option>
+                  {companyObjectives
+                    .filter((item) => item.id !== objective?.id)
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.nombre_okr}
+                      </option>
+                    ))}
                 </select>
               </Field>
             )}
@@ -747,7 +781,7 @@ export function ObjectiveForm({
           <Section
             icon={Archive}
             title="Seguimiento"
-            hint="Archivar conserva el historial y bloquea mediciones e iniciativas nuevas."
+            hint="Archivar conserva el historial y bloquea mediciones nuevas."
           >
             <div
               role="radiogroup"
@@ -989,8 +1023,7 @@ export function KeyResultForm({
             ) : null}
           </div>
           <p className="text-xs leading-relaxed text-muted-foreground sm:text-sm">
-            El avance se calcula de la línea base a la meta. Las iniciativas no
-            modifican ese porcentaje.
+            El avance se calcula de la línea base a la meta.
           </p>
         </div>
       </EditorFrame>

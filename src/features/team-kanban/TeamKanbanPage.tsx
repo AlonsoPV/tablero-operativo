@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ActionOkrLinks } from '@/features/okrs/ActionOkrLinks'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import {
@@ -32,6 +31,8 @@ import { cn } from '@/lib/utils'
 import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
 import type { Priority } from '@/features/catalogs/types/catalogs.types'
 import { AccionPriorityBadge } from '@/features/operations/components/AccionPriorityBadge'
+import { OkrTag } from '@/features/okrs/OkrTag'
+import { useCanSeeOkrTags } from '@/features/okrs/useCanSeeOkrTags'
 import { findCatalogPriority } from '@/features/operations/utils/priorityCatalog'
 import { AccionFormField, AccionFormSection } from '@/features/operations/components/AccionFormSection'
 import { AccionAsignadorNote } from '@/features/operations/components/form/AccionAsignadorNote'
@@ -1434,7 +1435,6 @@ function TeamActionEditDialog({
         aria-describedby={undefined}
       >
         <DialogTitle className="sr-only">Editar accion de equipo</DialogTitle>
-        <ActionOkrLinks actionId={action.id} kind="team" />
         <div className="accion-form-dialog-header shrink-0 border-b border-border/60 bg-card px-3 py-2.5 pr-11 sm:px-4 sm:py-3 sm:pr-12">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 flex-1 pr-1">
@@ -1657,6 +1657,7 @@ function ActionCard({
 }) {
   const overdue = isOverdue(action, board)
   const critical = isCritical(action, board)
+  const canSeeOkrTags = useCanSeeOkrTags()
   const canManage = board.canManage ?? board.isLeader
   const recurrence = formatRecurrence(action)
   const isRecurring = Boolean(action.serie_id) || Boolean(action.es_frecuente)
@@ -1719,6 +1720,9 @@ function ActionCard({
               >
                 {action.titulo}
               </p>
+              {canSeeOkrTags && action.es_okr ? (
+                <OkrTag className="mt-1" title="Acción de OKRs" />
+              ) : null}
             </div>
             <div className="pl-[18px]">
               <TeamCardHeaderMeta action={action} board={board} overdue={overdue} />

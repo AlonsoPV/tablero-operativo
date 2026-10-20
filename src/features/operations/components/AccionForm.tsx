@@ -24,6 +24,8 @@ import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
 import { useDropdownOptionsByKey } from '@/features/catalogs/hooks/useDropdownOptions'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { isAnalystByRole } from '@/features/auth/lib/permissions'
+import { EsOkrToggle } from '@/features/okrs/OkrTag'
+import { useCanSeeOkrTags } from '@/features/okrs/useCanSeeOkrTags'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { DEFAULT_PRIORITY_NOMBRE, priorityDisplayLabel } from '../utils/priorityLabels'
 import { AccionFormField } from './AccionFormSection'
@@ -156,6 +158,7 @@ export function AccionForm({
     isLoading: prioritiesLoading,
   } = usePriorities()
   const { data: currentUser } = useCurrentUser()
+  const canSeeOkrTags = useCanSeeOkrTags()
   const isAnalyst = isAnalystByRole(currentUser?.rol)
   const assignerName = asignadorNombre?.trim() || currentUser?.nombre?.trim() || null
   const showAsignadorNote = !lockedAreaName
@@ -200,6 +203,7 @@ export function AccionForm({
       story_points: 0,
       sprint_id: null,
       responsable_bloqueo: null,
+      es_okr: false,
       ...defaultValues,
       requiere_evidencia: initialRequiereEvidencia,
       evidencia_esperada: initialRequiereEvidencia
@@ -449,6 +453,13 @@ export function AccionForm({
             <p className="text-xs text-destructive">{form.formState.errors.titulo_accion.message}</p>
           )}
         </AccionFormField>
+        {canSeeOkrTags ? (
+          <EsOkrToggle
+            checked={Boolean(form.watch('es_okr'))}
+            disabled={isEditProtectedReadonly}
+            onChange={(next) => form.setValue('es_okr', next, { shouldDirty: true })}
+          />
+        ) : null}
 
         <AccionFormField label="Descripción" htmlFor={fieldId('descripcion_simple')} required>
           <AccionDescripcionTextarea

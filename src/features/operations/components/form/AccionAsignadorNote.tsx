@@ -1,4 +1,3 @@
-import { UserRound } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 type Props = {
@@ -18,30 +17,24 @@ export function AccionAsignadorNote({ nombre, className }: Props) {
   const label = nombre?.trim()
   if (!label) return null
 
-  const initials = assignerInitials(label)
-
   return (
     <div
       className={cn(
-        'flex w-full items-center gap-3 rounded-lg border border-border/55 border-l-[3px] border-l-primary/75',
-        'bg-gradient-to-r from-primary/[0.07] via-muted/20 to-muted/10 px-3 py-2.5 shadow-sm',
+        'flex h-10 w-full items-center gap-2.5 rounded-lg border border-border/70 bg-muted/20 px-2.5',
         className
       )}
       role="note"
       aria-label={`Asigna: ${label}`}
     >
-      <div
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/12 text-[11px] font-bold tracking-tight text-primary ring-1 ring-inset ring-primary/20"
+      <span
         aria-hidden
+        className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-background px-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ring-1 ring-inset ring-border/70"
       >
-        {initials.length >= 2 ? initials : <UserRound className="h-3.5 w-3.5" />}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm leading-snug text-muted-foreground">
-          Asigna:{' '}
-          <span className="font-semibold text-foreground">{label}</span>
-        </p>
-      </div>
+        {assignerInitials(label)}
+      </span>
+      <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+        Asigna: {label}
+      </p>
     </div>
   )
 }

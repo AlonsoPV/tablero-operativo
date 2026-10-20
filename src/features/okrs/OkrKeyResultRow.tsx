@@ -8,6 +8,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Trash2,
   TrendingUp,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -26,9 +27,9 @@ import {
   type KeyResult,
   type Objective,
 } from './model'
+import { LinkedInitiativeRow } from './OkrInitiativeVisuals'
 import { OkrHistoryChart } from './OkrHistoryChart'
 import { measurementLabel, measurementsFor } from './reporting'
-import { LinkedInitiativeRow } from './OkrInitiativeVisuals'
 import {
   ProgressBar,
   StatusSquare,
@@ -53,6 +54,7 @@ export function OkrKeyResultRow({
   onCheckIn,
   onEdit,
   onHistory,
+  onDelete,
   onLink,
   onUnlink,
 }: {
@@ -71,6 +73,7 @@ export function OkrKeyResultRow({
   onCheckIn: () => void
   onEdit: () => void
   onHistory: () => void
+  onDelete: () => void
   onLink: () => void
   onUnlink: (id: string) => void
 }) {
@@ -207,6 +210,15 @@ export function OkrKeyResultRow({
               <DropdownMenuItem onClick={onLink}>
                 <Link2 className="mr-2 h-4 w-4" />
                 Vincular iniciativa
+              </DropdownMenuItem>
+            )}
+            {canEdit && (
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={onDelete}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Eliminar
               </DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={onHistory}>
@@ -379,7 +391,7 @@ export function OkrKeyResultRow({
                       Vincular una acción
                     </span>
                     <span className="block text-xs text-muted-foreground">
-                      Conecta iniciativas del kanban a este resultado.
+                      Solo acciones marcadas con la tag OKR.
                     </span>
                   </span>
                 </button>

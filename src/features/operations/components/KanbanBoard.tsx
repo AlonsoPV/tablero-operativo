@@ -32,6 +32,8 @@ import { useUpdateAccionEstado } from '../hooks/useAccionMutations'
 import { useCommentCounts } from '../hooks/useCommentCounts'
 import { useActionEstadoPermissions } from '../hooks/useActionEstadoPermissions'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
+import { OkrTag } from '@/features/okrs/OkrTag'
+import { useCanSeeOkrTags } from '@/features/okrs/useCanSeeOkrTags'
 import {
   getAccionKanbanColumn,
   isEnRetraso,
@@ -704,6 +706,7 @@ function KanbanCardInner({
   movableStatuses: ActionStatus[]
 }) {
   const overdue = isEnRetraso(accion)
+  const canSeeOkrTags = useCanSeeOkrTags()
   const priorityName = priority?.nombre ?? accion.prioridad
 
   const stopDrag = (e: PointerEvent) => e.stopPropagation()
@@ -737,6 +740,9 @@ function KanbanCardInner({
             <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground" title={title}>
               {title}
             </p>
+            {canSeeOkrTags && accion.es_okr ? (
+              <OkrTag className="mt-1" title="Acción de OKRs" />
+            ) : null}
           </div>
           <div className="pl-[18px]">
             <KanbanCardMeta

@@ -21,6 +21,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { AccionForm } from './AccionForm'
 import { ActionOkrLinks } from '@/features/okrs/ActionOkrLinks'
+import { useCanSeeOkrTags } from '@/features/okrs/useCanSeeOkrTags'
 import { AccionFormSection } from './AccionFormSection'
 import { AccionDialogHeaderMeta } from './AccionDialogHeaderMeta'
 import { AccionEvidenciasSection } from './AccionEvidenciasSection'
@@ -134,6 +135,7 @@ export function AccionFormDialog({
   const accionFreshQuery = useAccion(accion?.id, { enabled: open && !!accion?.id })
   const accionLive = accionFreshQuery.data ?? accion ?? null
   const { data: priorities = [] } = usePriorities()
+  const canSeeOkrTags = useCanSeeOkrTags()
   const isAnalyst = isAnalystByRole(currentUser?.rol)
   const isSuperAdmin = isSuperAdminByRole(currentUser?.rol)
   const isDirection = isDirectionByRole(currentUser?.rol)
@@ -455,6 +457,7 @@ export function AccionFormDialog({
         story_points: 0,
         sprint_id: null,
         responsable_bloqueo: null,
+        es_okr: false,
       }
     }
     const prioridadResuelta = resolveAccionPrioridadNombre(accionLive, priorities)
@@ -482,6 +485,7 @@ export function AccionFormDialog({
           : Number(accionLive.story_points) || 0,
       sprint_id: accionLive.sprint_id ?? null,
       responsable_bloqueo: accionLive.responsable_bloqueo ?? null,
+      es_okr: Boolean(accionLive.es_okr),
     }
   }, [accionLive, defaultFecha, priorities])
 
@@ -560,6 +564,7 @@ export function AccionFormDialog({
             story_points: values.story_points ?? 0,
             sprint_id: values.sprint_id ?? null,
             responsable_bloqueo: values.responsable_bloqueo ?? null,
+            ...(canSeeOkrTags ? { es_okr: Boolean(values.es_okr) } : {}),
             // Los vínculos con brechas/KPIs se administran fuera de este formulario:
             // no se envían para no borrar los que ya tiene la acción.
             ...(isEdit
@@ -785,7 +790,9 @@ export function AccionFormDialog({
         <DialogTitle className="sr-only">
           {isEdit ? 'Editar acción' : 'Nueva acción'}
         </DialogTitle>
-        {isEdit && accionLive && <ActionOkrLinks actionId={accionLive.id} kind="company" />}
+        {canSeeOkrTags && isEdit && accionLive ? (
+          <ActionOkrLinks actionId={accionLive.id} kind="company" />
+        ) : null}
         <div
           id={`${formBaseId}-dialog-header`}
           className="accion-form-dialog-header shrink-0 border-b border-border/60 bg-card px-3 py-2.5 pr-11 sm:px-4 sm:py-3 sm:pr-12"

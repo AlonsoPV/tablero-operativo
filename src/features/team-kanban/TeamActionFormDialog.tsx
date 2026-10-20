@@ -21,6 +21,8 @@ import { notificacionesService } from '@/services/notificaciones.service'
 import type { TeamBoard } from './types'
 import { teamKanbanService } from './service'
 import { TeamMemberSelect } from './components/TeamMemberSelect'
+import { EsOkrToggle } from '@/features/okrs/OkrTag'
+import { useCanSeeOkrTags } from '@/features/okrs/useCanSeeOkrTags'
 
 type Props = {
   open: boolean
@@ -88,6 +90,7 @@ function isoWeekdayFromDate(value: string) {
 
 export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, board, priorities, onDone }: Props) {
   const { data: currentUser } = useCurrentUser()
+  const canSeeOkrTags = useCanSeeOkrTags()
   const [mode, setMode] = useState<TeamActionMode>('single')
   const [checklist, setChecklist] = useState<LocalCheckpointDraft[]>([])
   const [errors, setErrors] = useState<string[]>([])
@@ -107,6 +110,7 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
     monthDay: new Date().getDate(),
     evidenceRequired: true,
     evidenceText: '',
+    esOkr: false,
   })
   const [evidenceSelect, setEvidenceSelect] = useState('')
   const { data: evidenciaOpciones = [], isLoading: evidenciaLoading } =
@@ -200,6 +204,7 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
       actionType: values.tipo_accion,
       gapIds: values.gap_ids,
       catalogKpiIds: values.catalog_kpi_ids,
+      esOkr: canSeeOkrTags ? Boolean(values.es_okr) : false,
     }),
     onSuccess: async (created, values) => {
       toast.success('Accion de equipo creada')
@@ -264,6 +269,7 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
         recurrenceWeekday: frequentForm.frequencyType === 'semanal' ? frequentForm.weekday : null,
         recurrenceMonthDay: ['mensual', 'quincenal'].includes(frequentForm.frequencyType) ? monthDay : null,
         recurrenceStart: frequentForm.dueDate || null,
+        esOkr: canSeeOkrTags ? frequentForm.esOkr : false,
       })
     },
     onSuccess: async (created) => {
@@ -320,6 +326,7 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
     area: areaName,
     descripcion_modo: 'simple',
     prioridad: priorities[0]?.nombre,
+    es_okr: false,
   }
   const isSubmitting = mutation.isPending || frequentMutation.isPending
   const assigneeName = board.members.find((member) => member.id === frequentForm.assignee)?.nombre
@@ -472,6 +479,15 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
                     />
                     <p className="text-xs text-muted-foreground">{frequentForm.title.length}/120</p>
                   </AccionFormField>
+                  {canSeeOkrTags ? (
+                    <EsOkrToggle
+                      checked={frequentForm.esOkr}
+                      disabled={isSubmitting}
+                      onChange={(esOkr) =>
+                        setFrequentForm((current) => ({ ...current, esOkr }))
+                      }
+                    />
+                  ) : null}
 
                   <AccionFormField label="Descripción" htmlFor="frequent-description" required>
                     <textarea

@@ -187,7 +187,7 @@ function KeyResultsDistributionCard({
   const max = Math.max(1, ...counts)
 
   return (
-    <CardShell title="Iniciativas activas">
+    <CardShell title="Distribución de resultados">
       <div
         className="flex h-44 items-end justify-between gap-1 sm:gap-1.5"
         role="img"
@@ -252,9 +252,6 @@ function ProgressRow({
   const currentLabel = metricText(kr.current_value, kr.unit)
   const history = measurementsFor(data.checkIns, kr.id)
   const lastUpdate = measurementLabel(kr, history)
-  const initiatives = data.initiatives.filter(
-    (item) => item.key_result_id === kr.id
-  ).length
 
   return (
     <li className="border-b border-border/50 last:border-b-0">
@@ -387,14 +384,7 @@ function ProgressRow({
               ))}
             </div>
 
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-              <span>
-                {initiatives}{' '}
-                {initiatives === 1 ? 'iniciativa vinculada' : 'iniciativas vinculadas'}
-              </span>
-              <span aria-hidden>·</span>
-              <span>{lastUpdate}</span>
-            </div>
+            <p className="mt-3 text-xs text-muted-foreground">{lastUpdate}</p>
           </div>
         </div>
       )}

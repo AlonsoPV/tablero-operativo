@@ -5,6 +5,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,6 +23,7 @@ import {
   type Objective,
   type OkrData,
 } from './model'
+import { OkrTag } from './OkrTag'
 import { OkrKeyResultRow } from './OkrKeyResultRow'
 import {
   ProgressBar,
@@ -37,6 +39,7 @@ export function OkrObjectiveCard({
   actionsPending,
   actionsError,
   busy,
+  showAlignmentTag,
   expanded,
   onExpandedChange,
   onEdit,
@@ -46,6 +49,8 @@ export function OkrObjectiveCard({
   onCheckIn,
   onEditKr,
   onKrHistory,
+  onDelete,
+  onDeleteKr,
   onLink,
   onUnlink,
   highlightedKrId,
@@ -56,6 +61,7 @@ export function OkrObjectiveCard({
   actionsPending: boolean
   actionsError: boolean
   busy: boolean
+  showAlignmentTag?: boolean
   expanded: boolean
   onExpandedChange: (open: boolean) => void
   onEdit: () => void
@@ -65,6 +71,8 @@ export function OkrObjectiveCard({
   onCheckIn: (krId: string) => void
   onEditKr: (krId: string) => void
   onKrHistory: (krId: string) => void
+  onDelete: () => void
+  onDeleteKr: (krId: string) => void
   onLink: (krId: string) => void
   onUnlink: (id: string) => void
   highlightedKrId?: string | null
@@ -87,6 +95,11 @@ export function OkrObjectiveCard({
   )
   const canAddKr = objective.can_manage && objective.activo
   const tone = progress == null ? 'primary' : progressTone(progress)
+  const parentName =
+    showAlignmentTag && objective.parent_okr_id
+      ? data.objectives.find((item) => item.id === objective.parent_okr_id)
+          ?.nombre_okr
+      : null
 
   return (
     <article
@@ -129,6 +142,14 @@ export function OkrObjectiveCard({
           <h2 className="mt-0.5 truncate text-[15px] font-semibold leading-snug sm:text-base">
             {objective.nombre_okr}
           </h2>
+          {parentName ? (
+            <div className="mt-1 flex min-w-0 items-center gap-1.5">
+              <OkrTag label="Alineado" title={`Alineado a ${parentName}`} />
+              <span className="truncate text-xs text-muted-foreground">
+                {parentName}
+              </span>
+            </div>
+          ) : null}
           <p className="mt-0.5 text-xs text-muted-foreground">
             {periodRangeText(objective.start_date, objective.end_date)}
           </p>
@@ -182,6 +203,15 @@ export function OkrObjectiveCard({
             {canArchive && (
               <DropdownMenuItem onClick={onArchive}>Archivar</DropdownMenuItem>
             )}
+            {objective.can_manage && (
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={onDelete}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Eliminar objetivo
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -218,7 +248,7 @@ export function OkrObjectiveCard({
                   kr={kr}
                   objective={objective}
                   checkIns={data.checkIns}
-                  initiatives={data.initiatives}
+                  initiatives={data.initiatives ?? []}
                   actions={actions}
                   actionsPending={actionsPending}
                   actionsError={actionsError}
@@ -228,6 +258,7 @@ export function OkrObjectiveCard({
                   onCheckIn={() => onCheckIn(kr.id)}
                   onEdit={() => onEditKr(kr.id)}
                   onHistory={() => onKrHistory(kr.id)}
+                  onDelete={() => onDeleteKr(kr.id)}
                   onLink={() => onLink(kr.id)}
                   onUnlink={onUnlink}
                 />
