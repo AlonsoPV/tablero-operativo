@@ -63,9 +63,13 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.okr_validate_initiative() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
-DECLARE v_area uuid;
+DECLARE v_area uuid; v_scope text;
 BEGIN
-  SELECT o.area_id INTO v_area FROM okrs o JOIN okr_key_results k ON k.okr_id = o.id WHERE k.id = NEW.key_result_id;
+  SELECT o.area_id, o.scope INTO v_area, v_scope
+  FROM okrs o JOIN okr_key_results k ON k.okr_id = o.id WHERE k.id = NEW.key_result_id;
+  IF v_scope IS DISTINCT FROM 'team' THEN
+    RAISE EXCEPTION 'Las iniciativas solo se vinculan a OKRs de equipo';
+  END IF;
   IF NEW.action_id IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM acciones_diarias a WHERE a.id = NEW.action_id AND a.es_okr
       AND (v_area IS NULL OR a.area = (SELECT nombre FROM areas WHERE id = v_area))

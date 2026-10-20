@@ -27,10 +27,14 @@ export function EsOkrToggle({
   checked,
   onChange,
   disabled,
+  compact,
+  className,
 }: {
   checked: boolean
   onChange: (next: boolean) => void
   disabled?: boolean
+  compact?: boolean
+  className?: string
 }) {
   return (
     <button
@@ -50,7 +54,9 @@ export function EsOkrToggle({
         checked
           ? 'border-sky-500/40 bg-sky-500/[0.09] text-sky-950 dark:text-sky-50'
           : 'border-border/70 bg-muted/20 text-foreground hover:border-border hover:bg-muted/35',
-        disabled && 'cursor-not-allowed opacity-60'
+        compact && 'w-auto shrink-0',
+        disabled && 'cursor-not-allowed opacity-60',
+        className
       )}
     >
       <span
@@ -64,9 +70,11 @@ export function EsOkrToggle({
       >
         OKR
       </span>
-      <span className="min-w-0 flex-1 truncate text-sm font-medium">
-        {checked ? 'Se puede vincular a un KR' : 'Marcar para vincular a un KR'}
-      </span>
+      {compact ? null : (
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+          {checked ? 'Se puede vincular a un KR' : 'Marcar para vincular a un KR'}
+        </span>
+      )}
       <span
         aria-hidden
         className={cn(

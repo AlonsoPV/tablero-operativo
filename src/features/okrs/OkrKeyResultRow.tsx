@@ -38,6 +38,7 @@ import {
   progressTone,
   toneTextClass,
 } from './okrPresentation'
+import { OkrConfidenceBadge } from './OkrConfidenceSemaforo'
 
 export function OkrKeyResultRow({
   kr,
@@ -92,6 +93,7 @@ export function OkrKeyResultRow({
     ),
   }))
   const unknown = linked.some((item) => !item.action)
+  const canLinkInitiatives = objective.scope === 'team' && kr.can_update
   const manual = kr.metric_type.startsWith('manual:')
   const progress = krProgress(kr)
   const tone = progressTone(progress)
@@ -206,7 +208,7 @@ export function OkrKeyResultRow({
                 Editar
               </DropdownMenuItem>
             )}
-            {kr.can_update && (
+            {canLinkInitiatives && (
               <DropdownMenuItem onClick={onLink}>
                 <Link2 className="mr-2 h-4 w-4" />
                 Vincular iniciativa
@@ -268,9 +270,12 @@ export function OkrKeyResultRow({
             label={`Avance de ${kr.title}`}
             tone={tone}
           />
-          <p className="text-xs text-muted-foreground">
-            {lastMeasurementCaption(lastCheck)}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs text-muted-foreground">
+              {lastMeasurementCaption(lastCheck)}
+            </p>
+            <OkrConfidenceBadge value={history[0]?.confidence} />
+          </div>
 
           <div className="overflow-hidden rounded-2xl border border-border/70 bg-background shadow-sm">
             <button
@@ -317,91 +322,93 @@ export function OkrKeyResultRow({
             )}
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-border/70 bg-background shadow-sm">
-            <div className="flex items-center justify-between gap-2 px-3 py-2.5 sm:px-3.5">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
-                  <Link2
-                    className="h-3.5 w-3.5 text-muted-foreground"
-                    aria-hidden
-                  />
-                </span>
-                <p className="text-sm font-semibold tracking-tight">
-                  Iniciativas
-                  {links.length > 0 ? (
-                    <span className="ml-1.5 text-xs font-medium text-muted-foreground">
-                      · {links.length}
-                    </span>
-                  ) : null}
-                </p>
-              </div>
-              {kr.can_update && links.length > 0 ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-2.5 text-xs"
-                  onClick={onLink}
-                >
-                  Vincular
-                </Button>
-              ) : null}
-            </div>
-
-            <div className="border-t border-border/50 px-3 py-3 sm:px-3.5">
-              {actionsPending && links.length > 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  Cargando estado de las iniciativas…
-                </p>
-              ) : null}
-              {actionsError && links.length > 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  No se pudo actualizar el estado de las iniciativas.
-                </p>
-              ) : null}
-              {unknown ? (
-                <p className="mb-2 text-xs text-muted-foreground">
-                  Hay acciones sin acceso; no se calcula un porcentaje parcial.
-                </p>
-              ) : null}
-
-              {links.length > 0 ? (
-                <div className="space-y-2">
-                  {linked.map(({ link, action }) => (
-                    <LinkedInitiativeRow
-                      key={link.id}
-                      action={action}
-                      busy={busy}
-                      canUnlink={kr.can_update}
-                      onUnlink={() => onUnlink(link.id)}
+          {objective.scope === 'team' ? (
+            <div className="overflow-hidden rounded-2xl border border-border/70 bg-background shadow-sm">
+              <div className="flex items-center justify-between gap-2 px-3 py-2.5 sm:px-3.5">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                    <Link2
+                      className="h-3.5 w-3.5 text-muted-foreground"
+                      aria-hidden
                     />
-                  ))}
+                  </span>
+                  <p className="text-sm font-semibold tracking-tight">
+                    Iniciativas
+                    {links.length > 0 ? (
+                      <span className="ml-1.5 text-xs font-medium text-muted-foreground">
+                        · {links.length}
+                      </span>
+                    ) : null}
+                  </p>
                 </div>
-              ) : kr.can_update ? (
-                <button
-                  type="button"
-                  onClick={onLink}
-                  className="flex w-full items-center gap-3 rounded-xl border border-dashed border-border/80 bg-muted/15 px-3 py-3 text-left outline-none transition-colors hover:border-border hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-300">
-                    <Plus className="h-4 w-4" aria-hidden />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium">
-                      Vincular una acción
+                {canLinkInitiatives && links.length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2.5 text-xs"
+                    onClick={onLink}
+                  >
+                    Vincular
+                  </Button>
+                ) : null}
+              </div>
+
+              <div className="border-t border-border/50 px-3 py-3 sm:px-3.5">
+                {actionsPending && links.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Cargando estado de las iniciativas…
+                  </p>
+                ) : null}
+                {actionsError && links.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No se pudo actualizar el estado de las iniciativas.
+                  </p>
+                ) : null}
+                {unknown ? (
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    Hay acciones sin acceso; no se calcula un porcentaje parcial.
+                  </p>
+                ) : null}
+
+                {links.length > 0 ? (
+                  <div className="space-y-2">
+                    {linked.map(({ link, action }) => (
+                      <LinkedInitiativeRow
+                        key={link.id}
+                        action={action}
+                        busy={busy}
+                        canUnlink={kr.can_update}
+                        onUnlink={() => onUnlink(link.id)}
+                      />
+                    ))}
+                  </div>
+                ) : canLinkInitiatives ? (
+                  <button
+                    type="button"
+                    onClick={onLink}
+                    className="flex w-full items-center gap-3 rounded-xl border border-dashed border-border/80 bg-muted/15 px-3 py-3 text-left outline-none transition-colors hover:border-border hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-300">
+                      <Plus className="h-4 w-4" aria-hidden />
                     </span>
-                    <span className="block text-xs text-muted-foreground">
-                      Solo acciones marcadas con la tag OKR.
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium">
+                        Vincular una acción
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        Solo acciones marcadas con la tag OKR.
+                      </span>
                     </span>
-                  </span>
-                </button>
-              ) : (
-                <p className="py-1 text-xs text-muted-foreground">
-                  Sin iniciativas vinculadas.
-                </p>
-              )}
+                  </button>
+                ) : (
+                  <p className="py-1 text-xs text-muted-foreground">
+                    Sin iniciativas vinculadas.
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       )}
     </section>

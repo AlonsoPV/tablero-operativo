@@ -3,7 +3,6 @@ import type { LucideIcon } from 'lucide-react'
 import {
   Archive,
   Building2,
-  CalendarRange,
   Check,
   CheckCircle2,
   Crosshair,
@@ -292,26 +291,29 @@ function ChoiceCard({
       type="button"
       role="radio"
       aria-checked={selected}
+      aria-label={`${title}. ${hint}`}
       onClick={onSelect}
       className={cn(
-        'flex min-h-[4.75rem] flex-col items-start gap-2 rounded-2xl border p-3 text-left transition-all',
+        'flex h-10 items-center gap-2 rounded-lg border px-2.5 text-left outline-none transition-colors',
+        'focus-visible:ring-2 focus-visible:ring-ring/50',
         selected
-          ? 'border-border bg-muted/40 shadow-sm ring-1 ring-foreground/10'
-          : 'border-border/70 hover:border-border hover:bg-muted/25'
+          ? 'border-border bg-muted/50 text-foreground shadow-sm ring-1 ring-foreground/10'
+          : 'border-border/70 bg-muted/20 text-muted-foreground hover:border-border hover:bg-muted/35'
       )}
     >
-      <span className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-        <span
-          className={cn(
-            'flex h-7 w-7 items-center justify-center rounded-full',
-            selected ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground'
-          )}
-        >
-          <Icon className="h-3.5 w-3.5" aria-hidden />
-        </span>
+      <span
+        className={cn(
+          'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md',
+          selected
+            ? 'bg-foreground text-background'
+            : 'bg-background ring-1 ring-inset ring-border/70'
+        )}
+      >
+        <Icon className="h-3.5 w-3.5" aria-hidden />
+      </span>
+      <span className="min-w-0 truncate text-sm font-medium text-foreground">
         {title}
       </span>
-      <span className="text-xs leading-snug text-muted-foreground">{hint}</span>
     </button>
   )
 }
@@ -592,28 +594,23 @@ export function ObjectiveForm({
         {(editing || step === 2) && (
           <Section
             icon={scope === 'company' ? Building2 : Users}
-            title="Ámbito"
-            hint={
-              scopeLocked
-                ? undefined
-                : 'Empresa lo ve toda la organización. Equipo lo limita a un área.'
-            }
+            title="Alcance y periodo"
+            hint="Quién lo persigue, en qué ámbito y hasta cuándo se mide."
           >
             {scopeLocked ? (
-              <div className="rounded-xl border border-border/60 bg-muted/30 p-3 text-sm">
-                <p className="font-medium">
-                  {scope === 'company' ? 'Empresa' : `Equipo · ${areaName}`}
-                </p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  El ámbito queda fijo porque este objetivo ya tiene resultados
-                  clave. Puedes editar el enunciado y las fechas.
+              <div className="flex h-10 items-center gap-2.5 rounded-lg border border-border/70 bg-muted/20 px-2.5">
+                <span className="inline-flex h-6 shrink-0 items-center rounded-md bg-background px-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ring-1 ring-inset ring-border/70">
+                  {scope === 'company' ? 'Empresa' : 'Equipo'}
+                </span>
+                <p className="min-w-0 flex-1 truncate text-sm font-medium">
+                  {scope === 'company' ? 'Toda la organización' : areaName}
                 </p>
               </div>
             ) : canChooseScope ? (
               <div
                 role="radiogroup"
                 aria-label="Ámbito"
-                className="grid grid-cols-2 gap-2"
+                className="grid grid-cols-2 gap-1.5"
               >
                 {companyAvailable && (
                   <ChoiceCard
@@ -646,27 +643,64 @@ export function ObjectiveForm({
                 .
               </p>
             )}
-            {scope === 'team' && !scopeLocked && (
-              <Field id="okr-area" label="Equipo" error={show('area')}>
+            {scopeLocked ? (
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                El ámbito queda fijo porque ya hay resultados clave. Puedes
+                editar el enunciado, el responsable y las fechas.
+              </p>
+            ) : null}
+
+            <div
+              className={cn(
+                'grid gap-3',
+                scope === 'team' && !scopeLocked && 'sm:grid-cols-2'
+              )}
+            >
+              {scope === 'team' && !scopeLocked ? (
+                <Field id="okr-area" label="Equipo" error={show('area')}>
+                  <select
+                    id="okr-area"
+                    required
+                    value={areaId}
+                    disabled={saving}
+                    aria-invalid={Boolean(show('area'))}
+                    className={control}
+                    onChange={(event) => setAreaId(event.target.value)}
+                  >
+                    <option value="">Seleccionar equipo</option>
+                    {manageableAreas.map((area) => (
+                      <option key={area.id} value={area.id}>
+                        {area.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              ) : null}
+              <Field
+                id="okr-owner"
+                label="Responsable"
+                error={show('owner')}
+              >
                 <select
-                  id="okr-area"
+                  id="okr-owner"
                   required
-                  value={areaId}
+                  value={ownerId}
                   disabled={saving}
-                  aria-invalid={Boolean(show('area'))}
+                  aria-invalid={Boolean(show('owner'))}
                   className={control}
-                  onChange={(event) => setAreaId(event.target.value)}
+                  onChange={(event) => setOwnerId(event.target.value)}
                 >
-                  <option value="">Seleccionar equipo</option>
-                  {manageableAreas.map((area) => (
-                    <option key={area.id} value={area.id}>
-                      {area.nombre}
+                  <option value="">Seleccionar responsable</option>
+                  {users.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.nombre}
                     </option>
                   ))}
                 </select>
               </Field>
-            )}
-            {showAlignmentTag && scope === 'team' && (
+            </div>
+
+            {showAlignmentTag && scope === 'team' ? (
               <Field
                 id="okr-parent"
                 label="Alineado a"
@@ -689,63 +723,10 @@ export function ObjectiveForm({
                     ))}
                 </select>
               </Field>
-            )}
-          </Section>
-        )}
+            ) : null}
 
-        {(editing || step === 2) && (
-          <Section
-            icon={CalendarRange}
-            title="Periodo"
-            hint="El inicio y el fin cuentan dentro del seguimiento."
-          >
-            <Field
-              id="okr-owner"
-              label="Responsable del objetivo"
-              error={show('owner')}
-            >
-              <select
-                id="okr-owner"
-                required
-                value={ownerId}
-                disabled={saving}
-                aria-invalid={Boolean(show('owner'))}
-                className={control}
-                onChange={(event) => setOwnerId(event.target.value)}
-              >
-                <option value="">Seleccionar responsable</option>
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.nombre}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <div className="flex flex-wrap gap-2">
-              {(
-                [
-                  ['quarter', 'Fin de trimestre', quarterEnd],
-                  ['year', 'Fin de año', yearEnd],
-                ] as const
-              ).map(([kind, label, value]) => (
-                <button
-                  key={kind}
-                  type="button"
-                  disabled={saving || !value}
-                  onClick={() => value && setEndDate(value)}
-                  className={cn(
-                    'min-h-8 rounded-lg border px-3 text-xs font-medium transition-colors',
-                    value && endDate === value
-                      ? 'border-border bg-muted/50 text-foreground shadow-sm'
-                      : 'border-border/70 text-muted-foreground hover:bg-muted/40'
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field id="okr-start" label="Fecha de inicio">
+              <Field id="okr-start" label="Inicio">
                 <input
                   id="okr-start"
                   type="date"
@@ -760,7 +741,7 @@ export function ObjectiveForm({
                   }}
                 />
               </Field>
-              <Field id="okr-end" label="Fecha de fin" error={show('dates')}>
+              <Field id="okr-end" label="Fin" error={show('dates')}>
                 <input
                   id="okr-end"
                   type="date"
@@ -773,6 +754,29 @@ export function ObjectiveForm({
                   onChange={(event) => setEndDate(event.target.value)}
                 />
               </Field>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  ['quarter', 'Fin de trimestre', quarterEnd],
+                  ['year', 'Fin de año', yearEnd],
+                ] as const
+              ).map(([kind, label, value]) => (
+                <button
+                  key={kind}
+                  type="button"
+                  disabled={saving || !value}
+                  onClick={() => value && setEndDate(value)}
+                  className={cn(
+                    'h-8 rounded-lg border px-2.5 text-xs font-medium transition-colors',
+                    value && endDate === value
+                      ? 'border-border bg-muted/50 text-foreground shadow-sm'
+                      : 'border-border/70 text-muted-foreground hover:bg-muted/40'
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </Section>
         )}

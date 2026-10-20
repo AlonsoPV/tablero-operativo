@@ -35,6 +35,12 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
+import {
+  isOkrConfidence,
+  OkrConfidenceBadge,
+  OkrConfidenceSemaforo,
+  type OkrConfidence,
+} from './OkrConfidenceSemaforo'
 import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants'
 import { okrService } from './service'
@@ -171,10 +177,10 @@ export function OkrPage() {
 
   function closeActionCreator() {
     setCreateAction(false)
-    if (resumeLink) {
+    if (resumeLink?.type === 'link' && resumeLink.objective.scope === 'team') {
       setModal(resumeLink)
-      setResumeLink(null)
     }
+    setResumeLink(null)
     void refresh()
   }
 
@@ -568,6 +574,7 @@ export function OkrPage() {
               })
             }}
             onLink={(krId) => {
+              if (objective.scope !== 'team') return
               const kr = krFor(krId)
               if (kr) {
                 setLinkSearch('')
@@ -727,6 +734,12 @@ export function OkrPage() {
                 setCreateAction(true)
               }}
               onSubmit={async (action) => {
+                if (modal.objective.scope !== 'team') {
+                  toast.error(
+                    'Las iniciativas solo se vinculan a OKRs de equipo'
+                  )
+                  return
+                }
                 setBusy(true)
                 try {
                   await okrService.link(modal.kr.id, action)
@@ -970,6 +983,7 @@ function OkrEditor({
       ? String(modal.kr?.current_value ?? modal.kr?.baseline_value ?? '')
       : ''
   )
+  const [confidence, setConfidence] = useState<OkrConfidence | null>(null)
   const kr = 'kr' in modal ? modal.kr : undefined
   const titles = {
     objective: modal.objective ? 'Editar objetivo' : 'Nuevo objetivo',
@@ -1012,12 +1026,18 @@ function OkrEditor({
           modal.kr?.id
         )
       }
-      if (modal.type === 'checkin')
+      if (modal.type === 'checkin') {
+        if (!isOkrConfidence(confidence))
+          throw new Error(
+            'Indica qué tan confiado te sientes de lograr el objetivo.'
+          )
         await okrService.checkIn(
           modal.kr.id,
           Number(values.value),
-          String(values.note ?? '')
+          String(values.note ?? ''),
+          confidence
         )
+      }
       toast.success('Cambios guardados')
       await onSaved(newObjectiveId)
     } catch (err) {
@@ -1077,6 +1097,11 @@ function OkrEditor({
                     {c.note}
                   </p>
                 )}
+                {c.confidence ? (
+                  <div className="mt-2">
+                    <OkrConfidenceBadge value={c.confidence} />
+                  </div>
+                ) : null}
               </div>
             ))}
         </div>
@@ -1318,6 +1343,11 @@ function OkrEditor({
                     />
                   </div>
                 )}
+                <OkrConfidenceSemaforo
+                  value={confidence}
+                  onChange={setConfidence}
+                  disabled={saving}
+                />
                 <Field label="Nota de seguimiento">
                   <textarea
                     name="note"

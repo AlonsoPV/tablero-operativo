@@ -12,6 +12,7 @@ import {
 import { ROUTES } from '@/constants'
 import { okrService } from './service'
 import { formatMetric, type Objective, type OkrData } from './model'
+import { OkrConfidenceBadge } from './OkrConfidenceSemaforo'
 import {
   historicalProgress,
   measurementsFor,
@@ -87,6 +88,7 @@ function HistoryEntry({ event, data }: { event: ReportEvent; data: OkrData }) {
                 ? 'Sin referencia histórica de meta'
                 : `${Math.round(historicalProgress(event.details)!)}% en ese momento`}
             </span>
+            <OkrConfidenceBadge value={event.details.confidence} />
           </div>
           {event.details.target_snapshot != null &&
             event.details.baseline_snapshot != null && (

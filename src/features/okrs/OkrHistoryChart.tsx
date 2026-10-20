@@ -18,6 +18,7 @@ import {
   progressTone,
   toneTextClass,
 } from './okrPresentation'
+import { OkrConfidenceBadge } from './OkrConfidenceSemaforo'
 
 type ChartUser = { id: string; nombre: string }
 
@@ -589,11 +590,14 @@ export function OkrHistoryChart({
                               : ''}
                           </span>
                         </div>
-                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                          {reportTimestamp(item.created_at)}
-                          {item.note?.trim()
-                            ? ` · ${item.note.trim()}`
-                            : ` · Medición del ${reportDate(item.created_at.slice(0, 10))}`}
+                        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span className="truncate">
+                            {reportTimestamp(item.created_at)}
+                            {item.note?.trim()
+                              ? ` · ${item.note.trim()}`
+                              : ` · Medición del ${reportDate(item.created_at.slice(0, 10))}`}
+                          </span>
+                          <OkrConfidenceBadge value={item.confidence} />
                         </p>
                       </div>
                     </li>

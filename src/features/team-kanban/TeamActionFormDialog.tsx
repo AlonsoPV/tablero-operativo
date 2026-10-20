@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AccionForm } from '@/features/operations/components/AccionForm'
 import { AccionFormField } from '@/features/operations/components/AccionFormSection'
 import { AccionFormBlock } from '@/features/operations/components/form/AccionFormBlock'
-import { AccionAsignadorNote } from '@/features/operations/components/form/AccionAsignadorNote'
+import { AccionFormMetaRow } from '@/features/operations/components/form/AccionFormMetaRow'
 import { EvidenceOptionPicker } from '@/features/operations/components/form/EvidenceOptionPicker'
 import { useDropdownOptionsByKey } from '@/features/catalogs/hooks/useDropdownOptions'
 import type { Priority } from '@/features/catalogs/types/catalogs.types'
@@ -21,7 +21,6 @@ import { notificacionesService } from '@/services/notificaciones.service'
 import type { TeamBoard } from './types'
 import { teamKanbanService } from './service'
 import { TeamMemberSelect } from './components/TeamMemberSelect'
-import { EsOkrToggle } from '@/features/okrs/OkrTag'
 import { useCanSeeOkrTags } from '@/features/okrs/useCanSeeOkrTags'
 
 type Props = {
@@ -362,7 +361,6 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
           <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">
             {areaName} · Kanban por Equipos
           </p>
-          <AccionAsignadorNote nombre={currentUser?.nombre} className="mt-3" />
           <div
             role="radiogroup"
             aria-label="Tipo de acción"
@@ -468,6 +466,16 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
                 ].filter(Boolean).join(' · ') || undefined}
               >
                 <fieldset className="space-y-4" disabled={isSubmitting}>
+                  <AccionFormMetaRow
+                    assignerName={currentUser?.nombre}
+                    showAssigner
+                    showOkr={canSeeOkrTags}
+                    okrChecked={frequentForm.esOkr}
+                    okrDisabled={isSubmitting}
+                    onOkrChange={(esOkr) =>
+                      setFrequentForm((current) => ({ ...current, esOkr }))
+                    }
+                  />
                   <AccionFormField label="Título de la acción" htmlFor="frequent-title" required>
                     <Input
                       id="frequent-title"
@@ -479,16 +487,6 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
                     />
                     <p className="text-xs text-muted-foreground">{frequentForm.title.length}/120</p>
                   </AccionFormField>
-                  {canSeeOkrTags ? (
-                    <EsOkrToggle
-                      checked={frequentForm.esOkr}
-                      disabled={isSubmitting}
-                      onChange={(esOkr) =>
-                        setFrequentForm((current) => ({ ...current, esOkr }))
-                      }
-                    />
-                  ) : null}
-
                   <AccionFormField label="Descripción" htmlFor="frequent-description" required>
                     <textarea
                       id="frequent-description"

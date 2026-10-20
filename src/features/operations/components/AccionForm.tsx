@@ -24,13 +24,12 @@ import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
 import { useDropdownOptionsByKey } from '@/features/catalogs/hooks/useDropdownOptions'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { isAnalystByRole } from '@/features/auth/lib/permissions'
-import { EsOkrToggle } from '@/features/okrs/OkrTag'
 import { useCanSeeOkrTags } from '@/features/okrs/useCanSeeOkrTags'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { DEFAULT_PRIORITY_NOMBRE, priorityDisplayLabel } from '../utils/priorityLabels'
 import { AccionFormField } from './AccionFormSection'
 import { AccionFormBlock } from './form/AccionFormBlock'
-import { AccionAsignadorNote } from './form/AccionAsignadorNote'
+import { AccionFormMetaRow } from './form/AccionFormMetaRow'
 import { AccionPrioridadSelect, resolveDefaultPrioridadNombre } from './form/AccionPrioridadSelect'
 import { resolveAccionPrioridadNombre } from '../utils/resolveAccionPrioridad'
 import { isActiveCatalogPriority } from '../utils/priorityCatalog'
@@ -161,7 +160,7 @@ export function AccionForm({
   const canSeeOkrTags = useCanSeeOkrTags()
   const isAnalyst = isAnalystByRole(currentUser?.rol)
   const assignerName = asignadorNombre?.trim() || currentUser?.nombre?.trim() || null
-  const showAsignadorNote = !lockedAreaName
+  const showAsignadorNote = Boolean(assignerName)
   const {
     data: evidenciaOpciones = [],
     isLoading: evidenciaLoading,
@@ -383,7 +382,10 @@ export function AccionForm({
       >
         {isEditProtectedReadonly ? (
           <div className="space-y-4">
-            {showAsignadorNote ? <AccionAsignadorNote nombre={assignerName} /> : null}
+            <AccionFormMetaRow
+              assignerName={assignerName}
+              showAssigner={showAsignadorNote}
+            />
           <div className="grid gap-3 sm:grid-cols-2">
             <ReadonlyValue label="Título de la acción" value={form.watch('titulo_accion')} />
             <ReadonlyValue label="Responsable de ejecutar" value={readonlyResponsableNombre} />
@@ -433,7 +435,14 @@ export function AccionForm({
           </div>
         ) : (
         <fieldset className="space-y-4">
-        {showAsignadorNote ? <AccionAsignadorNote nombre={assignerName} /> : null}
+        <AccionFormMetaRow
+          assignerName={assignerName}
+          showAssigner={showAsignadorNote}
+          showOkr={canSeeOkrTags}
+          okrChecked={Boolean(form.watch('es_okr'))}
+          okrDisabled={isEditProtectedReadonly}
+          onOkrChange={(next) => form.setValue('es_okr', next, { shouldDirty: true })}
+        />
         <AccionFormField label="Título de la acción" htmlFor={fieldId('titulo_accion')} required>
           <Input
             id={fieldId('titulo_accion')}
@@ -453,14 +462,6 @@ export function AccionForm({
             <p className="text-xs text-destructive">{form.formState.errors.titulo_accion.message}</p>
           )}
         </AccionFormField>
-        {canSeeOkrTags ? (
-          <EsOkrToggle
-            checked={Boolean(form.watch('es_okr'))}
-            disabled={isEditProtectedReadonly}
-            onChange={(next) => form.setValue('es_okr', next, { shouldDirty: true })}
-          />
-        ) : null}
-
         <AccionFormField label="Descripción" htmlFor={fieldId('descripcion_simple')} required>
           <AccionDescripcionTextarea
             id={fieldId('descripcion_simple')}

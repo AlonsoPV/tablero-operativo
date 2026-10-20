@@ -47,6 +47,7 @@ export interface CheckIn {
   key_result_id: string
   value: number
   note: string | null
+  confidence?: 'red' | 'yellow' | 'green' | null
   created_at: string
   created_by: string
   baseline_snapshot?: number | null

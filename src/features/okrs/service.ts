@@ -71,8 +71,18 @@ export const okrService = {
       p_data: data,
       p_id: id ?? null,
     }),
-  checkIn: (id: string, value: number, note: string) =>
-    rpc<void>('okr_check_in', { p_id: id, p_value: value, p_note: note }),
+  checkIn: (
+    id: string,
+    value: number,
+    note: string,
+    confidence?: 'red' | 'yellow' | 'green' | null
+  ) =>
+    rpc<void>('okr_check_in', {
+      p_id: id,
+      p_value: value,
+      p_note: note,
+      p_confidence: confidence ?? null,
+    }),
   deleteObjective: (id: string) =>
     rpc<void>('okr_delete_objective', { p_id: id }),
   deleteKeyResult: (id: string) =>
@@ -87,7 +97,9 @@ export const okrService = {
       throw new Error(
         error.code === '23505'
           ? 'Esta acción ya está vinculada al KR.'
-          : error.message
+          : error.message.includes('OKRs de equipo')
+            ? 'Las iniciativas solo se vinculan a OKRs de equipo.'
+            : error.message
       )
   },
   async unlink(id: string) {

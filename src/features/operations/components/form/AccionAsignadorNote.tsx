@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils'
 type Props = {
   nombre?: string | null
   className?: string
+  compact?: boolean
 }
 
 function assignerInitials(name: string): string {
@@ -13,14 +14,15 @@ function assignerInitials(name: string): string {
 }
 
 /** Indicador compacto de quién asigna la acción (paso 1). */
-export function AccionAsignadorNote({ nombre, className }: Props) {
+export function AccionAsignadorNote({ nombre, className, compact }: Props) {
   const label = nombre?.trim()
   if (!label) return null
 
   return (
     <div
       className={cn(
-        'flex h-10 w-full items-center gap-2.5 rounded-lg border border-border/70 bg-muted/20 px-2.5',
+        'flex h-10 w-full items-center gap-2.5 rounded-lg border px-2.5 text-left',
+        'border-border/70 bg-muted/20 text-foreground',
         className
       )}
       role="note"
@@ -28,13 +30,21 @@ export function AccionAsignadorNote({ nombre, className }: Props) {
     >
       <span
         aria-hidden
-        className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-background px-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ring-1 ring-inset ring-border/70"
+        className="inline-flex h-6 shrink-0 items-center rounded-md bg-background px-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ring-1 ring-inset ring-border/70"
       >
-        {assignerInitials(label)}
+        Asigna
       </span>
-      <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-        Asigna: {label}
-      </p>
+      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+        {label}
+      </span>
+      {compact ? null : (
+        <span
+          aria-hidden
+          className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-background px-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ring-1 ring-inset ring-border/70"
+        >
+          {assignerInitials(label)}
+        </span>
+      )}
     </div>
   )
 }
