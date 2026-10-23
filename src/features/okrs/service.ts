@@ -11,6 +11,103 @@ async function rpc<T>(
   return data as T
 }
 
+function normalizeActionOptions(raw: unknown): ActionOption[] {
+  let value: unknown = raw
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value) as unknown
+    } catch {
+      return []
+    }
+  }
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const row = item as Record<string, unknown>
+    const id = typeof row.id === 'string' ? row.id : null
+    const title = typeof row.title === 'string' ? row.title : null
+    const kind = row.kind === 'team' || row.kind === 'company' ? row.kind : null
+    if (!id || !title || !kind) return []
+    return [
+      {
+        id,
+        title,
+        kind,
+        area_id: typeof row.area_id === 'string' ? row.area_id : null,
+        closed: Boolean(row.closed),
+        es_okr: row.es_okr === true || row.es_okr === 'true',
+      },
+    ]
+  })
+}
+
+async function loadTaggedActions(): Promise<ActionOption[]> {
+  const [company, team, areas] = await Promise.all([
+    supabase
+      .from('acciones_diarias')
+      .select('id, titulo_accion, area')
+      .eq('es_okr', true),
+    supabase
+      .from('acciones_equipo')
+      .select('id, titulo, area_id')
+      .eq('es_okr', true),
+    supabase.from('areas').select('id, nombre'),
+  ])
+  const areaIdByName = new Map(
+    (areas.data ?? []).flatMap((area) => {
+      const name = area.nombre?.trim().toLowerCase()
+      return name ? [[name, area.id as string] as const] : []
+    })
+  )
+  const tagged: ActionOption[] = []
+  if (!company.error) {
+    for (const row of company.data ?? []) {
+      const areaName = row.area?.trim().toLowerCase()
+      tagged.push({
+        id: row.id,
+        title: row.titulo_accion ?? '',
+        kind: 'company',
+        area_id: areaName ? (areaIdByName.get(areaName) ?? null) : null,
+        closed: false,
+        es_okr: true,
+      })
+    }
+  }
+  if (!team.error) {
+    for (const row of team.data ?? []) {
+      tagged.push({
+        id: row.id,
+        title: row.titulo ?? '',
+        kind: 'team',
+        area_id: row.area_id ?? null,
+        closed: false,
+        es_okr: true,
+      })
+    }
+  }
+  return tagged.filter((action) => action.id && action.title)
+}
+
+function mergeActionOptions(
+  fromRpc: ActionOption[],
+  tagged: ActionOption[]
+): ActionOption[] {
+  const byKey = new Map(
+    fromRpc.map((action) => [`${action.kind}:${action.id}`, { ...action }])
+  )
+  for (const action of tagged) {
+    const key = `${action.kind}:${action.id}`
+    const existing = byKey.get(key)
+    if (existing) {
+      existing.es_okr = true
+      if (!existing.area_id && action.area_id) existing.area_id = action.area_id
+    } else {
+      byKey.set(key, { ...action, es_okr: true })
+    }
+  }
+  return [...byKey.values()]
+}
+
 export const okrService = {
   async history(
     objectiveId: string,
@@ -62,7 +159,15 @@ export const okrService = {
     }
     return { ...data, ...directory }
   },
-  actions: () => rpc<ActionOption[]>('okr_action_options'),
+  async actions(): Promise<ActionOption[]> {
+    let fromRpc: ActionOption[] = []
+    try {
+      fromRpc = normalizeActionOptions(await rpc<unknown>('okr_action_options'))
+    } catch {
+      fromRpc = []
+    }
+    return mergeActionOptions(fromRpc, await loadTaggedActions())
+  },
   saveObjective: (data: Record<string, unknown>, id?: string) =>
     rpc<string>('okr_save_objective', { p_data: data, p_id: id ?? null }),
   saveKeyResult: (okrId: string, data: Record<string, unknown>, id?: string) =>

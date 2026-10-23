@@ -13,6 +13,7 @@ export function OkrLinkInitiativePanel({
   available,
   areas,
   actionsReady,
+  actionsError,
   onCreateAction,
 }: {
   krTitle: string
@@ -23,6 +24,7 @@ export function OkrLinkInitiativePanel({
   available: ActionOption[]
   areas: { id: string; nombre: string }[]
   actionsReady: boolean
+  actionsError?: string | null
   onCreateAction: () => void
 }) {
   return (
@@ -78,7 +80,11 @@ export function OkrLinkInitiativePanel({
           Acciones disponibles
           {actionsReady ? ` · ${available.length}` : ''}
         </legend>
-        {!actionsReady ? (
+        {actionsError ? (
+          <p role="alert" className="rounded-lg border border-dashed p-4 text-sm text-destructive">
+            {actionsError}
+          </p>
+        ) : !actionsReady ? (
           <p role="status" className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
             Cargando acciones…
           </p>
@@ -103,7 +109,7 @@ export function OkrLinkInitiativePanel({
               No hay acciones para vincular
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Marca la acción con la tag OKR al crearla, o cambia la búsqueda.
+              Crea una acción con la tag OKR, o quita el texto de búsqueda.
             </p>
           </div>
         )}

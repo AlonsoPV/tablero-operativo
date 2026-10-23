@@ -13,11 +13,13 @@ import { teamKanbanService } from '@/features/team-kanban/service'
 export function TeamInitiativeCreator({
   areaId,
   areaName,
+  defaultEsOkr = false,
   onClose,
   onDone,
 }: {
   areaId: string
   areaName: string
+  defaultEsOkr?: boolean
   onClose: () => void
   onDone: () => Promise<void>
 }) {
@@ -64,6 +66,7 @@ export function TeamInitiativeCreator({
       areaName={areaName}
       board={board.data}
       priorities={priorities.data}
+      defaultEsOkr={defaultEsOkr}
       onDone={onDone}
     />
   )

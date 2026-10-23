@@ -30,6 +30,7 @@ type Props = {
   areaName: string
   board: TeamBoard
   priorities: Priority[]
+  defaultEsOkr?: boolean
   onDone: () => Promise<void>
 }
 
@@ -87,7 +88,16 @@ function isoWeekdayFromDate(value: string) {
   return day === 0 ? 7 : day
 }
 
-export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, board, priorities, onDone }: Props) {
+export function TeamActionFormDialog({
+  open,
+  onOpenChange,
+  areaId,
+  areaName,
+  board,
+  priorities,
+  defaultEsOkr = false,
+  onDone,
+}: Props) {
   const { data: currentUser } = useCurrentUser()
   const canSeeOkrTags = useCanSeeOkrTags()
   const [mode, setMode] = useState<TeamActionMode>('single')
@@ -109,7 +119,7 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
     monthDay: new Date().getDate(),
     evidenceRequired: true,
     evidenceText: '',
-    esOkr: false,
+    esOkr: defaultEsOkr,
   })
   const [evidenceSelect, setEvidenceSelect] = useState('')
   const { data: evidenciaOpciones = [], isLoading: evidenciaLoading } =
@@ -325,7 +335,7 @@ export function TeamActionFormDialog({ open, onOpenChange, areaId, areaName, boa
     area: areaName,
     descripcion_modo: 'simple',
     prioridad: priorities[0]?.nombre,
-    es_okr: false,
+    es_okr: defaultEsOkr,
   }
   const isSubmitting = mutation.isPending || frequentMutation.isPending
   const assigneeName = board.members.find((member) => member.id === frequentForm.assignee)?.nombre

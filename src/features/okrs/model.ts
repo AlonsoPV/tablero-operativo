@@ -42,6 +42,19 @@ export interface ActionOption {
   es_okr?: boolean
 }
 
+export function isTaggedOkrAction(action: Pick<ActionOption, 'es_okr'>): boolean {
+  return action.es_okr === true
+}
+
+/** Team actions stay in the OKR's area; company Kanban actions often have no area. */
+export function actionMatchesObjectiveArea(
+  action: Pick<ActionOption, 'kind' | 'area_id'>,
+  objective: Pick<Objective, 'area_id'>
+): boolean {
+  if (action.kind === 'company') return true
+  return !objective.area_id || action.area_id === objective.area_id
+}
+
 export interface CheckIn {
   id: string
   key_result_id: string

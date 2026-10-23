@@ -64,6 +64,8 @@ import {
   toolbarInput,
 } from './okrPresentation'
 import {
+  actionMatchesObjectiveArea,
+  isTaggedOkrAction,
   krProgress,
   objectivePeriod,
   type ActionOption,
@@ -175,13 +177,14 @@ export function OkrPage() {
     ])
   }
 
-  function closeActionCreator() {
+  async function closeActionCreator() {
+    const resume = resumeLink
     setCreateAction(false)
-    if (resumeLink?.type === 'link' && resumeLink.objective.scope === 'team') {
-      setModal(resumeLink)
-    }
     setResumeLink(null)
-    void refresh()
+    await refresh()
+    if (resume?.type === 'link' && resume.objective.scope === 'team') {
+      setModal(resume)
+    }
   }
 
   async function unlink(id: string) {
@@ -720,6 +723,13 @@ export function OkrPage() {
               objective={modal.objective}
               actions={actions.data ?? []}
               actionsReady={actions.isSuccess}
+              actionsError={
+                actions.error instanceof Error
+                  ? actions.error.message
+                  : actions.isError
+                    ? 'No se pudieron cargar las acciones'
+                    : null
+              }
               initiatives={data.initiatives}
               areas={data.areas}
               search={linkSearch}
@@ -807,17 +817,15 @@ export function OkrPage() {
             data.areas.find((a) => a.id === resumeLink.objective.area_id)
               ?.nombre ?? 'Equipo'
           }
-          onClose={closeActionCreator}
-          onDone={async () => {
-            await refresh()
-            closeActionCreator()
-          }}
+          defaultEsOkr
+          onClose={() => void closeActionCreator()}
+          onDone={closeActionCreator}
         />
       ) : createAction ? (
         <AccionFormDialog
           open={createAction}
           onOpenChange={(open) => {
-            if (!open) closeActionCreator()
+            if (!open) void closeActionCreator()
           }}
           onSuccess={() => void closeActionCreator()}
         />
@@ -874,6 +882,7 @@ function LinkInitiativeForm({
   objective,
   actions,
   actionsReady,
+  actionsError,
   initiatives,
   areas,
   search,
@@ -889,6 +898,7 @@ function LinkInitiativeForm({
   objective: Objective
   actions: ActionOption[]
   actionsReady: boolean
+  actionsError: string | null
   initiatives: Initiative[]
   areas: { id: string; nombre: string }[]
   search: string
@@ -901,8 +911,8 @@ function LinkInitiativeForm({
   onSubmit: (action: ActionOption) => Promise<void>
 }) {
   const available = actions.filter((action) => {
-    if (!action.es_okr) return false
-    if (objective.area_id && action.area_id !== objective.area_id) return false
+    if (!isTaggedOkrAction(action)) return false
+    if (!actionMatchesObjectiveArea(action, objective)) return false
     if (
       initiatives.some(
         (item) =>
@@ -951,6 +961,7 @@ function LinkInitiativeForm({
         available={available}
         areas={areas}
         actionsReady={actionsReady}
+        actionsError={actionsError}
         onCreateAction={onCreateAction}
       />
     </EditorFrame>
