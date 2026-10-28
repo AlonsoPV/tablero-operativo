@@ -67,10 +67,29 @@ Para tener JWT de prueba: en la app, inicia sesión y en la consola del navegado
 
 ## Otra función: `invite-user`
 
-Se despliega igual:
+Se despliega igual (incluye `verify_jwt = false` de `supabase/config.toml`):
 
 ```bash
-supabase functions deploy invite-user
+npx supabase login
+npx supabase link --project-ref tgiuevzlyptzlfgxsfhj
+npx supabase functions deploy invite-user --project-ref tgiuevzlyptzlfgxsfhj
+```
+
+O ambas de usuarios a la vez:
+
+```bash
+npx supabase functions deploy invite-user --project-ref tgiuevzlyptzlfgxsfhj
+npx supabase functions deploy admin-set-password --project-ref tgiuevzlyptzlfgxsfhj
 ```
 
 Esa función usa `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` en runtime Edge; en muchos proyectos Supabase ya los inyecta. Si una función devuelve *Configuración de servidor incompleta*, revisa **Edge Functions → Secrets**. No confundir con variables `VITE_*` del frontend.
+
+**CORS engañoso:** si el navegador dice *blocked by CORS* / *preflight doesn't have HTTP ok status* contra `invite-user`, suele ser que la función **no está desplegada** (el gateway responde `404`/`NOT_FOUND` al OPTIONS). Comprueba con:
+
+```bash
+curl -i -X OPTIONS "https://tgiuevzlyptzlfgxsfhj.supabase.co/functions/v1/invite-user" ^
+  -H "Origin: https://dev-tablero-operativo.vercel.app" ^
+  -H "Access-Control-Request-Method: POST"
+```
+
+Debe devolver **204**. Si ves **404**, despliega la función.
