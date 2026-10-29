@@ -6,6 +6,7 @@ import {
   CircleSlash,
   HelpCircle,
   Loader2,
+  ScanSearch,
   Send,
   Sparkles,
   Target,
@@ -25,7 +26,10 @@ import {
 import { cn } from '@/lib/utils'
 import { assistantModes, type AssistantModeId } from '@/lib/assistantModes'
 import type { AiChatMessage } from '@/features/ai-support/types'
+import { buildBoardAssistantContext } from '@/features/ai-support/buildBoardAssistantContext'
 import { buildOkrAssistantContext } from '@/features/ai-support/buildOkrAssistantContext'
+import { useAppRole } from '@/features/auth/hooks/useAppRole'
+import { canViewAllBoardData } from '@/features/auth/lib/permissions'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { useAcciones } from '@/features/operations/hooks/useAcciones'
 import { useAccionCheckpoints } from '@/features/operations/hooks/useAccionCheckpoints'
@@ -43,11 +47,18 @@ import type { AccionComentario } from '@/types/accionComentario'
 const MAX_MESSAGES = 24
 const DEFAULT_MODE: AssistantModeId = 'agile_eos_scalingup'
 const OPEN_ACTION_STATES = ['Pendiente', 'Hoy', 'En_Ejecucion', 'Bloqueado', 'Retraso'] as const
+const ANALYSIS_PROMPT =
+  'Analiza mis acciones abiertas y OKRs. Dime que conviene optimizar primero y dame 3 recomendaciones ejecutivas.'
+const PORTFOLIO_PROMPTS = [
+  ANALYSIS_PROMPT,
+  'Que acciones retrasadas o bloqueadas deberia atacar hoy?',
+  'Que OKRs conviene corregir para que midan resultado y no actividad?',
+  'Donde se desconectan mis acciones de los OKRs y que haria con ellas?',
+]
 const ACTION_PROMPTS = [
   'Valida si esta accion esta lista para cerrarse y dime que falta.',
   'Que evidencia seria suficiente para cerrar esta accion con calidad?',
   'Dame un plan corto para cerrar esta accion hoy.',
-  'Que riesgo hay si cierro esta accion con la informacion actual?',
   'Como puedo desbloquear esta accion y a quien debo involucrar?',
 ]
 const OKR_PROMPTS = [
@@ -55,7 +66,6 @@ const OKR_PROMPTS = [
   'Que KRs estan redactados como tareas y como los convertiria en resultado?',
   'Las iniciativas mueven el KR o solo documentan actividad?',
   'Que datos faltan para validar linea base y meta sin inventar X o Y?',
-  'El conjunto de KRs demuestra que el objetivo se consiguio?',
 ]
 const ALL_KRS_VALUE = '__all_krs__'
 const NO_INITIATIVE_VALUE = '__no_initiative__'
@@ -110,11 +120,13 @@ async function sendMessage({
   messages,
   actionContext,
   okrContext,
+  boardContext,
 }: {
   mode: AssistantModeId
   messages: AiChatMessage[]
   actionContext?: ActionContext
   okrContext?: ReturnType<typeof buildOkrAssistantContext>
+  boardContext?: ReturnType<typeof buildBoardAssistantContext>
 }) {
   const response = await fetch('/api/gemini-chat', {
     method: 'POST',
@@ -126,6 +138,7 @@ async function sendMessage({
       messages,
       actionContext,
       okrContext,
+      boardContext,
     }),
   })
 
@@ -216,11 +229,13 @@ export function AiAssistPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const { data: currentUser } = useCurrentUser()
+  const { data: appRole } = useAppRole()
   const canSeeOkrs = useCanSeeOkrTags()
+  const seesAllBoard = canViewAllBoardData(currentUser?.rol, appRole)
   const { data: priorities = [] } = usePriorities({ activo: true })
   const { data: userOpenActions = [], isLoading: actionsLoading } = useAcciones(
     {
-      responsable: currentUser?.id,
+      ...(seesAllBoard ? {} : { responsable: currentUser?.id }),
       estado: [...OPEN_ACTION_STATES],
     },
     { enabled: Boolean(currentUser?.id) }
@@ -255,9 +270,19 @@ export function AiAssistPage() {
       })
   }, [priorities, userOpenActions])
 
+  const selectableActions = useMemo(() => {
+    const hotIds = new Set(redOpenActions.map((action) => action.id))
+    return [...userOpenActions].sort((a, b) => {
+      const aHot = hotIds.has(a.id) || a.estado === 'Bloqueado'
+      const bHot = hotIds.has(b.id) || b.estado === 'Bloqueado'
+      if (aHot !== bHot) return aHot ? -1 : 1
+      return `${a.fecha} ${a.hora_limite}`.localeCompare(`${b.fecha} ${b.hora_limite}`)
+    })
+  }, [redOpenActions, userOpenActions])
+
   const selectedAction = useMemo(
-    () => redOpenActions.find((action) => action.id === selectedActionId) ?? null,
-    [redOpenActions, selectedActionId]
+    () => selectableActions.find((action) => action.id === selectedActionId) ?? null,
+    [selectableActions, selectedActionId]
   )
   const { data: selectedCheckpoints = [], isLoading: checkpointsLoading } = useAccionCheckpoints(
     selectedAction?.id
@@ -304,11 +329,21 @@ export function AiAssistPage() {
     selectedObjective,
   ])
   const activeOkrContext = Boolean(activeOkrContextPayload)
+  const boardContext = useMemo(
+    () =>
+      buildBoardAssistantContext(
+        userOpenActions,
+        priorities,
+        canSeeOkrs ? okrDashboard.data : null,
+        todayWallClockCDMX()
+      ),
+    [canSeeOkrs, okrDashboard.data, priorities, userOpenActions]
+  )
   const suggestionChips = activeOkrContext
-    ? [...OKR_PROMPTS, ...(activeActionContext ? ACTION_PROMPTS.slice(0, 2) : [])]
+    ? [...OKR_PROMPTS, PORTFOLIO_PROMPTS[0]]
     : activeActionContext
-      ? ACTION_PROMPTS
-      : currentMode.suggestions
+      ? [...ACTION_PROMPTS, PORTFOLIO_PROMPTS[0]]
+      : PORTFOLIO_PROMPTS
 
   const visibleMessages = useMemo(
     () => [{ role: 'assistant' as const, content: currentMode.welcome }, ...messages],
@@ -321,25 +356,13 @@ export function AiAssistPage() {
     setInput('')
   }
 
-  const handleSuggestion = (suggestion: string) => {
-    setInput(suggestion)
-  }
-
-  const handleActionPrompt = (prompt: string) => {
-    if (!selectedAction && !selectedObjective) {
-      toast.warning('Selecciona una accion roja abierta o un OKR para validarlo.')
-      return
-    }
-    setInput(prompt)
-  }
-
   const clearChat = () => {
     setMessages([])
     setInput('')
   }
 
-  const handleSend = async () => {
-    const trimmed = input.trim()
+  const handleSend = async (prompt = input) => {
+    const trimmed = prompt.trim()
     if (!trimmed || loading) return
 
     const nextMessages = [...messages, { role: 'user' as const, content: trimmed }].slice(
@@ -358,6 +381,7 @@ export function AiAssistPage() {
           ? toActionContext(selectedAction!, selectedCheckpoints, selectedComments)
           : undefined,
         okrContext: activeOkrContextPayload ?? undefined,
+        boardContext,
       })
 
       setMessages([...nextMessages, { role: 'assistant' as const, content: answer }].slice(-MAX_MESSAGES))
@@ -389,9 +413,23 @@ export function AiAssistPage() {
         <Bot className="h-5 w-5 text-primary" aria-hidden />
         <h2 className="text-lg font-semibold tracking-tight sm:text-xl">Asistente IA</h2>
         <p className="hidden min-w-0 text-xs text-muted-foreground sm:block">
-          Valida acciones, evidencias y OKRs.
+          Analiza acciones y OKRs para optimizar y recomendar.
         </p>
         <div className="ml-auto flex items-center gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="h-8 gap-1 px-2 text-xs"
+            onClick={() => void handleSend(ANALYSIS_PROMPT)}
+            disabled={loading || (userOpenActions.length === 0 && !canSeeOkrs)}
+          >
+            <ScanSearch className="h-3.5 w-3.5" aria-hidden />
+            Analizar
+          </Button>
+          <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[11px] font-medium text-foreground">
+            {userOpenActions.length} abiertas
+          </span>
           <span className="inline-flex items-center gap-1 rounded-md border border-red-500/20 bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-700 dark:text-red-300">
             <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
             {redOpenActions.length} rojas
@@ -459,8 +497,8 @@ export function AiAssistPage() {
                   onToggle={() => setActionContextEnabled((value) => !value)}
                 />
               ) : (
-                <span className="rounded-md bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300">
-                  Rojo
+                <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                  {userOpenActions.length}
                 </span>
               )}
             </div>
@@ -469,22 +507,22 @@ export function AiAssistPage() {
               onValueChange={(value) =>
                 setSelectedActionId(value === NO_ACTION_VALUE ? null : value)
               }
-              disabled={actionsLoading || redOpenActions.length === 0}
+              disabled={actionsLoading || selectableActions.length === 0}
             >
               <SelectTrigger className="h-9 bg-background text-xs">
                 <SelectValue
                   placeholder={
                     actionsLoading
                       ? 'Cargando...'
-                      : redOpenActions.length > 0
-                        ? 'Elegir accion roja'
-                        : 'Sin acciones rojas'
+                      : selectableActions.length > 0
+                        ? 'Elegir accion abierta'
+                        : 'Sin acciones abiertas'
                   }
                 />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={NO_ACTION_VALUE}>Sin accion</SelectItem>
-                {redOpenActions.map((action) => (
+                {selectableActions.map((action) => (
                   <SelectItem key={action.id} value={action.id}>
                     {formatActionOption(action)}
                   </SelectItem>
@@ -678,10 +716,7 @@ export function AiAssistPage() {
                 <button
                   key={suggestion}
                   type="button"
-                  onClick={() => {
-                    if (activeActionContext || activeOkrContext) handleActionPrompt(suggestion)
-                    else handleSuggestion(suggestion)
-                  }}
+                  onClick={() => setInput(suggestion)}
                   className={cn(
                     'max-w-[16rem] shrink-0 truncate rounded-full border bg-background px-2.5 py-1 text-[11px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     activeOkrContext
@@ -701,7 +736,7 @@ export function AiAssistPage() {
                 ? 'Pregunta sobre el OKR seleccionado'
                 : activeActionContext
                   ? 'Pregunta sobre la accion seleccionada'
-                  : 'Pregunta limpia'}
+                  : 'Analiza acciones y OKRs'}
             </Label>
             <div className="flex items-end gap-2">
               <textarea
@@ -713,7 +748,7 @@ export function AiAssistPage() {
                     ? 'Este KR mide un resultado o una actividad?'
                     : activeActionContext
                       ? 'Que evidencia falta para cerrar?'
-                      : 'Escribe tu pregunta…  Ctrl+Enter para enviar'
+                      : 'Que conviene optimizar primero?'
                 }
                 rows={2}
                 className="max-h-28 min-h-11 flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"

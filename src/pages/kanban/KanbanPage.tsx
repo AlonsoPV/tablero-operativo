@@ -39,7 +39,8 @@ import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/Se
 import { useGapAccionesForGapIds } from '@/features/kpi/hooks/useGapAccionesForGapIds'
 import { useGap } from '@/features/kpi/hooks/useGaps'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { isAnalystByRole } from '@/features/auth/lib/permissions'
+import { useAppRole } from '@/features/auth/hooks/useAppRole'
+import { canViewAllBoardData, isAnalystByRole } from '@/features/auth/lib/permissions'
 import { exportKanbanToExcel } from '@/features/operations/utils/exportKanbanExcel'
 import { toast } from 'sonner'
 
@@ -78,7 +79,9 @@ export function KanbanPage() {
   }, [qc])
 
   const { data: currentUser } = useCurrentUser()
+  const { data: appRole } = useAppRole()
   const isAnalyst = isAnalystByRole(currentUser?.rol)
+  const seesAllBoard = canViewAllBoardData(currentUser?.rol, appRole)
 
   const [filter, setFilter] = useState<AccionesFilter>(() => ({}))
   const [defaultResponsibleApplied, setDefaultResponsibleApplied] = useState(false)
@@ -126,9 +129,13 @@ export function KanbanPage() {
 
   useEffect(() => {
     if (!currentUser?.id || defaultResponsibleApplied) return
+    if (seesAllBoard) {
+      setDefaultResponsibleApplied(true)
+      return
+    }
     setFilter((prev) => normalizeKanbanFilter({ ...createKanbanDefaultFilter(currentUser.id), ...prev }))
     setDefaultResponsibleApplied(true)
-  }, [currentUser?.id, defaultResponsibleApplied])
+  }, [currentUser?.id, defaultResponsibleApplied, seesAllBoard])
 
   useEffect(() => {
     if (fechaFromUrl && /^\d{4}-\d{2}-\d{2}$/.test(fechaFromUrl)) {

@@ -3,6 +3,7 @@ import {
   appendAssistantContexts,
   composeSystemPrompt,
   sanitizeActionContext,
+  sanitizeBoardContext,
   sanitizeOkrContext,
 } from './assistantPrompts'
 
@@ -33,6 +34,13 @@ describe('composeSystemPrompt', () => {
     expect(prompt).toContain('especialista en OKRs')
     expect(prompt).toContain('CALIDAD ORIENTATIVA')
     expect(prompt).toContain('Diagnostico general:')
+  })
+
+  it('adds board analysis rules for optimization recommendations', () => {
+    const prompt = composeSystemPrompt('agile_eos_scalingup', { hasBoardContext: true })
+    expect(prompt).toContain('CONTEXTO DE TABLERO')
+    expect(prompt).toContain('3 movimientos ejecutivos')
+    expect(prompt).not.toContain('CALIDAD ORIENTATIVA')
   })
 
   it('combines logistics specialty with OKR rules when an operational OKR is in context', () => {
@@ -124,6 +132,54 @@ describe('sanitizeOkrContext', () => {
   })
 })
 
+describe('sanitizeBoardContext', () => {
+  it('summarizes open actions and OKRs without inventing progress', () => {
+    const text = sanitizeBoardContext({
+      today: '2026-10-29',
+      actions: {
+        totalOpen: 3,
+        delayed: 1,
+        blocked: 1,
+        red: 1,
+        taggedOkr: 1,
+        byEstado: [{ estado: 'Retraso', count: 1 }],
+        items: [
+          {
+            titulo: 'Entregar POD',
+            estado: 'Retraso',
+            prioridad: 'Critica',
+            fecha: '2026-10-28',
+            hora: '18:00',
+            esOkr: true,
+          },
+        ],
+      },
+      okrs: {
+        visible: true,
+        objectives: 1,
+        keyResults: 1,
+        initiatives: 0,
+        items: [
+          {
+            nombre: 'Mejorar disponibilidad',
+            scope: 'team',
+            periodStatus: 'Activo',
+            krCount: 1,
+            initiativeCount: 0,
+            progress: null,
+            krsWithoutBaseline: 1,
+          },
+        ],
+      },
+    })
+    expect(text).toContain('Acciones abiertas: 3')
+    expect(text).toContain('Entregar POD')
+    expect(text).toContain('Mejorar disponibilidad')
+    expect(text).toContain('avance: no calculable')
+    expect(text).toContain('KR sin linea base: 1')
+  })
+})
+
 describe('appendAssistantContexts', () => {
   it('keeps action context and prepends OKR context when both are selected', () => {
     const [message] = appendAssistantContexts(
@@ -139,5 +195,20 @@ describe('appendAssistantContexts', () => {
     expect(message.content).toContain('Disponibilidad de unidades')
     expect(message.content).toContain('Cerrar evidencia de ruta')
     expect(message.content).toContain('Pregunta del usuario:\nQue sigue?')
+  })
+
+  it('attaches board context so portfolio questions work without a selected item', () => {
+    const [message] = appendAssistantContexts(
+      [{ role: 'user', content: 'Que optimizo primero?' }],
+      undefined,
+      undefined,
+      {
+        today: '2026-10-29',
+        actions: { totalOpen: 2, delayed: 0, blocked: 0, red: 0, taggedOkr: 0, items: [] },
+        okrs: { visible: true, objectives: 1, keyResults: 0, initiatives: 0, items: [] },
+      }
+    )
+    expect(message.content).toContain('Resumen del tablero')
+    expect(message.content).toContain('Que optimizo primero?')
   })
 })

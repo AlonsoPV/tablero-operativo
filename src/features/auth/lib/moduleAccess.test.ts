@@ -68,6 +68,16 @@ describe('module access', () => {
         area: 'Comercial',
       })
     ).toBe(true)
+    expect(
+      canAccessRouteWithModules('super_admin', '/okrs', null, [], {
+        area: 'Comercial',
+      })
+    ).toBe(true)
+    expect(
+      canAccessRouteWithModules('Super Admin', '/okrs', null, ['tickets'], {
+        area: 'Operaciones',
+      })
+    ).toBe(true)
   })
 
   it('redirige a una seccion realmente habilitada y evita ciclos', () => {
