@@ -7,6 +7,7 @@ export const MAX_CONTEXT_MESSAGES = 8
 export const MAX_MESSAGE_CHARS = 3000
 export const MAX_ACTION_CONTEXT_CHARS = 1800
 export const MAX_OKR_CONTEXT_CHARS = 3500
+export const MAX_BOARD_CONTEXT_CHARS = 2800
 
 export type ChatMessage = {
   role: 'user' | 'assistant'
@@ -103,11 +104,24 @@ CONTEXTO DE ACCION:
 - Usa los comentarios como contexto complementario para entender bloqueos, avances, acuerdos o dudas.
 - Si titulo, descripcion, checklist y comentarios no dan suficiente informacion para recomendar avance o cierre, dilo claramente y pide la informacion minima faltante.
 - Identifica el elemento seleccionado. Si la pregunta corresponde a esa accion, a un OKR/KR/iniciativa tambien seleccionado, o a su relacion, responde sin obligar a reformular.
-- Si solo hay accion seleccionada y la pregunta no se relaciona con esa accion ni con su cierre, pide al usuario reformularla hacia la accion seleccionada.
+- Si la pregunta es de portafolio, priorizacion u OKRs, usa tambien el resumen del tablero.
 - Ayuda a validar como abordar, desbloquear o cerrar esa accion con buena calidad.
 - Recomienda evidencia, pasos de cierre, riesgos, responsables involucrados y siguiente movimiento.
 - No digas que la accion esta cerrada si el estado no lo confirma.
 - No inventes informacion que no venga en la accion o en la pregunta.
+`.trim()
+
+const BOARD_CONTEXT_RULES = `
+CONTEXTO DE TABLERO:
+- Si recibes un resumen de acciones abiertas y OKRs, usalo para priorizar, optimizar y recomendar.
+- No inventes conteos, avances, lineas base ni metas que el resumen no traiga.
+- Distingue acciones urgentes (retraso, bloqueo, prioridad roja) de trabajo que solo ocupa el tablero.
+- Senala acciones etiquetadas OKR vs acciones operativas sueltas.
+- Si un OKR no tiene linea base o parece una lista de tareas, recomiende corregirlo antes de pedir mas iniciativas.
+- No trates cada tarjeta de kanban como un incidente unico.
+- Prioriza 3 movimientos ejecutivos: que atacar hoy, que pausar y que corregir en OKRs.
+- Si falta un dato critico, dilo y no lo completes.
+Cuando sea util, estructura: Diagnostico:, Prioridades:, Recomendacion: y Siguiente accion:.
 `.trim()
 
 export const OKR_EVALUATION_RULES = `
@@ -175,9 +189,14 @@ Si el usuario pide analisis detallado, evalua cada KR e iniciativa por separado.
 
 export function composeSystemPrompt(
   mode: AssistantModeId,
-  options: { hasActionContext?: boolean; hasOkrContext?: boolean } = {}
+  options: {
+    hasActionContext?: boolean
+    hasOkrContext?: boolean
+    hasBoardContext?: boolean
+  } = {}
 ): string {
   const parts = [SPECIALTY[mode], SHARED_RULES]
+  if (options.hasBoardContext) parts.push(BOARD_CONTEXT_RULES)
   if (options.hasActionContext) parts.push(ACTION_CONTEXT_RULES)
   if (mode === 'okr_strategy' || options.hasOkrContext) parts.push(OKR_EVALUATION_RULES)
   return parts.join('\n\n')
@@ -367,16 +386,80 @@ export function sanitizeOkrContext(okrContext: unknown) {
   return lines.join('\n').slice(0, MAX_OKR_CONTEXT_CHARS)
 }
 
+export function sanitizeBoardContext(boardContext: unknown) {
+  if (!boardContext || typeof boardContext !== 'object') return ''
+  const ctx = boardContext as Record<string, unknown>
+  const actions = ctx.actions && typeof ctx.actions === 'object' ? (ctx.actions as Record<string, unknown>) : null
+  if (!actions) return ''
+
+  const lines: string[] = [
+    'Resumen del tablero del usuario para priorizar, optimizar y recomendar:',
+    `Fecha: ${readString(ctx.today, 20) || 'no indicada'}`,
+    `Acciones abiertas: ${readNumberLabel(actions.totalOpen, 'sin dato')}`,
+    `Retraso: ${readNumberLabel(actions.delayed, 'sin dato')} | Bloqueadas: ${readNumberLabel(actions.blocked, 'sin dato')} | Rojas: ${readNumberLabel(actions.red, 'sin dato')} | Tag OKR: ${readNumberLabel(actions.taggedOkr, 'sin dato')}`,
+  ]
+  const byEstado = Array.isArray(actions.byEstado) ? actions.byEstado : []
+  if (byEstado.length > 0) {
+    lines.push(
+      `Por estado: ${byEstado
+        .slice(0, 8)
+        .map((item) => {
+          if (!item || typeof item !== 'object') return ''
+          const row = item as Record<string, unknown>
+          const estado = readString(row.estado, 40)
+          if (!estado) return ''
+          return `${estado} ${readNumberLabel(row.count, '0')}`
+        })
+        .filter(Boolean)
+        .join('; ')}`
+    )
+  }
+  const items = Array.isArray(actions.items) ? actions.items : []
+  lines.push(`Acciones listadas (${Math.min(items.length, 12)}):`)
+  for (const item of items.slice(0, 12)) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as Record<string, unknown>
+    const titulo = readString(row.titulo, 140)
+    if (!titulo) continue
+    lines.push(
+      `- ${titulo} | ${readString(row.estado, 40) || 'sin estado'} | ${readString(row.prioridad, 40) || 'sin prioridad'} | ${readString(row.fecha, 20)} ${readString(row.hora, 10)} | tag OKR: ${row.esOkr === true ? 'si' : 'no'}${readString(row.okrImpactado, 80) ? ` | impacto: ${readString(row.okrImpactado, 80)}` : ''}`
+    )
+  }
+
+  const okrs = ctx.okrs && typeof ctx.okrs === 'object' ? (ctx.okrs as Record<string, unknown>) : null
+  if (!okrs || okrs.visible === false) {
+    lines.push('OKRs: no visibles o sin acceso en este usuario.')
+  } else {
+    lines.push(
+      `OKRs: ${readNumberLabel(okrs.objectives, '0')} objetivos, ${readNumberLabel(okrs.keyResults, '0')} KRs, ${readNumberLabel(okrs.initiatives, '0')} iniciativas.`
+    )
+    const okrItems = Array.isArray(okrs.items) ? okrs.items : []
+    for (const item of okrItems.slice(0, 8)) {
+      if (!item || typeof item !== 'object') continue
+      const row = item as Record<string, unknown>
+      const nombre = readString(row.nombre, 160)
+      if (!nombre) continue
+      lines.push(
+        `- OKR: ${nombre} | ${readString(row.scope, 20) || 'sin ambito'} | ${readString(row.periodStatus, 40) || 'sin periodo'} | ${readNumberLabel(row.krCount, '0')} KR | ${readNumberLabel(row.initiativeCount, '0')} iniciativas | avance: ${readNumberLabel(row.progress, 'no calculable')} | KR sin linea base: ${readNumberLabel(row.krsWithoutBaseline, '0')}`
+      )
+    }
+  }
+
+  return lines.join('\n').slice(0, MAX_BOARD_CONTEXT_CHARS)
+}
+
 export function appendAssistantContexts(
   messages: ChatMessage[],
   actionContext: unknown,
-  okrContext?: unknown
+  okrContext?: unknown,
+  boardContext?: unknown
 ): ChatMessage[] {
   const action = sanitizeActionContext(actionContext)
   const okr = sanitizeOkrContext(okrContext)
-  if ((!action && !okr) || messages.length === 0) return messages
+  const board = sanitizeBoardContext(boardContext)
+  if ((!action && !okr && !board) || messages.length === 0) return messages
 
-  const blocks = [okr, action].filter(Boolean).join('\n\n')
+  const blocks = [board, okr, action].filter(Boolean).join('\n\n')
   const next = [...messages]
   const lastIndex = next.length - 1
   const last = next[lastIndex]
@@ -384,7 +467,7 @@ export function appendAssistantContexts(
     ...last,
     content: `${blocks}\n\nPregunta del usuario:\n${last.content}`.slice(
       0,
-      MAX_MESSAGE_CHARS + MAX_ACTION_CONTEXT_CHARS + MAX_OKR_CONTEXT_CHARS
+      MAX_MESSAGE_CHARS + MAX_ACTION_CONTEXT_CHARS + MAX_OKR_CONTEXT_CHARS + MAX_BOARD_CONTEXT_CHARS
     ),
   }
   return next

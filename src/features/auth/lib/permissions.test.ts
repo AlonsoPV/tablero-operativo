@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ROUTES } from '@/constants'
 import {
+  canAccessOkrs,
   canAccessRouteByRole,
   canEditActionGeneralByRole,
   canEditOrgHierarchyByRole,
@@ -9,6 +10,7 @@ import {
   canManageActionsByRole,
   canManageAcademyModulesByRole,
   canManageSupportTicketsByRole,
+  canViewAllBoardData,
   getDefaultRouteByRole,
   isDirectionByRole,
   usesOperationalDashboardByRole,
@@ -104,6 +106,18 @@ describe('role route permissions', () => {
     expect(canEditActionGeneralByRole('Editor Kanban')).toBe(true)
     expect(canEditActionGeneralByRole('Kanban Editor')).toBe(true)
     expect(canEditActionGeneralByRole('Operativo')).toBe(false)
+  })
+
+  it('lets Super Admin see all actions and OKRs', () => {
+    expect(canViewAllBoardData('super_admin')).toBe(true)
+    expect(canViewAllBoardData('Super Admin')).toBe(true)
+    expect(canViewAllBoardData('Operativo', 'super_admin')).toBe(true)
+    expect(canViewAllBoardData('Operativo')).toBe(false)
+    expect(canViewAllBoardData('Direccion')).toBe(false)
+    expect(canAccessOkrs('super_admin', null, 'Comercial')).toBe(true)
+    expect(canAccessOkrs('Operativo', 'super_admin', 'Comercial')).toBe(true)
+    expect(canAccessOkrs('Direccion', null, 'Comercial')).toBe(false)
+    expect(canAccessOkrs('Direccion', null, 'OKRS')).toBe(true)
   })
 
   it('allows Super Admin and Direccion to fully manage actions', () => {

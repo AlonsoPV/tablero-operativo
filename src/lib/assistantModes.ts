@@ -14,11 +14,10 @@ export const assistantModes = [
     welcome:
       'Hola, soy tu asesor en Agile, Scaling Up y EOS. Puedo ayudarte a ordenar procesos, definir KPIs, estructurar OKRs, mejorar reuniones, dar seguimiento a acciones y fortalecer la ejecucion del equipo. Que quieres diagnosticar o mejorar?',
     suggestions: [
+      'Analiza mis acciones abiertas y OKRs. Que conviene optimizar primero?',
       'Como puedo mejorar mi seguimiento de acciones?',
       'Como estructuro mis KPIs y OKRs?',
-      'Como hago una reunion semanal mas efectiva?',
       'Como diagnostico la ejecucion de mi equipo?',
-      'Como conecto acciones con gaps estrategicos?',
     ],
   },
   {
