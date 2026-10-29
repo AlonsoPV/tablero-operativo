@@ -1,30 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-
-type AssistantMode = 'agile_eos_scalingup' | 'logistics'
-
-type ChatMessage = {
-  role: 'user' | 'assistant'
-  content: string
-}
-
-type ActionContext = {
-  id?: unknown
-  titulo?: unknown
-  descripcion?: unknown
-  checklist?: unknown
-  comentarios?: unknown
-  estado?: unknown
-  prioridad?: unknown
-  fechaCompromiso?: unknown
-  horaLimite?: unknown
-  evidenciaEsperada?: unknown
-  kpiAfectado?: unknown
-  okrImpactado?: unknown
-  proceso?: unknown
-  area?: unknown
-  causaRaiz?: unknown
-  notasEscalamiento?: unknown
-}
+import {
+  appendAssistantContexts,
+  composeSystemPrompt,
+  isAssistantMode,
+  sanitizeMessages,
+} from '../src/lib/assistantPrompts'
 
 type VercelRequestLike = IncomingMessage & {
   body?: unknown
@@ -58,109 +38,6 @@ const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite'
 const DEFAULT_MAX_OUTPUT_TOKENS = 700
 const DEFAULT_TEMPERATURE = 0.25
 const DEFAULT_TIMEOUT_MS = 20000
-const MAX_CONTEXT_MESSAGES = 8
-const MAX_MESSAGE_CHARS = 3000
-const MAX_ACTION_CONTEXT_CHARS = 1800
-
-const SYSTEM_PROMPTS: Record<AssistantMode, string> = {
-  agile_eos_scalingup: `
-Eres un asesor experto en metodologias Agile, Scrumban, Scrum, Kanban, Scaling Up y EOS.
-Tu funcion es ayudar al usuario a diagnosticar, ordenar y mejorar sistemas de gestion, operacion, ejecucion, seguimiento de acciones, KPIs, OKRs, liderazgo, reuniones, accountability y mejora continua.
-
-ALCANCE PERMITIDO:
-- Agile, Scrum, Kanban y Scrumban.
-- Scaling Up: prioridades, ritmo de reuniones, people, strategy, execution, cash.
-- EOS: Vision/Traction Organizer, Rocks, Scorecard, Issues List, Level 10 Meetings, accountability chart.
-- Gestion de ejecucion, tableros operativos, acciones, responsables, fechas compromiso, bloqueos, evidencias y seguimiento.
-- Diseno de KPIs, OKRs, scorecards, rutinas de seguimiento y tableros de control.
-- Diagnostico organizacional, procesos comerciales, procesos operativos y mejora continua.
-- Recomendaciones practicas para lideres, equipos y consultores.
-
-FUERA DE ALCANCE:
-- Medicina, temas legales especializados, impuestos, inversiones financieras, politica, religion, programacion tecnica profunda, hacking, contenido personal sensible o cualquier tema que no este relacionado con gestion, operacion, Agile, Scaling Up o EOS.
-- Si el usuario pregunta algo fuera del alcance, responde:
-"Esta pregunta esta fuera del alcance de este asistente. Puedo ayudarte con temas de Agile, Scrumban, Scaling Up, EOS, KPIs, OKRs, procesos, ejecucion y gestion operativa."
-Despues ofrece reformular la pregunta dentro del alcance.
-
-REGLAS DE RESPUESTA:
-- Responde siempre en espanol.
-- Se claro, practico y consultivo.
-- No inventes datos.
-- No prometas resultados garantizados.
-- No respondas temas fuera del alcance aunque el usuario insista.
-- Da pasos accionables, no teoria excesiva.
-- Cuando sea util, estructura la respuesta en: diagnostico, recomendacion y siguiente accion.
-- Manten respuestas breves, ejecutivas y aplicables.
-- Responde en maximo 220 palabras salvo que el usuario pida mas detalle.
-- No uses formato Markdown.
-- No uses simbolos # ni *.
-- Usa texto limpio con etiquetas simples como Diagnostico:, Recomendacion: y Siguiente accion:.
-- Si necesitas listar pasos, usa numeros: 1., 2., 3.
-- Si la respuesta requiere mas detalle, cierra con: "Puedo continuar con un plan mas detallado si lo necesitas."
-
-CONTEXTO DE ACCION:
-- Si recibes una accion seleccionada por el usuario, usala como contexto principal.
-- Basa tu analisis principalmente en titulo, descripcion y checklist de la accion.
-- Trata el checklist como la fuente principal para decidir que falta, que evidencia pedir y si el cierre es viable.
-- Usa los comentarios como contexto complementario para entender bloqueos, avances, acuerdos o dudas.
-- Si titulo, descripcion, checklist y comentarios no dan suficiente informacion para recomendar avance o cierre, dilo claramente y pide la informacion minima faltante.
-- Cuando hay accion seleccionada, responde solo sobre validar, abordar, desbloquear, priorizar, evidenciar o cerrar esa accion.
-- Si la pregunta no se relaciona con esa accion ni con su cierre, pide al usuario reformularla hacia la accion seleccionada.
-- Ayuda a validar como abordar, desbloquear o cerrar esa accion con buena calidad.
-- Recomienda evidencia, pasos de cierre, riesgos, responsables involucrados y siguiente movimiento.
-- No digas que la accion esta cerrada si el estado no lo confirma.
-- No inventes informacion que no venga en la accion o en la pregunta.
-`,
-
-  logistics: `
-Eres un asesor experto en logistica, operaciones, distribucion, almacenes, rutas, transporte, inventarios, cadena de suministro y mejora operativa.
-Tu funcion es ayudar al usuario a analizar, ordenar y optimizar procesos logisticos y operativos.
-
-ALCANCE PERMITIDO:
-- Logistica, transporte, distribucion, ultima milla y rutas.
-- Gestion de almacenes, layout, picking, packing, inventarios y control de entradas/salidas.
-- Planeacion de demanda, abastecimiento, tiempos de entrega y capacidad operativa.
-- Costos logisticos, productividad, tiempos muertos, cuellos de botella y eficiencia operativa.
-- KPIs logisticos: OTIF, fill rate, lead time, costo por entrega, rotacion de inventario, merma, productividad por operador, utilizacion de flota.
-- Diseno de procesos, SOPs, checklists, tableros de control y mejora continua en logistica.
-- Diagnostico operativo y recomendaciones practicas.
-
-FUERA DE ALCANCE:
-- Medicina, temas legales especializados, inversiones financieras, politica, religion, programacion tecnica profunda, hacking, contenido personal sensible o cualquier tema que no este relacionado con logistica u operaciones.
-- Si el usuario pregunta algo fuera del alcance, responde:
-"Esta pregunta esta fuera del alcance de este asistente. Puedo ayudarte con temas de logistica, operaciones, rutas, almacenes, inventarios, distribucion, KPIs logisticos y mejora operativa."
-Despues ofrece reformular la pregunta dentro del alcance.
-
-REGLAS DE RESPUESTA:
-- Responde siempre en espanol.
-- Se claro, practico y orientado a operacion real.
-- No inventes datos.
-- No prometas resultados garantizados.
-- No respondas temas fuera del alcance aunque el usuario insista.
-- Da recomendaciones accionables.
-- Cuando sea util, estructura la respuesta en: problema detectado, causa probable, recomendacion y KPI sugerido.
-- Manten respuestas breves, ejecutivas y aplicables.
-- Responde en maximo 220 palabras salvo que el usuario pida mas detalle.
-- No uses formato Markdown.
-- No uses simbolos # ni *.
-- Usa texto limpio con etiquetas simples como Problema detectado:, Causa probable:, Recomendacion: y KPI sugerido:.
-- Si necesitas listar pasos, usa numeros: 1., 2., 3.
-- Si la respuesta requiere mas detalle, cierra con: "Puedo continuar con un plan mas detallado si lo necesitas."
-
-CONTEXTO DE ACCION:
-- Si recibes una accion seleccionada por el usuario, usala como contexto principal.
-- Basa tu analisis principalmente en titulo, descripcion y checklist de la accion.
-- Trata el checklist como la fuente principal para decidir que falta, que evidencia pedir y si el cierre es viable.
-- Usa los comentarios como contexto complementario para entender bloqueos, avances, acuerdos o dudas.
-- Si titulo, descripcion, checklist y comentarios no dan suficiente informacion para recomendar avance o cierre, dilo claramente y pide la informacion minima faltante.
-- Cuando hay accion seleccionada, responde solo sobre validar, abordar, desbloquear, priorizar, evidenciar o cerrar esa accion.
-- Si la pregunta no se relaciona con esa accion ni con su cierre, pide al usuario reformularla hacia la accion seleccionada.
-- Ayuda a validar como abordar, desbloquear o cerrar esa accion con buena calidad operativa.
-- Recomienda evidencia, pasos de cierre, riesgos, responsables involucrados y siguiente movimiento.
-- No digas que la accion esta cerrada si el estado no lo confirma.
-- No inventes informacion que no venga en la accion o en la pregunta.
-`,
-}
 
 function asJsonResponse(res: ServerResponse): JsonResponse {
   return {
@@ -193,113 +70,11 @@ async function readRequestBody(req: VercelRequestLike): Promise<unknown> {
   }
 }
 
-function isAssistantMode(mode: unknown): mode is AssistantMode {
-  return mode === 'agile_eos_scalingup' || mode === 'logistics'
-}
-
-function sanitizeMessages(messages: ChatMessage[]) {
-  return messages
-    .filter((message) => {
-      return (
-        message &&
-        (message.role === 'user' || message.role === 'assistant') &&
-        typeof message.content === 'string' &&
-        message.content.trim().length > 0
-      )
-    })
-    .slice(-MAX_CONTEXT_MESSAGES)
-    .map((message) => ({
-      role: message.role,
-      content: message.content.trim().slice(0, MAX_MESSAGE_CHARS),
-    }))
-}
-
 function toGeminiContents(messages: ReturnType<typeof sanitizeMessages>): GeminiContent[] {
   return messages.map((message) => ({
     role: message.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: message.content }],
   }))
-}
-
-function readString(value: unknown, maxLength = 240) {
-  return typeof value === 'string' ? value.trim().slice(0, maxLength) : ''
-}
-
-function sanitizeActionContext(actionContext: unknown) {
-  if (!actionContext || typeof actionContext !== 'object') return ''
-
-  const action = actionContext as ActionContext
-  const checklist = Array.isArray(action.checklist)
-    ? action.checklist
-        .map((item, index) => {
-          if (!item || typeof item !== 'object') return ''
-          const row = item as { texto?: unknown; completado?: unknown; obligatorio?: unknown }
-          const texto = readString(row.texto, 240)
-          if (!texto) return ''
-          const completado = row.completado === true ? 'completo' : 'pendiente'
-          const obligatorio = row.obligatorio === false ? 'opcional' : 'obligatorio'
-          return `${index + 1}. [${completado}, ${obligatorio}] ${texto}`
-        })
-        .filter(Boolean)
-        .slice(0, 12)
-        .join('\n')
-    : ''
-  const comentarios = Array.isArray(action.comentarios)
-    ? action.comentarios
-        .map((item, index) => {
-          if (!item || typeof item !== 'object') return ''
-          const row = item as { contenido?: unknown; created_at?: unknown }
-          const contenido = readString(row.contenido, 320)
-          if (!contenido) return ''
-          const createdAt = readString(row.created_at, 40)
-          return `${index + 1}. ${createdAt ? `[${createdAt}] ` : ''}${contenido}`
-        })
-        .filter(Boolean)
-        .slice(-8)
-        .join('\n')
-    : ''
-  const rows = [
-    ['ID', readString(action.id, 80)],
-    ['Titulo', readString(action.titulo)],
-    ['Descripcion', readString(action.descripcion, 700)],
-    ['Checklist', checklist],
-    ['Comentarios', comentarios],
-    ['Estado', readString(action.estado, 80)],
-    ['Prioridad', readString(action.prioridad, 80)],
-    ['Fecha compromiso', readString(action.fechaCompromiso, 40)],
-    ['Hora limite', readString(action.horaLimite, 40)],
-    ['Evidencia esperada', readString(action.evidenciaEsperada, 300)],
-    ['KPI afectado', readString(action.kpiAfectado, 160)],
-    ['OKR impactado', readString(action.okrImpactado, 160)],
-    ['Proceso', readString(action.proceso, 160)],
-    ['Area', readString(action.area, 160)],
-    ['Causa raiz', readString(action.causaRaiz, 300)],
-    ['Notas escalamiento', readString(action.notasEscalamiento, 300)],
-  ].filter(([, value]) => value.length > 0)
-
-  if (rows.length === 0) return ''
-
-  return [
-    'Accion seleccionada por el usuario para recibir asesoria:',
-    ...rows.map(([label, value]) => `${label}: ${value}`),
-  ].join('\n').slice(0, MAX_ACTION_CONTEXT_CHARS)
-}
-
-function appendActionContext(
-  messages: ReturnType<typeof sanitizeMessages>,
-  actionContext: unknown
-): ReturnType<typeof sanitizeMessages> {
-  const context = sanitizeActionContext(actionContext)
-  if (!context || messages.length === 0) return messages
-
-  const next = [...messages]
-  const lastIndex = next.length - 1
-  const last = next[lastIndex]
-  next[lastIndex] = {
-    ...last,
-    content: `${context}\n\nPregunta del usuario:\n${last.content}`.slice(0, MAX_MESSAGE_CHARS + MAX_ACTION_CONTEXT_CHARS),
-  }
-  return next
 }
 
 function getGeminiText(data: GeminiResponse) {
@@ -364,10 +139,11 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       return res.status(400).json({ error: 'Solicitud invalida.' })
     }
 
-    const { mode, messages, actionContext } = body as {
+    const { mode, messages, actionContext, okrContext } = body as {
       mode?: unknown
       messages?: unknown
       actionContext?: unknown
+      okrContext?: unknown
     }
 
     if (!isAssistantMode(mode)) {
@@ -378,11 +154,19 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       return res.status(400).json({ error: 'Debes enviar al menos un mensaje.' })
     }
 
-    const cleanMessages = appendActionContext(sanitizeMessages(messages as ChatMessage[]), actionContext)
+    const cleanMessages = appendAssistantContexts(
+      sanitizeMessages(messages as { role: 'user' | 'assistant'; content: string }[]),
+      actionContext,
+      okrContext
+    )
 
     if (cleanMessages.length === 0) {
       return res.status(400).json({ error: 'El mensaje no puede estar vacio.' })
     }
+
+    const hasActionContext = Boolean(actionContext && typeof actionContext === 'object')
+    const hasOkrContext = Boolean(okrContext && typeof okrContext === 'object')
+    const systemInstruction = composeSystemPrompt(mode, { hasActionContext, hasOkrContext })
 
     const model = normalizeGeminiModel(process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL)
     const url = `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
@@ -400,7 +184,7 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
         signal: controller.signal,
         body: JSON.stringify({
           systemInstruction: {
-            parts: [{ text: SYSTEM_PROMPTS[mode] }],
+            parts: [{ text: systemInstruction }],
           },
           contents: toGeminiContents(cleanMessages),
           generationConfig: {

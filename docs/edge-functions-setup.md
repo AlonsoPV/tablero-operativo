@@ -82,6 +82,22 @@ npx supabase functions deploy invite-user --project-ref tgiuevzlyptzlfgxsfhj
 npx supabase functions deploy admin-set-password --project-ref tgiuevzlyptzlfgxsfhj
 ```
 
+**Producción (Scrumban EMX / `scrumbanemx.vercel.app`):** si el navegador bloquea CORS contra `admin-set-password`, casi siempre es que la función **no está desplegada** en `xhpasmjzuwifmjhrsumb` (el OPTIONS responde `404`, y el browser lo pinta como CORS). Despliega:
+
+```bash
+npm run supabase:deploy:prod:admin-password
+```
+
+Comprueba:
+
+```bash
+curl -i -X OPTIONS "https://xhpasmjzuwifmjhrsumb.supabase.co/functions/v1/admin-set-password" ^
+  -H "Origin: https://scrumbanemx.vercel.app" ^
+  -H "Access-Control-Request-Method: POST"
+```
+
+Debe devolver **204**. `invite-user` ya está en prod; `admin-set-password` tiene que existir igual, con **Verify JWT = OFF**.
+
 Esa función usa `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` en runtime Edge; en muchos proyectos Supabase ya los inyecta. Si una función devuelve *Configuración de servidor incompleta*, revisa **Edge Functions → Secrets**. No confundir con variables `VITE_*` del frontend.
 
 **CORS engañoso:** si el navegador dice *blocked by CORS* / *preflight doesn't have HTTP ok status* contra `invite-user`, suele ser que la función **no está desplegada** (el gateway responde `404`/`NOT_FOUND` al OPTIONS). Comprueba con:

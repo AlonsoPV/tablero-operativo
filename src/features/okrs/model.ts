@@ -22,6 +22,7 @@ export interface KeyResult {
   owner_user_id: string | null
   unit: string
   metric_type: string
+  direction?: 'increase' | 'decrease' | string | null
   can_update: boolean
   computed_progress?: number
 }
