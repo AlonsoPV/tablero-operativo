@@ -4,7 +4,7 @@ import {
   composeSystemPrompt,
   isAssistantMode,
   sanitizeMessages,
-} from '../src/lib/assistantPrompts'
+} from './_lib/assistantPrompts'
 
 type VercelRequestLike = IncomingMessage & {
   body?: unknown
