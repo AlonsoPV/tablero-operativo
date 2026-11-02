@@ -44,6 +44,7 @@ const navGroups: NavGroup[] = [
       { to: ROUTES.OKRS, label: 'OKRs', icon: Target },
       { to: ROUTES.KANBAN, label: 'Kanban', icon: Columns3 },
       { to: ROUTES.TEAM_KANBAN, label: 'Equipos', icon: FolderKanban },
+      { to: ROUTES.AI_ASSIST, label: 'Asistente IA', icon: Sparkles },
     ],
   },
   {
@@ -69,7 +70,6 @@ const navGroups: NavGroup[] = [
     items: [
       { to: ROUTES.TICKETS, label: 'Tickets', icon: LifeBuoy },
       { to: ROUTES.MANUAL, label: 'Manual', icon: BookOpen },
-      { to: ROUTES.AI_ASSIST, label: 'Asistente IA', icon: Sparkles },
     ],
   },
 ]

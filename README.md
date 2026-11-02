@@ -23,7 +23,7 @@ cp .env.example .env
 
 **Frontend (Vite):** en `.env` defínelas con prefijo `VITE_` — `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (Dashboard → Settings → API). Esas variables se inyectan en el **build**; **no** van en Supabase Secrets.
 
-**Vercel Serverless Functions:** el asistente `/asistente-ia` usa `/api/gemini-chat`. Configura `GEMINI_API_KEY` en **Vercel -> Project Settings -> Environment Variables**. Opcionales: `GEMINI_MODEL` (`gemini-2.5-flash-lite`), `GEMINI_MAX_TOKENS` (`700`), `GEMINI_TEMPERATURE` (`0.25`) y `GEMINI_TIMEOUT_MS` (`20000`). No uses `VITE_GEMINI_API_KEY`.
+**Vercel Serverless Functions:** el asistente `/asistente-ia` usa `/api/gemini-chat` (chat) y `/api/assistant-audio` (voz → borradores de acción). Configura `GEMINI_API_KEY` en **Vercel -> Project Settings -> Environment Variables**. Opcionales: `GEMINI_MODEL`, `GEMINI_MAX_TOKENS`, `GEMINI_TEMPERATURE`, `GEMINI_TIMEOUT_MS`. Lectura por voz: `ELEVENLABS_API_KEY` (si falta, el navegador hace TTS). No uses `VITE_GEMINI_API_KEY`. En local, `npm run dev` monta esas APIs vía `vite.apiPlugin.ts`. Ver [docs/voz.md](docs/voz.md).
 
 **Edge Functions:** API keys y rol de servicio del **backend Supabase** se configuran en **Supabase → Edge Functions → Secrets** (nombres **sin** `VITE_`), no en variables `VITE_*`.
 

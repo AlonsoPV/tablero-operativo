@@ -1,4 +1,5 @@
 import { Outlet } from 'react-router-dom'
+import { AiAssistFloatingButton } from '@/features/ai-support/components/AiAssistFloatingButton'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 
@@ -12,6 +13,7 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
+      <AiAssistFloatingButton />
     </div>
   )
 }
