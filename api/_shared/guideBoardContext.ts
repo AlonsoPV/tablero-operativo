@@ -162,7 +162,7 @@ export async function loadGuideBoardContext(
 ): Promise<string> {
   const today = todayCdmx()
 
-  let actionsRes = await supabase
+  const actionsFull = await supabase
     .from('acciones_diarias')
     .select(
       'titulo_accion,descripcion_accion,estado,prioridad,fecha,hora_limite,es_okr,okr_impactado,area'
@@ -170,28 +170,38 @@ export async function loadGuideBoardContext(
     .in('estado', OPEN_STATES)
     .order('fecha', { ascending: true })
     .limit(80)
-  if (actionsRes.error) {
-    actionsRes = await supabase
-      .from('acciones_diarias')
-      .select('titulo_accion,descripcion_accion,estado,prioridad,fecha,hora_limite,area')
-      .in('estado', OPEN_STATES)
-      .order('fecha', { ascending: true })
-      .limit(80)
-  }
+  const actionsFallback = actionsFull.error
+    ? await supabase
+        .from('acciones_diarias')
+        .select('titulo_accion,descripcion_accion,estado,prioridad,fecha,hora_limite,area')
+        .in('estado', OPEN_STATES)
+        .order('fecha', { ascending: true })
+        .limit(80)
+    : null
+  const actions: ActionRow[] = actionsFull.error
+    ? actionsFallback?.error
+      ? []
+      : ((actionsFallback?.data ?? []) as ActionRow[])
+    : ((actionsFull.data ?? []) as ActionRow[])
 
-  let teamRes = await supabase
+  const teamFull = await supabase
     .from('acciones_equipo')
     .select('titulo,prioridad,bloqueada,escalada,fecha_limite,es_okr,completed_at')
     .is('completed_at', null)
     .order('created_at', { ascending: false })
     .limit(40)
-  if (teamRes.error) {
-    teamRes = await supabase
-      .from('acciones_equipo')
-      .select('titulo,prioridad,bloqueada,escalada,fecha_limite,completed_at')
-      .is('completed_at', null)
-      .limit(40)
-  }
+  const teamFallback = teamFull.error
+    ? await supabase
+        .from('acciones_equipo')
+        .select('titulo,prioridad,bloqueada,escalada,fecha_limite,completed_at')
+        .is('completed_at', null)
+        .limit(40)
+    : null
+  const team: TeamRow[] = teamFull.error
+    ? teamFallback?.error
+      ? []
+      : ((teamFallback?.data ?? []) as TeamRow[])
+    : ((teamFull.data ?? []) as TeamRow[])
 
   const okrRes = await supabase.rpc('okr_dashboard')
 
@@ -212,8 +222,8 @@ export async function loadGuideBoardContext(
 
   const text = formatGuideBoardContext({
     today,
-    actions: (actionsRes.error ? [] : (actionsRes.data ?? [])) as ActionRow[],
-    team: (teamRes.error ? [] : (teamRes.data ?? [])) as TeamRow[],
+    actions,
+    team,
     okrs,
   })
 
