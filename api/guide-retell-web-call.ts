@@ -60,7 +60,7 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       limit: 10,
       windowMs: 60_000,
     })
-    if (!rate.ok) {
+    if (rate.ok === false) {
       return res.status(429).json({
         error: `Demasiadas llamadas de voz. Espera ${rate.retryAfterSec}s.`,
       })
