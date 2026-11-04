@@ -42,6 +42,39 @@ describe('module access', () => {
     expect(canAccessRouteWithModules('Operativo', '/kanban', null, null)).toBe(true)
   })
 
+  it('restringe Asistente IA y WhatsApp a area OKRS o Super Admin', () => {
+    expect(
+      canAccessRouteWithModules('Direccion', '/asistente-ia', null, ['ai_assist'], {
+        area: 'Comercial',
+      })
+    ).toBe(false)
+    expect(
+      canAccessRouteWithModules('Direccion', '/asistente-ia', null, ['ai_assist'], {
+        area: 'OKRS',
+      })
+    ).toBe(true)
+    expect(
+      canAccessRouteWithModules('Operativo', '/asistente-ia/seguimiento-whatsapp', null, null, {
+        area: 'OKRS',
+      })
+    ).toBe(true)
+    expect(
+      canAccessRouteWithModules('Operativo', '/asistente-ia/seguimiento-whatsapp', null, null, {
+        area: 'Comercial',
+      })
+    ).toBe(false)
+    expect(
+      canAccessRouteWithModules('Direccion', '/settings/whatsapp', null, ['settings_reminders'], {
+        area: 'Comercial',
+      })
+    ).toBe(false)
+    expect(
+      canAccessRouteWithModules('super_admin', '/settings/whatsapp', null, [], {
+        area: 'Comercial',
+      })
+    ).toBe(true)
+  })
+
   it('restringe OKRs a usuarios del area OKRS', () => {
     expect(
       canAccessRouteWithModules('Direccion', '/okrs', null, ['okrs'], {

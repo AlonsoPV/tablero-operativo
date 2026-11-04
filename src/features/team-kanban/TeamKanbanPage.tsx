@@ -42,6 +42,10 @@ import {
   FECHA_COMPROMISO_CHANGE_REASONS,
   type FechaCompromisoChangeReasonKey,
 } from '@/features/operations/constants/fechaCompromisoChangeReasons'
+import { whatsappIntegrationService } from '@/services/whatsappIntegration.service'
+import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
+import { useAppRole } from '@/features/auth/hooks/useAppRole'
+import { canAccessAiAssistAndWhatsApp } from '@/features/auth/lib/permissions'
 import { teamKanbanService } from './service'
 import { teamKanbanQueryKeys } from './queryKeys'
 import {
@@ -1354,6 +1358,15 @@ function TeamActionEditDialog({
   const [draftStateId, setDraftStateId] = useState('')
   const [draftAssignee, setDraftAssignee] = useState('')
   const [draftPriority, setDraftPriority] = useState('')
+  const [whatsappPending, setWhatsappPending] = useState(false)
+  const { data: currentUser } = useCurrentUser()
+  const { data: appRole } = useAppRole()
+  const canUseWhatsApp = canAccessAiAssistAndWhatsApp(
+    currentUser?.rol,
+    appRole,
+    currentUser?.area,
+    currentUser?.areas
+  )
 
   useEffect(() => {
     setDueReason('')
@@ -1369,6 +1382,28 @@ function TeamActionEditDialog({
   }, [action])
 
   if (!action) return null
+
+  const sendTeamWhatsApp = async (messageType: 'initial' | 'commitment_close' | 'checkpoint_followup', checklistIndex?: number) => {
+    setWhatsappPending(true)
+    try {
+      await whatsappIntegrationService.sendTeamAction({
+        teamActionId: action.id,
+        messageType,
+        checklistIndex,
+      })
+      toast.success(
+        messageType === 'commitment_close'
+          ? 'Cierre enviado por WhatsApp'
+          : messageType === 'checkpoint_followup'
+            ? 'Seguimiento WhatsApp enviado'
+            : 'WhatsApp enviado'
+      )
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se pudo enviar por WhatsApp')
+    } finally {
+      setWhatsappPending(false)
+    }
+  }
 
   const canManage = board.canManage ?? board.isLeader
   const isRecurring = Boolean(action.serie_id) || Boolean(action.es_frecuente)
@@ -1492,6 +1527,12 @@ function TeamActionEditDialog({
             users={board.members}
             disabled={isChecklistSaving}
             onToggle={(itemIndex, done) => onToggleChecklist(action, itemIndex, done)}
+            onWhatsAppFollowup={
+              canUseWhatsApp
+                ? (itemIndex) => void sendTeamWhatsApp('checkpoint_followup', itemIndex)
+                : undefined
+            }
+            whatsappFollowupPending={whatsappPending}
           />
 
           <AccionFormSection
@@ -1601,21 +1642,45 @@ function TeamActionEditDialog({
         </div>
 
         <div className="shrink-0 border-t border-border/60 bg-card px-3 py-3 sm:px-5">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-center">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-muted-foreground">
               {hasFieldChanges ? 'Tienes cambios sin guardar.' : 'Sin cambios pendientes.'}
             </p>
-            <Button type="button" variant="outline" className="h-10 sm:h-9" onClick={onClose} disabled={isSaving}>
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              className="h-10 sm:h-9"
-              onClick={handleSave}
-              disabled={!canManage || !hasFieldChanges || isSaving}
-            >
-              {isSaving ? 'Guardando…' : 'Guardar'}
-            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {canManage && canUseWhatsApp ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 sm:h-9"
+                    disabled={whatsappPending || isSaving || !action.asignado_a}
+                    onClick={() => void sendTeamWhatsApp('initial')}
+                  >
+                    WhatsApp
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 sm:h-9"
+                    disabled={whatsappPending || isSaving || !action.asignado_a}
+                    onClick={() => void sendTeamWhatsApp('commitment_close')}
+                  >
+                    Cierre WA
+                  </Button>
+                </>
+              ) : null}
+              <Button type="button" variant="outline" className="h-10 sm:h-9" onClick={onClose} disabled={isSaving}>
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                className="h-10 sm:h-9"
+                onClick={handleSave}
+                disabled={!canManage || !hasFieldChanges || isSaving}
+              >
+                {isSaving ? 'Guardando…' : 'Guardar'}
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>

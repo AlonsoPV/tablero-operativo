@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import { handleCorsPreflight, jsonResponse } from '../_shared/cors.ts'
 import { requireAuthUser } from '../_shared/requireUser.ts'
 

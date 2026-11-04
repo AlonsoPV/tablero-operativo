@@ -13,6 +13,29 @@ const MAX_OBJECTIVE_ITEMS = 8
 
 export type BoardAssistantContextPayload = {
   today: string
+  /** ISO timestamp de cuando se armo el contexto (cliente). */
+  fetchedAt?: string
+  viewer?: {
+    rol?: string | null
+    areas?: string[]
+    scope?: 'own' | 'board'
+  }
+  operational?: {
+    dueThisWeek?: number
+    stale?: number
+    pendingVerification?: number
+    teamOverdue?: number
+    teamBlocked?: number
+    mineTitles?: Array<{
+      titulo: string
+      estado: string
+      fecha: string
+      dueBucket?: string
+      daysSinceUpdate?: number | null
+    }>
+    pendingVerificationTitles?: Array<{ titulo: string; fecha: string }>
+    teamHotTitles?: Array<{ titulo: string; estado: string; fecha: string }>
+  }
   actions: {
     totalOpen: number
     delayed: number

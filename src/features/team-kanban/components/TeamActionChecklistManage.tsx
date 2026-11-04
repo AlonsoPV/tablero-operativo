@@ -1,4 +1,5 @@
-import { CheckCircle2, CircleDashed, ListChecks, UserRound } from 'lucide-react'
+import { CheckCircle2, CircleDashed, ListChecks, MessageCircle, UserRound } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { AccionChecklistProgress } from '@/features/operations/components/AccionChecklistProgress'
 import { AccionFormSection } from '@/features/operations/components/AccionFormSection'
 import { formatDateTimeCDMX } from '@/lib/dateUtils'
@@ -11,6 +12,8 @@ type Props = {
   users: TeamMember[]
   disabled?: boolean
   onToggle: (itemIndex: number, done: boolean) => void
+  onWhatsAppFollowup?: (itemIndex: number) => void
+  whatsappFollowupPending?: boolean
 }
 
 export function TeamActionChecklistManage({
@@ -19,6 +22,8 @@ export function TeamActionChecklistManage({
   users,
   disabled = false,
   onToggle,
+  onWhatsAppFollowup,
+  whatsappFollowupPending = false,
 }: Props) {
   const checklist = action.checklist ?? []
   const completed = checklist.filter((item) => item.done).length
@@ -107,15 +112,31 @@ export function TeamActionChecklistManage({
                   </div>
                   {audit ? <p className="text-[10px] leading-tight text-muted-foreground">{audit}</p> : null}
                 </div>
-                <div
-                  className={cn(
-                    'flex max-w-[9rem] items-center gap-1 rounded-md px-2 py-1 text-[11px]',
-                    responsibleName ? 'bg-primary/10 font-medium text-primary' : 'bg-muted/20 text-muted-foreground'
-                  )}
-                  title={responsibleName ?? 'Sin responsable especifico'}
-                >
-                  <UserRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  <span className="truncate">{responsibleName ?? 'Sin responsable'}</span>
+                <div className="flex items-center gap-1">
+                  {onWhatsAppFollowup && !item.done ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      disabled={disabled || whatsappFollowupPending}
+                      aria-label="Seguimiento WhatsApp"
+                      title="Enviar seguimiento por WhatsApp"
+                      onClick={() => onWhatsAppFollowup(index)}
+                    >
+                      <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+                    </Button>
+                  ) : null}
+                  <div
+                    className={cn(
+                      'flex max-w-[9rem] items-center gap-1 rounded-md px-2 py-1 text-[11px]',
+                      responsibleName ? 'bg-primary/10 font-medium text-primary' : 'bg-muted/20 text-muted-foreground'
+                    )}
+                    title={responsibleName ?? 'Sin responsable especifico'}
+                  >
+                    <UserRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    <span className="truncate">{responsibleName ?? 'Sin responsable'}</span>
+                  </div>
                 </div>
               </li>
             )

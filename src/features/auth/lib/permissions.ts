@@ -40,6 +40,9 @@ const ANALYST_ALLOWED_ROUTES = [
   ROUTES.NOTIFICACIONES,
   ROUTES.MANUAL,
   ROUTES.AI_ASSIST,
+  ROUTES.AI_HISTORY,
+  ROUTES.AI_WHATSAPP_SEGUIMIENTO,
+  ROUTES.SETTINGS_WHATSAPP,
   ROUTES.ORG_CHART,
   ROUTES.SETTINGS,
   ROUTES.SETTINGS_PROFILE,
@@ -262,6 +265,19 @@ export function canAccessOkrs(
 ): boolean {
   if (canViewAllBoardData(rol, appRole)) return true
   return userBelongsToArea('OKRS', area, areas)
+}
+
+/**
+ * Asistente IA + WhatsApp (bandeja, settings, envíos):
+ * mismo alcance que OKRs — área OKRS o Super Admin.
+ */
+export function canAccessAiAssistAndWhatsApp(
+  rol?: string | null,
+  appRole?: string | null,
+  area?: string | null,
+  areas?: string[] | null
+): boolean {
+  return canAccessOkrs(rol, appRole, area, areas)
 }
 
 export function canManageActionsByRole(rol: string | null | undefined): boolean {

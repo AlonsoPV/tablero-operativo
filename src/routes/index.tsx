@@ -225,6 +225,22 @@ const router = createBrowserRouter([
             },
           },
           {
+            path: ROUTES.AI_HISTORY,
+            lazy: async () => {
+              const { AiHistoryPage } = await importWithReload(() => import('@/features/ai-support'))
+              return { Component: AiHistoryPage }
+            },
+          },
+          {
+            path: ROUTES.AI_WHATSAPP_SEGUIMIENTO,
+            lazy: async () => {
+              const { WhatsAppSeguimientoPage } = await importWithReload(
+                () => import('@/features/whatsapp-inbox')
+              )
+              return { Component: WhatsAppSeguimientoPage }
+            },
+          },
+          {
             path: ROUTES.MANUAL,
             lazy: async () => {
               const { ManualPage } = await importWithReload(() => import('@/pages/manual/ManualPage'))
@@ -263,6 +279,14 @@ const router = createBrowserRouter([
                   const { DailyActionSummarySettingsPage } =
                     await importWithReload(() => import('@/features/settings/pages/DailyActionSummarySettingsPage'))
                   return { Component: DailyActionSummarySettingsPage }
+                },
+              },
+              {
+                path: 'whatsapp',
+                lazy: async () => {
+                  const { WhatsAppSettingsPage } =
+                    await importWithReload(() => import('@/features/settings/pages/WhatsAppSettingsPage'))
+                  return { Component: WhatsAppSettingsPage }
                 },
               },
               {

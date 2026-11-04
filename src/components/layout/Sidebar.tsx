@@ -10,6 +10,8 @@ import {
   BookOpen,
   GraduationCap,
   Sparkles,
+  History,
+  MessageCircle,
   FolderKanban,
   Network,
   ChevronDown,
@@ -47,6 +49,15 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    id: 'ia',
+    label: 'IA',
+    items: [
+      { to: ROUTES.AI_ASSIST, label: 'Asistente', icon: Sparkles },
+      { to: ROUTES.AI_HISTORY, label: 'Historial', icon: History },
+      { to: ROUTES.AI_WHATSAPP_SEGUIMIENTO, label: 'Seguimiento WhatsApp', icon: MessageCircle },
+    ],
+  },
+  {
     id: 'organizacion',
     label: 'Organizacion',
     items: [
@@ -69,12 +80,11 @@ const navGroups: NavGroup[] = [
     items: [
       { to: ROUTES.TICKETS, label: 'Tickets', icon: LifeBuoy },
       { to: ROUTES.MANUAL, label: 'Manual', icon: BookOpen },
-      { to: ROUTES.AI_ASSIST, label: 'Asistente IA', icon: Sparkles },
     ],
   },
 ]
 
-const DEFAULT_OPEN_GROUP_IDS = new Set(['operacion'])
+const DEFAULT_OPEN_GROUP_IDS = new Set(['operacion', 'ia'])
 
 const MOBILE_MQ = '(max-width: 1023px)'
 
@@ -82,12 +92,21 @@ function isMobileViewport() {
   return typeof window !== 'undefined' && window.matchMedia(MOBILE_MQ).matches
 }
 
-function isRouteActive(pathname: string, to: string) {
-  return pathname === to || pathname.startsWith(`${to}/`)
+function isRouteActive(pathname: string, to: string, siblingPaths: string[] = []) {
+  if (pathname === to) return true
+  if (!pathname.startsWith(`${to}/`)) return false
+  // Si un sibling mas especifico coincide, no marcar el padre como activo.
+  return !siblingPaths.some(
+    (other) =>
+      other !== to &&
+      other.startsWith(`${to}/`) &&
+      (pathname === other || pathname.startsWith(`${other}/`))
+  )
 }
 
 function groupHasActiveRoute(pathname: string, items: NavItem[]) {
-  return items.some((item) => isRouteActive(pathname, item.to))
+  const siblingPaths = items.map((item) => item.to)
+  return items.some((item) => isRouteActive(pathname, item.to, siblingPaths))
 }
 
 export function Sidebar() {
@@ -162,11 +181,16 @@ export function Sidebar() {
 
   const renderNavLink = (
     item: NavItem,
-    opts: { showLabels: boolean; mobile?: boolean; onActivate?: () => void }
+    opts: {
+      showLabels: boolean
+      mobile?: boolean
+      onActivate?: () => void
+      siblingPaths?: string[]
+    }
   ) => {
-    const { showLabels, mobile, onActivate } = opts
+    const { showLabels, mobile, onActivate, siblingPaths = [] } = opts
     const { to, label, icon: Icon } = item
-    const isActive = isRouteActive(location.pathname, to)
+    const isActive = isRouteActive(location.pathname, to, siblingPaths)
     return (
       <Link
         key={to}
@@ -198,21 +222,25 @@ export function Sidebar() {
     const { showLabels, mobile, onActivate } = opts
 
     if (!showLabels) {
-      return visibleNavGroups.map((group, groupIndex) => (
-        <div key={group.id} className={cn('flex flex-col gap-1', groupIndex > 0 && 'mt-1.5')}>
-          {groupIndex > 0 ? (
-            <div className="mx-2 mb-1.5 border-t border-sidebar-accent/55" aria-hidden />
-          ) : null}
-          {group.items.map((item) =>
-            renderNavLink(item, { showLabels: false, mobile, onActivate })
-          )}
-        </div>
-      ))
+      return visibleNavGroups.map((group, groupIndex) => {
+        const siblingPaths = group.items.map((item) => item.to)
+        return (
+          <div key={group.id} className={cn('flex flex-col gap-1', groupIndex > 0 && 'mt-1.5')}>
+            {groupIndex > 0 ? (
+              <div className="mx-2 mb-1.5 border-t border-sidebar-accent/55" aria-hidden />
+            ) : null}
+            {group.items.map((item) =>
+              renderNavLink(item, { showLabels: false, mobile, onActivate, siblingPaths })
+            )}
+          </div>
+        )
+      })
     }
 
     return visibleNavGroups.map((group) => {
       const isExpanded = openGroupIds.has(group.id)
       const hasActive = groupHasActiveRoute(location.pathname, group.items)
+      const siblingPaths = group.items.map((item) => item.to)
       const panelId = `nav-group-panel-${group.id}`
       const triggerId = `nav-group-trigger-${group.id}`
 
@@ -276,6 +304,7 @@ export function Sidebar() {
                     showLabels: true,
                     mobile,
                     onActivate,
+                    siblingPaths,
                   })
                 )}
               </div>

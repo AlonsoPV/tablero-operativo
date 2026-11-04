@@ -1,4 +1,4 @@
-import { createClient, type User } from '@supabase/supabase-js'
+import { createClient, type User } from 'npm:@supabase/supabase-js@2'
 import { jsonResponse } from './cors.ts'
 
 export type RequireUserOk = { user: User; token: string }

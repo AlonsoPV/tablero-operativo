@@ -24,6 +24,7 @@ import {
   GraduationCap,
   BellRing,
   ChevronDown,
+  MessageCircle,
   Settings2,
   type LucideIcon,
 } from 'lucide-react'
@@ -31,6 +32,7 @@ import {
 const SETTINGS_LINKS = [
   { to: ROUTES.SETTINGS_PROFILE, label: 'Mi perfil', icon: UserCircle },
   { to: ROUTES.SETTINGS_REMINDERS, label: 'Recordatorios', icon: BellRing },
+  { to: ROUTES.SETTINGS_WHATSAPP, label: 'WhatsApp', icon: MessageCircle },
   { to: ROUTES.SETTINGS_USERS, label: 'Usuarios', icon: Users },
   { to: ROUTES.SETTINGS_ACADEMY_MODULES, label: 'Academia', icon: GraduationCap, superAdminOnly: true },
   { to: ROUTES.SETTINGS_CATALOGS, label: 'Catálogos', icon: FolderOpen },

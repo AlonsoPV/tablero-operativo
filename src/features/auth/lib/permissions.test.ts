@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ROUTES } from '@/constants'
 import {
+  canAccessAiAssistAndWhatsApp,
   canAccessOkrs,
   canAccessRouteByRole,
   canEditActionGeneralByRole,
@@ -52,11 +53,19 @@ describe('role route permissions', () => {
     const role = 'Operativo'
 
     expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.AI_HISTORY)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.AI_WHATSAPP_SEGUIMIENTO)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.ORG_CHART)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_PROFILE)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_USERS)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_ACADEMY_MODULES)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS)).toBe(false)
+  })
+
+  it('exposes WhatsApp routes by role lists; area OKRS is enforced in moduleAccess', () => {
+    expect(canAccessRouteByRole('Direccion', ROUTES.AI_WHATSAPP_SEGUIMIENTO)).toBe(true)
+    expect(canAccessRouteByRole('super_admin', ROUTES.AI_WHATSAPP_SEGUIMIENTO)).toBe(true)
+    expect(canAccessRouteByRole('Analista', ROUTES.AI_WHATSAPP_SEGUIMIENTO)).toBe(false)
   })
 
   it('treats extended operative catalog names as operative roles', () => {
@@ -65,6 +74,7 @@ describe('role route permissions', () => {
     expect(canAccessRouteByRole(role, ROUTES.DASHBOARD)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.KANBAN)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.AI_HISTORY)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_USERS)).toBe(false)
     expect(usesOperationalDashboardByRole(role)).toBe(true)
     expect(getDefaultRouteByRole(role)).toBe(ROUTES.KANBAN)
@@ -118,6 +128,16 @@ describe('role route permissions', () => {
     expect(canAccessOkrs('Operativo', 'super_admin', 'Comercial')).toBe(true)
     expect(canAccessOkrs('Direccion', null, 'Comercial')).toBe(false)
     expect(canAccessOkrs('Direccion', null, 'OKRS')).toBe(true)
+  })
+
+  it('limits Asistente IA and WhatsApp to OKRS area or Super Admin', () => {
+    expect(canAccessAiAssistAndWhatsApp('Direccion', null, 'Comercial')).toBe(false)
+    expect(canAccessAiAssistAndWhatsApp('Direccion', null, 'OKRS')).toBe(true)
+    expect(canAccessAiAssistAndWhatsApp('Operativo', null, 'OKRS')).toBe(true)
+    expect(canAccessAiAssistAndWhatsApp('Operativo', null, 'Operaciones')).toBe(false)
+    expect(canAccessAiAssistAndWhatsApp('super_admin', null, 'Comercial')).toBe(true)
+    expect(canAccessAiAssistAndWhatsApp('Operativo', 'super_admin', 'Comercial')).toBe(true)
+    expect(canAccessAiAssistAndWhatsApp('Operativo', 'admin', 'Comercial')).toBe(false)
   })
 
   it('allows Super Admin and Direccion to fully manage actions', () => {

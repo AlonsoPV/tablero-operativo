@@ -43,6 +43,31 @@ El endpoint `/api/gemini-chat` se ejecuta en Vercel y llama a Gemini desde servi
 
 No uses `VITE_GEMINI_API_KEY`: cualquier variable con prefijo `VITE_` queda expuesta al navegador.
 
+### Voz / crear acciones (`/api/assistant-audio`, `/api/elevenlabs-tts`)
+
+| Variable | Valor |
+|----------|--------|
+| `GEMINI_API_KEY` | Misma clave; interpreta dictado → borradores JSON. |
+| `ANTHROPIC_API_KEY` | Opcional. Solo si `ASSISTANT_AUDIO_PROVIDER=claude`. |
+| `ELEVENLABS_API_KEY` | Opcional. Sin ella, el botón **Leer** usa `speechSynthesis` del navegador. |
+| `ELEVENLABS_VOICE_ID` | Opcional. Voz ElevenLabs. |
+| `ELEVENLABS_MODEL_ID` | Opcional. Por defecto `eleven_multilingual_v2`. |
+
+Guía de producto: [voz.md](./voz.md).
+
+### Guía reflexiva (`/api/guide-chat`)
+
+| Variable | Valor |
+|----------|--------|
+| `GEMINI_API_KEY` | Turnos de chat + reflexión de diario (default). |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | Lectura/escritura con JWT del usuario (o `VITE_*` equivalentes en local). |
+| `ANTHROPIC_API_KEY` | Opcional si `GUIDE_PROVIDER=claude`. |
+| `GUIDE_CLAUDE_MAX_TOKENS` | Opcional. Default `300`. |
+| `RETELL_API_KEY` | Web call de voz de Guía. |
+| `RETELL_GUIDE_AGENT_ID` | Agente Guía (no reutilizar `RETELL_AGENT_ID` de entrevistas). |
+
+Producto: [guia.md](./guia.md).
+
 Valores recomendados para productivo:
 
 | Variable | Valor |

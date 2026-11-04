@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { usersAdminService } from '../services/users.service'
+import { usersAdminService, type CreateUserResult } from '../services/users.service'
 import type { CreateUserInput, UserProfile } from '../types/user.types'
 import { usersQueryKey } from './useUsers'
 
@@ -12,9 +12,10 @@ export function useCreateUser() {
 
   return useMutation({
     mutationFn: (input: CreateUserInput) => usersAdminService.create(input),
-    onSuccess: async (createdUser) => {
+    onSuccess: async (result: CreateUserResult) => {
       await queryClient.invalidateQueries({ queryKey: usersQueryKey })
       await queryClient.refetchQueries({ queryKey: usersQueryKey, type: 'active' })
+      const createdUser = result.profile
       if (createdUser) {
         queryClient.setQueryData<UserProfile[]>([...usersQueryKey, {}], (current = []) => {
           const withoutDuplicate = current.filter((user) => user.id !== createdUser.id)

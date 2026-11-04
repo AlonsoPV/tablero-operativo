@@ -17,11 +17,14 @@ import type { Priority } from '@/features/catalogs/types/catalogs.types'
 import { AccionChecklistEditor, type LocalCheckpointDraft } from '@/features/operations/components/AccionChecklistEditor'
 import type { AccionCreateInput, AccionFormInput } from '@/features/operations/schemas/accion.schema'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
+import { useAppRole } from '@/features/auth/hooks/useAppRole'
+import { canAccessAiAssistAndWhatsApp } from '@/features/auth/lib/permissions'
 import { notificacionesService } from '@/services/notificaciones.service'
 import type { TeamBoard } from './types'
 import { teamKanbanService } from './service'
 import { TeamMemberSelect } from './components/TeamMemberSelect'
 import { useCanSeeOkrTags } from '@/features/okrs/useCanSeeOkrTags'
+import { whatsappIntegrationService } from '@/services/whatsappIntegration.service'
 
 type Props = {
   open: boolean
@@ -99,6 +102,13 @@ export function TeamActionFormDialog({
   onDone,
 }: Props) {
   const { data: currentUser } = useCurrentUser()
+  const { data: appRole } = useAppRole()
+  const canUseWhatsApp = canAccessAiAssistAndWhatsApp(
+    currentUser?.rol,
+    appRole,
+    currentUser?.area,
+    currentUser?.areas
+  )
   const canSeeOkrTags = useCanSeeOkrTags()
   const [mode, setMode] = useState<TeamActionMode>('single')
   const [checklist, setChecklist] = useState<LocalCheckpointDraft[]>([])
@@ -167,6 +177,21 @@ export function TeamActionFormDialog({
     })
   }
 
+  const tryAutoSendWhatsApp = async (teamActionId: string, assigneeId: string | null | undefined) => {
+    if (!canUseWhatsApp || !teamActionId || !assigneeId) return
+    try {
+      const identity = await whatsappIntegrationService.getIdentity(assigneeId)
+      if (!identity?.external_user_id) return
+      await whatsappIntegrationService.sendTeamAction({
+        teamActionId,
+        messageType: 'initial',
+      })
+      toast.success('Actividad de equipo enviada por WhatsApp')
+    } catch (error) {
+      console.warn('[whatsapp] Auto-envío equipo omitido o fallido:', error)
+    }
+  }
+
   const notifyTeamCheckpointResponsable = async (input: {
     usuarioId: string
     actionId: string
@@ -229,6 +254,7 @@ export function TeamActionFormDialog({
         console.warn('[team-kanban] No se pudo notificar al responsable:', error)
         toast.error(error instanceof Error ? error.message : 'No se pudo notificar al responsable')
       })
+      void tryAutoSendWhatsApp(created.id, values.responsable)
       void Promise.allSettled(
         checklist
           .filter((item) => item.responsable_id)
@@ -294,6 +320,7 @@ export function TeamActionFormDialog({
         console.warn('[team-kanban] No se pudo notificar accion frecuente:', error)
         toast.error(error instanceof Error ? error.message : 'No se pudo notificar al responsable')
       })
+      void tryAutoSendWhatsApp(created.id, created.asignado_a)
       void Promise.allSettled(
         (created.checklist ?? [])
           .filter((item) => item.responsable_id)

@@ -34,6 +34,43 @@ const TEAM_LABELS: Record<string, string> = {
 
 const VALID_TEAM = new Set(Object.keys(TEAM_LABELS))
 const VALID_NEED = new Set(Object.keys(NEED_LABELS))
+const DEMO_RATE_LIMIT = 5
+const DEMO_RATE_WINDOW_MS = 15 * 60 * 1000
+const demoRateBuckets = new Map<string, number[]>()
+
+function clientIp(req: VercelRequestLike): string {
+  const headers = (req as { headers?: Record<string, string | string[] | undefined> }).headers ?? {}
+  const forwarded = headers['x-forwarded-for']
+  const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded
+  const first = typeof raw === 'string' ? raw.split(',')[0]?.trim() : ''
+  if (first) return first
+  const realIp = headers['x-real-ip']
+  if (typeof realIp === 'string' && realIp.trim()) return realIp.trim()
+  return 'unknown'
+}
+
+function checkDemoRateLimit(ip: string): { ok: true } | { ok: false; retryAfterSec: number } {
+  const now = Date.now()
+  const prev = demoRateBuckets.get(ip) ?? []
+  const recent = prev.filter((ts) => now - ts < DEMO_RATE_WINDOW_MS)
+  if (recent.length >= DEMO_RATE_LIMIT) {
+    const oldest = recent[0] ?? now
+    const retryAfterSec = Math.max(1, Math.ceil((DEMO_RATE_WINDOW_MS - (now - oldest)) / 1000))
+    demoRateBuckets.set(ip, recent)
+    return { ok: false, retryAfterSec }
+  }
+  recent.push(now)
+  demoRateBuckets.set(ip, recent)
+  if (demoRateBuckets.size > 5_000) {
+    const cutoff = now - DEMO_RATE_WINDOW_MS * 2
+    for (const [k, stamps] of demoRateBuckets) {
+      const next = stamps.filter((ts) => ts >= cutoff)
+      if (next.length === 0) demoRateBuckets.delete(k)
+      else demoRateBuckets.set(k, next)
+    }
+  }
+  return { ok: true }
+}
 
 function parseBody(req: VercelRequestLike): DemoRequestBody {
   if (typeof req.body === 'string') {
@@ -56,6 +93,13 @@ function isValidEmail(email: string) {
 export default async function handler(req: VercelRequestLike, res: ServerResponse & JsonResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  const rate = checkDemoRateLimit(clientIp(req))
+  if (!rate.ok) {
+    return res.status(429).json({
+      error: `Demasiadas solicitudes. Espera ${rate.retryAfterSec}s.`,
+    })
   }
 
   const body = parseBody(req)

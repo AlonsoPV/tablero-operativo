@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CheckCircle2, CircleDashed, ListChecks, Plus, Trash2, ChevronUp, ChevronDown, UserRound } from 'lucide-react'
+import { CheckCircle2, CircleDashed, ListChecks, MessageCircle, Plus, Trash2, ChevronUp, ChevronDown, UserRound } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatDateTimeCDMX } from '@/lib/dateUtils'
 import type { AccionCheckpoint } from '@/types'
@@ -67,6 +67,8 @@ export interface AccionChecklistManageProps {
     checkpointId?: string
     previousUsuarioId?: string | null
   }) => Promise<void> | void
+  onWhatsAppFollowup?: (checkpointId: string) => Promise<void> | void
+  whatsappFollowupPending?: boolean
 }
 
 function responsableLabel(
@@ -89,6 +91,8 @@ export function AccionChecklistManage({
   responsableNames = {},
   users = [],
   onResponsableAssigned,
+  onWhatsAppFollowup,
+  whatsappFollowupPending = false,
 }: AccionChecklistManageProps) {
   const { data: checkpoints = [], isLoading } = useAccionCheckpoints(accionId)
   const insertCp = useInsertAccionCheckpoint()
@@ -457,41 +461,59 @@ export function AccionChecklistManage({
                           {c.responsable_id ? <span className="min-w-0 truncate">{ownerName}</span> : null}
                         </div>
                       )}
-                      {showStructureActions ? (
+                      {showStructureActions || (onWhatsAppFollowup && !c.completado) ? (
                         <div className="col-start-2 flex shrink-0 items-center justify-start gap-0 rounded-md bg-muted/20 p-0.5 sm:col-span-1 sm:col-start-auto sm:justify-end sm:bg-muted/10">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                            aria-label="Subir en la lista"
-                            disabled={structureBusy || index === 0}
-                            onClick={() => void swapOrden(c, -1)}
-                          >
-                            <ChevronUp className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                            aria-label="Bajar en la lista"
-                            disabled={structureBusy || index === sorted.length - 1}
-                            onClick={() => void swapOrden(c, 1)}
-                          >
-                            <ChevronDown className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                            aria-label="Eliminar punto pendiente"
-                            disabled={structureBusy}
-                            onClick={() => void removePoint(c)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          {onWhatsAppFollowup && !c.completado ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                              aria-label="Seguimiento WhatsApp"
+                              title="Enviar seguimiento por WhatsApp"
+                              disabled={structureBusy || whatsappFollowupPending}
+                              onClick={() => void onWhatsAppFollowup(c.id)}
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" />
+                            </Button>
+                          ) : null}
+                          {showStructureActions ? (
+                            <>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                aria-label="Subir en la lista"
+                                disabled={structureBusy || index === 0}
+                                onClick={() => void swapOrden(c, -1)}
+                              >
+                                <ChevronUp className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                aria-label="Bajar en la lista"
+                                disabled={structureBusy || index === sorted.length - 1}
+                                onClick={() => void swapOrden(c, 1)}
+                              >
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                aria-label="Eliminar punto pendiente"
+                                disabled={structureBusy}
+                                onClick={() => void removePoint(c)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          ) : null}
                         </div>
                       ) : null}
                     </li>

@@ -10,7 +10,10 @@
     "allowImportingTsExtensions": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "types": []
+    "types": [],
+    "paths": {
+      "npm:@supabase/supabase-js@2": ["../../node_modules/@supabase/supabase-js"]
+    }
   },
   "include": ["./**/*.ts", "./**/*.d.ts"]
 }

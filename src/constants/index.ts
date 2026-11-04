@@ -1,7 +1,19 @@
 export const APP_NAME = 'SCRUMBAN'
 export const PRODUCTION_APP_BASE_URL = 'https://scrumbanemx.vercel.app'
+
+type ViteImportMeta = ImportMeta & {
+  env?: {
+    VITE_APP_URL?: string
+    VITE_GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED?: string
+  }
+}
+
+function readViteEnv() {
+  return (import.meta as ViteImportMeta).env
+}
+
 export const APP_BASE_URL = (
-  import.meta.env.VITE_APP_URL?.trim() || PRODUCTION_APP_BASE_URL
+  readViteEnv()?.VITE_APP_URL?.trim() || PRODUCTION_APP_BASE_URL
 ).replace(/\/+$/, '')
 
 /** Rutas según módulos de lovable-spec §5 */
@@ -36,6 +48,10 @@ export const ROUTES = {
   MANUAL: '/manual',
   /** Asistente IA O2C (proxy Edge Functions → Lovable). */
   AI_ASSIST: '/asistente-ia',
+  /** Historial de conversaciones y resultados de Guia / Asistente. */
+  AI_HISTORY: '/asistente-ia/historial',
+  /** Bandeja de seguimiento WhatsApp (operadores). */
+  AI_WHATSAPP_SEGUIMIENTO: '/asistente-ia/seguimiento-whatsapp',
   /** Organigrama jerárquico de la organización. */
   ORG_CHART: '/organigrama',
   /** Plan de acción Scrum Master — acceso restringido por usuario. */
@@ -43,6 +59,7 @@ export const ROUTES = {
   SETTINGS: '/settings',
   SETTINGS_PROFILE: '/settings/profile',
   SETTINGS_REMINDERS: '/settings/reminders',
+  SETTINGS_WHATSAPP: '/settings/whatsapp',
   SETTINGS_USERS: '/settings/users',
   SETTINGS_USERS_DETAIL: '/settings/users/:id',
   SETTINGS_CATALOGS: '/settings/catalogs',
@@ -58,11 +75,14 @@ export const ROUTES = {
 } as const
 
 export function getRuntimeAppBaseUrl() {
-  if (typeof window === 'undefined') return APP_BASE_URL
+  const browser = globalThis as typeof globalThis & {
+    window?: { location?: { hostname?: string; origin?: string } }
+  }
+  const location = browser.window?.location
+  if (!location?.hostname || !location.origin) return APP_BASE_URL
 
-  const { hostname, origin } = window.location
-  if (hostname === new URL(PRODUCTION_APP_BASE_URL).hostname) {
-    return origin.replace(/\/+$/, '')
+  if (location.hostname === new URL(PRODUCTION_APP_BASE_URL).hostname) {
+    return location.origin.replace(/\/+$/, '')
   }
 
   return APP_BASE_URL
@@ -74,4 +94,4 @@ export function getPasswordResetRedirectUrl() {
 
 /** Exportar minutas, acciones y recordatorios a Google Calendar / Tasks / Gmail. */
 export const GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED =
-  import.meta.env.VITE_GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED !== 'false'
+  readViteEnv()?.VITE_GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED !== 'false'

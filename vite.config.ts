@@ -1,9 +1,10 @@
 import path from 'path'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
+import { localApiPlugin } from './vite.apiPlugin'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), localApiPlugin()],
   build: {
     rollupOptions: {
       output: {
@@ -29,6 +30,6 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'api/**/*.test.ts'],
   },
 })

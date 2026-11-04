@@ -21,32 +21,34 @@ const actionContext = {
 }
 
 describe('composeSystemPrompt', () => {
-  it('keeps action evaluation rules for an operational action without rewriting logistics/agile specialties', () => {
-    const agile = composeSystemPrompt('agile_eos_scalingup', { hasActionContext: true })
-    expect(agile).toContain('Agile, Scrum, Kanban y Scrumban')
-    expect(agile).toContain('CONTEXTO DE ACCION')
-    expect(agile).toContain('checklist de la accion')
-    expect(agile).not.toContain('CALIDAD ORIENTATIVA')
+  it('homologates execution, logistics and OKRs in one specialty', () => {
+    const prompt = composeSystemPrompt('operativo')
+    expect(prompt).toContain('ejecucion, logistica y OKRs')
+    expect(prompt).toContain('Agile, Scrum, Kanban, Scrumban')
+    expect(prompt).toContain('KPIs logisticos')
+    expect(prompt).toContain('No apruebes un OKR solo por su redaccion')
+    expect(prompt).not.toContain('CALIDAD ORIENTATIVA')
   })
 
-  it('adds OKR evaluation when the strategy mode is selected even without a selected OKR', () => {
-    const prompt = composeSystemPrompt('okr_strategy')
-    expect(prompt).toContain('especialista en OKRs')
-    expect(prompt).toContain('CALIDAD ORIENTATIVA')
-    expect(prompt).toContain('Diagnostico general:')
+  it('keeps action evaluation rules without requiring a specialty tab', () => {
+    const prompt = composeSystemPrompt('agile_eos_scalingup', { hasActionContext: true })
+    expect(prompt).toContain('CONTEXTO DE ACCION')
+    expect(prompt).toContain('checklist de la accion')
+    expect(prompt).toContain('KPIs logisticos')
   })
 
   it('adds board analysis rules for optimization recommendations', () => {
-    const prompt = composeSystemPrompt('agile_eos_scalingup', { hasBoardContext: true })
+    const prompt = composeSystemPrompt('operativo', { hasBoardContext: true })
     expect(prompt).toContain('CONTEXTO DE TABLERO')
     expect(prompt).toContain('3 movimientos ejecutivos')
     expect(prompt).not.toContain('CALIDAD ORIENTATIVA')
   })
 
-  it('combines logistics specialty with OKR rules when an operational OKR is in context', () => {
+  it('adds detailed OKR evaluation when an OKR is in context', () => {
     const prompt = composeSystemPrompt('logistics', { hasOkrContext: true })
     expect(prompt).toContain('KPIs logisticos')
     expect(prompt).toContain('EVALUACION DEL OBJETIVO')
+    expect(prompt).toContain('CALIDAD ORIENTATIVA')
     expect(prompt).toContain('No cuentes tarjetas como incidentes')
   })
 })
