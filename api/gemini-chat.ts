@@ -1,9 +1,7 @@
-import type { ServerResponse } from 'node:http'
 import {
-  asJsonResponse,
+  defineApiHandler,
   readNumberEnv,
   readRequestBody,
-  type VercelRequestLike,
 } from './_shared/http'
 import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa'
@@ -64,8 +62,7 @@ function readGeminiError(errorText: string) {
   }
 }
 
-export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
-  const res = asJsonResponse(serverRes)
+export default defineApiHandler(async (req, res) => {
   enableSystemCaCertificates()
 
   try {
@@ -243,4 +240,4 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       error: 'Ocurrio un error inesperado al procesar la solicitud.',
     })
   }
-}
+})

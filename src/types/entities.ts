@@ -3,7 +3,7 @@
  * Campos opcionales donde la spec permite NULL o no los exige en todas las rutas.
  */
 
-import type { TipoAccion } from '@/features/operations/utils/tipoAccionConfig'
+import type { TipoAccion } from '../features/operations/utils/tipoAccionConfig'
 import type { UserRole } from './enums'
 import type { ActionStatus } from './enums'
 import type { TicketStatus } from './enums'

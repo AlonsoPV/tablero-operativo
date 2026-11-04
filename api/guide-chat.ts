@@ -3,13 +3,11 @@
  * Auth: Authorization Bearer (JWT del usuario). Usa SUPABASE_URL + anon/service key.
  */
 import { createClient } from '@supabase/supabase-js'
-import type { ServerResponse } from 'node:http'
 import {
-  asJsonResponse,
+  defineApiHandler,
   readNumberEnv,
   readRequestBody,
   readStringEnv,
-  type VercelRequestLike,
 } from './_shared/http'
 import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa'
@@ -258,13 +256,50 @@ async function callClaude(system: string, user: string, maxTokens: number, signa
   return text
 }
 
+function providerCode(error: unknown) {
+  return error instanceof Error ? error.message : ''
+}
+
+function isCapacityError(error: unknown) {
+  const code = providerCode(error)
+  return /^(gemini|claude)_(429|500|503|529)$/.test(code)
+}
+
 async function generateText(system: string, user: string, maxTokens: number, signal: AbortSignal) {
+  const hasGemini = Boolean(process.env.GEMINI_API_KEY)
+  const hasClaude = Boolean(process.env.ANTHROPIC_API_KEY)
   const preferClaude =
     readStringEnv('GUIDE_PROVIDER', '').toLowerCase() === 'claude' ||
-    (!process.env.GEMINI_API_KEY && Boolean(process.env.ANTHROPIC_API_KEY))
-  return preferClaude
-    ? callClaude(system, user, maxTokens, signal)
-    : callGemini(system, user, maxTokens, signal)
+    (!hasGemini && hasClaude)
+
+  const tryClaude = () => callClaude(system, user, maxTokens, signal)
+  const tryGemini = () => callGemini(system, user, maxTokens, signal)
+
+  if (preferClaude && hasClaude) {
+    try {
+      return await tryClaude()
+    } catch (error) {
+      if (hasGemini && isCapacityError(error)) {
+        console.warn('guide-chat Claude saturado; usando Gemini')
+        return await tryGemini()
+      }
+      throw error
+    }
+  }
+
+  if (hasGemini) {
+    try {
+      return await tryGemini()
+    } catch (error) {
+      if (hasClaude && (isCapacityError(error) || providerCode(error) === 'gemini_empty')) {
+        console.warn('guide-chat Gemini saturado; usando Claude', providerCode(error))
+        return await tryClaude()
+      }
+      throw error
+    }
+  }
+
+  return tryClaude()
 }
 
 function phaseHint(seconds: number) {
@@ -313,8 +348,7 @@ function attachCreatedWork<T extends { created_at?: string }>(
   }
 }
 
-export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
-  const res = asJsonResponse(serverRes)
+export default defineApiHandler(async (req, res) => {
   enableSystemCaCertificates()
 
   try {
@@ -725,7 +759,17 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       console.error('guide-chat TLS', error)
       return res.status(502).json({ error: TLS_CERTIFICATE_USER_MESSAGE })
     }
+    const code = error instanceof Error ? error.message : ''
+    if (/^(gemini|claude)_429$/.test(code)) {
+      return res.status(429).json({
+        error: 'Guia esta saturada por cuota del modelo. Espera un minuto e intenta de nuevo.',
+      })
+    }
+    if (/^(gemini|claude)_\d+$/.test(code) || code === 'gemini_empty' || code === 'claude_empty') {
+      console.error('guide-chat provider', error)
+      return res.status(502).json({ error: 'Guia no pudo completar la respuesta. Intenta de nuevo.' })
+    }
     console.error('guide-chat error', error)
     return res.status(500).json({ error: 'Error inesperado en Guia.' })
   }
-}
+})

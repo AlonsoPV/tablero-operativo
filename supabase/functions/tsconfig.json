@@ -11,6 +11,7 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "types": [],
+    "ignoreDeprecations": "6.0",
     "paths": {
       "npm:@supabase/supabase-js@2": ["../../node_modules/@supabase/supabase-js"]
     }

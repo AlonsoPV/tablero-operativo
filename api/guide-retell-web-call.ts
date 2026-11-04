@@ -3,12 +3,10 @@
  * Auth: Authorization Bearer (JWT del usuario). Secrets: RETELL_API_KEY + RETELL_GUIDE_AGENT_ID.
  * No reutiliza RETELL_AGENT_ID (entrevistas).
  */
-import type { ServerResponse } from 'node:http'
 import {
-  asJsonResponse,
+  defineApiHandler,
   readRequestBody,
   readStringEnv,
-  type VercelRequestLike,
 } from './_shared/http'
 import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa'
@@ -31,8 +29,7 @@ function isMissingGuideTable(error: { message?: string; code?: string } | null |
   )
 }
 
-export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
-  const res = asJsonResponse(serverRes)
+export default defineApiHandler(async (req, res) => {
   enableSystemCaCertificates()
 
   try {
@@ -262,4 +259,4 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
     console.error('guide-retell-web-call error', error)
     return res.status(500).json({ error: 'Error inesperado al iniciar la voz de Guia.' })
   }
-}
+})

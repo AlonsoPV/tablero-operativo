@@ -3,12 +3,10 @@
  * Secrets: ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID (opcionales: ELEVENLABS_MODEL_ID).
  * Requiere JWT de Asistente IA (área OKRS / Super Admin).
  */
-import type { ServerResponse } from 'node:http'
 import {
-  asJsonResponse,
+  defineApiHandler,
   readRequestBody,
   readStringEnv,
-  type VercelRequestLike,
 } from './_shared/http'
 import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth'
 
@@ -18,9 +16,7 @@ const DEFAULT_VOICE = '21m00Tcm4TlvDq8ikWAM'
 const RATE_LIMIT = 20
 const RATE_WINDOW_MS = 60_000
 
-export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
-  const res = asJsonResponse(serverRes)
-
+export default defineApiHandler(async (req, res) => {
   try {
     if (req.method !== 'POST') {
       return res.status(405).json({ error: 'Metodo no permitido. Usa POST.' })
@@ -105,4 +101,4 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       error: 'Ocurrio un error inesperado al generar voz.',
     })
   }
-}
+})

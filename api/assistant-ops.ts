@@ -1,13 +1,11 @@
-import type { ServerResponse } from 'node:http'
-import { asJsonResponse, readRequestBody, type VercelRequestLike } from './_shared/http'
+import { defineApiHandler, readRequestBody } from './_shared/http'
 import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth'
 import { cancelPendingOp, confirmPendingOp } from './_shared/assistantOpsRuntime'
 
 const RATE_LIMIT = 30
 const RATE_WINDOW_MS = 60_000
 
-export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
-  const res = asJsonResponse(serverRes)
+export default defineApiHandler(async (req, res) => {
   try {
     if (req.method !== 'POST') {
       return res.status(405).json({ error: 'Metodo no permitido. Usa POST.' })
@@ -58,4 +56,4 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
     const conflict = /cambio despues|expiro|cancelada/i.test(message)
     return res.status(conflict ? 409 : 400).json({ error: message.slice(0, 240) })
   }
-}
+})

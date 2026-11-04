@@ -1,5 +1,4 @@
-import type { ServerResponse } from 'node:http'
-import { asJsonResponse, type VercelRequestLike } from './_shared/http'
+import { defineApiHandler, type VercelRequestLike } from './_shared/http'
 
 type DemoRequestBody = {
   name?: string
@@ -81,8 +80,7 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
-export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
-  const res = asJsonResponse(serverRes)
+export default defineApiHandler(async (req, res) => {
   try {
     if (req.method !== 'POST') {
       return res.status(405).json({ error: 'Method not allowed' })
@@ -155,4 +153,4 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
     console.error('[demo-request]', error)
     return res.status(500).json({ error: 'Error inesperado al enviar la solicitud' })
   }
-}
+})

@@ -2,13 +2,11 @@
  * Interpreta texto dictado/escrito y devuelve borradores de acción estructurados.
  * Usa Gemini (mismo stack que /api/gemini-chat). Opcionalmente Claude si hay ANTHROPIC_API_KEY.
  */
-import type { ServerResponse } from 'node:http'
 import {
-  asJsonResponse,
+  defineApiHandler,
   readNumberEnv,
   readRequestBody,
   readStringEnv,
-  type VercelRequestLike,
 } from './_shared/http'
 import { requireAssistantAuth } from './_shared/assistantAuth'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa'
@@ -436,8 +434,7 @@ async function callClaude(system: string, user: string, signal: AbortSignal) {
   throw lastError ?? new Error('claude_failed')
 }
 
-export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
-  const res = asJsonResponse(serverRes)
+export default defineApiHandler(async (req, res) => {
   enableSystemCaCertificates()
 
   try {
@@ -557,4 +554,4 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       error: 'Ocurrio un error inesperado al interpretar la nota.',
     })
   }
-}
+})
