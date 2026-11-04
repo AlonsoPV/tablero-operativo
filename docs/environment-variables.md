@@ -1,13 +1,14 @@
 # Variables de entorno: frontend vs Edge Functions (secrets)
 
-Este proyecto usa **tres superficies distintas**. No mezclar nombres ni ubicaciones evita errores típicos (p. ej. poner `VITE_*` en Supabase Secrets o intentar leer secretos de IA en el bundle de Vite).
+Este proyecto usa **cuatro superficies distintas**. No mezclar nombres ni ubicaciones evita errores típicos (p. ej. poner `VITE_*` en Supabase Secrets o intentar leer secretos de IA en el bundle de Vite).
 
 ## Tabla resumen
 
 | Dónde se configura | Prefijo / nombres | Quién la lee | Ejemplos |
 |-------------------|-------------------|--------------|----------|
 | **Build del front (Vite)** | Solo `VITE_*` | Código en `import.meta.env` en el navegador | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_APP_URL`, `VITE_O2C_PROGRAM_START`, `VITE_DEV_FIXED_NOW` |
-| **Secrets de Edge Functions** | **Sin** prefijo `VITE_` | `Deno.env.get(...)` dentro de `supabase/functions/` | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `LOVABLE_API_KEY` (si Lovable la inyecta), `OPENAI_API_KEY`, `GOOGLE_MAPS_API_KEY`, `LOVABLE_AI_MODEL`, `CHAT_DEFAULT_MODEL`, … |
+| **Vercel Serverless (`/api/*`)** | **Sin** `VITE_` | `process.env` en `api/` | `GEMINI_API_KEY`, `WHATSAPP_ASSISTANT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` |
+| **Secrets de Edge Functions** | **Sin** prefijo `VITE_` | `Deno.env.get(...)` dentro de `supabase/functions/` | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `WHATSAPP_AI_ENABLED`, `WHATSAPP_ASSISTANT_SECRET`, `APP_URL`, `LOVABLE_API_KEY` (si Lovable la inyecta), `OPENAI_API_KEY`, `GOOGLE_MAPS_API_KEY`, `LOVABLE_AI_MODEL`, `CHAT_DEFAULT_MODEL`, … |
 | **Solo máquina local / CI (scripts Node)** | Archivo `.env` en la raíz (no Vite, no Edge) | `process.env` en `scripts/*.mjs` | `SUPABASE_URL` (recomendado), `SUPABASE_SERVICE_ROLE_KEY`, o bien reutilizar `VITE_SUPABASE_URL` como URL del proyecto para scripts que ya lo lean (fallback en código) |
 
 ## Reglas

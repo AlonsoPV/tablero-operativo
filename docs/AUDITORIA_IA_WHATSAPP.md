@@ -48,7 +48,7 @@ Tablero autenticado + módulo ai_assist
     │   └── Historial /asistente-ia/historial (lee journal + messages)         [IMPLEMENTADO]
     │
     └── (Misma nav IA) Seguimiento WhatsApp — ver §2.2                         [IMPLEMENTADO UI]
-        └── Puente LLM ↔ WhatsApp                                              [AUSENTE]
+        └── Puente LLM ↔ WhatsApp                                              [PARCIAL Fase 1: webhook → /api/whatsapp-assistant]
 ```
 
 ### 2.2 Árbol — WhatsApp Cloud API
@@ -81,7 +81,8 @@ Identidad user_channel_identities (teléfono E.164)                             
 │   │   ├── Insert external_inbound_messages + whatsapp_messages               [IMPLEMENTADO]
 │   │   ├── Botones/texto → actualizar checkpoint / estado acción              [IMPLEMENTADO]
 │   │   ├── Evidencia (si result_request waiting) → Storage + comentarios      [IMPLEMENTADO]
-│   │   └── Auto-reply Graph → whatsapp_messages (automation)                  [IMPLEMENTADO post-cambio]
+│   │   ├── Auto-reply Graph → whatsapp_messages (automation)                  [IMPLEMENTADO post-cambio]
+│   │   └── Texto libre OKRS → APP_URL/api/whatsapp-assistant (flag)           [PARCIAL Fase 1]
 │   └── value.statuses → delivery_status en whatsapp_messages                  [IMPLEMENTADO]
 │       └── delivered / read / failed (monotonic)
 │
@@ -117,6 +118,7 @@ Stack O2C Edge (ai-chat / stream / insights / report)
 | Módulo `ai_assist` + rol | `/asistente-ia` | Redirect / ítem oculto |
 | `can_manage_catalogs` | Bandeja + vincular teléfono | 403 / RPC denegado |
 | `GEMINI_API_KEY` | Chat / audio / transcribe / Guía Gemini | 500 en `/api/*` |
+| `WHATSAPP_AI_ENABLED` + secreto + `APP_URL` | Chatbot Gemini en WhatsApp | Silencio; checkpoints/evidencia siguen igual |
 | Secrets Meta | Todo Graph | `missing_whatsapp_secrets` / Graph 4xx |
 
 ---

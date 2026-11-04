@@ -18,6 +18,7 @@ Referencias Meta:
 | Capacidad | Descripción |
 | --- | --- |
 | Vincular usuario | Admin (`super_admin`) guarda teléfono E.164 sin `+` en `user_channel_identities` |
+| Chatbot Gemini | Texto libre (OKRS / Super Admin, flag `WHATSAPP_AI_ENABLED`) → `/api/whatsapp-assistant`; propuestas se confirman con botones |
 | Envío inicial | Al asignar/crear acción → mensaje al responsable (plantilla Meta o texto libre) |
 | Seguimiento | Por cada checkpoint pendiente → mensaje interactivo con 3 botones |
 | Cierre | Mensaje `commitment_close` al revisar compromiso |
@@ -58,7 +59,8 @@ Meta WhatsApp
         ├─ accion_checkpoints / acciones_diarias
         ├─ whatsapp_result_requests
         ├─ accion_comentarios (+ Storage evidencias)
-        └─ opcional: respuestas outbound
+        ├─ opcional: respuestas outbound (checkpoints / evidencia)
+        └─ texto libre OKRS → APP_URL/api/whatsapp-assistant (Gemini + botones aiop)
 ```
 
 ### Edge Functions
@@ -105,7 +107,9 @@ verify_jwt = false
 | `src/features/operations/components/AccionFormDialog.tsx` | Botones WhatsApp / Cierre / followup checklist |
 | `src/services/appSettings.service.ts` | Lectura/escritura `whatsapp_followup` |
 | `supabase/functions/whatsapp-send-action/index.ts` | Envío + plantilla Meta + jobs |
-| `supabase/functions/whatsapp-webhook/index.ts` | Inbound + estados + evidencia |
+| `supabase/functions/whatsapp-webhook/index.ts` | Inbound + estados + evidencia + fall-through Gemini |
+| `api/whatsapp-assistant.ts` | Cerebro Gemini (secreto servicio a servicio) |
+| `api/_shared/whatsappAiConfirm.ts` | Parser botones `aiop:` y sí/no |
 | `supabase/functions/whatsapp-followup-dispatcher/index.ts` | Procesa cola |
 | `supabase/scripts/audit_whatsapp_message_flow.sql` | Auditoría SQL |
 
@@ -121,6 +125,7 @@ Migraciones clave:
 | `20260706173000_whatsapp_followup_jobs_optional_checkpoint.sql` | Checkpoint opcional |
 | `20260708051934_update_whatsapp_action_message_template.sql` | Ajuste copy plantillas |
 | `20260623130000…` / `20260706130000…` | Identidades / teléfonos duplicados |
+| `20261104120000_can_use_ai_whatsapp_for_usuario.sql` | RPC chatbot: OKRS/Super Admin por `usuario_id` (solo `service_role`) |
 
 Ruta UI settings: `ROUTES.SETTINGS_WHATSAPP` → `/settings/whatsapp`.
 
@@ -134,13 +139,16 @@ Ruta UI settings: `ROUTES.SETTINGS_WHATSAPP` → `/settings/whatsapp`.
 | --- | --- | --- |
 | `WHATSAPP_ACCESS_TOKEN` | Sí | Bearer Graph API (System User permanente) |
 | `WHATSAPP_PHONE_NUMBER_ID` | Sí | ID del número Cloud API |
-| `WHATSAPP_VERIFY_TOKEN` | Sí | Token inventado para handshake GET del webhook |
+| `WHATSAPP_VERIFY_TOKEN` | Sí | Token inventado para handshake GET del webhook | FALTA
 | `SUPABASE_URL` | Sí | Admin client |
 | `SUPABASE_SERVICE_ROLE_KEY` | Sí | Admin client |
-| `WHATSAPP_GRAPH_VERSION` | No | Default `v20.0` |
+| `WHATSAPP_GRAPH_VERSION` | No | Default `v20.0` | FALTA
 | `WHATSAPP_INITIAL_TEMPLATE_NAME` | No | Default `nueva_actividad_what2do` |
 | `WHATSAPP_INITIAL_TEMPLATE_LANGUAGE` | No | Default `es_MX` |
 | `WHATSAPP_DISPATCHER_SECRET` | Recomendado | Header `x-dispatcher-secret` del dispatcher |
+| `WHATSAPP_AI_ENABLED` | No | `1` activa el chatbot Gemini en texto libre (OKRS / Super Admin) |
+| `WHATSAPP_ASSISTANT_SECRET` | Si AI enabled | Mismo valor que en Vercel; header hacia `/api/whatsapp-assistant` |
+| `APP_URL` | Si AI enabled | URL pública del tablero (`https://scrumbanemx.vercel.app`) |
 | `WHATSAPP_BUSINESS_ACCOUNT_ID` / WABA | Útil | Suscripción app / plantillas (ops Meta) |
 
 Ejemplo:
@@ -150,7 +158,21 @@ npx supabase secrets set WHATSAPP_ACCESS_TOKEN="..." --project-ref <REF>
 npx supabase secrets set WHATSAPP_PHONE_NUMBER_ID="..." --project-ref <REF>
 npx supabase secrets set WHATSAPP_VERIFY_TOKEN="..." --project-ref <REF>
 npx supabase secrets set WHATSAPP_DISPATCHER_SECRET="..." --project-ref <REF>
+npx supabase secrets set WHATSAPP_AI_ENABLED="1" --project-ref <REF>
+npx supabase secrets set WHATSAPP_ASSISTANT_SECRET="..." --project-ref <REF>
+npx supabase secrets set APP_URL="https://scrumbanemx.vercel.app" --project-ref <REF>
 ```
+
+### Vercel (`/api/whatsapp-assistant`)
+
+| Variable | Uso |
+| --- | --- |
+| `WHATSAPP_ASSISTANT_SECRET` | Mismo valor que en Edge; header `x-whatsapp-assistant-secret` |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | Ya usados por `/api/gemini-chat` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Solo servidor: RPC de acceso + `assistant_pending_ops` |
+| `SUPABASE_URL` | O `VITE_SUPABASE_URL` como fallback |
+
+No commitear secretos. Edge no necesita `GEMINI_API_KEY` si el cerebro es Vercel.
 
 ### Local `.env` (solo referencia / scripts; no `VITE_`)
 
@@ -333,9 +355,12 @@ Si token = `WHATSAPP_VERIFY_TOKEN` → responder el challenge en texto plano.
 chk:<checkpoint_uuid>:done
 chk:<checkpoint_uuid>:progress
 chk:<checkpoint_uuid>:support
+aiop:<pending_op_uuid>:ok
+aiop:<pending_op_uuid>:no
 ```
 
-Títulos UI: **Realizada** / **En proceso** / **Requiero apoyo**.
+Títulos UI checkpoint: **Realizada** / **En proceso** / **Requiero apoyo**.  
+Títulos UI asistente: **Confirmar** / **Cancelar**.
 
 ### Efectos en tablero
 
@@ -360,6 +385,20 @@ Tras `done`, el bot pide texto o media. El siguiente mensaje:
 4. Inserta `accion_comentarios` (+ adjuntos).
 
 Formatos: pdf, png, jpg, csv, xlsx, xls, bin.
+
+### Chatbot Gemini (Fase 1)
+
+Prioridad en cada inbound (no mezclar):
+
+1. Número no vinculado → mensaje actual.
+2. Evidencia / botones checkpoint / keywords (`done|progress|support`) → flujo operativo.
+3. Botón `aiop:<uuid>:ok|no` o texto corto `sí`/`no` con op pendiente → confirmar/cancelar.
+4. Texto libre → `POST {APP_URL}/api/whatsapp-assistant` (solo si `WHATSAPP_AI_ENABLED=1` y RPC `can_use_ai_whatsapp_for_usuario`).
+5. Si Gemini falla: reply corto; **siempre 200 a Meta**.
+
+El cerebro vive en Vercel (`GEMINI_*` ya configuradas). Edge **no** necesita `GEMINI_API_KEY`. Escrituras al tablero solo tras confirmar (`assistant_pending_ops`, TTL 10 min). Inbox etiqueta `source=ai` como **Asistente**.
+
+No commitear secretos. No hay toggle en UI: el flag env basta.
 
 ---
 
@@ -402,7 +441,7 @@ done             →  whatsapp_result_requests → comentario/evidencia
 Seguimientos     →  whatsapp_followup_jobs + dispatcher
 ```
 
-IDs de botón: `chk:<uuid>:<done|progress|support>`.
+IDs de botón: `chk:<uuid>:<done|progress|support>` y `aiop:<uuid>:<ok|no>`.
 
 ---
 
@@ -430,6 +469,7 @@ IDs de botón: `chk:<uuid>:<done|progress|support>`.
 - [ ] Servicio + card de usuario + settings  
 - [ ] Botones en diálogo de acción  
 - [ ] Probar assign → WhatsApp → botón Realizada → evidencia  
+- [ ] Chatbot (opcional): migración RPC, flag Edge, secreto igual en Vercel, `APP_URL`  
 
 ### Pruebas SQL
 
@@ -470,6 +510,7 @@ order by created_at desc limit 20;
 | Sin prompt de resultado | Parser `done` + fila en `whatsapp_result_requests` |
 | Jobs no salen | Cron URL, dispatcher secret, filas `pending` vencidas |
 | Plantilla 132001 | Nombre/idioma no existen en el WABA; ajustar secrets |
+| Chatbot no responde | Flag `WHATSAPP_AI_ENABLED`, secreto igual en Edge y Vercel, `APP_URL`, RPC aplicada, usuario OKRS/Super Admin |
 
 ---
 

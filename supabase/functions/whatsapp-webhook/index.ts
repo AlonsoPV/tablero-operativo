@@ -420,6 +420,151 @@ async function replyText(
   }
 }
 
+function parseAiOpButton(raw: string | null | undefined): { opId: string; action: 'confirm' | 'cancel' } | null {
+  const match = /^aiop:([0-9a-fA-F-]{36}):(ok|no)$/i.exec((raw ?? '').trim())
+  if (!match) return null
+  return { opId: match[1], action: match[2].toLowerCase() === 'ok' ? 'confirm' : 'cancel' }
+}
+
+function whatsappAiEnabled() {
+  const flag = (Deno.env.get('WHATSAPP_AI_ENABLED') || '').trim().toLowerCase()
+  return flag === '1' || flag === 'true' || flag === 'yes'
+}
+
+function interactiveAiOpPayload(to: string, bodyText: string, opId: string) {
+  return {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text: bodyText.slice(0, 1024) },
+      action: {
+        buttons: [
+          { type: 'reply', reply: { id: `aiop:${opId}:ok`, title: 'Confirmar' } },
+          { type: 'reply', reply: { id: `aiop:${opId}:no`, title: 'Cancelar' } },
+        ],
+      },
+    },
+  }
+}
+
+async function replyAi(
+  supabase: ReturnType<typeof adminClient>,
+  to: string,
+  body: string,
+  usuarioId: string | null,
+  proposalId?: string | null
+) {
+  try {
+    const canButtons = Boolean(proposalId && /^[0-9a-fA-F-]{36}$/.test(proposalId))
+    const graphBody = canButtons
+      ? interactiveAiOpPayload(to, body, proposalId as string)
+      : textPayload(to, body)
+    const result = await graphSendMessage(graphBody)
+    const metaId = extractMessageId(result.json)
+    await upsertThreadMessage(supabase, {
+      wa_id: to,
+      usuario_id: usuarioId ?? null,
+      direction: 'outbound',
+      source: 'ai',
+      message_kind: canButtons ? 'interactive' : 'text',
+      body_text: body,
+      meta_message_id: metaId,
+      delivery_status: result.ok ? 'sent' : 'failed',
+      error_message: result.ok ? null : result.raw.slice(0, 2000),
+      sent_at: result.ok ? new Date().toISOString() : null,
+      failed_at: result.ok ? null : new Date().toISOString(),
+      payload: {
+        request: graphBody,
+        response: result.json,
+        source: 'webhook_ai_reply',
+      },
+    })
+  } catch (error) {
+    console.error('whatsapp ai reply failed', error)
+  }
+}
+
+async function callWhatsAppAssistant(input: {
+  action: 'chat' | 'confirm' | 'cancel'
+  waId: string
+  usuarioId: string
+  text?: string
+  opId?: string
+}): Promise<{ text: string; proposals?: Array<{ id?: string; title?: string; summary?: string }> } | null> {
+  const secret = Deno.env.get('WHATSAPP_ASSISTANT_SECRET')?.trim() || ''
+  const base = (Deno.env.get('APP_URL') || Deno.env.get('VITE_APP_URL') || '').trim().replace(/\/$/, '')
+  if (!secret || !base) {
+    console.error('whatsapp-webhook AI missing APP_URL or WHATSAPP_ASSISTANT_SECRET')
+    return null
+  }
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 20000)
+  try {
+    const response = await fetch(`${base}/api/whatsapp-assistant`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-whatsapp-assistant-secret': secret,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        action: input.action,
+        wa_id: input.waId,
+        usuario_id: input.usuarioId,
+        text: input.text ?? '',
+        op_id: input.opId ?? '',
+      }),
+    })
+    const json = (await response.json()) as {
+      text?: unknown
+      proposals?: Array<{ id?: string; title?: string; summary?: string }>
+      error?: unknown
+    }
+    const text = typeof json.text === 'string' ? json.text.trim() : ''
+    if (!text) return { text: 'No pude consultar el tablero ahora.', proposals: [] }
+    return { text, proposals: Array.isArray(json.proposals) ? json.proposals : [] }
+  } catch (error) {
+    console.error('whatsapp-webhook AI call failed', error)
+    return { text: 'No pude consultar el tablero ahora.', proposals: [] }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function maybeHandleWhatsAppAi(
+  supabase: ReturnType<typeof adminClient>,
+  input: {
+    waId: string
+    usuarioId: string
+    action: 'chat' | 'confirm' | 'cancel'
+    text?: string
+    opId?: string
+  }
+): Promise<boolean> {
+  if (!whatsappAiEnabled()) return false
+  const { data: allowed, error } = await supabase.rpc('can_use_ai_whatsapp_for_usuario', {
+    p_usuario_id: input.usuarioId,
+  })
+  if (error) {
+    console.error('whatsapp-webhook AI access rpc', error.message)
+    return false
+  }
+  if (allowed !== true) return false
+  const result = await callWhatsAppAssistant({
+    action: input.action,
+    waId: input.waId,
+    usuarioId: input.usuarioId,
+    text: input.text,
+    opId: input.opId,
+  })
+  const text = result?.text || 'No pude consultar el tablero ahora.'
+  const proposalId = result?.proposals?.[0]?.id
+  await replyAi(supabase, input.waId, text, input.usuarioId, proposalId)
+  return true
+}
+
 async function downloadWhatsAppMedia(mediaId: string): Promise<{
   bytes: Uint8Array
   mimeType: string
@@ -917,6 +1062,17 @@ Deno.serve(async (req) => {
             message.button?.payload ||
             message.interactive?.list_reply?.id ||
             null
+          const aiOp = parseAiOpButton(buttonRaw)
+          if (aiOp) {
+            await maybeHandleWhatsAppAi(supabase, {
+              waId,
+              usuarioId: identity.usuario_id,
+              action: aiOp.action,
+              opId: aiOp.opId,
+            })
+            continue
+          }
+
           const parsed = parseButtonId(buttonRaw)
           let action = parsed.action
           let kind = parsed.kind
@@ -976,7 +1132,17 @@ Deno.serve(async (req) => {
             continue
           }
 
-          if (!action || !kind) continue
+          if (!action || !kind) {
+            if (message.type === 'text' && message.text?.body) {
+              await maybeHandleWhatsAppAi(supabase, {
+                waId,
+                usuarioId: identity.usuario_id,
+                action: 'chat',
+                text: message.text.body,
+              })
+            }
+            continue
+          }
 
           if (kind === 'corporate' && checkpointId) {
             const result = await handleCorporateAction(supabase, {

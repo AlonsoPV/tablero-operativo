@@ -48,6 +48,17 @@ export function readAuthToken(req: VercelRequestLike): string | null {
   return match?.[1]?.trim() || null
 }
 
+export function createServiceRoleClient(): SupabaseClient {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !service) {
+    throw new Error('missing_supabase_admin')
+  }
+  return createClient(url, service, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  })
+}
+
 export function createUserClient(token: string): SupabaseClient {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const anon = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY

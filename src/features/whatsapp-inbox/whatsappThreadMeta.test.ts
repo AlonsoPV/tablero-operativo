@@ -51,6 +51,19 @@ describe('whatsappThreadMeta', () => {
     expect(meta.label).toBe('Acción enviada')
   })
 
+  it('marca respuestas del asistente IA', () => {
+    const meta = resolveThreadMeta(
+      msg({
+        source: 'ai',
+        message_kind: 'text',
+        body_text: 'Tienes 2 acciones en retraso.',
+      })
+    )
+    expect(meta.kind).toBe('assistant')
+    expect(meta.label).toBe('Asistente')
+    expect(meta.isActionOutbound).toBe(false)
+  })
+
   it('marca respuestas de boton del usuario', () => {
     const meta = resolveThreadMeta(
       msg({
