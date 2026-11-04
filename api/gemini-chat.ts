@@ -6,7 +6,11 @@ import {
 import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth.js'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
-import { DEFAULT_GEMINI_MODEL, normalizeGeminiModel } from './_shared/geminiModel.js'
+import {
+  geminiModelCandidates,
+  isGeminiCapacityStatus,
+  normalizeGeminiModel,
+} from './_shared/geminiModel.js'
 import { runGeminiToolLoop } from './_shared/geminiToolLoop.js'
 import {
   appendAssistantContexts,
@@ -138,47 +142,72 @@ export default defineApiHandler(async (req, res) => {
       hasBoardContext,
     })
 
-    const model = normalizeGeminiModel(process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL)
-    const url = `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
+    const candidates = geminiModelCandidates(process.env.GEMINI_MODEL)
     const generationConfig = {
       maxOutputTokens: readNumberEnv('GEMINI_MAX_TOKENS', DEFAULT_MAX_OUTPUT_TOKENS),
       temperature: readNumberEnv('GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE),
     }
+    const timeoutMs = readNumberEnv('GEMINI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS)
+    const contents = toGeminiContents(cleanMessages)
+    const actor = {
+      supabase: auth.supabase,
+      usuarioId: auth.usuarioId,
+      authUserId: auth.authUserId,
+      rol: auth.rol,
+    }
 
-    let loopResult: Awaited<ReturnType<typeof runGeminiToolLoop>>
-    try {
-      loopResult = await runGeminiToolLoop({
-        apiKey,
-        url,
-        model,
-        systemInstruction,
-        contents: toGeminiContents(cleanMessages),
-        generationConfig,
-        actor: {
-          supabase: auth.supabase,
-          usuarioId: auth.usuarioId,
-          authUserId: auth.authUserId,
-          rol: auth.rol,
-        },
-        timeoutMs: readNumberEnv('GEMINI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS),
-      })
-    } catch (error) {
-      const status = typeof (error as { status?: number }).status === 'number' ? (error as { status: number }).status : 0
-      const safeReason = readGeminiError(error instanceof Error ? error.message : '')
-      console.error('Gemini API Error:', { status, model, reason: safeReason })
-      if ([400, 401, 403, 404].includes(status)) {
-        return res.status(502).json({
-          error: safeReason
-            ? `Gemini rechazo la solicitud (${status}) con modelo "${model}": ${safeReason.slice(0, 180)}`
-            : `Gemini rechazo la solicitud (${status}) con modelo "${model}". Usa un ID tipo gemini-3.1-flash-lite (no el nombre de la UI).`,
+    let loopResult: Awaited<ReturnType<typeof runGeminiToolLoop>> | undefined
+    let model = candidates[0] ?? normalizeGeminiModel(process.env.GEMINI_MODEL)
+    let lastError: unknown
+
+    for (let i = 0; i < candidates.length; i++) {
+      model = candidates[i]!
+      const url = `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
+      try {
+        loopResult = await runGeminiToolLoop({
+          apiKey,
+          url,
+          model,
+          systemInstruction,
+          contents,
+          generationConfig,
+          actor,
+          timeoutMs,
         })
+        if (i > 0) {
+          console.warn('Gemini fallback model used', { model, attempted: candidates.slice(0, i + 1) })
+        }
+        break
+      } catch (error) {
+        lastError = error
+        const status =
+          typeof (error as { status?: number }).status === 'number' ? (error as { status: number }).status : 0
+        const safeReason = readGeminiError(error instanceof Error ? error.message : '')
+        console.error('Gemini API Error:', { status, model, reason: safeReason })
+        if ([400, 401, 403, 404].includes(status)) {
+          return res.status(502).json({
+            error: safeReason
+              ? `Gemini rechazo la solicitud (${status}) con modelo "${model}": ${safeReason.slice(0, 180)}`
+              : `Gemini rechazo la solicitud (${status}) con modelo "${model}". Usa un ID tipo gemini-3.5-flash-lite (no el nombre de la UI).`,
+          })
+        }
+        const hasMore = i < candidates.length - 1
+        if (isGeminiCapacityStatus(status) && hasMore) {
+          console.warn('Gemini capacity; trying next model', { model, status, next: candidates[i + 1] })
+          continue
+        }
+        if (isGeminiCapacityStatus(status)) {
+          return res.status(503).json({
+            error:
+              'Gemini esta saturado o limitando solicitudes. Intenta de nuevo en unos minutos.',
+          })
+        }
+        throw error
       }
-      if (status === 429) {
-        return res.status(503).json({
-          error: 'Gemini esta limitando las solicitudes. Intenta nuevamente en unos minutos.',
-        })
-      }
-      throw error
+    }
+
+    if (!loopResult) {
+      throw lastError instanceof Error ? lastError : new Error('gemini_failed')
     }
 
     if (loopResult.usage) {

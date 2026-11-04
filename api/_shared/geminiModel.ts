@@ -1,5 +1,12 @@
-/** Default estable si no hay GEMINI_MODEL. */
-export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite'
+/** Preferido cuando GEMINI_MODEL no está definido. */
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite'
+
+/** Fallbacks si el modelo preferido responde 429/500/503 (capacidad / saturación). */
+export const GEMINI_FALLBACK_MODELS = [
+  'gemini-3.5-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+] as const
 
 /**
  * Acepta IDs de API (`gemini-3.1-flash-lite`) y nombres de UI
@@ -21,4 +28,20 @@ export function normalizeGeminiModel(
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '')
   return slug || fallback
+}
+
+export function geminiModelCandidates(preferred?: string | null): string[] {
+  const primary = normalizeGeminiModel(preferred)
+  const seen = new Set<string>([primary])
+  const list = [primary]
+  for (const model of GEMINI_FALLBACK_MODELS) {
+    if (seen.has(model)) continue
+    seen.add(model)
+    list.push(model)
+  }
+  return list
+}
+
+export function isGeminiCapacityStatus(status: number): boolean {
+  return status === 429 || status === 500 || status === 503
 }

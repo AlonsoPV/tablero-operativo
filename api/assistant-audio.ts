@@ -10,7 +10,7 @@ import {
 } from './_shared/http.js'
 import { requireAssistantAuth } from './_shared/assistantAuth.js'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
-import { DEFAULT_GEMINI_MODEL, normalizeGeminiModel } from './_shared/geminiModel.js'
+import { geminiModelCandidates, isGeminiCapacityStatus } from './_shared/geminiModel.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
 
 export type AssistantAudioIntent = 'plan_actions' | 'advisory'
@@ -263,40 +263,50 @@ async function callGemini(system: string, user: string, signal: AbortSignal) {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error('missing_gemini')
 
-  const model = normalizeGeminiModel(readStringEnv('GEMINI_MODEL', DEFAULT_GEMINI_MODEL))
-  const url = `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
+  const candidates = geminiModelCandidates(readStringEnv('GEMINI_MODEL', ''))
+  let lastStatus = 0
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal,
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: 'user', parts: [{ text: user }] }],
-      generationConfig: {
-        maxOutputTokens: readNumberEnv('ASSISTANT_AUDIO_MAX_TOKENS', DEFAULT_MAX_TOKENS),
-        temperature: readNumberEnv('GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE),
-        responseMimeType: 'application/json',
-      },
-    }),
-  })
+  for (let i = 0; i < candidates.length; i++) {
+    const model = candidates[i]!
+    const url = `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
 
-  if (!response.ok) {
-    const errorText = await response.text()
-    console.error('assistant-audio Gemini error', response.status, errorText.slice(0, 400))
-    throw new Error(`gemini_${response.status}`)
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [{ text: user }] }],
+        generationConfig: {
+          maxOutputTokens: readNumberEnv('ASSISTANT_AUDIO_MAX_TOKENS', DEFAULT_MAX_TOKENS),
+          temperature: readNumberEnv('GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE),
+          responseMimeType: 'application/json',
+        },
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      lastStatus = response.status
+      console.error('assistant-audio Gemini error', model, response.status, errorText.slice(0, 400))
+      if (isGeminiCapacityStatus(response.status) && i < candidates.length - 1) continue
+      throw new Error(`gemini_${response.status}`)
+    }
+
+    const data = (await response.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+    }
+    const text = data.candidates?.[0]?.content?.parts
+      ?.map((part) => part.text)
+      .filter(Boolean)
+      .join('')
+      .trim()
+    if (!text) throw new Error('gemini_empty')
+    if (i > 0) console.warn('assistant-audio Gemini fallback model', { model })
+    return text
   }
 
-  const data = (await response.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
-  }
-  const text = data.candidates?.[0]?.content?.parts
-    ?.map((part) => part.text)
-    .filter(Boolean)
-    .join('')
-    .trim()
-  if (!text) throw new Error('gemini_empty')
-  return text
+  throw new Error(lastStatus ? `gemini_${lastStatus}` : 'gemini_failed')
 }
 
 function providerCode(error: unknown) {
