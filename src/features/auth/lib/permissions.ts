@@ -7,8 +7,8 @@
  * - user_roles.app_role = rol de aplicacion (admin / super_admin).
  */
 
-import { ROUTES } from '@/constants'
-import type { Usuario } from '@/types'
+import { ROUTES } from '../../../constants'
+import type { Usuario } from '../../../types'
 
 /** Roles que tienen privilegios de admin (spec 2.2). */
 const ADMIN_ROLES = ['DG', 'Sistemas', 'super_admin'] as const
