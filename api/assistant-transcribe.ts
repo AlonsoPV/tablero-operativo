@@ -10,6 +10,7 @@ import {
 } from './_shared/http.js'
 import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth.js'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
+import { normalizeGeminiModel } from './_shared/geminiModel.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
 
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
@@ -81,9 +82,9 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Formato de audio no soportado.' })
     }
 
-    const model = readStringEnv('GEMINI_TRANSCRIBE_MODEL', readStringEnv('GEMINI_MODEL', DEFAULT_MODEL)).replace(
-      /^models\//,
-      ''
+    const model = normalizeGeminiModel(
+      readStringEnv('GEMINI_TRANSCRIBE_MODEL', readStringEnv('GEMINI_MODEL', DEFAULT_MODEL)),
+      DEFAULT_MODEL,
     )
     const url = `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
     const controller = new AbortController()
