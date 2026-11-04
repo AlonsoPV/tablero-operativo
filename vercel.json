@@ -1,12 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
+  "framework": "vite",
   "buildCommand": "npm run vercel-build",
   "installCommand": "npm ci",
   "outputDirectory": "dist",
   "functions": {
     "api/*.ts": {
-      "includeFiles": "src/**",
       "maxDuration": 30
     }
   },

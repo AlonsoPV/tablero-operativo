@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "allowScripts": {
+    "esbuild": true
+  },
   "scripts": {
     "dev": "node --use-system-ca ./node_modules/vite/bin/vite.js",
     "dev:prod": "node --use-system-ca ./node_modules/vite/bin/vite.js --mode prodlocal",

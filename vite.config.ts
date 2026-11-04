@@ -6,6 +6,7 @@ import { localApiPlugin } from './vite.apiPlugin'
 export default defineConfig({
   plugins: [react(), localApiPlugin()],
   build: {
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
         manualChunks(id) {
