@@ -89,7 +89,7 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
     }
 
     const rate = checkDemoRateLimit(clientIp(req))
-    if (!rate.ok) {
+    if (rate.ok === false) {
       return res.status(429).json({
         error: `Demasiadas solicitudes. Espera ${rate.retryAfterSec}s.`,
       })

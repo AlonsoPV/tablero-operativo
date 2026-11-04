@@ -56,8 +56,8 @@ export function createUserClient(token: string): SupabaseClient {
   }
   return createClient(url, anon, {
     global: {
-      fetch: (input, init = {}) => {
-        const headers = new Headers(init.headers)
+      fetch: (input, init) => {
+        const headers = new Headers(init?.headers)
         headers.set('Authorization', `Bearer ${token}`)
         headers.set('apikey', anon)
         return fetch(input, { ...init, headers })

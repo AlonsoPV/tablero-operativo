@@ -134,8 +134,8 @@ function createUserClient(token: string) {
   }
   return createClient(url, anon, {
     global: {
-      fetch: (input, init = {}) => {
-        const headers = new Headers(init.headers)
+      fetch: (input, init) => {
+        const headers = new Headers(init?.headers)
         headers.set('Authorization', `Bearer ${token}`)
         headers.set('apikey', anon)
         return fetch(input, { ...init, headers })
@@ -338,7 +338,7 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       limit: 40,
       windowMs: 60_000,
     })
-    if (!rate.ok) {
+    if (rate.ok === false) {
       return res.status(429).json({
         error: `Demasiados turnos de Guia. Espera ${rate.retryAfterSec}s.`,
       })

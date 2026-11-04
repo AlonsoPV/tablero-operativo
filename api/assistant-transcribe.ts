@@ -56,7 +56,7 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       limit: RATE_LIMIT,
       windowMs: RATE_WINDOW_MS,
     })
-    if (!rate.ok) {
+    if (rate.ok === false) {
       return res.status(429).json({
         error: `Demasiadas transcripciones. Espera ${rate.retryAfterSec}s e intenta de nuevo.`,
       })
