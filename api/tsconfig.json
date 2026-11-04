@@ -12,10 +12,7 @@
     "moduleDetection": "force",
     "resolveJsonModule": true,
     "types": ["node"],
-    "baseUrl": "..",
-    "paths": {
-      "@/*": ["./src/*"]
-    }
+    "ignoreDeprecations": "6.0"
   },
   "include": ["./**/*.ts"],
   "exclude": ["./**/*.test.ts"]
