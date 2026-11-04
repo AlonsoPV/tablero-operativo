@@ -1,14 +1,9 @@
 import { accionCheckpointsService } from '@/services/accionCheckpoints.service'
 import { accionesService } from '@/services/acciones.service'
-import { todayWallClockCDMX } from '@/lib/dateUtils'
+import { addCalendarDays, todayWallClockCDMX } from '@/lib/dateUtils'
 import type { AssistantActionDraft } from '@/lib/assistantAudioClient'
 import type { AccionDiaria, PrioridadNc } from '@/types'
-
-function addDaysYmd(ymd: string, days: number): string {
-  const [year, month, day] = ymd.split('-').map(Number)
-  const date = new Date(Date.UTC(year, month - 1, day + days))
-  return date.toISOString().slice(0, 10)
-}
+import { parseDueDateHint } from '@/features/ai-support/parseWorkFacts'
 
 function mapPriority(priority: AssistantActionDraft['priority']): PrioridadNc {
   if (priority === 'P1_Alta') return 'P1_Critica'
@@ -39,6 +34,17 @@ function buildEvidence(draft: AssistantActionDraft) {
   return 'Evidencia de avance o cierre acordada'
 }
 
+export function resolveDraftSchedule(
+  draft: AssistantActionDraft,
+  todayYmd = todayWallClockCDMX()
+) {
+  const facts = parseDueDateHint(draft.dueDateHint, todayYmd)
+  return {
+    fecha: facts.dateYmd || addCalendarDays(todayYmd, 1),
+    hora_limite: facts.timeHm || '17:00',
+  }
+}
+
 export async function createActionFromDraft(
   draft: AssistantActionDraft,
   createdBy: string | null
@@ -47,16 +53,16 @@ export async function createActionFromDraft(
     throw new Error('No hay usuario activo para asignar la accion.')
   }
 
-  const tomorrow = addDaysYmd(todayWallClockCDMX(), 1)
   const title = draft.title.trim().slice(0, 70) || 'Accion del asistente'
+  const schedule = resolveDraftSchedule(draft)
 
   // En este tablero `responsable` es NOT NULL (no hay taskpool nulo como en What2Do).
   const created = await accionesService.create({
     titulo_accion: title,
     descripcion_accion: buildDescription(draft),
     evidencia_esperada: buildEvidence(draft),
-    fecha: tomorrow,
-    hora_limite: '17:00',
+    fecha: schedule.fecha,
+    hora_limite: schedule.hora_limite,
     estado: 'Pendiente',
     responsable: createdBy,
     prioridad: mapPriority(draft.priority),

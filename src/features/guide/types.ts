@@ -32,6 +32,23 @@ export type GuideMessage = {
   created_at: string
 }
 
+export type GuideCreatedWork = {
+  kind: 'action' | 'initiative'
+  id: string
+  title: string
+  keyResultTitle?: string | null
+  alreadyExisted?: boolean
+  error?: string
+  pending?: boolean
+  dueDateHint?: string | null
+  description?: string
+  objective?: string
+  evidenceExpected?: string
+  priority?: 'P1_Alta' | 'P2_Media' | 'P3_Baja'
+  activities?: string[]
+  ownerHint?: string | null
+}
+
 export type GuideJournalEntry = {
   id: string
   session_id: string
@@ -43,6 +60,8 @@ export type GuideJournalEntry = {
   reflection_question: string | null
   user_words: string | null
   agent_inferences: string | null
+  executive_report?: string | null
+  created_work?: GuideCreatedWork[] | null
   created_at: string
   updated_at: string
 }
@@ -53,12 +72,17 @@ export type GuideChatTurnResponse = {
   answer: string
   remaining_seconds: number
   sequence: number
+  createdWork?: GuideCreatedWork[]
 }
 
 export type GuideChatCloseResponse = {
   remaining_seconds: number
   journal: GuideJournalEntry | null
   status: GuideSessionStatus
+  createdWork?: GuideCreatedWork[]
+  pendingWork?: GuideCreatedWork[]
+  executiveReport?: string | null
+  workSummary?: string | null
 }
 
 export type GuideCompactMessage = {

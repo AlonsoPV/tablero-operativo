@@ -36,6 +36,10 @@ export const ROUTES = {
   MANUAL: '/manual',
   /** Asistente IA O2C (proxy Edge Functions → Lovable). */
   AI_ASSIST: '/asistente-ia',
+  /** Historial de conversaciones y resultados de Guia / Asistente. */
+  AI_HISTORY: '/asistente-ia/historial',
+  /** Bandeja de seguimiento WhatsApp (operadores). */
+  AI_WHATSAPP_SEGUIMIENTO: '/asistente-ia/seguimiento-whatsapp',
   /** Organigrama jerárquico de la organización. */
   ORG_CHART: '/organigrama',
   /** Plan de acción Scrum Master — acceso restringido por usuario. */
@@ -43,6 +47,7 @@ export const ROUTES = {
   SETTINGS: '/settings',
   SETTINGS_PROFILE: '/settings/profile',
   SETTINGS_REMINDERS: '/settings/reminders',
+  SETTINGS_WHATSAPP: '/settings/whatsapp',
   SETTINGS_USERS: '/settings/users',
   SETTINGS_USERS_DETAIL: '/settings/users/:id',
   SETTINGS_CATALOGS: '/settings/catalogs',

@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS public.guide_journal_entries (
   reflection_question text,
   user_words text,
   agent_inferences text,
+  executive_report text,
+  created_work jsonb NOT NULL DEFAULT '[]'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );

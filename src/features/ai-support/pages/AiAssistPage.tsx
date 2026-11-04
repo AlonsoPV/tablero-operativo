@@ -1,17 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import {
-  AlertTriangle,
   Bot,
-  CircleSlash,
-  HelpCircle,
   LayoutGrid,
   ListChecks,
   Loader2,
-  Heart,
   Mic,
-  MessagesSquare,
-  ScanSearch,
+  MicOff,
   Send,
   Target,
   Trash2,
@@ -30,11 +26,44 @@ import {
 import { cn } from '@/lib/utils'
 import { UNIFIED_ASSISTANT_MODE, assistantProfile } from '@/lib/assistantModes'
 import type { AiChatMessage } from '@/features/ai-support/types'
-import { buildBoardAssistantContext } from '@/features/ai-support/buildBoardAssistantContext'
+import type { BoardAssistantContextPayload } from '@/features/ai-support/buildBoardAssistantContext'
 import { buildOkrAssistantContext } from '@/features/ai-support/buildOkrAssistantContext'
 import { serializeAssistantKanbanContext } from '@/features/ai-support/assistantKanbanContext'
-import { AssistantVoicePanel } from '@/features/ai-support/components/AssistantVoicePanel'
+import {
+  buildOperationalSnapshot,
+  detectAssistantIntent,
+  sliceContextForIntent,
+  tryFactualAssistantReply,
+} from '@/features/ai-support/operationalContext'
+import { assistantOperationalContextService } from '@/features/ai-support/services/assistantOperationalContext.service'
+import {
+  buildAssistantBriefing,
+  buildAssistantQuickActions,
+  type AssistantQuickAction,
+} from '@/features/ai-support/assistantBriefing'
+import { AssistantBriefingPanel } from '@/features/ai-support/components/AssistantBriefingPanel'
+import { StructuredAssistantReply } from '@/features/ai-support/components/StructuredAssistantReply'
+import { AssistantProposalCard } from '@/features/ai-support/components/AssistantProposalCard'
+import { AssistantClarificationChips } from '@/features/ai-support/components/AssistantClarificationChips'
+import { ActionDraftList } from '@/features/ai-support/components/ActionDraftList'
+import { WorkIntentToggle } from '@/features/ai-support/components/WorkIntentToggle'
+import {
+  AssistantLaneChooser,
+  AssistantLaneSwitch,
+} from '@/features/ai-support/components/AssistantLaneChooser'
 import { GuidePanel } from '@/features/guide/components/GuidePanel'
+import { useSpeechRecognition } from '@/features/ai-support/useSpeechRecognition'
+import { getAssistantAuthHeaders } from '@/lib/assistantApiAuth'
+import { requestAssistantTextAnalysis } from '@/lib/assistantAudioClient'
+import {
+  looksLikeCreateWork,
+  looksLikeDraftCorrection,
+  resolveWriteIntent,
+  type AssistantLane,
+  type WriteIntent,
+} from '@/features/ai-support/writeIntent'
+import { buildCreateApprovalMessage } from '@/features/ai-support/createWorkReply'
+import { groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
 import { useAppRole } from '@/features/auth/hooks/useAppRole'
 import { canViewAllBoardData } from '@/features/auth/lib/permissions'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
@@ -56,11 +85,11 @@ const OPEN_ACTION_STATES = ['Pendiente', 'Hoy', 'En_Ejecucion', 'Bloqueado', 'Re
 const ANALYSIS_PROMPT =
   'Analiza mis acciones abiertas y OKRs. Dime que conviene optimizar primero y dame 3 recomendaciones ejecutivas.'
 const PORTFOLIO_PROMPTS = [
+  'Que tengo pendiente?',
+  'Que deberia priorizar hoy?',
+  'Como van mis OKRs?',
+  'Que esta retrasando al equipo?',
   ANALYSIS_PROMPT,
-  'Que acciones retrasadas o bloqueadas deberia atacar hoy?',
-  'Que OKRs conviene corregir para que midan resultado y no actividad?',
-  'Donde se desconectan mis acciones de los OKRs y que haria con ellas?',
-  'Donde hay cuellos de botella logisticos u operativos y que KPI moveria primero?',
 ]
 const ACTION_PROMPTS = [
   'Valida si esta accion esta lista para cerrarse y dime que falta.',
@@ -107,10 +136,15 @@ type ActionContext = {
 
 async function readChatResponse(response: Response) {
   const text = await response.text()
-  if (!text.trim()) return {} as { answer?: string; error?: string }
+  if (!text.trim()) return {} as { answer?: string; error?: string; proposals?: unknown; clarification?: unknown }
 
   try {
-    return JSON.parse(text) as { answer?: string; error?: string }
+    return JSON.parse(text) as {
+      answer?: string
+      error?: string
+      proposals?: AiChatMessage['proposals']
+      clarification?: AiChatMessage['clarification']
+    }
   } catch {
     return { error: text.trim().slice(0, 220) }
   }
@@ -127,16 +161,15 @@ async function sendMessage({
   messages: AiChatMessage[]
   actionContext?: ActionContext
   okrContext?: ReturnType<typeof buildOkrAssistantContext>
-  boardContext?: ReturnType<typeof buildBoardAssistantContext>
+  boardContext?: BoardAssistantContextPayload
 }) {
+  const headers = await getAssistantAuthHeaders()
   const response = await fetch('/api/gemini-chat', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
       mode,
-      messages,
+      messages: messages.map(({ role, content }) => ({ role, content })),
       actionContext,
       okrContext,
       boardContext,
@@ -146,6 +179,12 @@ async function sendMessage({
   const data = await readChatResponse(response)
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(data?.error || 'No autorizado para usar el Asistente IA.')
+    }
+    if (response.status === 429) {
+      throw new Error(data?.error || 'Demasiadas consultas. Espera un momento e intenta de nuevo.')
+    }
     if (response.status === 404) {
       throw new Error(
         'No se encontro el endpoint /api/gemini-chat. En local usa Vercel dev o prueba desde el despliegue de Vercel.'
@@ -155,7 +194,11 @@ async function sendMessage({
     throw new Error(data?.error || 'No se pudo generar una respuesta.')
   }
 
-  return data.answer || 'No pude generar una respuesta en este momento.'
+  return {
+    answer: data.answer || 'No pude generar una respuesta en este momento.',
+    proposals: data.proposals,
+    clarification: data.clarification,
+  }
 }
 
 function formatActionOption(action: AccionDiaria) {
@@ -207,7 +250,7 @@ function CompactToggle({
       type="button"
       onClick={onToggle}
       className={cn(
-        'shrink-0 rounded-md px-2 py-1 text-[11px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         active
           ? 'bg-primary/10 text-primary hover:bg-primary/15'
           : 'bg-muted text-muted-foreground hover:text-foreground'
@@ -218,17 +261,160 @@ function CompactToggle({
   )
 }
 
+type AssistantContentBlock =
+  | { type: 'heading'; text: string }
+  | { type: 'paragraph'; text: string }
+  | { type: 'list'; items: string[] }
+
+function normalizeAssistantLine(line: string) {
+  return line
+    .replace(/^\*\*(.+)\*\*:?\s*$/, '$1')
+    .replace(/^#+\s+/, '')
+    .replace(/\*\*/g, '')
+    .trim()
+}
+
+function isAssistantHeading(line: string) {
+  const clean = normalizeAssistantLine(line)
+  if (!clean || clean.length > 56) return false
+  if (/^(diagn[oó]stico|situaci[oó]n|resumen|recomendaci[oó]nes?|pr[oó]ximos pasos|acciones?|riesgos?|prioridades?|hallazgos?|hallazgo|evidencia|hecho|siguiente accion|conclusi[oó]n|qu[eé] hacer|siguiente|okr|tablero)\b/i.test(clean)) {
+    return true
+  }
+  return /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ][\wÁÉÍÓÚÜÑáéíóúüñ /-]{1,40}:$/.test(clean)
+}
+
+function parseAssistantContent(raw: string): AssistantContentBlock[] {
+  const lines = raw.replace(/\r\n/g, '\n').split('\n')
+  const blocks: AssistantContentBlock[] = []
+  let paragraph: string[] = []
+  let listItems: string[] = []
+
+  const flushParagraph = () => {
+    const text = paragraph.join(' ').replace(/\s+/g, ' ').trim()
+    paragraph = []
+    if (text) blocks.push({ type: 'paragraph', text })
+  }
+  const flushList = () => {
+    if (listItems.length === 0) return
+    blocks.push({ type: 'list', items: listItems })
+    listItems = []
+  }
+
+  for (const original of lines) {
+    const line = original.trim()
+    if (!line) {
+      flushList()
+      flushParagraph()
+      continue
+    }
+
+    const listMatch = line.match(/^(?:[-•*]|\d+[.)])\s+(.+)$/)
+    if (listMatch?.[1]) {
+      flushParagraph()
+      listItems.push(normalizeAssistantLine(listMatch[1]))
+      continue
+    }
+
+    if (isAssistantHeading(line)) {
+      flushList()
+      flushParagraph()
+      blocks.push({
+        type: 'heading',
+        text: normalizeAssistantLine(line).replace(/:$/, ''),
+      })
+      continue
+    }
+
+    const inlineHeading = line.match(
+      /^((?:Diagn[oó]stico|Situaci[oó]n|Resumen|Recomendaci[oó]nes?|Pr[oó]ximos pasos|Acciones?|Riesgos?|Prioridades?|Hallazgos?|Hallazgo|Evidencia|Siguiente accion|Hecho|Conclusi[oó]n|Qu[eé] hacer))\s*:\s*(.+)$/i
+    )
+    if (inlineHeading?.[1] && inlineHeading[2]) {
+      flushList()
+      flushParagraph()
+      blocks.push({ type: 'heading', text: inlineHeading[1] })
+      paragraph.push(inlineHeading[2])
+      continue
+    }
+
+    flushList()
+    paragraph.push(normalizeAssistantLine(line))
+  }
+
+  flushList()
+  flushParagraph()
+  return blocks.length > 0 ? blocks : [{ type: 'paragraph', text: raw.trim() }]
+}
+
+function AssistantMessageBody({
+  content,
+  compact,
+}: {
+  content: string
+  compact?: boolean
+}) {
+  const blocks = parseAssistantContent(content)
+  return (
+    <div className={cn('space-y-2.5', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
+      {blocks.map((block, index) => {
+        if (block.type === 'heading') {
+          return (
+            <p
+              key={`h-${index}`}
+              className="text-[11px] font-semibold uppercase tracking-[0.06em] text-primary"
+            >
+              {block.text}
+            </p>
+          )
+        }
+        if (block.type === 'list') {
+          return (
+            <ul key={`l-${index}`} className="space-y-1.5 pl-0">
+              {block.items.map((item, itemIndex) => (
+                <li
+                  key={`${item}-${itemIndex}`}
+                  className="flex gap-2 rounded-xl bg-muted/35 px-2.5 py-1.5 text-[12px] leading-5 text-foreground/90"
+                >
+                  <span className="mt-0.5 inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+                    {itemIndex + 1}
+                  </span>
+                  <span className="min-w-0">{item}</span>
+                </li>
+              ))}
+            </ul>
+          )
+        }
+        return (
+          <p key={`p-${index}`} className="text-foreground/90">
+            {block.text}
+          </p>
+        )
+      })}
+    </div>
+  )
+}
+
 type AiAssistPageProps = {
   /** `popup` = panel flotante compacto; `page` = pantalla completa. */
   variant?: 'page' | 'popup'
 }
 
 type FocusKind = 'portfolio' | 'action' | 'okr'
-type SurfaceKind = 'chat' | 'voice' | 'guide'
+
+function laneFromSearch(value: string | null): AssistantLane | null {
+  if (value === 'talk' || value === 'write') return value
+  return null
+}
 
 export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
   const isPopup = variant === 'popup'
-  const [surface, setSurface] = useState<SurfaceKind>('chat')
+  const [searchParams] = useSearchParams()
+  const [lane, setLane] = useState<AssistantLane | null>(() => laneFromSearch(searchParams.get('lane')))
+
+  useEffect(() => {
+    const fromUrl = laneFromSearch(searchParams.get('lane'))
+    if (fromUrl) setLane(fromUrl)
+  }, [searchParams])
+  const [writeIntent, setWriteIntent] = useState<WriteIntent>('consult')
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null)
   const [actionContextEnabled, setActionContextEnabled] = useState(true)
   const [selectedObjectiveId, setSelectedObjectiveId] = useState<string | null>(null)
@@ -240,6 +426,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const queryClient = useQueryClient()
   const { data: currentUser } = useCurrentUser()
   const { data: appRole } = useAppRole()
   const canSeeOkrs = useCanSeeOkrTags()
@@ -252,6 +439,16 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     },
     { enabled: Boolean(currentUser?.id) }
   )
+  const operationalLoad = useQuery({
+    queryKey: ['assistant-operational-context', currentUser?.id, seesAllBoard],
+    queryFn: () =>
+      assistantOperationalContextService.loadForUser({
+        usuarioId: currentUser!.id,
+        seesAllBoard,
+      }),
+    enabled: Boolean(currentUser?.id),
+    staleTime: 30_000,
+  })
   const okrDashboard = useQuery({
     queryKey: ['okrs'],
     queryFn: okrService.dashboard,
@@ -294,9 +491,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
   const { data: selectedCheckpoints = [], isLoading: checkpointsLoading } = useAccionCheckpoints(
     selectedAction?.id
   )
-  const { data: selectedComments = [], isLoading: commentsLoading } = useAccionComentarios(
-    selectedAction?.id
-  )
+  const { data: selectedComments = [] } = useAccionComentarios(selectedAction?.id)
   const activeActionContext = Boolean(selectedAction && actionContextEnabled)
   const selectedObjective = useMemo(
     () => okrDashboard.data?.objectives.find((item) => item.id === selectedObjectiveId) ?? null,
@@ -336,49 +531,90 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     selectedObjective,
   ])
   const activeOkrContext = Boolean(activeOkrContextPayload)
-  const boardContext = useMemo(
-    () =>
-      buildBoardAssistantContext(
-        userOpenActions,
-        priorities,
-        canSeeOkrs ? okrDashboard.data : null,
-        todayWallClockCDMX()
-      ),
-    [canSeeOkrs, okrDashboard.data, priorities, userOpenActions]
-  )
+  const operationalSnapshot = useMemo(() => {
+    if (!currentUser?.id) return null
+    const openActions = operationalLoad.data?.openActions ?? userOpenActions
+    const areas = [
+      ...(currentUser.area ? [currentUser.area] : []),
+      ...(currentUser.areas ?? []),
+    ].filter((value, index, all) => Boolean(value) && all.indexOf(value) === index)
+    return buildOperationalSnapshot({
+      usuarioId: currentUser.id,
+      rol: currentUser.rol ?? null,
+      areas,
+      seesAllBoard,
+      canSeeOkrs,
+      openActions,
+      pendingVerificationActions: operationalLoad.data?.pendingVerificationActions ?? [],
+      priorities,
+      okrData: canSeeOkrs ? okrDashboard.data : null,
+      today: todayWallClockCDMX(),
+      fetchedAt: operationalLoad.data?.fetchedAt,
+    })
+  }, [
+    canSeeOkrs,
+    currentUser,
+    okrDashboard.data,
+    operationalLoad.data,
+    priorities,
+    seesAllBoard,
+    userOpenActions,
+  ])
+  const boardContext = operationalSnapshot?.board ?? null
   const voiceContext = useMemo(
-    () => serializeAssistantKanbanContext(userOpenActions, boardContext),
-    [boardContext, userOpenActions]
+    () =>
+      serializeAssistantKanbanContext(
+        operationalLoad.data?.openActions ?? userOpenActions,
+        boardContext
+      ),
+    [boardContext, operationalLoad.data?.openActions, userOpenActions]
   )
-  const voiceContextHints = useMemo(() => {
-    const hints = ['Kanban']
-    if (userOpenActions.length > 0) hints.push(`${userOpenActions.length} abiertas`)
-    if (activeActionContext) hints.push('Accion')
-    if (activeOkrContext) hints.push('OKR')
-    return hints
-  }, [activeActionContext, activeOkrContext, userOpenActions.length])
   const suggestionChips = activeOkrContext
     ? [...OKR_PROMPTS, PORTFOLIO_PROMPTS[0]]
     : activeActionContext
       ? [...ACTION_PROMPTS, PORTFOLIO_PROMPTS[0]]
       : PORTFOLIO_PROMPTS
 
-  const welcomeMessage = isPopup
-    ? focusKind === 'action'
-      ? selectedAction
-        ? `Analizando la accion "${selectedAction.titulo_accion}". Que quieres validar?`
-        : 'Elige una accion abierta. Puedo ayudarte a cerrarla, desbloquearla o priorizarla.'
-      : focusKind === 'okr'
-        ? selectedObjective
-          ? `Analizando el OKR "${selectedObjective.nombre_okr}". Que quieres diagnosticar?`
-          : 'Elige un OKR. Puedo evaluar objetivo, KRs e iniciativas.'
-        : 'Listo para priorizar el tablero, validar acciones, diagnosticar OKRs y revisar logistica. Usa Analizar o elige Accion/OKR.'
-    : assistantProfile.welcome
-
-  const visibleMessages = useMemo(
-    () => [{ role: 'assistant' as const, content: welcomeMessage }, ...messages],
-    [messages, welcomeMessage]
+  const briefing = useMemo(
+    () =>
+      buildAssistantBriefing({
+        userName: currentUser?.nombre,
+        snapshot: operationalSnapshot,
+        loading: operationalLoad.isLoading || actionsLoading,
+      }),
+    [actionsLoading, currentUser?.nombre, operationalLoad.isLoading, operationalSnapshot]
   )
+  const quickActions = useMemo(
+    () =>
+      buildAssistantQuickActions({
+        snapshot: operationalSnapshot,
+        canSeeOkrs,
+      }),
+    [canSeeOkrs, operationalSnapshot]
+  )
+
+  const focusWelcome = useMemo(() => {
+    if (focusKind === 'action') {
+      return selectedAction
+        ? `Analizando la accion "${selectedAction.titulo_accion}". Dime que quieres validar o cerrar.`
+        : 'Elige una accion abierta arriba. Puedo ayudarte a cerrarla, desbloquearla o priorizarla.'
+    }
+    if (focusKind === 'okr') {
+      return selectedObjective
+        ? `Analizando el OKR "${selectedObjective.nombre_okr}". Dime que quieres diagnosticar.`
+        : 'Elige un OKR arriba. Puedo evaluar el objetivo, sus KRs y las iniciativas.'
+    }
+    return null
+  }, [focusKind, selectedAction, selectedObjective])
+
+  const showBriefing = messages.length === 0 && !focusWelcome
+  const visibleMessages = useMemo(() => {
+    if (messages.length > 0) return messages
+    if (focusWelcome) {
+      return [{ role: 'assistant' as const, content: focusWelcome }]
+    }
+    return []
+  }, [focusWelcome, messages])
 
   const clearChat = () => {
     setMessages([])
@@ -438,7 +674,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, loading, welcomeMessage])
+  }, [messages, loading, showBriefing])
 
   const handleSend = async (prompt = input) => {
     const trimmed = prompt.trim()
@@ -451,19 +687,101 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     setMessages(nextMessages)
     setInput('')
     setLoading(true)
+    const previousAnalysis = [...messages]
+      .reverse()
+      .find((message) => message.role === 'assistant' && (message.analysis?.actionDrafts.length ?? 0) > 0)
+      ?.analysis
+    const isCorrection = Boolean(
+      previousAnalysis &&
+        !looksLikeCreateWork(trimmed) &&
+        (looksLikeDraftCorrection(trimmed) || writeIntent === 'create')
+    )
+    const intent = isCorrection ? 'create' : resolveWriteIntent(trimmed, writeIntent)
 
     try {
-      const answer = await sendMessage({
-        mode: UNIFIED_ASSISTANT_MODE,
-        messages: nextMessages,
-        actionContext: activeActionContext
-          ? toActionContext(selectedAction!, selectedCheckpoints, selectedComments)
-          : undefined,
-        okrContext: activeOkrContextPayload ?? undefined,
-        boardContext,
-      })
+      if (intent === 'create') {
+        const today = todayWallClockCDMX()
+        const sourceText = isCorrection ? previousAnalysis!.transcript || trimmed : trimmed
+        const correctionText = isCorrection ? trimmed : ''
+        const previousHint = previousAnalysis?.actionDrafts[0]?.dueDateHint ?? null
+        let result = isCorrection
+          ? groundActionDrafts(previousAnalysis!, sourceText, correctionText, today)
+          : null
+        const dateCorrected =
+          Boolean(result) && result!.actionDrafts[0]?.dueDateHint !== previousHint
 
-      setMessages([...nextMessages, { role: 'assistant' as const, content: answer }].slice(-MAX_MESSAGES))
+        if (!dateCorrected) {
+          const raw = await requestAssistantTextAnalysis({
+            text: sourceText,
+            context: voiceContext,
+            clarifications: correctionText || undefined,
+            intent: 'plan_actions',
+          })
+          result = groundActionDrafts(raw, sourceText, correctionText, today)
+        }
+
+        const analysis = {
+          ...result!,
+          transcript: sourceText,
+        }
+        const content = buildCreateApprovalMessage(analysis)
+        setMessages(
+          [...nextMessages, { role: 'assistant' as const, content, analysis }].slice(-MAX_MESSAGES)
+        )
+      } else {
+        const intent = detectAssistantIntent(trimmed, {
+          hasSelectedAction: activeActionContext,
+          hasSelectedOkr: activeOkrContext,
+        })
+        const hasExplicitFocus = activeActionContext || activeOkrContext
+
+        if (operationalSnapshot) {
+          const factual = tryFactualAssistantReply(trimmed, operationalSnapshot, intent)
+          if (factual) {
+            setMessages(
+              [
+                ...nextMessages,
+                {
+                  role: 'assistant' as const,
+                  content: factual.content,
+                  structured: factual.structured,
+                },
+              ].slice(-MAX_MESSAGES)
+            )
+            return
+          }
+        }
+
+        const sliced = operationalSnapshot
+          ? sliceContextForIntent(operationalSnapshot, intent, { hasExplicitFocus })
+          : null
+        const reply = await sendMessage({
+          mode: UNIFIED_ASSISTANT_MODE,
+          messages: nextMessages,
+          actionContext:
+            activeActionContext || intent === 'selected_action'
+              ? selectedAction
+                ? toActionContext(selectedAction, selectedCheckpoints, selectedComments)
+                : undefined
+              : undefined,
+          okrContext:
+            activeOkrContext || intent === 'selected_okr' || (intent === 'okrs' && sliced?.includeOkrs)
+              ? activeOkrContextPayload ?? undefined
+              : undefined,
+          boardContext: sliced?.boardContext ?? boardContext ?? undefined,
+        })
+        setMessages(
+          [
+            ...nextMessages,
+            {
+              role: 'assistant' as const,
+              content: reply.answer,
+              proposals: reply.proposals,
+              clarification: reply.clarification,
+            },
+          ].slice(-MAX_MESSAGES)
+        )
+      }
     } catch (error) {
       const message =
         error instanceof Error
@@ -483,154 +801,170 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     }
   }
 
+  const dictationPrefixRef = useRef('')
+  const speech = useSpeechRecognition({
+    onTranscript: (transcript) => {
+      const heard = transcript.trim()
+      if (!heard) return
+      setInput(`${dictationPrefixRef.current}${heard}`)
+    },
+    onFinalTranscript: (transcript) => {
+      const heard = transcript.trim()
+      if (!heard) return
+      setInput(`${dictationPrefixRef.current}${heard}`)
+    },
+  })
+
   const checklistDone = selectedCheckpoints.filter((item) => item.completado).length
-  const popupQuickChips = activeOkrContext
-    ? [
-        { label: 'Calidad OKR', prompt: OKR_PROMPTS[0] },
-        { label: 'KRs vs tareas', prompt: OKR_PROMPTS[1] },
-      ]
-    : activeActionContext
-      ? [
-          { label: 'Listo para cerrar?', prompt: ACTION_PROMPTS[0] },
-          { label: 'Plan de hoy', prompt: ACTION_PROMPTS[2] },
-        ]
-      : focusKind === 'portfolio'
-        ? [
-            { label: 'Priorizar hoy', prompt: ANALYSIS_PROMPT },
-            { label: 'Atacar bloqueos', prompt: PORTFOLIO_PROMPTS[1] },
-          ]
-        : []
   const inputId = isPopup ? 'ai-assistant-popup-input' : 'ai-assistant-input'
-  const canAnalyze = !loading && (userOpenActions.length > 0 || canSeeOkrs)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const surfaceTabs = (
-    <div
-      className={cn(
-        'flex shrink-0 gap-1 rounded-lg border border-border/70 bg-muted/30 p-1',
-        isPopup && 'rounded-md p-0.5'
-      )}
-      role="tablist"
-      aria-label="Modo del asistente"
-    >
-      {(
-        [
-          { id: 'chat' as const, label: 'Chat', icon: MessagesSquare },
-          { id: 'voice' as const, label: 'Voz / acciones', icon: Mic },
-          { id: 'guide' as const, label: 'Guia', icon: Heart },
-        ] as const
-      ).map((option) => {
-        const active = surface === option.id
-        const Icon = option.icon
-        return (
-          <button
-            key={option.id}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => setSurface(option.id)}
-            className={cn(
-              'inline-flex flex-1 items-center justify-center gap-1.5 rounded-md font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              isPopup ? 'min-h-8 px-1.5 text-[11px]' : 'min-h-9 px-2 text-xs',
-              active
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            )}
-          >
-            <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            {option.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-
-  const analyzePrompt = activeOkrContext
-    ? OKR_PROMPTS[0]
-    : activeActionContext
-      ? ACTION_PROMPTS[0]
-      : ANALYSIS_PROMPT
-
-  const analyzeDisabled =
-    !canAnalyze ||
-    (focusKind === 'action' && !selectedAction) ||
-    (focusKind === 'okr' && !selectedObjective)
-
-  const runAnalyze = () => {
-    if (surface !== 'chat') setSurface('chat')
-    void handleSend(analyzePrompt)
+  const handleQuickAction = (action: AssistantQuickAction) => {
+    if (action.mode === 'create') {
+      setWriteIntent('create')
+      setInput('')
+      window.setTimeout(() => inputRef.current?.focus(), 0)
+      return
+    }
+    setWriteIntent('consult')
+    if (action.prompt) void handleSend(action.prompt)
   }
-
-  const popupComposerTools = (
-    <>
-      <div className="min-w-0 flex-1">{surfaceTabs}</div>
-      <Button
-        type="button"
-        size="sm"
-        className="h-8 shrink-0 gap-1 px-2 text-[11px] shadow-sm"
-        onClick={runAnalyze}
-        disabled={analyzeDisabled}
-      >
-        <ScanSearch className="h-3.5 w-3.5" aria-hidden />
-        Analizar
-      </Button>
-    </>
-  )
-
-  const voicePanel = (
-    <AssistantVoicePanel
-      context={voiceContext}
-      contextHints={voiceContextHints}
-      compact={isPopup}
-      createdBy={currentUser?.id ?? null}
-      className="min-h-0 flex-1"
-      composerLead={isPopup ? popupComposerTools : undefined}
-    />
-  )
 
   const guidePanel = (
     <GuidePanel
       usuarioId={currentUser?.id ?? null}
       compact={isPopup}
       className="min-h-0 flex-1"
-      composerLead={isPopup ? popupComposerTools : undefined}
     />
   )
 
   const chatThread = (
     <div
       className={cn(
-        'min-h-0 flex-1 space-y-2 overflow-y-auto bg-muted/15',
-        isPopup ? 'px-2.5 py-2' : 'px-3 py-3'
+        'min-h-0 flex-1 space-y-3 overflow-y-auto',
+        isPopup
+          ? 'bg-[linear-gradient(180deg,hsl(var(--muted)/0.35)_0%,hsl(var(--background))_48%)] px-3 py-3'
+          : 'relative px-4 py-4 sm:px-5'
       )}
       aria-live="polite"
     >
-      {visibleMessages.map((message, index) => (
+      {showBriefing ? (
         <div
-          key={`${message.role}-${index}`}
           className={cn(
-            'rounded-lg border whitespace-pre-wrap',
             isPopup
-              ? 'max-w-[96%] px-2.5 py-1.5 text-[13px] leading-snug shadow-sm'
-              : 'max-w-[94%] px-3 py-2 text-sm leading-5 sm:max-w-[85%]',
-            message.role === 'user'
-              ? 'ml-auto border-primary/20 bg-primary/10 text-foreground'
-              : 'mr-auto border-border/70 bg-background text-foreground'
+              ? 'rounded-2xl bg-card/90 px-3 py-3 ring-1 ring-border/45'
+              : 'rounded-2xl bg-background/85 px-3.5 py-3.5 ring-1 ring-border/40 sm:px-4'
           )}
         >
-          {message.content}
+          <AssistantBriefingPanel
+            briefing={briefing}
+            actions={quickActions}
+            loading={operationalLoad.isLoading || actionsLoading}
+            compact={isPopup}
+            onAction={handleQuickAction}
+          />
+        </div>
+      ) : null}
+
+      {visibleMessages.map((message, index) => (
+        <div key={`${message.role}-${index}`} className="space-y-2">
+          <div
+            className={cn(
+              'flex items-end gap-2',
+              message.role === 'user' ? 'justify-end' : 'justify-start'
+            )}
+          >
+            {message.role === 'assistant' && !isPopup ? (
+              <span className="mb-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Bot className="h-3.5 w-3.5" aria-hidden />
+              </span>
+            ) : null}
+            <div
+              className={cn(
+                message.role === 'user'
+                  ? isPopup
+                    ? 'max-w-[92%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-primary px-3 py-2 text-[13px] leading-5 text-primary-foreground shadow-sm'
+                    : 'max-w-[88%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-primary px-3.5 py-2.5 text-sm leading-5 text-primary-foreground shadow-[0_10px_24px_-14px_hsl(var(--primary)/0.65)] sm:max-w-[80%]'
+                  : isPopup
+                    ? 'w-full max-w-[95%] rounded-2xl rounded-bl-md bg-card px-3 py-2.5 text-foreground shadow-sm ring-1 ring-border/45'
+                    : 'w-full max-w-[90%] rounded-2xl rounded-bl-md bg-background/90 px-3.5 py-3 text-foreground shadow-sm ring-1 ring-border/40 sm:max-w-[82%]'
+              )}
+            >
+              {message.role === 'assistant' ? (
+                message.structured ? (
+                  <StructuredAssistantReply reply={message.structured} compact={isPopup} />
+                ) : (
+                  <AssistantMessageBody content={message.content} compact={isPopup} />
+                )
+              ) : (
+                message.content
+              )}
+              {message.role === 'assistant' && message.clarification ? (
+                <AssistantClarificationChips
+                  clarification={message.clarification}
+                  compact={isPopup}
+                  onSelect={(label) => void handleSend(label)}
+                />
+              ) : null}
+              {message.role === 'assistant' && message.proposals?.length
+                ? message.proposals.map((proposal) => (
+                    <AssistantProposalCard
+                      key={proposal.id}
+                      proposal={proposal}
+                      compact={isPopup}
+                      onResolved={(status) => {
+                        if (status === 'confirmed') {
+                          void queryClient.invalidateQueries({ queryKey: ['acciones'] })
+                          void queryClient.invalidateQueries({
+                            queryKey: ['assistant-operational-context'],
+                          })
+                        }
+                      }}
+                    />
+                  ))
+                : null}
+              {message.role === 'assistant' && message.analysis ? (
+                <div className="mt-3 space-y-2 border-t border-border/50 pt-2.5">
+                  {message.analysis.nextSteps.length > 0 && message.analysis.actionDrafts.length === 0 ? (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-primary">
+                        Proximos pasos
+                      </p>
+                      <ul className="space-y-1.5">
+                        {message.analysis.nextSteps.slice(0, 3).map((step, stepIndex) => (
+                          <li
+                            key={step}
+                            className="flex gap-2 rounded-xl bg-muted/35 px-2.5 py-1.5 text-[12px] leading-5 text-foreground/90"
+                          >
+                            <span className="mt-0.5 inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+                              {stepIndex + 1}
+                            </span>
+                            <span className="min-w-0">{step}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  <ActionDraftList
+                    result={message.analysis}
+                    createdBy={currentUser?.id ?? null}
+                    compact={isPopup}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
       ))}
       {loading ? (
         <div
           className={cn(
-            'mr-auto flex items-center gap-2 rounded-lg border border-border/70 bg-background text-muted-foreground',
-            isPopup
-              ? 'max-w-[96%] px-2.5 py-1.5 text-[13px]'
-              : 'max-w-[94%] px-3 py-2 text-sm'
+            'flex items-center gap-2 text-sm text-muted-foreground',
+            !isPopup && 'pl-9'
           )}
         >
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-          Analizando...
+          Pensando…
         </div>
       ) : null}
       <div ref={chatEndRef} />
@@ -638,83 +972,138 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
   )
 
   const composer = (
-    <div className={cn('shrink-0 space-y-2 border-t border-border/70 bg-card', isPopup ? 'p-2' : 'p-3')}>
-      <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 [scrollbar-width:thin]">
-        {(isPopup ? popupQuickChips.map((chip) => chip.label) : suggestionChips).map((suggestion, index) => {
-          const prompt = isPopup ? popupQuickChips[index]!.prompt : suggestion
-          const label = suggestion
-          return (
-          <button
-            key={`${label}-${index}`}
-            type="button"
-            onClick={() => (isPopup ? void handleSend(prompt) : setInput(suggestion))}
-            className={cn(
-              'shrink-0 truncate rounded-full border bg-background transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              isPopup ? 'max-w-none px-2 py-1 text-[10px]' : 'max-w-[16rem] px-2.5 py-1 text-[11px]',
-              activeOkrContext
-                ? 'border-primary/30 text-primary hover:bg-primary/10'
-                : activeActionContext
-                  ? 'border-red-500/30 text-red-800 hover:bg-red-500/10 dark:text-red-200'
-                  : 'border-border text-muted-foreground hover:text-foreground'
-            )}
-            disabled={loading}
-          >
-            {label}
-          </button>
-          )
-        })}
-      </div>
-      <Label htmlFor={inputId} className="sr-only">
-        {activeOkrContext
-          ? 'Pregunta sobre el OKR seleccionado'
-          : activeActionContext
-            ? 'Pregunta sobre la accion seleccionada'
-            : 'Analiza acciones y OKRs'}
-      </Label>
-      <div className="flex flex-wrap items-end gap-2">
-        {isPopup ? <div className="flex w-full min-w-0 items-center gap-1">{popupComposerTools}</div> : null}
-        <textarea
-          id={inputId}
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder={
-            activeOkrContext
-              ? 'Este KR mide resultado o actividad?'
-              : activeActionContext
-                ? 'Que falta para cerrar?'
-                : 'Que optimizo primero?'
-          }
-          rows={isPopup ? 1 : 2}
+    <div
+      className={cn(
+        'shrink-0',
+        isPopup
+          ? 'space-y-2 border-t border-border/50 bg-card/90 p-2.5 backdrop-blur-sm'
+          : 'bg-gradient-to-t from-background via-background/95 to-transparent px-3 pb-3 pt-1.5 sm:px-4'
+      )}
+    >
+      <div
+        className={cn(
+          'space-y-1.5',
+          !isPopup &&
+            'rounded-2xl bg-background/90 p-2 shadow-[0_14px_30px_-22px_rgba(15,23,42,0.4)] ring-1 ring-border/50 backdrop-blur-sm'
+        )}
+      >
+        {!isPopup ? (
+          <div className="flex items-center gap-1.5">
+            <WorkIntentToggle value={writeIntent} onChange={setWriteIntent} />
+            <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
+              <div className="flex w-max gap-1">
+                {suggestionChips.slice(0, 3).map((suggestion, index) => (
+                  <button
+                    key={`${suggestion}-${index}`}
+                    type="button"
+                    onClick={() => setInput(suggestion)}
+                    className={cn(
+                      'max-w-[11rem] shrink-0 truncate rounded-full px-2 py-1 text-[10px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      activeOkrContext
+                        ? 'bg-primary/10 text-primary hover:bg-primary/15'
+                        : activeActionContext
+                          ? 'bg-red-500/10 text-red-800 hover:bg-red-500/15 dark:text-red-200'
+                          : 'bg-muted/55 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    )}
+                    disabled={loading}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
+        <Label htmlFor={inputId} className="sr-only">
+          {activeOkrContext
+            ? 'Pregunta sobre el OKR seleccionado'
+            : activeActionContext
+              ? 'Pregunta sobre la accion seleccionada'
+              : 'Analiza acciones y OKRs'}
+        </Label>
+        {speech.listening ? (
+          <p className="text-[11px] text-primary">
+            Escuchando… {speech.seconds}s. Habla y pulsa el microfono para dejar el texto
+            {speech.interimText ? ` · ${speech.interimText}` : ''}
+          </p>
+        ) : null}
+        {speech.transcribing ? (
+          <p className="text-[11px] text-primary">Transcribiendo lo que dijiste…</p>
+        ) : null}
+        {speech.error ? (
+          <p className="text-[11px] text-amber-800 dark:text-amber-200">{speech.error}</p>
+        ) : null}
+        <div
           className={cn(
-            'flex-1 resize-none rounded-lg border border-input bg-background outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70',
+            'flex items-end gap-1.5',
             isPopup
-              ? 'max-h-20 min-h-9 px-2.5 py-2 text-[13px]'
-              : 'max-h-28 min-h-11 px-3 py-2 text-sm'
+              ? 'rounded-2xl border border-border/60 bg-background p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]'
+              : 'rounded-xl bg-muted/35 p-0.5'
           )}
-          disabled={loading}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              if (isPopup || event.ctrlKey || event.metaKey) {
+        >
+          {speech.supported ? (
+            <Button
+              type="button"
+              variant={speech.listening ? 'secondary' : 'ghost'}
+              className={cn('shrink-0 rounded-full px-0', isPopup ? 'h-9 w-9' : 'h-9 w-9')}
+              onClick={() => {
+                if (speech.listening) {
+                  speech.stop()
+                  return
+                }
+                dictationPrefixRef.current = input.trim() ? `${input.trim()} ` : ''
+                void speech.start()
+              }}
+              disabled={loading || speech.transcribing}
+              aria-label={speech.listening ? 'Detener dictado' : 'Dictar'}
+            >
+              {speech.listening ? <MicOff className="h-4 w-4" aria-hidden /> : <Mic className="h-4 w-4" aria-hidden />}
+            </Button>
+          ) : null}
+          <textarea
+            ref={inputRef}
+            id={inputId}
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder={
+              writeIntent === 'create'
+                ? 'Dicta o escribe el pendiente a crear…'
+                : activeOkrContext
+                  ? 'Este KR mide resultado o actividad?'
+                  : activeActionContext
+                    ? 'Que falta para cerrar?'
+                    : 'Pregunta por prioridades, bloqueos o tu daily…'
+            }
+            rows={1}
+            className={cn(
+              'flex-1 resize-none border-0 bg-transparent outline-none placeholder:text-muted-foreground/70 focus-visible:ring-0 disabled:opacity-70',
+              isPopup
+                ? 'max-h-20 min-h-9 px-2 py-2 text-[13px]'
+                : 'max-h-20 min-h-9 px-2.5 py-2 text-sm'
+            )}
+            readOnly={speech.listening || speech.transcribing}
+            disabled={loading}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
                 void handleSend()
               }
-            }
-          }}
-        />
-        <Button
-          type="button"
-          onClick={() => void handleSend()}
-          disabled={loading || !input.trim()}
-          className={cn('shrink-0 gap-1.5', isPopup ? 'h-9 w-9 px-0' : 'h-11 px-3')}
-          aria-label="Enviar"
-        >
-          {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          ) : (
-            <Send className="h-4 w-4" aria-hidden />
-          )}
-          {!isPopup ? <span className="hidden sm:inline">Enviar</span> : null}
-        </Button>
+            }}
+          />
+          <Button
+            type="button"
+            onClick={() => void handleSend()}
+            disabled={loading || !input.trim() || speech.listening || speech.transcribing}
+            className="h-9 w-9 shrink-0 rounded-full px-0"
+            aria-label="Enviar"
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <Send className="h-4 w-4" aria-hidden />
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -741,17 +1130,25 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
       },
     ]
 
-    return (
-      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-gradient-to-b from-muted/40 to-background">
-        {surface === 'voice' ? voicePanel : null}
-        {surface === 'guide' ? guidePanel : null}
+    if (!lane) {
+      return (
+        <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+          <AssistantLaneChooser compact onChoose={setLane} />
+        </div>
+      )
+    }
 
-        {surface === 'chat' ? (
+    return (
+      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[radial-gradient(120%_70%_at_50%_-20%,hsl(var(--primary)/0.1),transparent_55%),hsl(var(--background))]">
+        <div className="shrink-0 px-2.5 pb-1.5 pt-2">
+          <AssistantLaneSwitch lane={lane} compact onChange={setLane} />
+        </div>
+        {lane === 'talk' ? guidePanel : (
         <>
-        <div className="shrink-0 space-y-1.5 border-b border-border/60 px-2 py-1.5">
-          <div className="flex items-center gap-1">
+        <div className="shrink-0 space-y-2 border-b border-border/50 bg-muted/20 px-2.5 py-2">
+          <div className="flex items-center gap-1.5">
             <div
-              className="grid min-w-0 flex-1 grid-cols-3 gap-0.5 rounded-lg bg-muted/70 p-0.5"
+              className="grid min-w-0 flex-1 grid-cols-3 gap-1 rounded-2xl bg-background/80 p-1 ring-1 ring-border/50"
               role="tablist"
               aria-label="Que analizar"
             >
@@ -767,11 +1164,11 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                   disabled={option.disabled}
                   onClick={() => switchFocusKind(option.id)}
                   className={cn(
-                    'inline-flex min-h-7 items-center justify-center gap-1 rounded-md px-1 text-[11px] font-medium transition',
+                    'inline-flex min-h-8 items-center justify-center gap-1 rounded-xl px-1.5 text-[11px] font-semibold transition',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40',
                     active
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
                   )}
                 >
                   <Icon className="h-3 w-3 shrink-0" aria-hidden />
@@ -784,7 +1181,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               type="button"
               variant="ghost"
               size="icon"
-              className="h-7 w-7 shrink-0"
+              className="h-8 w-8 shrink-0 rounded-xl"
               onClick={clearChat}
               disabled={loading || messages.length === 0}
               aria-label="Limpiar chat"
@@ -792,19 +1189,6 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               <Trash2 className="h-3.5 w-3.5" aria-hidden />
             </Button>
           </div>
-
-          {focusKind === 'portfolio' ? (
-            <div className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-background/80 px-2 py-1.5">
-              <p className="min-w-0 truncate text-[11px] text-muted-foreground">
-                {userOpenActions.length} abiertas
-                {redOpenActions.length > 0 ? ` · ${redOpenActions.length} criticas` : ''}
-                {canSeeOkrs ? ` · ${okrDashboard.data?.objectives.length ?? 0} OKRs` : ''}
-              </p>
-              <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                Portafolio
-              </span>
-            </div>
-          ) : null}
 
           {focusKind === 'action' ? (
             <div className="space-y-1.5">
@@ -815,7 +1199,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                 }
                 disabled={actionsLoading || selectableActions.length === 0}
               >
-                <SelectTrigger className="h-8 bg-background text-[11px]">
+                <SelectTrigger className="h-8 rounded-xl bg-background text-[11px]">
                   <SelectValue
                     placeholder={
                       actionsLoading
@@ -836,7 +1220,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                 </SelectContent>
               </Select>
               {selectedAction ? (
-                <div className="flex items-start gap-2 rounded-md border border-red-500/20 bg-red-500/5 px-2 py-1.5">
+                <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/5 px-2.5 py-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1">
                       <AccionPriorityBadge
@@ -878,7 +1262,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                   okrDashboard.isLoading || (okrDashboard.data?.objectives.length ?? 0) === 0
                 }
               >
-                <SelectTrigger className="h-8 bg-background text-[11px]">
+                <SelectTrigger className="h-8 rounded-xl bg-background text-[11px]">
                   <SelectValue
                     placeholder={
                       okrDashboard.isLoading
@@ -900,7 +1284,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               </Select>
               {selectedObjective ? (
                 <div className="space-y-1.5">
-                  <div className="flex items-start gap-2 rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5">
+                  <div className="flex items-start gap-2 rounded-xl border border-primary/20 bg-primary/5 px-2.5 py-2">
                     <div className="min-w-0 flex-1">
                       <p className="line-clamp-1 text-[11px] font-medium leading-4">
                         {selectedObjective.nombre_okr}
@@ -950,295 +1334,237 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         {chatThread}
         {composer}
         </>
-        ) : null}
+        )}
       </div>
     )
   }
 
   return (
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col gap-3 overflow-hidden">
-      <header className="flex shrink-0 flex-wrap items-center gap-2">
-        <Bot className="h-5 w-5 text-primary" aria-hidden />
-        <h2 className="text-lg font-semibold tracking-tight sm:text-xl">Asistente IA</h2>
-        <p className="hidden min-w-0 text-xs text-muted-foreground sm:block">
-          {surface === 'voice'
-            ? 'Dicta un pendiente, escucha instrucciones y crea acciones.'
-            : surface === 'guide'
-              ? 'Acompanamiento reflexivo de 15 minutos y diario privado.'
-              : 'Ejecucion, logistica y OKRs en una sola atencion.'}
-        </p>
-        <div className="ml-auto flex items-center gap-1.5">
-          {surface === 'chat' ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            className="h-8 gap-1 px-2 text-xs"
-            onClick={() => void handleSend(analyzePrompt)}
-            disabled={!canAnalyze}
-          >
-            <ScanSearch className="h-3.5 w-3.5" aria-hidden />
-            Analizar
-          </Button>
-          ) : null}
-          <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[11px] font-medium text-foreground">
-            {userOpenActions.length} abiertas
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-md border border-red-500/20 bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-700 dark:text-red-300">
-            <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
-            {redOpenActions.length} rojas
-          </span>
-          {activeActionContext || activeOkrContext ? (
-            <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary">
-              <HelpCircle className="h-3.5 w-3.5" aria-hidden />
-              Contexto
+    <div className="-m-4 flex h-[calc(100%+2rem)] min-h-0 w-[calc(100%+2rem)] max-w-none flex-col gap-3 overflow-hidden p-3 sm:gap-3 sm:p-4">
+      <header className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 space-y-0.5">
+          <div className="flex items-center gap-2.5">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-[0_12px_24px_-14px_hsl(var(--primary)/0.7)]">
+              <Bot className="h-4 w-4" aria-hidden />
             </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">
-              <CircleSlash className="h-3.5 w-3.5" aria-hidden />
-              Libre
-            </span>
-          )}
+            <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">Asistente</h2>
+          </div>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            {lane === 'talk'
+              ? 'Habla con Guia 15 minutos: prioriza, crea trabajo y cierra con reporte.'
+              : lane === 'write'
+                ? 'Copiloto operativo: entiende tu situacion y te propone el siguiente paso.'
+                : 'Elige Hablar con Guia o Escribir para operar tu tablero.'}
+          </p>
         </div>
+        {lane ? (
+          <div className="w-full shrink-0 sm:max-w-sm">
+            <AssistantLaneSwitch lane={lane} onChange={setLane} />
+          </div>
+        ) : null}
       </header>
 
-      {surfaceTabs}
-
-      {surface === 'voice' || surface === 'guide' ? (
-        <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border/70 bg-card">
-          {surface === 'voice' ? voicePanel : guidePanel}
+      {!lane ? (
+        <div className="min-h-0 flex-1 overflow-hidden rounded-[1.75rem] shadow-[0_28px_70px_-40px_rgba(15,23,42,0.45)] ring-1 ring-border/40">
+          <AssistantLaneChooser onChoose={setLane} />
+        </div>
+      ) : lane === 'talk' ? (
+        <div className="min-h-0 flex-1 overflow-hidden rounded-[1.75rem] shadow-[0_28px_70px_-40px_rgba(15,23,42,0.45)] ring-1 ring-border/40">
+          {guidePanel}
         </div>
       ) : (
-      <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(12rem,1fr)] gap-3 md:grid-cols-[minmax(15.5rem,18.5rem)_minmax(0,1fr)] md:grid-rows-none">
-        <aside className="grid max-h-[38%] min-h-0 content-start gap-2 overflow-y-auto sm:grid-cols-2 sm:max-h-none md:grid-cols-1 md:max-h-none">
-          <section
-            className="space-y-2 rounded-lg border border-border/70 bg-card p-3"
-            aria-labelledby="assistant-actions-title"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <h3
-                id="assistant-actions-title"
-                className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-              >
-                Accion
-              </h3>
-              {selectedAction ? (
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] shadow-[0_28px_70px_-40px_rgba(15,23,42,0.45)] ring-1 ring-border/40 bg-[radial-gradient(120%_80%_at_50%_-10%,hsl(var(--primary)/0.12),transparent_55%),linear-gradient(180deg,hsl(var(--muted)/0.35)_0%,hsl(var(--background))_46%)]">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-[radial-gradient(ellipse_at_top,hsl(var(--primary)/0.1),transparent_70%)]" aria-hidden />
+
+          <div className="relative shrink-0 space-y-1.5 px-3 pb-1.5 pt-3 sm:px-4">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+                <Bot className="h-3.5 w-3.5" aria-hidden />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold tracking-tight">{assistantProfile.title}</p>
+                <p className="truncate text-[11px] text-muted-foreground">
+                  {activeActionContext
+                    ? selectedAction?.titulo_accion || 'Enfocando accion'
+                    : activeOkrContext
+                      ? selectedObjective?.nombre_okr || 'Enfocando OKR'
+                      : `${userOpenActions.length} abiertas · tablero`}
+                </p>
+              </div>
+              {(selectedAction || selectedObjective) && (
                 <CompactToggle
-                  active={actionContextEnabled}
-                  onToggle={() => setActionContextEnabled((value) => !value)}
-                />
-              ) : (
-                <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                  {userOpenActions.length}
-                </span>
-              )}
-            </div>
-            <Select
-              value={selectedActionId ?? NO_ACTION_VALUE}
-              onValueChange={(value) =>
-                selectActionFocus(value === NO_ACTION_VALUE ? null : value)
-              }
-              disabled={
-                Boolean(selectedObjectiveId) ||
-                actionsLoading ||
-                selectableActions.length === 0
-              }
-            >
-              <SelectTrigger className="h-9 bg-background text-xs">
-                <SelectValue
-                  placeholder={
-                    selectedObjectiveId
-                      ? 'Quita el OKR para elegir accion'
-                      : actionsLoading
-                        ? 'Cargando...'
-                        : selectableActions.length > 0
-                          ? 'Elegir accion abierta'
-                          : 'Sin acciones abiertas'
+                  active={selectedAction ? actionContextEnabled : okrContextEnabled}
+                  onToggle={() =>
+                    selectedAction
+                      ? setActionContextEnabled((value) => !value)
+                      : setOkrContextEnabled((value) => !value)
                   }
                 />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_ACTION_VALUE}>Sin accion</SelectItem>
-                {selectableActions.map((action) => (
-                  <SelectItem key={action.id} value={action.id}>
-                    {formatActionOption(action)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {selectedAction ? (
-              <div className="space-y-1.5 text-xs">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <AccionPriorityBadge
-                    prioridad={selectedAction.prioridad}
-                    catalogColor={findPriorityForAccion(selectedAction, priorities)?.color}
-                    compact
-                  />
-                  <span className="text-muted-foreground">{selectedAction.estado}</span>
-                  <span className="text-muted-foreground">
-                    {selectedAction.fecha} {selectedAction.hora_limite}
-                  </span>
-                </div>
-                <p className="line-clamp-2 font-medium leading-4 text-foreground">
-                  {selectedAction.titulo_accion}
-                </p>
-                <p className="text-muted-foreground">
-                  Checklist{' '}
-                  {checkpointsLoading ? '…' : `${checklistDone}/${selectedCheckpoints.length}`}
-                  {commentsLoading ? '' : ` · ${selectedComments.length} comentarios`}
-                </p>
-              </div>
-            ) : selectedObjectiveId ? (
-              <p className="text-[11px] text-muted-foreground">
-                Solo un foco por mensaje: limpia el OKR para analizar una accion.
-              </p>
-            ) : null}
-          </section>
-
-          {canSeeOkrs ? (
-            <section
-              className="space-y-2 rounded-lg border border-border/70 bg-card p-3"
-              aria-labelledby="assistant-okr-title"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <h3
-                  id="assistant-okr-title"
-                  className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                >
-                  OKR
-                </h3>
-                {selectedObjective ? (
-                  <CompactToggle
-                    active={okrContextEnabled}
-                    onToggle={() => setOkrContextEnabled((value) => !value)}
-                  />
-                ) : (
-                  <Target className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-                )}
-              </div>
-              <Select
-                value={selectedObjectiveId ?? NO_OBJECTIVE_VALUE}
-                onValueChange={(value) =>
-                  selectOkrFocus(value === NO_OBJECTIVE_VALUE ? null : value)
-                }
-                disabled={
-                  Boolean(selectedActionId) ||
-                  okrDashboard.isLoading ||
-                  (okrDashboard.data?.objectives.length ?? 0) === 0
-                }
+              )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={clearChat}
+                disabled={loading || messages.length === 0}
+                className="h-8 w-8 shrink-0 rounded-full"
+                aria-label="Limpiar chat"
               >
-                <SelectTrigger className="h-9 bg-background text-xs">
-                  <SelectValue
-                    placeholder={
-                      selectedActionId
-                        ? 'Quita la accion para elegir OKR'
-                        : okrDashboard.isLoading
-                          ? 'Cargando...'
-                          : (okrDashboard.data?.objectives.length ?? 0) > 0
-                            ? 'Elegir objetivo'
-                            : 'Sin objetivos'
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_OBJECTIVE_VALUE}>Sin objetivo</SelectItem>
-                  {(okrDashboard.data?.objectives ?? []).map((objective) => (
-                    <SelectItem key={objective.id} value={objective.id}>
-                      {objective.nombre_okr}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedActionId && !selectedObjective ? (
-                <p className="text-[11px] text-muted-foreground">
-                  Solo un foco por mensaje: limpia la accion para analizar un OKR.
-                </p>
-              ) : null}
-              {selectedObjective ? (
-                <div className="grid gap-2">
+                <Trash2 className="h-3.5 w-3.5" aria-hidden />
+              </Button>
+            </div>
+
+            <div className={cn('grid gap-1.5', canSeeOkrs ? 'grid-cols-2' : 'grid-cols-1')}>
+              <div className="min-w-0">
+                <Select
+                  value={selectedActionId ?? NO_ACTION_VALUE}
+                  onValueChange={(value) =>
+                    selectActionFocus(value === NO_ACTION_VALUE ? null : value)
+                  }
+                  disabled={
+                    Boolean(selectedObjectiveId) ||
+                    actionsLoading ||
+                    selectableActions.length === 0
+                  }
+                >
+                  <SelectTrigger className="h-8 rounded-xl bg-background/80 text-[11px]">
+                    <span className="mr-1 inline-flex items-center gap-1 text-muted-foreground">
+                      <ListChecks className="h-3 w-3" aria-hidden />
+                    </span>
+                    <SelectValue
+                      placeholder={
+                        selectedObjectiveId
+                          ? 'Quita OKR'
+                          : actionsLoading
+                            ? 'Cargando...'
+                            : 'Accion'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_ACTION_VALUE}>Sin accion</SelectItem>
+                    {selectableActions.map((action) => (
+                      <SelectItem key={action.id} value={action.id}>
+                        {formatActionOption(action)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {canSeeOkrs ? (
+                <div className="min-w-0">
                   <Select
-                    value={selectedKrId ?? ALL_KRS_VALUE}
-                    onValueChange={(value) => {
-                      setSelectedKrId(value === ALL_KRS_VALUE ? null : value)
-                      setSelectedInitiativeId(null)
-                    }}
-                  >
-                    <SelectTrigger className="h-9 bg-background text-xs">
-                      <SelectValue placeholder="Todo el objetivo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={ALL_KRS_VALUE}>Todo el objetivo</SelectItem>
-                      {objectiveKeyResults.map((kr) => (
-                        <SelectItem key={kr.id} value={kr.id}>
-                          {kr.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={selectedInitiativeId ?? NO_INITIATIVE_VALUE}
+                    value={selectedObjectiveId ?? NO_OBJECTIVE_VALUE}
                     onValueChange={(value) =>
-                      setSelectedInitiativeId(value === NO_INITIATIVE_VALUE ? null : value)
+                      selectOkrFocus(value === NO_OBJECTIVE_VALUE ? null : value)
                     }
-                    disabled={objectiveInitiatives.length === 0}
+                    disabled={
+                      Boolean(selectedActionId) ||
+                      okrDashboard.isLoading ||
+                      (okrDashboard.data?.objectives.length ?? 0) === 0
+                    }
                   >
-                    <SelectTrigger className="h-9 bg-background text-xs">
+                    <SelectTrigger className="h-8 rounded-xl bg-background/80 text-[11px]">
+                      <span className="mr-1 inline-flex items-center gap-1 text-muted-foreground">
+                        <Target className="h-3 w-3" aria-hidden />
+                      </span>
                       <SelectValue
                         placeholder={
-                          objectiveInitiatives.length > 0 ? 'Iniciativa' : 'Sin iniciativas'
+                          selectedActionId
+                            ? 'Quita accion'
+                            : okrDashboard.isLoading
+                              ? 'Cargando...'
+                              : 'OKR'
                         }
                       />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NO_INITIATIVE_VALUE}>Sin iniciativa</SelectItem>
-                      {objectiveInitiatives.map((initiative) => {
-                        const actionId = initiative.action_id ?? initiative.team_action_id
-                        const option = (okrActions.data ?? []).find(
-                          (action) => action.id === actionId
-                        )
-                        return (
-                          <SelectItem key={initiative.id} value={initiative.id}>
-                            {option?.title || 'Iniciativa sin titulo'}
-                          </SelectItem>
-                        )
-                      })}
+                      <SelectItem value={NO_OBJECTIVE_VALUE}>Sin objetivo</SelectItem>
+                      {(okrDashboard.data?.objectives ?? []).map((objective) => (
+                        <SelectItem key={objective.id} value={objective.id}>
+                          {objective.nombre_okr}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-[11px] text-muted-foreground">
-                    {objectiveKeyResults.length} KR · {objectiveInitiatives.length} iniciativas
-                  </p>
                 </div>
               ) : null}
-            </section>
-          ) : null}
-        </aside>
-
-        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border/70 bg-card">
-          <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-3 py-2">
-            <Bot className="h-4 w-4 text-primary" aria-hidden />
-            <div className="min-w-0">
-              <h3 className="truncate text-sm font-semibold">{assistantProfile.title}</h3>
-              <p className="hidden truncate text-[11px] text-muted-foreground sm:block">
-                {assistantProfile.description}
-              </p>
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={clearChat}
-              disabled={loading || messages.length === 0}
-              className="ml-auto h-8 gap-1 px-2 text-xs"
-            >
-              <Trash2 className="h-3.5 w-3.5" aria-hidden />
-              <span className="hidden sm:inline">Limpiar</span>
-            </Button>
+
+            {selectedObjective ? (
+              <div className="grid grid-cols-2 gap-1.5">
+                <Select
+                  value={selectedKrId ?? ALL_KRS_VALUE}
+                  onValueChange={(value) => {
+                    setSelectedKrId(value === ALL_KRS_VALUE ? null : value)
+                    setSelectedInitiativeId(null)
+                  }}
+                >
+                  <SelectTrigger className="h-7 rounded-lg bg-background/70 text-[11px]">
+                    <SelectValue placeholder="KR" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_KRS_VALUE}>Todos los KR</SelectItem>
+                    {objectiveKeyResults.map((kr) => (
+                      <SelectItem key={kr.id} value={kr.id}>
+                        {kr.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={selectedInitiativeId ?? NO_INITIATIVE_VALUE}
+                  onValueChange={(value) =>
+                    setSelectedInitiativeId(value === NO_INITIATIVE_VALUE ? null : value)
+                  }
+                  disabled={objectiveInitiatives.length === 0}
+                >
+                  <SelectTrigger className="h-7 rounded-lg bg-background/70 text-[11px]">
+                    <SelectValue
+                      placeholder={
+                        objectiveInitiatives.length > 0 ? 'Iniciativa' : 'Sin iniciativas'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_INITIATIVE_VALUE}>Sin iniciativa</SelectItem>
+                    {objectiveInitiatives.map((initiative) => {
+                      const actionId = initiative.action_id ?? initiative.team_action_id
+                      const option = (okrActions.data ?? []).find(
+                        (action) => action.id === actionId
+                      )
+                      return (
+                        <SelectItem key={initiative.id} value={initiative.id}>
+                          {option?.title || 'Iniciativa sin titulo'}
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+
+            {selectedAction ? (
+              <div className="flex min-w-0 items-center gap-1.5 truncate rounded-lg bg-background/60 px-2 py-1 text-[11px]">
+                <AccionPriorityBadge
+                  prioridad={selectedAction.prioridad}
+                  catalogColor={findPriorityForAccion(selectedAction, priorities)?.color}
+                  compact
+                />
+                <span className="truncate text-muted-foreground">
+                  {selectedAction.estado}
+                  {' · '}
+                  Checklist{' '}
+                  {checkpointsLoading ? '…' : `${checklistDone}/${selectedCheckpoints.length}`}
+                </span>
+              </div>
+            ) : null}
           </div>
 
           {chatThread}
           {composer}
-        </section>
-      </div>
+        </div>
       )}
     </div>
   )

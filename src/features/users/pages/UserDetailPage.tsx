@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { UserDetailCard } from '../components/UserDetailCard'
 import { PasswordManagementCard } from '../components/PasswordManagementCard'
+import { UserWhatsAppCard } from '../components/UserWhatsAppCard'
 import { UserForm } from '../components/UserForm'
 import { UserHierarchySection } from '../components/UserHierarchySection'
 import { useUser, useUserAuthEmail, useUpdateUser, useToggleUserStatus, useCurrentUser } from '../hooks'
@@ -27,7 +28,14 @@ import { toUpdateUserInput } from '../utils/userFormMappers'
 import { toast } from 'sonner'
 import { ArrowLeft } from 'lucide-react'
 import { useOrgChart } from '@/features/org-chart/hooks/useOrgChart'
-import { canEditOrgUserHierarchy } from '@/features/auth/lib/permissions'
+import {
+  canEditOrgUserHierarchy,
+  isAdminByRole,
+  isAppAdminByAppRole,
+  isAppSuperAdminByAppRole,
+  isDirectionByRole,
+  isSuperAdminByRole,
+} from '@/features/auth/lib/permissions'
 import { useAppRole } from '@/features/auth/hooks/useAppRole'
 import { mapManagerUpdateError } from '@/features/org-chart/utils/orgHierarchy'
 import { useAreas } from '@/features/catalogs/hooks/useAreas'
@@ -57,6 +65,13 @@ export function UserDetailPage() {
     area: currentUser?.area,
     areas: currentUser?.areas,
   })
+  /** Mismo alcance que administrar usuarios/catálogos (incl. Dirección). */
+  const canManageWhatsApp =
+    isAppSuperAdminByAppRole(appRole) ||
+    isAppAdminByAppRole(appRole) ||
+    isSuperAdminByRole(currentUser?.rol) ||
+    isAdminByRole(currentUser?.rol) ||
+    isDirectionByRole(currentUser?.rol)
 
   const handleFormSubmit = (values: UserFormValues) => {
     if (!id) return
@@ -138,6 +153,12 @@ export function UserDetailPage() {
       />
 
       <UserHierarchySection user={user} users={orgUsers} />
+
+      <UserWhatsAppCard
+        usuarioId={user.id}
+        userNombre={user.nombre}
+        canManage={canManageWhatsApp}
+      />
 
       <PasswordManagementCard
         usuarioId={user.id}

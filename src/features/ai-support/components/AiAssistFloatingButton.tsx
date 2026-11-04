@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Bot, Loader2, Sparkles, X } from 'lucide-react'
+import { Bot, Loader2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ROUTES } from '@/constants'
 import { useRouteAccess } from '@/features/auth/hooks/useRouteAccess'
@@ -52,7 +52,7 @@ export function AiAssistFloatingButton() {
   if (!canUseAssistant || !onOperacion || onAssistantPage) return null
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2.5 sm:bottom-5 sm:right-5">
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex flex-col items-end gap-2.5 p-3 sm:inset-x-auto sm:bottom-5 sm:right-5 sm:p-0">
       {open ? (
         <div
           ref={panelRef}
@@ -60,29 +60,29 @@ export function AiAssistFloatingButton() {
           aria-modal="false"
           aria-labelledby={titleId}
           className={cn(
-            'pointer-events-auto flex w-[min(100vw-1.25rem,23.5rem)] flex-col overflow-hidden',
-            'h-[min(70dvh,35rem)] rounded-2xl border border-border/70 bg-background/95 shadow-2xl backdrop-blur-md',
+            'pointer-events-auto flex w-full max-w-[min(100vw-1.5rem,26rem)] flex-col overflow-hidden',
+            'h-[min(78dvh,40rem)] rounded-[1.75rem] border border-border/50 bg-background shadow-[0_28px_70px_-28px_rgba(15,23,42,0.5)]',
             'ring-1 ring-black/5 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-200',
-            'sm:w-[25.5rem] sm:h-[min(74dvh,37rem)] dark:ring-white/10'
+            'sm:w-[26rem] sm:h-[min(80dvh,42rem)] dark:ring-white/10'
           )}
         >
-          <header className="flex shrink-0 items-center gap-2 border-b border-border/60 bg-gradient-to-r from-primary/10 via-background to-background px-3 py-2">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
-              <Bot className="h-3.5 w-3.5" aria-hidden />
+          <header className="relative z-10 flex shrink-0 items-center gap-2.5 px-3 pb-1.5 pt-2.5">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-[0_10px_22px_-12px_hsl(var(--primary)/0.7)]">
+              <Bot className="h-4 w-4" aria-hidden />
             </span>
             <div className="min-w-0 flex-1">
               <h2 id={titleId} className="truncate text-sm font-semibold tracking-tight">
-                Asistente IA
+                Asistente
               </h2>
-              <p className="truncate text-[10px] text-muted-foreground">
-                Chat · acciones · Guia
+              <p className="truncate text-[11px] text-muted-foreground">
+                Conversar o escribir al tablero
               </p>
             </div>
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="h-8 w-8 shrink-0"
+              className="h-8 w-8 shrink-0 rounded-full"
               onClick={() => setOpen(false)}
               aria-label="Cerrar asistente"
             >
@@ -106,22 +106,25 @@ export function AiAssistFloatingButton() {
       ) : null}
 
       {!open ? (
-        <Button
+        <button
           type="button"
-          size="lg"
           onClick={() => setOpen(true)}
           aria-label="Abrir Asistente IA"
           aria-expanded={false}
           title="Asistente IA"
           className={cn(
-            'pointer-events-auto h-12 gap-2 rounded-full px-4 shadow-lg',
-            'bg-primary text-primary-foreground hover:bg-primary/90',
-            'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+            'pointer-events-auto inline-flex h-12 w-12 items-center justify-center rounded-full',
+            'bg-primary text-primary-foreground',
+            'shadow-[0_10px_28px_-12px_rgba(15,23,42,0.45),0_2px_8px_-2px_rgba(15,23,42,0.18)]',
+            'transition duration-200 ease-out',
+            'hover:-translate-y-0.5 hover:bg-primary/90',
+            'hover:shadow-[0_16px_34px_-14px_rgba(15,23,42,0.5),0_4px_10px_-2px_rgba(15,23,42,0.2)]',
+            'active:translate-y-0 active:scale-[0.98]',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
           )}
         >
-          <Sparkles className="h-4 w-4 shrink-0" aria-hidden />
-          <span className="text-sm font-semibold tracking-tight">Asistente</span>
-        </Button>
+          <Bot className="h-5 w-5" aria-hidden />
+        </button>
       ) : null}
     </div>
   )

@@ -33,5 +33,30 @@ describe('formatGuideBoardContext', () => {
     expect(text).toContain('Kanban de equipos abierto: 1')
     expect(text).toContain('OKRs: no visibles')
     expect(text).toContain('No inventes')
+    expect(text).toContain('propone drafts')
+  })
+
+  it('lista KRs con id para ligar iniciativas', () => {
+    const text = formatGuideBoardContext({
+      today: '2026-11-03',
+      actions: [],
+      team: [],
+      okrs: {
+        objectives: [{ id: 'okr-1', nombre_okr: 'OTIF nacional', scope: 'company' }],
+        keyResults: [
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            okr_id: 'okr-1',
+            title: 'OTIF semanal',
+            baseline_value: 80,
+            current_value: 82,
+          },
+        ],
+        initiatives: [],
+      },
+    })
+    expect(text).toContain('KRs para ligar iniciativas')
+    expect(text).toContain('KR id=11111111-1111-4111-8111-111111111111')
+    expect(text).toContain('OTIF semanal')
   })
 })

@@ -41,3 +41,16 @@ verify_jwt = false
 [functions.daily-action-summary]
 verify_jwt = false
 
+# WhatsApp Cloud API: JWT validado en send-action; webhook/dispatcher usan secrets propios.
+[functions.whatsapp-send-action]
+verify_jwt = false
+
+[functions.whatsapp-webhook]
+verify_jwt = false
+
+[functions.whatsapp-followup-dispatcher]
+verify_jwt = false
+
+[functions.whatsapp-inbox]
+verify_jwt = false
+

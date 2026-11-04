@@ -4,6 +4,7 @@ const OPEN_STATES = ['Pendiente', 'Hoy', 'En_Ejecucion', 'Bloqueado', 'Retraso']
 const MAX_ACTION_LINES = 16
 const MAX_TEAM_LINES = 8
 const MAX_OKR_LINES = 8
+const MAX_KR_LINES = 12
 
 type ActionRow = {
   titulo_accion?: string | null
@@ -34,7 +35,9 @@ type OkrObjective = {
 }
 
 type OkrKeyResult = {
+  id?: string
   okr_id?: string
+  title?: string
   baseline_value?: number | null
   current_value?: number | null
 }
@@ -150,15 +153,30 @@ export function formatGuideBoardContext(input: {
         `- OKR: ${name} | ${objective.scope || 'sin ambito'} | ${krs.length} KR | con medicion: ${measurable}`
       )
     }
+    const krLines: string[] = []
+    for (const kr of keyResults.slice(0, MAX_KR_LINES)) {
+      const title = clip(kr.title, 100)
+      const id = clip(kr.id, 80)
+      if (!id || !title) continue
+      const objective = objectives.find((item) => item.id === kr.okr_id)
+      const okrName = clip(objective?.nombre_okr, 80)
+      krLines.push(`- KR id=${id} | ${title}${okrName ? ` | OKR: ${okrName}` : ''}`)
+    }
+    if (krLines.length > 0) {
+      lines.push('KRs para ligar iniciativas (usa el id exacto):')
+      lines.push(...krLines)
+    }
   }
 
-  lines.push('No inventes acciones, conteos ni avances que no esten aqui. No crees ni edites trabajo; informa y acompana.')
+  lines.push(
+    'No inventes acciones, conteos ni avances que no esten aqui. Si el usuario pide crear una accion o iniciativa, propone drafts; el sistema las persistira. No edites ni cierres trabajo existente.'
+  )
   return lines.join('\n')
 }
 
 export async function loadGuideBoardContext(
   supabase: SupabaseClient,
-  maxChars = 2800
+  maxChars = 3400
 ): Promise<string> {
   const today = todayCdmx()
 

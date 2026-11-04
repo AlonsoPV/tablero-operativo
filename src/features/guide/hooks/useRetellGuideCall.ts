@@ -79,7 +79,9 @@ export function useRetellGuideCall(options?: {
     if (statusRef.current === 'connecting' || statusRef.current === 'connected') setStatus('ended')
   }, [])
 
-  const start = useCallback(async (): Promise<{ session: GuideSession; callId: string }> => {
+  const start = useCallback(async (opts?: {
+    intent?: 'consult' | 'create'
+  }): Promise<{ session: GuideSession; callId: string }> => {
     localStopRef.current = false
     setStatus('connecting')
     setMuted(false)
@@ -97,7 +99,10 @@ export function useRetellGuideCall(options?: {
       probe?.getTracks().forEach((track) => track.stop())
     }
 
-    const created = await guideService.createRetellWebCall({ replaceActive: true })
+    const created = await guideService.createRetellWebCall({
+      replaceActive: true,
+      intent: opts?.intent === 'create' ? 'create' : 'consult',
+    })
     sessionIdRef.current = created.session.id
 
     const client = new RetellWebClient()

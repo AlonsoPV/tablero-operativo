@@ -4,6 +4,7 @@ import type {
   GuideChatTurnResponse,
   GuideCloseReason,
   GuideCompactMessage,
+  GuideCreatedWork,
   GuideJournalEntry,
   GuideMessage,
   GuideRetellWebCallResponse,
@@ -13,8 +14,9 @@ import type {
 const SESSION_SELECT =
   'id,usuario_id,provider,provider_session_id,status,started_at,expires_at,closed_at,close_reason,created_at,updated_at'
 const MESSAGE_SELECT = 'id,session_id,sequence,role,content,created_at'
-const JOURNAL_SELECT =
+const JOURNAL_SELECT_BASE =
   'id,session_id,usuario_id,topic,summary,learning,intention,reflection_question,user_words,agent_inferences,created_at,updated_at'
+const JOURNAL_SELECT = `${JOURNAL_SELECT_BASE},executive_report,created_work`
 
 /** 15 min menos 1 s para no chocar el CHECK `expires_at <= started_at + 15 minutes`. */
 const SESSION_MS = 15 * 60 * 1000 - 1000
@@ -62,6 +64,66 @@ function throwGuideError(error: unknown, fallback: string): never {
 
 function isLocalSessionId(sessionId: string) {
   return sessionId.startsWith(LOCAL_PREFIX)
+}
+
+function isMissingJournalExtraCols(error: { message?: string } | null | undefined) {
+  return /executive_report|created_work/i.test(error?.message ?? '')
+}
+
+function normalizeCreatedWork(raw: unknown): GuideCreatedWork[] {
+  let value: unknown = raw
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value) as unknown
+    } catch {
+      return []
+    }
+  }
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const row = item as Record<string, unknown>
+    const title = typeof row.title === 'string' ? row.title.trim() : ''
+    if (!title) return []
+    const id = typeof row.id === 'string' ? row.id : ''
+    const pending = row.pending === true || (!id && row.pending !== false && typeof row.error !== 'string')
+    const priorityRaw = typeof row.priority === 'string' ? row.priority : ''
+    const priority: GuideCreatedWork['priority'] = /p1|alta|critic/i.test(priorityRaw)
+      ? 'P1_Alta'
+      : /p3|baja/i.test(priorityRaw)
+        ? 'P3_Baja'
+        : priorityRaw
+          ? 'P2_Media'
+          : undefined
+    return [
+      {
+        kind: row.kind === 'initiative' ? 'initiative' : 'action',
+        id,
+        title,
+        keyResultTitle: typeof row.keyResultTitle === 'string' ? row.keyResultTitle : null,
+        alreadyExisted: row.alreadyExisted === true,
+        error: typeof row.error === 'string' ? row.error : undefined,
+        pending,
+        dueDateHint: typeof row.dueDateHint === 'string' ? row.dueDateHint : null,
+        description: typeof row.description === 'string' ? row.description : undefined,
+        objective: typeof row.objective === 'string' ? row.objective : undefined,
+        evidenceExpected: typeof row.evidenceExpected === 'string' ? row.evidenceExpected : undefined,
+        priority,
+        activities: Array.isArray(row.activities)
+          ? row.activities.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+          : undefined,
+        ownerHint: typeof row.ownerHint === 'string' ? row.ownerHint : null,
+      },
+    ]
+  })
+}
+
+function normalizeJournal(row: GuideJournalEntry): GuideJournalEntry {
+  return {
+    ...row,
+    executive_report: typeof row.executive_report === 'string' ? row.executive_report : row.executive_report ?? null,
+    created_work: normalizeCreatedWork(row.created_work),
+  }
 }
 
 function readLocalState(): LocalGuideState | null {
@@ -222,12 +284,18 @@ export const guideService = {
     return data as GuideSession
   },
 
-  async createRetellWebCall(opts?: { replaceActive?: boolean }): Promise<GuideRetellWebCallResponse> {
+  async createRetellWebCall(opts?: {
+    replaceActive?: boolean
+    intent?: 'consult' | 'create'
+  }): Promise<GuideRetellWebCallResponse> {
     const headers = await authHeaders()
     const response = await fetch('/api/guide-retell-web-call', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ replace_active: opts?.replaceActive ?? true }),
+      body: JSON.stringify({
+        replace_active: opts?.replaceActive ?? true,
+        intent: opts?.intent === 'create' ? 'create' : 'consult',
+      }),
     })
     const payload = (await response.json().catch(() => ({}))) as GuideRetellWebCallResponse & {
       error?: string
@@ -278,6 +346,107 @@ export const guideService = {
     return (data ?? []) as GuideMessage[]
   },
 
+  /**
+   * Abre una sesion nueva de 15 min con el hilo previo (o el resumen del diario)
+   * para continuar la conversacion desde el historial.
+   */
+  async resumeFromJournal(
+    usuarioId: string,
+    entry: Pick<
+      GuideJournalEntry,
+      'session_id' | 'topic' | 'summary' | 'executive_report' | 'agent_inferences' | 'intention' | 'learning'
+    >
+  ): Promise<GuideSession> {
+    const prior = entry.session_id ? await this.listMessages(entry.session_id) : []
+    const session = await this.startSession(usuarioId, { replaceActive: true })
+
+    const seed: Array<{ role: GuideMessage['role']; content: string }> = []
+    const topic = entry.topic?.trim()
+    const summary =
+      entry.executive_report?.trim() ||
+      entry.summary?.trim() ||
+      entry.agent_inferences?.trim() ||
+      ''
+    const bridgeParts = [
+      topic
+        ? `Retomamos tu sesion anterior sobre «${topic.slice(0, 120)}».`
+        : 'Retomamos tu sesion anterior con Guia.',
+      summary ? `Contexto breve:\n${summary.slice(0, 900)}` : null,
+      entry.intention?.trim() ? `Intencion pendiente: ${entry.intention.trim().slice(0, 240)}` : null,
+      entry.learning?.trim() ? `Aprendizaje previo: ${entry.learning.trim().slice(0, 240)}` : null,
+      'Tienes 15 minutos mas. Continuemos desde donde lo dejaste.',
+    ].filter(Boolean) as string[]
+    seed.push({ role: 'assistant', content: bridgeParts.join('\n\n').slice(0, 1800) })
+
+    for (const message of prior.slice(-16)) {
+      const content = message.content.trim().slice(0, 1800)
+      if (!content) continue
+      seed.push({ role: message.role, content })
+    }
+
+    await this.seedMessages(session.id, seed)
+    return session
+  },
+
+  async seedMessages(
+    sessionId: string,
+    items: Array<{ role: GuideMessage['role']; content: string }>
+  ): Promise<GuideMessage[]> {
+    const rows = items
+      .map((item) => ({
+        role: item.role,
+        content: item.content.trim().slice(0, 1800),
+      }))
+      .filter((item) => item.content.length > 0)
+    if (rows.length === 0) return []
+
+    if (isLocalSessionId(sessionId)) {
+      const local = readLocalState()
+      if (!local || local.session.id !== sessionId) {
+        throw new Error('No hay una sesion local de Guia activa.')
+      }
+      const now = new Date().toISOString()
+      const messages: GuideMessage[] = rows.map((row, index) => ({
+        id: `${LOCAL_PREFIX}msg-${crypto.randomUUID()}`,
+        session_id: sessionId,
+        sequence: index + 1,
+        role: row.role,
+        content: row.content,
+        created_at: now,
+      }))
+      writeLocalState({ session: local.session, messages })
+      return messages
+    }
+
+    const payload = rows.map((row, index) => ({
+      session_id: sessionId,
+      sequence: index + 1,
+      role: row.role,
+      content: row.content,
+    }))
+    const { data, error } = await supabase.from('guide_messages').insert(payload).select(MESSAGE_SELECT)
+    if (error) {
+      if (isMissingGuideTable(error)) {
+        const local = readLocalState()
+        if (local && local.session.id === sessionId) {
+          const now = new Date().toISOString()
+          const messages: GuideMessage[] = rows.map((row, index) => ({
+            id: `${LOCAL_PREFIX}msg-${crypto.randomUUID()}`,
+            session_id: sessionId,
+            sequence: index + 1,
+            role: row.role,
+            content: row.content,
+            created_at: now,
+          }))
+          writeLocalState({ session: local.session, messages })
+          return messages
+        }
+      }
+      throwGuideError(error, 'No se pudo preparar el historial para retomar.')
+    }
+    return ((data ?? []) as GuideMessage[]).sort((a, b) => a.sequence - b.sequence)
+  },
+
   async insertUserMessage(sessionId: string, content: string): Promise<GuideMessage> {
     const text = content.trim()
     if (isLocalSessionId(sessionId)) {
@@ -321,7 +490,10 @@ export const guideService = {
     return data as GuideMessage
   },
 
-  async sendTurn(session: Pick<GuideSession, 'id' | 'expires_at'>): Promise<GuideChatTurnResponse> {
+  async sendTurn(
+    session: Pick<GuideSession, 'id' | 'expires_at'>,
+    opts?: { intent?: 'consult' | 'create' }
+  ): Promise<GuideChatTurnResponse> {
     const headers = await authHeaders()
     const messages = compactMessages(await this.listMessages(session.id))
     const response = await fetch('/api/guide-chat', {
@@ -331,6 +503,7 @@ export const guideService = {
         session_id: session.id,
         expires_at: session.expires_at,
         messages,
+        intent: opts?.intent === 'create' ? 'create' : 'consult',
       }),
     })
     const payload = (await response.json().catch(() => ({}))) as GuideChatTurnResponse & {
@@ -361,7 +534,7 @@ export const guideService = {
   async closeSession(
     session: Pick<GuideSession, 'id' | 'expires_at'>,
     reason: GuideCloseReason = 'user_requested',
-    opts?: { messages?: GuideCompactMessage[] }
+    opts?: { messages?: GuideCompactMessage[]; intent?: 'consult' | 'create' }
   ): Promise<GuideChatCloseResponse> {
     const headers = await authHeaders()
     const messages = opts?.messages ?? compactMessages(await this.listMessages(session.id))
@@ -374,6 +547,7 @@ export const guideService = {
         reason,
         expires_at: session.expires_at,
         messages,
+        intent: opts?.intent === 'create' ? 'create' : 'consult',
       }),
     })
     const payload = (await response.json().catch(() => ({}))) as GuideChatCloseResponse & {
@@ -383,20 +557,46 @@ export const guideService = {
       throw new Error(payload.error || 'No se pudo cerrar la sesion de Guia.')
     }
     if (isLocalSessionId(session.id)) clearLocalState()
+    if (payload.journal) payload.journal = normalizeJournal(payload.journal)
+    if (!payload.createdWork) payload.createdWork = payload.journal?.created_work ?? []
+    if (!payload.pendingWork) {
+      payload.pendingWork = (payload.createdWork ?? []).filter((item) => item.pending)
+    }
+    if (!payload.executiveReport) payload.executiveReport = payload.journal?.executive_report ?? null
     return payload
   },
 
+  async saveJournalWork(entryId: string, createdWork: GuideCreatedWork[]) {
+    if (!entryId || entryId.startsWith(LOCAL_PREFIX)) return
+    const { error } = await supabase
+      .from('guide_journal_entries')
+      .update({ created_work: createdWork, updated_at: new Date().toISOString() })
+      .eq('id', entryId)
+    if (error && !isMissingJournalExtraCols(error)) {
+      console.error('guide journal work', error)
+    }
+  },
+
   async listJournal(usuarioId: string, limit = 12): Promise<GuideJournalEntry[]> {
-    const { data, error } = await supabase
+    const full = await supabase
       .from('guide_journal_entries')
       .select(JOURNAL_SELECT)
       .eq('usuario_id', usuarioId)
       .order('created_at', { ascending: false })
       .limit(limit)
-    if (error) {
-      if (isMissingGuideTable(error)) return []
-      throwGuideError(error, 'No se pudo leer el diario de Guia.')
+    const result =
+      full.error && isMissingJournalExtraCols(full.error)
+        ? await supabase
+            .from('guide_journal_entries')
+            .select(JOURNAL_SELECT_BASE)
+            .eq('usuario_id', usuarioId)
+            .order('created_at', { ascending: false })
+            .limit(limit)
+        : full
+    if (result.error) {
+      if (isMissingGuideTable(result.error)) return []
+      throwGuideError(result.error, 'No se pudo leer el diario de Guia.')
     }
-    return (data ?? []) as GuideJournalEntry[]
+    return ((result.data ?? []) as GuideJournalEntry[]).map(normalizeJournal)
   },
 }

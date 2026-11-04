@@ -10,7 +10,9 @@ import {
   readStringEnv,
   type VercelRequestLike,
 } from './_shared/http'
+import { requireAssistantAuth } from './_shared/assistantAuth'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa'
+import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError'
 
 enableSystemCaCertificates()
 
@@ -89,13 +91,20 @@ MODO advisory:
 `.trim()
       : `
 MODO plan_actions:
-- Propone entre 1 y 3 actionDrafts cuando haya contexto suficiente.
-- Cada draft: titulo con verbo + resultado (<= 70 chars), description, objective, evidenceExpected.
-- priority: P1_Alta | P2_Media | P3_Baja.
-- activities: 2 a 5 pasos concretos y verificables.
-- No inventes clientes, fechas, KPIs ni responsables si no vienen en el texto o contexto.
-- Si el Kanban ya tiene una tarea equivalente activa, no la dupliques; sugerela como nextStep.
-- Si falta contexto critico, validation.status = needs_more_context y actionDrafts = [].
+- El usuario pide crear trabajo (accion, iniciativa, objetivo, KR o medicion).
+- SIEMPRE genera 1 actionDraft para APROBACION si hay al menos un resultado o titulo usable. No esperes datos perfectos.
+- Usa solo lo dicho. Completa description/objective/evidenceExpected/activities con lo disponible, corto y honesto.
+- No inventes clientes, fechas, KPIs ni responsables. Si no vinieron, dueDateHint = null y listalo en missingPoints.
+- dueDateHint: YYYY-MM-DD o YYYY-MM-DD HH:mm. Si el usuario dio fecha, copiala. Si dijo un dia de la semana, usa el calendario de hoy (ese dia o el proximo). Nunca asumas otro dia.
+- Si hay aclaraciones, aplicalas al MISMO draft (corrige fecha/titulo/responsable). No armes otra accion.
+- Si el usuario dio fecha, NO la pongas en missingPoints.
+- validation.status = usable si hay titulo. Si faltan datos, usa needs_more_context PERO IGUAL incluye actionDrafts.
+- missingPoints: lo que debe validar. Maximo 4.
+- clarificationQuestions: maximo 3, directas. Pide validar lo faltante; no bloquees la propuesta.
+- Si pide objetivo/KR/medicion/iniciativa: se claro. Hoy se registra una accion (o iniciativa si hay KR). Propón el equivalente accionable para aprobar y pide lo minimo del otro elemento.
+- executiveSummary: 1-2 frases. Formato: "Propuesta lista para aprobar: [titulo]. Fecha: [dueDateHint o sin fecha]. Valida: [faltantes]."
+- nextSteps: maximo 3, concretos. Sin senales/riesgos/oportunidades salvo 1 critico.
+- Si el Kanban ya tiene una tarea equivalente activa, no la dupliques; dilo en nextSteps y igual muestra el draft si el usuario insiste en crear.
 `.trim()
 
   return `
@@ -215,12 +224,10 @@ function normalizeResult(parsed: unknown, transcript: string, intent: AssistantA
           .filter((draft): draft is AssistantActionDraft => Boolean(draft))
           .slice(0, 3)
 
-  if (intent === 'plan_actions' && status === 'usable' && actionDrafts.length === 0) {
-    status = 'needs_more_context'
-  }
-
-  if (status !== 'usable') {
+  if (status === 'not_usable') {
     actionDrafts = []
+  } else if (intent === 'plan_actions' && actionDrafts.length === 0) {
+    status = 'needs_more_context'
   }
 
   return {
@@ -271,7 +278,7 @@ async function callGemini(system: string, user: string, signal: AbortSignal) {
       systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: 'user', parts: [{ text: user }] }],
       generationConfig: {
-        maxOutputTokens: readNumberEnv('GEMINI_MAX_TOKENS', DEFAULT_MAX_TOKENS),
+        maxOutputTokens: readNumberEnv('ASSISTANT_AUDIO_MAX_TOKENS', DEFAULT_MAX_TOKENS),
         temperature: readNumberEnv('GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE),
         responseMimeType: 'application/json',
       },
@@ -294,6 +301,89 @@ async function callGemini(system: string, user: string, signal: AbortSignal) {
     .trim()
   if (!text) throw new Error('gemini_empty')
   return text
+}
+
+function providerCode(error: unknown) {
+  return error instanceof Error ? error.message : ''
+}
+
+function isCapacityError(error: unknown) {
+  const code = providerCode(error)
+  return (
+    code === 'gemini_429' ||
+    code === 'gemini_503' ||
+    code === 'gemini_500' ||
+    code === 'claude_429' ||
+    code === 'claude_503' ||
+    code === 'claude_529'
+  )
+}
+
+async function sleep(ms: number, signal: AbortSignal) {
+  if (ms <= 0) return
+  await new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }))
+      return
+    }
+    const timer = setTimeout(resolve, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+async function callGeminiWithRetry(system: string, user: string, signal: AbortSignal) {
+  let lastError: unknown
+  for (const delayMs of [0, 800, 1800]) {
+    try {
+      if (delayMs) await sleep(delayMs, signal)
+      return await callGemini(system, user, signal)
+    } catch (error) {
+      lastError = error
+      const code = providerCode(error)
+      if (code === 'gemini_429') break
+      if (code !== 'gemini_503' && code !== 'gemini_500') throw error
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('gemini_failed')
+}
+
+async function generateInterpretation(system: string, user: string, signal: AbortSignal) {
+  const hasGemini = Boolean(process.env.GEMINI_API_KEY)
+  const hasClaude = Boolean(process.env.ANTHROPIC_API_KEY)
+  const preferClaude = readStringEnv('ASSISTANT_AUDIO_PROVIDER', '').toLowerCase() === 'claude'
+
+  const tryClaude = () => callClaude(system, user, signal)
+  const tryGemini = () => callGeminiWithRetry(system, user, signal)
+
+  if (preferClaude && hasClaude) {
+    try {
+      return await tryClaude()
+    } catch (error) {
+      if (hasGemini && isCapacityError(error)) {
+        console.warn('assistant-audio Claude saturado; usando Gemini')
+        return await tryGemini()
+      }
+      throw error
+    }
+  }
+
+  if (hasGemini) {
+    try {
+      return await tryGemini()
+    } catch (error) {
+      if (hasClaude && (isCapacityError(error) || providerCode(error) === 'gemini_empty')) {
+        console.warn('assistant-audio Gemini saturado; usando Claude', providerCode(error))
+        return await tryClaude()
+      }
+      throw error
+    }
+  }
+
+  return tryClaude()
 }
 
 async function callClaude(system: string, user: string, signal: AbortSignal) {
@@ -356,6 +446,11 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       return res.status(405).json({ error: 'Metodo no permitido. Usa POST.' })
     }
 
+    const auth = await requireAssistantAuth(req, { requireAiModule: true })
+    if (!auth.ok) {
+      return res.status(auth.status).json({ error: auth.error })
+    }
+
     const hasGemini = Boolean(process.env.GEMINI_API_KEY)
     const hasClaude = Boolean(process.env.ANTHROPIC_API_KEY)
     if (!hasGemini && !hasClaude) {
@@ -382,45 +477,79 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
     }
 
     const system = buildSystemPrompt(intent)
+    const now = new Date()
+    const ymd = now.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' })
+    const weekday = now.toLocaleDateString('es-MX', {
+      weekday: 'long',
+      timeZone: 'America/Mexico_City',
+    })
+    const longDate = now.toLocaleDateString('es-MX', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'America/Mexico_City',
+    })
     const user = [
+      `Calendario operativo: hoy es ${weekday} ${longDate} (${ymd}), zona America/Mexico_City.`,
       'Nota del usuario:',
       text,
       context ? `\nContexto operativo:\n${context}` : '',
-      clarifications ? `\nAclaraciones del usuario:\n${clarifications}` : '',
+      clarifications
+        ? `\nAclaraciones del usuario (aplican al mismo trabajo, no crees otro):\n${clarifications}`
+        : '',
       '\nDevuelve solo el JSON del schema.',
     ]
       .filter(Boolean)
       .join('\n')
 
     const controller = new AbortController()
-    const timeout = setTimeout(
-      () => controller.abort(),
-      readNumberEnv(
-        hasClaude && !hasGemini ? 'CLAUDE_TIMEOUT_MS' : 'GEMINI_TIMEOUT_MS',
-        DEFAULT_TIMEOUT_MS
-      )
-    )
+    const timeoutMs = hasClaude
+      ? Math.max(
+          readNumberEnv('CLAUDE_TIMEOUT_MS', 60_000),
+          readNumberEnv('GEMINI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS)
+        )
+      : readNumberEnv('GEMINI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS)
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
     let modelText: string
     try {
-      // Preferimos Gemini (ya configurado en el proyecto); Claude si solo hay Anthropic o ASSISTANT_AUDIO_PROVIDER=claude
-      const preferClaude =
-        readStringEnv('ASSISTANT_AUDIO_PROVIDER', '').toLowerCase() === 'claude' ||
-        (!hasGemini && hasClaude)
-      modelText = preferClaude
-        ? await callClaude(system, user, controller.signal)
-        : await callGemini(system, user, controller.signal)
+      modelText = await generateInterpretation(system, user, controller.signal)
     } finally {
       clearTimeout(timeout)
     }
 
-    const parsed = extractJsonObject(modelText)
+    let parsed: unknown
+    try {
+      parsed = extractJsonObject(modelText)
+    } catch {
+      return res.status(502).json({
+        error: 'El modelo no devolvio un JSON interpretable. Intenta de nuevo.',
+      })
+    }
     const result = normalizeResult(parsed, text, intent)
     return res.status(200).json({ result })
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       return res.status(504).json({
         error: 'La interpretacion tardo demasiado. Intenta con una nota mas concreta.',
+      })
+    }
+
+    if (isTlsCertificateError(error)) {
+      console.error('assistant-audio TLS error:', error)
+      return res.status(502).json({ error: TLS_CERTIFICATE_USER_MESSAGE })
+    }
+
+    const code = providerCode(error)
+    if (isCapacityError(error)) {
+      return res.status(503).json({
+        error:
+          'Gemini esta saturado o sin cuota temporal. Reintento automatico no alcanzo; espera unos segundos e intenta de nuevo.',
+      })
+    }
+    if (code.startsWith('gemini_') || code.startsWith('claude_')) {
+      return res.status(502).json({
+        error: 'El proveedor de IA rechazo la interpretacion. Revisa el modelo o intenta de nuevo.',
       })
     }
 

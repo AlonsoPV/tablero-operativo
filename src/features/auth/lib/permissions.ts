@@ -55,6 +55,8 @@ const DIRECTION_ALLOWED_ROUTES = [
   ROUTES.SETTINGS_USERS_DETAIL,
   ROUTES.ORG_CHART,
   ROUTES.SETTINGS_REMINDERS,
+  ROUTES.SETTINGS_WHATSAPP,
+  ROUTES.AI_WHATSAPP_SEGUIMIENTO,
   ROUTES.SETTINGS_CATALOGS,
   ROUTES.SETTINGS_CATALOGS_ROLES,
   ROUTES.SETTINGS_CATALOGS_AREAS,
@@ -285,6 +287,17 @@ export function canAccessRouteByRole(
       isAnalystByRole(rol) ||
       isLeaderByRole(rol) ||
       isAppSuperAdminByAppRole(appRole)
+    )
+  }
+
+  // Bandeja WhatsApp: mismo ámbito que settings/whatsapp (no hereda de /asistente-ia).
+  if (routeMatches(pathname, ROUTES.AI_WHATSAPP_SEGUIMIENTO)) {
+    return (
+      isSuperAdminByRole(rol) ||
+      isDirectionByRole(rol) ||
+      isAdminByRole(rol) ||
+      isAppSuperAdminByAppRole(appRole) ||
+      isAppAdminByAppRole(appRole)
     )
   }
 

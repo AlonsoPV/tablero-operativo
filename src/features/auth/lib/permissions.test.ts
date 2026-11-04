@@ -52,11 +52,19 @@ describe('role route permissions', () => {
     const role = 'Operativo'
 
     expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.AI_HISTORY)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.AI_WHATSAPP_SEGUIMIENTO)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.ORG_CHART)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_PROFILE)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_USERS)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_ACADEMY_MODULES)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS)).toBe(false)
+  })
+
+  it('allows Direccion and Super Admin into Seguimiento WhatsApp', () => {
+    expect(canAccessRouteByRole('Direccion', ROUTES.AI_WHATSAPP_SEGUIMIENTO)).toBe(true)
+    expect(canAccessRouteByRole('super_admin', ROUTES.AI_WHATSAPP_SEGUIMIENTO)).toBe(true)
+    expect(canAccessRouteByRole('Analista', ROUTES.AI_WHATSAPP_SEGUIMIENTO)).toBe(false)
   })
 
   it('treats extended operative catalog names as operative roles', () => {
@@ -65,6 +73,7 @@ describe('role route permissions', () => {
     expect(canAccessRouteByRole(role, ROUTES.DASHBOARD)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.KANBAN)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.AI_HISTORY)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_USERS)).toBe(false)
     expect(usesOperationalDashboardByRole(role)).toBe(true)
     expect(getDefaultRouteByRole(role)).toBe(ROUTES.KANBAN)

@@ -1,3 +1,5 @@
+import { getAssistantAuthHeaders } from '@/lib/assistantApiAuth'
+
 export type AssistantAudioIntent = 'plan_actions' | 'advisory'
 
 export type ActionDraftPriority = 'P1_Alta' | 'P2_Media' | 'P3_Baja'
@@ -51,6 +53,19 @@ async function readJson(response: Response) {
   }
 }
 
+function throwAssistantHttpError(status: number, fallback: string, error?: string) {
+  if (status === 401 || status === 403) {
+    throw new Error(error || 'No autorizado para usar el Asistente IA.')
+  }
+  if (status === 429 || status === 503) {
+    throw new Error(error || 'El modelo esta saturado. Espera un momento e intenta de nuevo.')
+  }
+  if (status === 404) {
+    throw new Error(fallback)
+  }
+  throw new Error(error || fallback)
+}
+
 export async function requestAssistantTextAnalysis({
   text,
   context,
@@ -58,9 +73,10 @@ export async function requestAssistantTextAnalysis({
   intent = 'plan_actions',
   signal,
 }: AssistantAudioRequest): Promise<AssistantAudioResult> {
+  const headers = await getAssistantAuthHeaders()
   const response = await fetch('/api/assistant-audio', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     signal,
     body: JSON.stringify({
       text,
@@ -73,12 +89,11 @@ export async function requestAssistantTextAnalysis({
   const data = await readJson(response)
 
   if (!response.ok) {
-    if (response.status === 404) {
-      throw new Error(
-        'No se encontro /api/assistant-audio. En local usa npm run dev (plugin API) o vercel dev.'
-      )
-    }
-    throw new Error(data.error || 'No se pudo interpretar la nota.')
+    throwAssistantHttpError(
+      response.status,
+      'No se encontro /api/assistant-audio. En local usa npm run dev (plugin API) o vercel dev.',
+      data.error
+    )
   }
 
   if (!data.result) {
@@ -88,9 +103,43 @@ export async function requestAssistantTextAnalysis({
   return data.result
 }
 
+export async function requestAssistantTranscript(audio: Blob, signal?: AbortSignal) {
+  const audioBase64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = String(reader.result || '')
+      const comma = result.indexOf(',')
+      resolve(comma >= 0 ? result.slice(comma + 1) : result)
+    }
+    reader.onerror = () => reject(reader.error ?? new Error('No se pudo leer el audio.'))
+    reader.readAsDataURL(audio)
+  })
+
+  const headers = await getAssistantAuthHeaders()
+  const response = await fetch('/api/assistant-transcribe', {
+    method: 'POST',
+    headers,
+    signal,
+    body: JSON.stringify({
+      audioBase64,
+      mimeType: audio.type || 'audio/webm',
+    }),
+  })
+  const data = (await response.json().catch(() => ({}))) as { transcript?: string; error?: string }
+  if (!response.ok) {
+    throwAssistantHttpError(
+      response.status,
+      'No se pudo transcribir el dictado.',
+      data.error
+    )
+  }
+  return (data.transcript || '').trim()
+}
+
 export function actionDraftSpeechText(draft: AssistantActionDraft) {
   return [
     draft.title,
+    draft.dueDateHint ? `Fecha: ${draft.dueDateHint}` : '',
     draft.description,
     draft.objective ? `Objetivo: ${draft.objective}` : '',
     draft.evidenceExpected ? `Evidencia para cerrar: ${draft.evidenceExpected}` : '',

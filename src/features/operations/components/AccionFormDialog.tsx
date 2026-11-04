@@ -59,7 +59,8 @@ import { flattenDescripcionForForm } from '../utils/descripcionAccionTriada'
 import { isEvidenciaNoRequerida } from '../utils/evidenciaEsperada'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { CheckCircle2, Download, ExternalLink, Loader2, Paperclip, FileText, Image, Mail, Save, Trash2, X } from 'lucide-react'
+import { CheckCircle2, Download, ExternalLink, Loader2, MessageCircle, Paperclip, FileText, Image, Mail, Save, Trash2, X } from 'lucide-react'
+import { whatsappIntegrationService } from '@/services/whatsappIntegration.service'
 import {
   AccionChecklistEditor,
   type LocalCheckpointDraft,
@@ -170,6 +171,7 @@ export function AccionFormDialog({
   /** Resumen de validación bajo los botones del pie (RHF/Zod y reglas del diálogo). */
   const [submitFooterErrors, setSubmitFooterErrors] = useState<string[] | null>(null)
   const [manualEmailPending, setManualEmailPending] = useState(false)
+  const [whatsappPending, setWhatsappPending] = useState(false)
   const [livePrioridad, setLivePrioridad] = useState<string | undefined>()
   const [fechaCompromisoReason, setFechaCompromisoReason] =
     useState<FechaCompromisoChangeReasonKey | ''>('')
@@ -391,6 +393,58 @@ export function AccionFormDialog({
       toast.error(err instanceof Error ? err.message : 'No se pudo enviar el correo')
     } finally {
       setManualEmailPending(false)
+    }
+  }
+
+  async function tryAutoSendWhatsApp(accionId: string, responsableId: string | null | undefined) {
+    if (!accionId || !responsableId) return
+    try {
+      const identity = await whatsappIntegrationService.getIdentity(responsableId)
+      if (!identity?.external_user_id) return
+      await whatsappIntegrationService.sendAction({ accionId, messageType: 'initial' })
+      toast.success('Actividad enviada por WhatsApp')
+    } catch (err) {
+      console.warn('[whatsapp] Auto-envío omitido o fallido:', err)
+    }
+  }
+
+  async function handleSendWhatsApp(messageType: 'initial' | 'commitment_close') {
+    if (!accionLive?.id) {
+      toast.error('Guarda la acción antes de enviar por WhatsApp.')
+      return
+    }
+    if (!accionLive.responsable) {
+      toast.error('Asigna un responsable para enviar por WhatsApp.')
+      return
+    }
+    setWhatsappPending(true)
+    try {
+      await whatsappIntegrationService.sendAction({
+        accionId: accionLive.id,
+        messageType,
+      })
+      toast.success(messageType === 'commitment_close' ? 'Cierre enviado por WhatsApp' : 'WhatsApp enviado')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo enviar por WhatsApp')
+    } finally {
+      setWhatsappPending(false)
+    }
+  }
+
+  async function handleWhatsAppCheckpointFollowup(checkpointId: string) {
+    if (!accionLive?.id) return
+    setWhatsappPending(true)
+    try {
+      await whatsappIntegrationService.sendAction({
+        accionId: accionLive.id,
+        messageType: 'checkpoint_followup',
+        checkpointId,
+      })
+      toast.success('Seguimiento WhatsApp enviado')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo enviar el seguimiento')
+    } finally {
+      setWhatsappPending(false)
     }
   }
 
@@ -622,6 +676,7 @@ export function AccionFormDialog({
                 fecha: payload.fecha ?? accionLive.fecha,
                 hora_limite: payload.hora_limite ?? accionLive.hora_limite,
               })
+              void tryAutoSendWhatsApp(accionLive.id, nuevoResponsable)
             }
             toast.success('Accion actualizada correctamente')
             onOpenChange(false)
@@ -699,6 +754,7 @@ export function AccionFormDialog({
                 checklist: checklistDrafts.map((item) => item.texto),
               })
             )
+            deferredOps.push(tryAutoSendWhatsApp(createdId, responsable))
           }
 
           if (filesToUpload.length > 0) {
@@ -760,10 +816,11 @@ export function AccionFormDialog({
 
   const formBaseId = `${dialogId ?? 'accion-form-dialog'}-form`
   const showEmailButton = isEdit && !!accion
+  const showWhatsAppButtons = isEdit && !!accionLive
   const showMarkDoneButton = canMarkActionDone
-  const isManualNotificationPending = manualEmailPending
+  const isManualNotificationPending = manualEmailPending || whatsappPending
   const hasLeadingFooterActions =
-    canDeleteAccion || showMarkDoneButton || showEmailButton
+    canDeleteAccion || showMarkDoneButton || showEmailButton || showWhatsAppButtons
   const iconButtonClass =
     'h-10 w-10 shrink-0 px-0 sm:h-9 sm:w-9'
 
@@ -1018,6 +1075,8 @@ export function AccionFormDialog({
                 canToggle={canManageChecklistStructure || isActionResponsible}
                 responsableNames={responsableNames}
                 users={checklistUsers}
+                onWhatsAppFollowup={handleWhatsAppCheckpointFollowup}
+                whatsappFollowupPending={whatsappPending}
                 onResponsableAssigned={(input) =>
                   notifyCheckpointResponsable({
                     usuarioId: input.usuarioId,
@@ -1166,6 +1225,39 @@ export function AccionFormDialog({
                   <Mail className="h-4 w-4" aria-hidden />
                 )}
               </Button>
+            ) : null}
+            {showWhatsAppButtons ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  id={`${formBaseId}-send-whatsapp`}
+                  className={cn('accion-form-dialog-send-whatsapp', iconButtonClass)}
+                  onClick={() => void handleSendWhatsApp('initial')}
+                  disabled={isManualNotificationPending || isMutating || !accionLive.responsable}
+                  aria-label="Enviar WhatsApp"
+                  title="Enviar actividad por WhatsApp"
+                >
+                  {whatsappPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <MessageCircle className="h-4 w-4" aria-hidden />
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  id={`${formBaseId}-whatsapp-close`}
+                  className="h-10 shrink-0 px-2 text-xs sm:h-9"
+                  onClick={() => void handleSendWhatsApp('commitment_close')}
+                  disabled={isManualNotificationPending || isMutating || !accionLive.responsable}
+                  title="Enviar cierre de compromiso por WhatsApp"
+                >
+                  Cierre WA
+                </Button>
+              </>
             ) : null}
               </div>
             ) : null}

@@ -14,6 +14,7 @@ describe('isOperacionRoute', () => {
 
   it('excludes non-Operacion routes', () => {
     expect(isOperacionRoute('/asistente-ia')).toBe(false)
+    expect(isOperacionRoute('/asistente-ia/historial')).toBe(false)
     expect(isOperacionRoute('/tickets')).toBe(false)
     expect(isOperacionRoute('/calendario')).toBe(false)
     expect(isOperacionRoute('/academia')).toBe(false)

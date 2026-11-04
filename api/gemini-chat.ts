@@ -5,8 +5,10 @@ import {
   readRequestBody,
   type VercelRequestLike,
 } from './_shared/http'
+import { requireAssistantAuth } from './_shared/assistantAuth'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError'
+import { runGeminiToolLoop } from './_shared/geminiToolLoop'
 
 enableSystemCaCertificates()
 import {
@@ -21,37 +23,18 @@ type GeminiContent = {
   parts: Array<{ text: string }>
 }
 
-type GeminiResponse = {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{ text?: string }>
-    }
-    finishReason?: string
-  }>
-  promptFeedback?: {
-    blockReason?: string
-  }
-}
-
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite'
 const DEFAULT_MAX_OUTPUT_TOKENS = 700
 const DEFAULT_TEMPERATURE = 0.25
 const DEFAULT_TIMEOUT_MS = 20000
+const MAX_RAW_MESSAGES = 24
 
 function toGeminiContents(messages: ReturnType<typeof sanitizeMessages>): GeminiContent[] {
   return messages.map((message) => ({
     role: message.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: message.content }],
   }))
-}
-
-function getGeminiText(data: GeminiResponse) {
-  return data.candidates?.[0]?.content?.parts
-    ?.map((part) => part.text)
-    .filter((text): text is string => Boolean(text))
-    .join('')
-    .trim()
 }
 
 function cleanAssistantText(text: string) {
@@ -89,6 +72,11 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       return res.status(405).json({ error: 'Metodo no permitido. Usa POST.' })
     }
 
+    const auth = await requireAssistantAuth(req, { requireAiModule: true })
+    if (!auth.ok) {
+      return res.status(auth.status).json({ error: auth.error })
+    }
+
     const apiKey = process.env.GEMINI_API_KEY
 
     if (!apiKey) {
@@ -119,6 +107,12 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       return res.status(400).json({ error: 'Debes enviar al menos un mensaje.' })
     }
 
+    if (messages.length > MAX_RAW_MESSAGES) {
+      return res.status(400).json({
+        error: `Demasiados mensajes en la solicitud (maximo ${MAX_RAW_MESSAGES}).`,
+      })
+    }
+
     const cleanMessages = appendAssistantContexts(
       sanitizeMessages(messages as { role: 'user' | 'assistant'; content: string }[]),
       actionContext,
@@ -141,90 +135,84 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
 
     const model = normalizeGeminiModel(process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL)
     const url = `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), readNumberEnv('GEMINI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS))
-
-    let response: Response
-
-    try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{ text: systemInstruction }],
-          },
-          contents: toGeminiContents(cleanMessages),
-          generationConfig: {
-            maxOutputTokens: readNumberEnv('GEMINI_MAX_TOKENS', DEFAULT_MAX_OUTPUT_TOKENS),
-            temperature: readNumberEnv('GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE),
-          },
-        }),
-      })
-    } finally {
-      clearTimeout(timeout)
+    const generationConfig = {
+      maxOutputTokens: readNumberEnv('GEMINI_MAX_TOKENS', DEFAULT_MAX_OUTPUT_TOKENS),
+      temperature: readNumberEnv('GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE),
     }
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      const safeReason = readGeminiError(errorText)
-
-      console.error('Gemini API Error:', {
-        status: response.status,
+    let loopResult: Awaited<ReturnType<typeof runGeminiToolLoop>>
+    try {
+      loopResult = await runGeminiToolLoop({
+        apiKey,
+        url,
         model,
-        reason: safeReason,
+        systemInstruction,
+        contents: toGeminiContents(cleanMessages),
+        generationConfig,
+        actor: {
+          supabase: auth.supabase,
+          usuarioId: auth.usuarioId,
+          authUserId: auth.authUserId,
+          rol: auth.rol,
+        },
+        timeoutMs: readNumberEnv('GEMINI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS),
       })
-
-      if ([400, 401, 403, 404].includes(response.status)) {
+    } catch (error) {
+      const status = typeof (error as { status?: number }).status === 'number' ? (error as { status: number }).status : 0
+      const safeReason = readGeminiError(error instanceof Error ? error.message : '')
+      console.error('Gemini API Error:', { status, model, reason: safeReason })
+      if ([400, 401, 403, 404].includes(status)) {
         return res.status(502).json({
-          error: `Gemini rechazo la solicitud (${response.status}). Revisa GEMINI_API_KEY, GEMINI_MODEL y permisos del proyecto.`,
+          error: `Gemini rechazo la solicitud (${status}). Revisa GEMINI_API_KEY, GEMINI_MODEL y permisos del proyecto.`,
         })
       }
-
-      if (response.status === 429) {
+      if (status === 429) {
         return res.status(503).json({
           error: 'Gemini esta limitando las solicitudes. Intenta nuevamente en unos minutos.',
         })
       }
+      throw error
+    }
 
-      return res.status(502).json({
-        error: 'No se pudo obtener respuesta del asistente. Intenta nuevamente.',
+    if (loopResult.usage) {
+      console.info('assistant gemini usage', {
+        model,
+        totalTokenCount: loopResult.usage.totalTokenCount,
+        promptTokenCount: loopResult.usage.promptTokenCount,
+        candidatesTokenCount: loopResult.usage.candidatesTokenCount,
+        tools: loopResult.toolTrace.map((item) => item.tool),
       })
     }
 
-    const data = (await response.json()) as GeminiResponse
-
-    if (data.promptFeedback?.blockReason) {
+    if (loopResult.blockReason) {
       return res.status(400).json({
         error: 'Gemini bloqueo la solicitud por politicas de seguridad.',
       })
     }
 
-    const finishReason = data.candidates?.[0]?.finishReason
-    const text = getGeminiText(data)
-
-    if (!text) {
+    const text = loopResult.text
+    if (!text && loopResult.proposals.length === 0 && !loopResult.clarification) {
       console.error('Gemini empty response:', {
         model,
-        finishReason,
-        blockReason: data.promptFeedback?.blockReason,
+        finishReason: loopResult.finishReason,
       })
-
       return res.status(502).json({
         error: 'Gemini no regreso contenido util. Intenta con una pregunta mas corta o vuelve a intentar.',
       })
     }
 
     const rawContent =
-      finishReason === 'MAX_TOKENS'
+      loopResult.finishReason === 'MAX_TOKENS'
         ? `${text}\n\nNota: la respuesta se corto por limite de longitud. Puedes pedirme que continue.`
-        : text
+        : text || 'Revisa la propuesta o las opciones para continuar.'
     const content = cleanAssistantText(rawContent)
 
-    return res.status(200).json({ answer: content })
+    return res.status(200).json({
+      answer: content,
+      proposals: loopResult.proposals,
+      clarification: loopResult.clarification,
+      toolTrace: loopResult.toolTrace,
+    })
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       return res.status(504).json({

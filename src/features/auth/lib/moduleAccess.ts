@@ -22,6 +22,8 @@ const MODULE_ROUTES: Array<[string, string]> = [
   [ROUTES.SETTINGS_CATALOGS, 'settings_catalogs'],
   [ROUTES.SETTINGS_USERS, 'settings_users'],
   [ROUTES.SETTINGS_REMINDERS, 'settings_reminders'],
+  [ROUTES.SETTINGS_WHATSAPP, 'settings_reminders'],
+  [ROUTES.AI_WHATSAPP_SEGUIMIENTO, 'settings_reminders'],
   [ROUTES.SETTINGS_PROFILE, 'settings_profile'],
   [ROUTES.DASHBOARD_TEAMS, 'team_dashboard'],
   [ROUTES.TEAM_KANBAN, 'team_kanban'],

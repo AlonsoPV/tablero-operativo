@@ -19,6 +19,7 @@ type ApiHandler = (
 const API_ROUTES: Record<string, string> = {
   '/api/gemini-chat': 'api/gemini-chat.ts',
   '/api/assistant-audio': 'api/assistant-audio.ts',
+  '/api/assistant-transcribe': 'api/assistant-transcribe.ts',
   '/api/elevenlabs-tts': 'api/elevenlabs-tts.ts',
   '/api/guide-chat': 'api/guide-chat.ts',
   '/api/guide-retell-web-call': 'api/guide-retell-web-call.ts',

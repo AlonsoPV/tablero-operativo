@@ -3,7 +3,6 @@
  * Auth: Authorization Bearer (JWT del usuario). Secrets: RETELL_API_KEY + RETELL_GUIDE_AGENT_ID.
  * No reutiliza RETELL_AGENT_ID (entrevistas).
  */
-import { createClient } from '@supabase/supabase-js'
 import type { ServerResponse } from 'node:http'
 import {
   asJsonResponse,
@@ -11,8 +10,10 @@ import {
   readStringEnv,
   type VercelRequestLike,
 } from './_shared/http'
+import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa'
 import { loadGuideBoardContext } from './_shared/guideBoardContext'
+import { guideOpening, guideWorkInstructions } from './_shared/guideWork'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError'
 
 enableSystemCaCertificates()
@@ -20,19 +21,6 @@ enableSystemCaCertificates()
 const SESSION_MS = 15 * 60 * 1000 - 1000
 const SESSION_SELECT =
   'id,usuario_id,provider,provider_session_id,status,started_at,expires_at,closed_at,close_reason,created_at,updated_at'
-
-function readHeader(req: VercelRequestLike, name: string) {
-  const raw = req.headers[name] ?? req.headers[name.toLowerCase()]
-  if (Array.isArray(raw)) return raw[0]
-  return typeof raw === 'string' ? raw : undefined
-}
-
-function readAuthToken(req: VercelRequestLike) {
-  const header = readHeader(req, 'authorization')
-  if (!header) return null
-  const match = header.match(/^Bearer\s+(.+)$/i)
-  return match?.[1]?.trim() || null
-}
 
 function isMissingGuideTable(error: { message?: string; code?: string } | null | undefined) {
   const message = error?.message ?? ''
@@ -43,25 +31,6 @@ function isMissingGuideTable(error: { message?: string; code?: string } | null |
     /Could not find the table ['"]?public\.guide_/i.test(message) ||
     /relation ['"]?public\.guide_/i.test(message)
   )
-}
-
-function createUserClient(token: string) {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-  const anon = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
-  if (!url || !anon) {
-    throw new Error('missing_supabase')
-  }
-  return createClient(url, anon, {
-    global: {
-      fetch: (input, init = {}) => {
-        const headers = new Headers(init.headers)
-        headers.set('Authorization', `Bearer ${token}`)
-        headers.set('apikey', anon)
-        return fetch(input, { ...init, headers })
-      },
-    },
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-  })
 }
 
 export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
@@ -81,9 +50,20 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       })
     }
 
-    const token = readAuthToken(req)
-    if (!token) {
-      return res.status(401).json({ error: 'Falta Authorization Bearer.' })
+    const auth = await requireAssistantAuth(req, { requireAiModule: true })
+    if (!auth.ok) {
+      return res.status(auth.status).json({ error: auth.error })
+    }
+
+    const rate = checkAssistantRateLimit({
+      key: `${auth.usuarioId}:guide-retell`,
+      limit: 10,
+      windowMs: 60_000,
+    })
+    if (!rate.ok) {
+      return res.status(429).json({
+        error: `Demasiadas llamadas de voz. Espera ${rate.retryAfterSec}s.`,
+      })
     }
 
     const body = await readRequestBody(req)
@@ -92,24 +72,12 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
     }
     const replaceActive = Boolean((body as { replace_active?: unknown } | null)?.replace_active)
 
-    let supabase
-    try {
-      supabase = createUserClient(token)
-    } catch {
-      return res.status(500).json({
-        error: 'Falta SUPABASE_URL / SUPABASE_ANON_KEY (o VITE_*) en el servidor.',
-      })
-    }
-
-    const { data: authData, error: authError } = await supabase.auth.getUser(token)
-    if (authError || !authData.user) {
-      return res.status(401).json({ error: 'Sesion invalida. Vuelve a iniciar sesion.' })
-    }
+    const supabase = auth.supabase
 
     const { data: usuario, error: usuarioError } = await supabase
       .from('usuarios')
       .select('id,nombre')
-      .eq('user_id', authData.user.id)
+      .eq('id', auth.usuarioId)
       .maybeSingle()
 
     if (usuarioError || !usuario?.id) {
@@ -192,7 +160,7 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
 
     let boardContext = ''
     try {
-      boardContext = await loadGuideBoardContext(supabase, 1800)
+      boardContext = await loadGuideBoardContext(supabase, 2400)
     } catch (error) {
       console.error('guide-retell-web-call board', error)
     }
@@ -217,6 +185,9 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
           expires_at: session.expires_at,
           board_context: boardContext,
           understanding_context: boardContext,
+          guide_intent: 'auto',
+          guide_opening: guideOpening(),
+          guide_work_instructions: guideWorkInstructions(),
           guide_preferences: '',
           relevant_memories: '',
           recent_journal: '',

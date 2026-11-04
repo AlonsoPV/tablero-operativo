@@ -22,6 +22,7 @@ import type { TeamBoard } from './types'
 import { teamKanbanService } from './service'
 import { TeamMemberSelect } from './components/TeamMemberSelect'
 import { useCanSeeOkrTags } from '@/features/okrs/useCanSeeOkrTags'
+import { whatsappIntegrationService } from '@/services/whatsappIntegration.service'
 
 type Props = {
   open: boolean
@@ -167,6 +168,21 @@ export function TeamActionFormDialog({
     })
   }
 
+  const tryAutoSendWhatsApp = async (teamActionId: string, assigneeId: string | null | undefined) => {
+    if (!teamActionId || !assigneeId) return
+    try {
+      const identity = await whatsappIntegrationService.getIdentity(assigneeId)
+      if (!identity?.external_user_id) return
+      await whatsappIntegrationService.sendTeamAction({
+        teamActionId,
+        messageType: 'initial',
+      })
+      toast.success('Actividad de equipo enviada por WhatsApp')
+    } catch (error) {
+      console.warn('[whatsapp] Auto-envío equipo omitido o fallido:', error)
+    }
+  }
+
   const notifyTeamCheckpointResponsable = async (input: {
     usuarioId: string
     actionId: string
@@ -229,6 +245,7 @@ export function TeamActionFormDialog({
         console.warn('[team-kanban] No se pudo notificar al responsable:', error)
         toast.error(error instanceof Error ? error.message : 'No se pudo notificar al responsable')
       })
+      void tryAutoSendWhatsApp(created.id, values.responsable)
       void Promise.allSettled(
         checklist
           .filter((item) => item.responsable_id)
@@ -294,6 +311,7 @@ export function TeamActionFormDialog({
         console.warn('[team-kanban] No se pudo notificar accion frecuente:', error)
         toast.error(error instanceof Error ? error.message : 'No se pudo notificar al responsable')
       })
+      void tryAutoSendWhatsApp(created.id, created.asignado_a)
       void Promise.allSettled(
         (created.checklist ?? [])
           .filter((item) => item.responsable_id)
