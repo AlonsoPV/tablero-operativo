@@ -44,8 +44,9 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
     const apiKey = readStringEnv('RETELL_API_KEY')
     const agentId = readStringEnv('RETELL_GUIDE_AGENT_ID')
     if (!apiKey || !agentId) {
-      return res.status(500).json({
-        error: 'Falta RETELL_API_KEY o RETELL_GUIDE_AGENT_ID para la voz de Guia.',
+      return res.status(503).json({
+        error:
+          'Falta configurar RETELL_API_KEY y RETELL_GUIDE_AGENT_ID en Vercel (Project Settings → Environment Variables).',
         code: 'missing_retell_guide',
       })
     }
@@ -84,12 +85,13 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       return res.status(403).json({ error: 'No hay un perfil de usuario para iniciar Guia.' })
     }
 
-    const { data: open, error: openError } = await supabase
+    const { data: openRows, error: openError } = await supabase
       .from('guide_sessions')
       .select('id,status')
       .eq('usuario_id', usuario.id)
       .in('status', ['active', 'closing'])
-      .maybeSingle()
+      .order('started_at', { ascending: false })
+      .limit(5)
 
     if (openError) {
       if (isMissingGuideTable(openError)) {
@@ -102,10 +104,12 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
       return res.status(500).json({ error: 'No se pudo revisar la sesion de Guia.' })
     }
 
-    if (open) {
+    const openList = openRows ?? []
+    if (openList.length > 0) {
       if (!replaceActive) {
         return res.status(409).json({ error: 'Ya hay una sesion de Guia abierta.' })
       }
+      const openIds = openList.map((row) => row.id).filter(Boolean)
       const { error: abandonError } = await supabase
         .from('guide_sessions')
         .update({
@@ -113,7 +117,7 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
           closed_at: new Date().toISOString(),
           close_reason: 'abandoned',
         })
-        .eq('id', open.id)
+        .in('id', openIds)
         .in('status', ['active', 'closing'])
       if (abandonError) {
         console.error('guide-retell-web-call abandon', abandonError)
