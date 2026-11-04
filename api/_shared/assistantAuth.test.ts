@@ -3,8 +3,8 @@ import {
   __resetAssistantRateLimitForTests,
   checkAssistantRateLimit,
   readAuthToken,
-} from './assistantAuth'
-import type { VercelRequestLike } from './http'
+} from './assistantAuth.js'
+import type { VercelRequestLike } from './http.js'
 
 function fakeReq(headers: Record<string, string | string[] | undefined>): VercelRequestLike {
   return { headers } as VercelRequestLike

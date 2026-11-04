@@ -3,7 +3,7 @@
  * Valida JWT Supabase y restringe a área OKRS o Super Admin.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import type { VercelRequestLike } from './http'
+import type { VercelRequestLike } from './http.js'
 
 export type AssistantAuthSuccess = {
   ok: true

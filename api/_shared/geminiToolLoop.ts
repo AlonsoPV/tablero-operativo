@@ -1,10 +1,10 @@
-import { COPILOT_FUNCTION_DECLARATIONS } from '../../src/features/ai-support/copilot/catalog'
-import type { CopilotClarification, CopilotProposal, CopilotToolResult } from '../../src/features/ai-support/copilot/types'
+import { COPILOT_FUNCTION_DECLARATIONS } from '../../src/features/ai-support/copilot/catalog.js'
+import type { CopilotClarification, CopilotProposal, CopilotToolResult } from '../../src/features/ai-support/copilot/types.js'
 import {
   dispatchCopilotTool,
   serializeToolResultForModel,
   type CopilotActor,
-} from './assistantOpsRuntime'
+} from './assistantOpsRuntime.js'
 
 type GeminiPart =
   | { text: string }

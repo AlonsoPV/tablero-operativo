@@ -1,4 +1,4 @@
-import { isAssistantMode, type AssistantModeId } from './assistantModes'
+import { isAssistantMode, type AssistantModeId } from './assistantModes.js'
 
 export { isAssistantMode }
 export type { AssistantModeId }

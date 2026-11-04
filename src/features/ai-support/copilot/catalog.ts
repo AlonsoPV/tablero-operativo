@@ -1,4 +1,4 @@
-import { COPILOT_READ_TOOLS, COPILOT_WRITE_TOOLS } from './types'
+import { COPILOT_READ_TOOLS, COPILOT_WRITE_TOOLS } from './types.js'
 
 type GeminiSchema = {
   type: 'object' | 'string' | 'number' | 'boolean' | 'array'

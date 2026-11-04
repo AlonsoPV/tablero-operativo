@@ -3,25 +3,25 @@ import {
   canManageActionsByRole,
   canViewAllBoardData,
   isAnalystByRole,
-} from '../../src/features/auth/lib/permissions'
-import { isCopilotWriteTool } from '../../src/features/ai-support/copilot/catalog'
+} from '../../src/features/auth/lib/permissions.js'
+import { isCopilotWriteTool } from '../../src/features/ai-support/copilot/catalog.js'
 import {
   evaluatePendingTransition,
   matchActionsByQuery,
   matchPeopleByName,
   wrapUntrustedToolData,
   type NamedPerson,
-} from '../../src/features/ai-support/copilot/matching'
-import { parseDueDateHint } from '../../src/features/ai-support/parseWorkFacts'
-import { todayWallClockCDMX } from '../../src/lib/dateUtils'
-import { validateFutureDateTimeCDMX } from '../../src/lib/futureDateValidation'
+} from '../../src/features/ai-support/copilot/matching.js'
+import { parseDueDateHint } from '../../src/features/ai-support/parseWorkFacts.js'
+import { todayWallClockCDMX } from '../../src/lib/dateUtils.js'
+import { validateFutureDateTimeCDMX } from '../../src/lib/futureDateValidation.js'
 import type {
   CopilotClarification,
   CopilotProposal,
   CopilotToolName,
   CopilotToolResult,
   CopilotWriteTool,
-} from '../../src/features/ai-support/copilot/types'
+} from '../../src/features/ai-support/copilot/types.js'
 
 export type CopilotActor = {
   supabase: SupabaseClient
