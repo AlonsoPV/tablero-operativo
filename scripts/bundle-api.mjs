@@ -2,18 +2,18 @@
  * Vercel Node ESM no resuelve `from './_shared/http'` (hace falta .js, o un bundle).
  * Empaqueta cada `api/*.ts` en un solo archivo para que el isolate no importe rutas locales.
  *
- * En Vercel escribe `api/*.js` y quita el `.ts` para que el typecheck de Vercel
- * no analice el JS generado como TypeScript.
+ * En Vercel sustituye el .ts por el bundle con @ts-nocheck: el glob `api/*.js`
+ * no puede ir en vercel.json porque esos archivos no existen en el repo.
  */
 import * as esbuild from 'esbuild'
-import { mkdtemp, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const apiDir = path.join(root, 'api')
-const publish = process.env.VERCEL === '1'
+const overwrite = process.env.VERCEL === '1'
 
 const entries = (await readdir(apiDir)).filter(
   (name) => name.endsWith('.ts') && !name.endsWith('.test.ts'),
@@ -46,12 +46,10 @@ try {
     if (bundled.includes('./_shared/') || bundled.includes('../src/')) {
       throw new Error(`bundle-api: ${name} sigue importando rutas locales`)
     }
-    if (publish) {
-      const jsName = name.replace(/\.ts$/, '.js')
-      await writeFile(path.join(apiDir, jsName), `// @ts-nocheck\n${bundled}`)
-      await unlink(path.join(apiDir, name))
+    if (overwrite) {
+      await writeFile(path.join(apiDir, name), `// @ts-nocheck\n${bundled}`)
     }
-    console.log(`bundle-api: ${name} (${bundled.length} bytes)${publish ? ' [js]' : ''}`)
+    console.log(`bundle-api: ${name} (${bundled.length} bytes)${overwrite ? ' [escrito]' : ''}`)
   }
 } finally {
   await rm(outdir, { recursive: true, force: true })
