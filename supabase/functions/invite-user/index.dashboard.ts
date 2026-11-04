@@ -123,10 +123,17 @@ type InviteUserPayload = {
   activo?: boolean
 }
 
-const DEFAULT_INITIAL_PASSWORD = 'emx@2026'
-
 function normalizeText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function generateTemporaryPassword(length = 16): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%'
+  const bytes = new Uint8Array(length)
+  crypto.getRandomValues(bytes)
+  let out = ''
+  for (let i = 0; i < length; i++) out += alphabet[bytes[i]! % alphabet.length]
+  return out
 }
 
 Deno.serve(async (req) => {
@@ -216,11 +223,16 @@ Deno.serve(async (req) => {
     activo: body?.activo ?? true,
   }
 
+  const temporaryPassword = generateTemporaryPassword()
+
   const { data: createData, error: createError } = await adminClient.auth.admin.createUser({
     email,
-    password: DEFAULT_INITIAL_PASSWORD,
+    password: temporaryPassword,
     email_confirm: true,
-    user_metadata: userMetadata,
+    user_metadata: {
+      ...userMetadata,
+      must_reset_password: true,
+    },
   })
 
   if (createError) {
@@ -282,9 +294,10 @@ Deno.serve(async (req) => {
   return jsonResponse({
     ok: true,
     message:
-      'Usuario creado y confirmado. Puede iniciar sesion con la contraseña inicial configurada por el administrador.',
+      'Usuario creado y confirmado. Comparte la contraseña temporal por un canal seguro; el usuario debera cambiarla.',
     email,
     user_id: invitedUserId,
+    temporary_password: temporaryPassword,
     profile: profile ? { ...profile, email } : null,
   })
 })

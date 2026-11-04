@@ -1,5 +1,7 @@
 {
   "deno.enable": true,
   "deno.enablePaths": ["supabase/functions"],
-  "deno.disablePaths": ["src"]
+  "deno.disablePaths": ["src"],
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true
 }

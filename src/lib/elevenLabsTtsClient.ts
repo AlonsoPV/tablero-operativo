@@ -1,3 +1,5 @@
+import { getAssistantAuthHeaders } from '@/lib/assistantApiAuth'
+
 export type ElevenLabsSpeechResult = {
   audioBase64: string
   mimeType?: string
@@ -23,15 +25,22 @@ export async function requestElevenLabsSpeech(
   text: string,
   signal?: AbortSignal
 ): Promise<ElevenLabsSpeechResult> {
+  const headers = await getAssistantAuthHeaders()
   const response = await fetch('/api/elevenlabs-tts', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     signal,
     body: JSON.stringify({ text: text.slice(0, 1200) }),
   })
 
   const data = await readJson(response)
 
+  if (response.status === 401 || response.status === 403) {
+    throw new Error(data.error || 'No autorizado para generar voz.')
+  }
+  if (response.status === 429) {
+    throw new Error(data.error || 'Demasiadas solicitudes de voz. Espera un momento.')
+  }
   if (!response.ok || !data.audioBase64) {
     throw new Error(data.error || 'No se pudo generar audio con ElevenLabs.')
   }

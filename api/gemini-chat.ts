@@ -5,7 +5,7 @@ import {
   readRequestBody,
   type VercelRequestLike,
 } from './_shared/http'
-import { requireAssistantAuth } from './_shared/assistantAuth'
+import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError'
 import { runGeminiToolLoop } from './_shared/geminiToolLoop'
@@ -29,6 +29,8 @@ const DEFAULT_MAX_OUTPUT_TOKENS = 700
 const DEFAULT_TEMPERATURE = 0.25
 const DEFAULT_TIMEOUT_MS = 20000
 const MAX_RAW_MESSAGES = 24
+const RATE_LIMIT = 40
+const RATE_WINDOW_MS = 60_000
 
 function toGeminiContents(messages: ReturnType<typeof sanitizeMessages>): GeminiContent[] {
   return messages.map((message) => ({
@@ -75,6 +77,17 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
     const auth = await requireAssistantAuth(req, { requireAiModule: true })
     if (!auth.ok) {
       return res.status(auth.status).json({ error: auth.error })
+    }
+
+    const rate = checkAssistantRateLimit({
+      key: `${auth.usuarioId}:gemini-chat`,
+      limit: RATE_LIMIT,
+      windowMs: RATE_WINDOW_MS,
+    })
+    if (!rate.ok) {
+      return res.status(429).json({
+        error: `Demasiadas solicitudes al asistente. Espera ${rate.retryAfterSec}s.`,
+      })
     }
 
     const apiKey = process.env.GEMINI_API_KEY

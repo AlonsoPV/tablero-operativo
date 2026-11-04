@@ -7,7 +7,7 @@
  * API: https://routes.googleapis.com/directions/v2:computeRoutes
  */
 
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
 
 /** Sin `Database` generado, `ReturnType<typeof createClient>` tipa tablas desconocidas como `never`. */
 type AdminClient = SupabaseClient

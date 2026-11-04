@@ -43,6 +43,9 @@ import {
   type FechaCompromisoChangeReasonKey,
 } from '@/features/operations/constants/fechaCompromisoChangeReasons'
 import { whatsappIntegrationService } from '@/services/whatsappIntegration.service'
+import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
+import { useAppRole } from '@/features/auth/hooks/useAppRole'
+import { canAccessAiAssistAndWhatsApp } from '@/features/auth/lib/permissions'
 import { teamKanbanService } from './service'
 import { teamKanbanQueryKeys } from './queryKeys'
 import {
@@ -1356,6 +1359,14 @@ function TeamActionEditDialog({
   const [draftAssignee, setDraftAssignee] = useState('')
   const [draftPriority, setDraftPriority] = useState('')
   const [whatsappPending, setWhatsappPending] = useState(false)
+  const { data: currentUser } = useCurrentUser()
+  const { data: appRole } = useAppRole()
+  const canUseWhatsApp = canAccessAiAssistAndWhatsApp(
+    currentUser?.rol,
+    appRole,
+    currentUser?.area,
+    currentUser?.areas
+  )
 
   useEffect(() => {
     setDueReason('')
@@ -1516,7 +1527,11 @@ function TeamActionEditDialog({
             users={board.members}
             disabled={isChecklistSaving}
             onToggle={(itemIndex, done) => onToggleChecklist(action, itemIndex, done)}
-            onWhatsAppFollowup={(itemIndex) => void sendTeamWhatsApp('checkpoint_followup', itemIndex)}
+            onWhatsAppFollowup={
+              canUseWhatsApp
+                ? (itemIndex) => void sendTeamWhatsApp('checkpoint_followup', itemIndex)
+                : undefined
+            }
             whatsappFollowupPending={whatsappPending}
           />
 
@@ -1632,7 +1647,7 @@ function TeamActionEditDialog({
               {hasFieldChanges ? 'Tienes cambios sin guardar.' : 'Sin cambios pendientes.'}
             </p>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {canManage ? (
+              {canManage && canUseWhatsApp ? (
                 <>
                   <Button
                     type="button"

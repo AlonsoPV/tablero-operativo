@@ -1,5 +1,6 @@
 import { ROUTES } from '@/constants'
 import {
+  canAccessAiAssistAndWhatsApp,
   canAccessOkrs,
   canAccessRouteByRole,
   getDefaultRouteByRole,
@@ -90,6 +91,15 @@ export function canAccessRouteWithModules(
 ) {
   if (pathname === ROUTES.OKRS || pathname.startsWith(`${ROUTES.OKRS}/`)) {
     if (!canAccessOkrs(rol, appRole, context?.area, context?.areas)) return false
+  }
+
+  if (
+    matches(pathname, ROUTES.AI_ASSIST) ||
+    matches(pathname, ROUTES.AI_HISTORY) ||
+    matches(pathname, ROUTES.AI_WHATSAPP_SEGUIMIENTO) ||
+    matches(pathname, ROUTES.SETTINGS_WHATSAPP)
+  ) {
+    return canAccessAiAssistAndWhatsApp(rol, appRole, context?.area, context?.areas)
   }
 
   // La regla de seguridad del Kanban por Equipos siempre prevalece sobre el catalogo de modulos.

@@ -1,6 +1,6 @@
 /**
  * Auth compartida para endpoints privados del Asistente IA / Guía en Vercel.
- * Valida JWT Supabase, resuelve perfil negocio y (opcional) módulo ai_assist.
+ * Valida JWT Supabase y restringe a área OKRS o Super Admin.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { VercelRequestLike } from './http'
@@ -23,7 +23,10 @@ export type AssistantAuthFailure = {
 export type AssistantAuthResult = AssistantAuthSuccess | AssistantAuthFailure
 
 export type RequireAssistantAuthOptions = {
-  /** Si true, exige módulo ai_assist (o super_admin). Default true. */
+  /**
+   * Si true (default), exige área OKRS o Super Admin.
+   * false solo valida sesión/perfil activo (uso interno excepcional).
+   */
   requireAiModule?: boolean
 }
 
@@ -74,15 +77,12 @@ function normalizeRole(rol: string | null | undefined): string {
     .replace(/^_+|_+$/g, '')
 }
 
-async function isPrivilegedAssistantUser(
+async function isSuperAdminAssistantUser(
   supabase: SupabaseClient,
   authUserId: string,
   rol: string | null
 ): Promise<boolean> {
-  const normalized = normalizeRole(rol)
-  if (normalized === 'super_admin' || normalized === 'dg' || normalized === 'sistemas') {
-    return true
-  }
+  if (normalizeRole(rol) === 'super_admin') return true
 
   const { data: roles } = await supabase
     .from('user_roles')
@@ -90,38 +90,36 @@ async function isPrivilegedAssistantUser(
     .eq('user_id', authUserId)
 
   const appRoles = (roles ?? []).map((row) => normalizeRole(String((row as { app_role?: string }).app_role)))
-  return appRoles.some((r) => r === 'super_admin' || r === 'admin')
+  return appRoles.some((r) => r === 'super_admin')
 }
 
-async function hasAiAssistModule(supabase: SupabaseClient): Promise<'yes' | 'no' | 'unknown'> {
-  const { data, error } = await supabase.rpc('current_user_module_keys')
-  if (error) {
-    // RPC ausente o sin grant: no bloquear (compat con entornos sin catálogo de módulos).
-    const message = error.message ?? ''
-    if (
-      error.code === 'PGRST202' ||
-      message.includes('current_user_module_keys') ||
-      error.code === '42883'
-    ) {
-      return 'unknown'
-    }
-    console.error('assistantAuth module keys', { code: error.code })
-    return 'unknown'
-  }
+async function belongsToOkrsArea(
+  supabase: SupabaseClient,
+  usuarioId: string,
+  primaryArea: string | null
+): Promise<boolean> {
+  if (normalizeRole(primaryArea) === 'okrs') return true
 
-  if (!Array.isArray(data)) return 'unknown'
-  if (data.length === 0) return 'unknown'
-  return data.map(String).includes('ai_assist') ? 'yes' : 'no'
+  const { data: areaLinks } = await supabase
+    .from('usuario_areas')
+    .select('area_id, areas(nombre)')
+    .eq('user_id', usuarioId)
+
+  return (areaLinks ?? []).some((row) => {
+    const areas = (row as { areas?: { nombre?: string } | { nombre?: string }[] | null }).areas
+    const nombre = Array.isArray(areas) ? areas[0]?.nombre : areas?.nombre
+    return normalizeRole(nombre) === 'okrs'
+  })
 }
 
 /**
- * Exige Bearer JWT válido + fila en `usuarios` + (opcional) módulo ai_assist.
+ * Exige Bearer JWT válido + fila en `usuarios` + (opcional) área OKRS / Super Admin.
  */
 export async function requireAssistantAuth(
   req: VercelRequestLike,
   options: RequireAssistantAuthOptions = {}
 ): Promise<AssistantAuthResult> {
-  const requireAiModule = options.requireAiModule !== false
+  const requireAiScope = options.requireAiModule !== false
   const token = readAuthToken(req)
   if (!token) {
     return { ok: false, status: 401, error: 'Falta Authorization Bearer. Inicia sesion.' }
@@ -145,7 +143,7 @@ export async function requireAssistantAuth(
 
   const { data: usuario, error: usuarioError } = await supabase
     .from('usuarios')
-    .select('id,rol,activo')
+    .select('id,rol,activo,area')
     .eq('user_id', authData.user.id)
     .maybeSingle()
 
@@ -157,19 +155,18 @@ export async function requireAssistantAuth(
     return { ok: false, status: 403, error: 'Tu usuario esta inactivo.' }
   }
 
-  if (requireAiModule) {
-    const privileged = await isPrivilegedAssistantUser(
-      supabase,
-      authData.user.id,
-      typeof usuario.rol === 'string' ? usuario.rol : null
-    )
+  const rol = typeof usuario.rol === 'string' ? usuario.rol : null
+  const area = typeof usuario.area === 'string' ? usuario.area : null
+
+  if (requireAiScope) {
+    const privileged = await isSuperAdminAssistantUser(supabase, authData.user.id, rol)
     if (!privileged) {
-      const moduleAccess = await hasAiAssistModule(supabase)
-      if (moduleAccess === 'no') {
+      const inOkrs = await belongsToOkrsArea(supabase, usuario.id as string, area)
+      if (!inOkrs) {
         return {
           ok: false,
           status: 403,
-          error: 'No tienes el modulo de Asistente IA habilitado.',
+          error: 'El Asistente IA solo esta disponible para el area OKRs y Super Admin.',
         }
       }
     }
@@ -180,7 +177,7 @@ export async function requireAssistantAuth(
     token,
     authUserId: authData.user.id,
     usuarioId: usuario.id as string,
-    rol: typeof usuario.rol === 'string' ? usuario.rol : null,
+    rol,
     supabase,
   }
 }

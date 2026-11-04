@@ -79,11 +79,19 @@ export function UsersPage() {
     } else {
       try {
         createUser.mutate(toCreateUserInput(values), {
-          onSuccess: () => {
+          onSuccess: (result) => {
             const email = values.email?.trim().toLowerCase() ?? ''
-            toast.success(
-              `Usuario creado y confirmado: ${email}. Puede iniciar sesion con la contrasena inicial configurada.`
-            )
+            const temp = result.temporaryPassword
+            if (temp) {
+              void navigator.clipboard?.writeText(temp).catch(() => undefined)
+              toast.success(
+                `Usuario creado: ${email}. Contraseña temporal copiada al portapapeles. Compártela por un canal seguro.`
+              )
+            } else {
+              toast.success(
+                `Usuario creado: ${email}. Asigna una contraseña desde el detalle del usuario.`
+              )
+            }
             setFilter(DEFAULT_FILTER)
             setFormOpen(false)
             setEditingUser(null)

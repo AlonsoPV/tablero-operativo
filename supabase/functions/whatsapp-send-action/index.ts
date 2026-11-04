@@ -307,6 +307,17 @@ Deno.serve(async (req) => {
 
   try {
     const supabase = adminClient()
+    const { data: allowed, error: accessError } = await supabase.rpc('whatsapp_inbox_can_access', {
+      p_auth_uid: auth.data.user.id,
+    })
+    if (accessError) {
+      console.error('whatsapp-send-action access check', accessError)
+      return jsonResponse({ error: 'forbidden' }, 403)
+    }
+    if (allowed !== true) {
+      return jsonResponse({ error: 'forbidden', detail: 'Solo area OKRS o Super Admin.' }, 403)
+    }
+
     const settings = await loadFollowupSettings(supabase)
     const { templateName, templateLanguage } = whatsappConfig()
 

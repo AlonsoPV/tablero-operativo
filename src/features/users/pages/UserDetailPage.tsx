@@ -29,12 +29,8 @@ import { toast } from 'sonner'
 import { ArrowLeft } from 'lucide-react'
 import { useOrgChart } from '@/features/org-chart/hooks/useOrgChart'
 import {
+  canAccessAiAssistAndWhatsApp,
   canEditOrgUserHierarchy,
-  isAdminByRole,
-  isAppAdminByAppRole,
-  isAppSuperAdminByAppRole,
-  isDirectionByRole,
-  isSuperAdminByRole,
 } from '@/features/auth/lib/permissions'
 import { useAppRole } from '@/features/auth/hooks/useAppRole'
 import { mapManagerUpdateError } from '@/features/org-chart/utils/orgHierarchy'
@@ -65,13 +61,12 @@ export function UserDetailPage() {
     area: currentUser?.area,
     areas: currentUser?.areas,
   })
-  /** Mismo alcance que administrar usuarios/catálogos (incl. Dirección). */
-  const canManageWhatsApp =
-    isAppSuperAdminByAppRole(appRole) ||
-    isAppAdminByAppRole(appRole) ||
-    isSuperAdminByRole(currentUser?.rol) ||
-    isAdminByRole(currentUser?.rol) ||
-    isDirectionByRole(currentUser?.rol)
+  const canManageWhatsApp = canAccessAiAssistAndWhatsApp(
+    currentUser?.rol,
+    appRole,
+    currentUser?.area,
+    currentUser?.areas
+  )
 
   const handleFormSubmit = (values: UserFormValues) => {
     if (!id) return

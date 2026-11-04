@@ -197,6 +197,39 @@ function verifyChallenge(url: URL): Response | null {
   return null
 }
 
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let out = 0
+  for (let i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return out === 0
+}
+
+function toHex(buffer: ArrayBuffer): string {
+  return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** Meta Cloud API: X-Hub-Signature-256 = sha256=<hmac_hex(app_secret, raw_body)>. */
+async function verifyMetaSignature(rawBody: string, signatureHeader: string | null): Promise<boolean> {
+  const appSecret = Deno.env.get('WHATSAPP_APP_SECRET')?.trim() || ''
+  if (!appSecret) {
+    console.error('whatsapp-webhook missing WHATSAPP_APP_SECRET')
+    return false
+  }
+  const provided = (signatureHeader ?? '').trim()
+  const match = /^sha256=([a-fA-F0-9]{64})$/.exec(provided)
+  if (!match) return false
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(appSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const digest = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(rawBody))
+  return timingSafeEqualHex(toHex(digest).toLowerCase(), match[1].toLowerCase())
+}
+
 function parseButtonId(raw: string | null | undefined): {
   kind: 'corporate' | 'team' | null
   checkpointId?: string
@@ -786,9 +819,15 @@ Deno.serve(async (req) => {
     return new Response('method_not_allowed', { status: 405 })
   }
 
+  const rawBody = await req.text()
+  const signatureOk = await verifyMetaSignature(rawBody, req.headers.get('X-Hub-Signature-256'))
+  if (!signatureOk) {
+    return new Response('invalid_signature', { status: 401 })
+  }
+
   let payload: Record<string, unknown>
   try {
-    payload = (await req.json()) as Record<string, unknown>
+    payload = JSON.parse(rawBody) as Record<string, unknown>
   } catch {
     return new Response('invalid_json', { status: 400 })
   }

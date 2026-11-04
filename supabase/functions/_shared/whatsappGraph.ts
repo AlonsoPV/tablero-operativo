@@ -3,7 +3,7 @@
  * Las Edge Functions desplegables son autocontenidas en su `index.ts`
  * (el Dashboard solo sube ese archivo).
  */
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
 
 export type WhatsAppScope = 'corporate' | 'team'
 export type WhatsAppMessageType = 'initial' | 'checkpoint_followup' | 'commitment_close'

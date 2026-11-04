@@ -17,6 +17,8 @@ import type { Priority } from '@/features/catalogs/types/catalogs.types'
 import { AccionChecklistEditor, type LocalCheckpointDraft } from '@/features/operations/components/AccionChecklistEditor'
 import type { AccionCreateInput, AccionFormInput } from '@/features/operations/schemas/accion.schema'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
+import { useAppRole } from '@/features/auth/hooks/useAppRole'
+import { canAccessAiAssistAndWhatsApp } from '@/features/auth/lib/permissions'
 import { notificacionesService } from '@/services/notificaciones.service'
 import type { TeamBoard } from './types'
 import { teamKanbanService } from './service'
@@ -100,6 +102,13 @@ export function TeamActionFormDialog({
   onDone,
 }: Props) {
   const { data: currentUser } = useCurrentUser()
+  const { data: appRole } = useAppRole()
+  const canUseWhatsApp = canAccessAiAssistAndWhatsApp(
+    currentUser?.rol,
+    appRole,
+    currentUser?.area,
+    currentUser?.areas
+  )
   const canSeeOkrTags = useCanSeeOkrTags()
   const [mode, setMode] = useState<TeamActionMode>('single')
   const [checklist, setChecklist] = useState<LocalCheckpointDraft[]>([])
@@ -169,7 +178,7 @@ export function TeamActionFormDialog({
   }
 
   const tryAutoSendWhatsApp = async (teamActionId: string, assigneeId: string | null | undefined) => {
-    if (!teamActionId || !assigneeId) return
+    if (!canUseWhatsApp || !teamActionId || !assigneeId) return
     try {
       const identity = await whatsappIntegrationService.getIdentity(assigneeId)
       if (!identity?.external_user_id) return

@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient, type User } from 'npm:@supabase/supabase-js@2'
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -6,6 +6,8 @@ const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Max-Age': '86400',
 }
+
+const emailRateBuckets = new Map<string, number[]>()
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -582,6 +584,78 @@ Deno.serve(async (req) => {
       detectSessionInUrl: false,
     },
   })
+
+  const callerAuthId = auth.data.user.id
+  const { data: callerProfile } = await adminClient
+    .from('usuarios')
+    .select('id,rol,activo')
+    .eq('user_id', callerAuthId)
+    .maybeSingle()
+  if (!callerProfile?.id || callerProfile.activo === false) {
+    return jsonResponse({ ok: false, message: 'Perfil de emisor no encontrado o inactivo' }, 403)
+  }
+
+  const { data: callerRole } = await adminClient
+    .from('user_roles')
+    .select('app_role')
+    .eq('user_id', callerAuthId)
+    .maybeSingle()
+
+  const isPrivilegedMailer =
+    callerRole?.app_role === 'admin' ||
+    callerRole?.app_role === 'super_admin' ||
+    ['dg', 'sistemas', 'super_admin', 'direccion'].includes(
+      String(callerProfile.rol ?? '')
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase('es-MX')
+    )
+
+  // Rate limit por emisor (best-effort en memoria de la instancia).
+  const rateKey = `mail:${callerProfile.id}`
+  const now = Date.now()
+  const windowMs = 15 * 60 * 1000
+  const limit = isPrivilegedMailer ? 120 : 40
+  const prev = emailRateBuckets.get(rateKey) ?? []
+  const recent = prev.filter((ts) => now - ts < windowMs)
+  if (recent.length >= limit) {
+    return jsonResponse({ ok: false, message: 'Demasiados correos en poco tiempo. Intenta mas tarde.' }, 429)
+  }
+  recent.push(now)
+  emailRateBuckets.set(rateKey, recent)
+
+  // No-admins: exigir contexto de acción/ticket real (evita mailer genérico de phishing).
+  if (!isPrivilegedMailer) {
+    const accionId =
+      textFromPayload(payload, 'accion_id') || textFromPayload(payload, 'accionId')
+    const ticketId =
+      textFromPayload(payload, 'ticket_id') || textFromPayload(payload, 'ticketId')
+    if (UUID_RE.test(accionId)) {
+      const { data: accionRow } = await adminClient
+        .from('acciones')
+        .select('id')
+        .eq('id', accionId)
+        .maybeSingle()
+      if (!accionRow?.id) {
+        return jsonResponse({ ok: false, message: 'Contexto de accion invalido' }, 403)
+      }
+    } else if (UUID_RE.test(ticketId)) {
+      const { data: ticketRow } = await adminClient
+        .from('support_tickets')
+        .select('id')
+        .eq('id', ticketId)
+        .maybeSingle()
+      if (!ticketRow?.id) {
+        return jsonResponse({ ok: false, message: 'Contexto de ticket invalido' }, 403)
+      }
+    } else if (callerProfile.id !== usuarioId) {
+      return jsonResponse(
+        { ok: false, message: 'Solo puedes notificar con contexto de accion/ticket o a ti mismo' },
+        403
+      )
+    }
+  }
 
   const { data: profile, error: profileError } = await adminClient
     .from('usuarios')

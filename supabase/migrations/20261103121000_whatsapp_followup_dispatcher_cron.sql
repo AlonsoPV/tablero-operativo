@@ -17,7 +17,7 @@ SELECT cron.schedule(
   '* * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://tgiuevzlyptzlfgxsfhj.supabase.co/functions/v1/whatsapp-followup-dispatcher',
+    url := 'https://xhpasmjzuwifmjhrsumb.supabase.co/functions/v1/whatsapp-followup-dispatcher',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'x-dispatcher-secret', COALESCE(

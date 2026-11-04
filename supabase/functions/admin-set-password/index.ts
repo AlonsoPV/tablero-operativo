@@ -1,19 +1,125 @@
 /**
- * Admin: asignar contraseña de Auth a un usuario existente.
- * POST { usuario_id, password } — no se persiste en public.usuarios ni se devuelve.
+ * Versión autocontenida para pegar en Supabase Dashboard → Edge Functions → admin-set-password.
+ * Reemplaza TODO el contenido del editor por este archivo.
  *
- * Permisos: mismos que invite-user (canInviteUsers).
- * verify_jwt: false en config.toml; se valida el Bearer internamente.
+ * Proyecto PROD (scrumbanemx): xhpasmjzuwifmjhrsumb
+ *
+ * Configuración:
+ * - verify_jwt: OFF (la función valida el JWT internamente)
+ * - Secrets: SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY (suelen estar predefinidos)
+ *
+ * Mantener en sync con index.ts + _shared cuando alguien pueda usar CLI deploy.
  */
-import { createClient } from '@supabase/supabase-js'
-import { handleCorsPreflight, jsonResponse } from '../_shared/cors.ts'
-import { requireAuthUser } from '../_shared/requireUser.ts'
-import { canInviteUsers } from '../_shared/invitePermissions.ts'
+// @ts-nocheck — runtime Deno Edge; el bundler de Supabase exige import npm:
+import { createClient } from 'npm:@supabase/supabase-js@2'
 
+/** Runtime Deno en Supabase Edge (el IDE del repo no lo incluye por defecto). */
+declare const Deno: {
+  env: { get(key: string): string | undefined }
+  serve: (handler: (req: Request) => Response | Promise<Response>) => void
+}
+
+const corsHeaders: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Max-Age': '86400',
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json; charset=utf-8',
+    },
+  })
+}
+
+function handleCorsPreflight(req: Request): Response | null {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders })
+  }
+  return null
+}
+
+const ADMIN_BUSINESS_ROLES = ['dg', 'sistemas', 'super_admin'] as const
+const DIRECTION_ROLE = 'direccion'
 const PASSWORD_MIN_LENGTH = 6
 const PASSWORD_MAX_LENGTH = 72
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function normalizeBusinessRole(rol: unknown): string {
+  return (typeof rol === 'string' ? rol : '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('es-MX')
+}
+
+function isDirectionRole(rol: unknown): boolean {
+  return normalizeBusinessRole(rol) === DIRECTION_ROLE
+}
+
+function isBusinessAdminRole(rol: unknown): boolean {
+  const normalized = normalizeBusinessRole(rol)
+  return ADMIN_BUSINESS_ROLES.some((role) => normalized === role)
+}
+
+function canInviteUsers(params: {
+  appRole: string | null | undefined
+  businessRol: unknown
+  activo: boolean | null | undefined
+}): boolean {
+  const isAppAdmin = params.appRole === 'admin' || params.appRole === 'super_admin'
+  const businessAllowed =
+    Boolean(params.activo) &&
+    (isDirectionRole(params.businessRol) || isBusinessAdminRole(params.businessRol))
+  return isAppAdmin || businessAllowed
+}
+
+async function requireAuthUser(req: Request) {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return {
+      ok: false as const,
+      response: jsonResponse({ error: 'Configuración de servidor incompleta' }, 500),
+    }
+  }
+
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader?.startsWith('Bearer ')) {
+    return {
+      ok: false as const,
+      response: jsonResponse({ error: 'No autorizado' }, 401),
+    }
+  }
+
+  const token = authHeader.slice(7)
+  const adminClient = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  })
+
+  const { data: userData, error: userError } = await adminClient.auth.getUser(token)
+  if (userError || !userData.user) {
+    return {
+      ok: false as const,
+      response: jsonResponse({ error: 'Sesión inválida' }, 401),
+    }
+  }
+
+  return {
+    ok: true as const,
+    data: { user: userData.user, token },
+  }
+}
 
 type SetPasswordPayload = {
   usuario_id?: unknown

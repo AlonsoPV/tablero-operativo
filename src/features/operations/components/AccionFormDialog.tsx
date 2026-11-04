@@ -28,7 +28,9 @@ import { AccionEvidenciasSection } from './AccionEvidenciasSection'
 import { AccionComentarios } from './AccionComentarios'
 import { useCreateAccion, useDeleteAccion, useUpdateAccion, useAccion } from '../hooks'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
+import { useAppRole } from '@/features/auth/hooks/useAppRole'
 import {
+  canAccessAiAssistAndWhatsApp,
   canEditActionGeneralByRole,
   canManageActionsByRole,
   isAnalystByRole,
@@ -129,6 +131,7 @@ export function AccionFormDialog({
     isLoading: isCurrentUserLoading,
     isFetching: isCurrentUserFetching,
   } = useCurrentUser()
+  const { data: appRole } = useAppRole()
   const createAccion = useCreateAccion()
   const updateAccion = useUpdateAccion()
   const deleteAccion = useDeleteAccion()
@@ -141,6 +144,12 @@ export function AccionFormDialog({
   const isSuperAdmin = isSuperAdminByRole(currentUser?.rol)
   const isDirection = isDirectionByRole(currentUser?.rol)
   const canManageActions = canManageActionsByRole(currentUser?.rol)
+  const canUseWhatsApp = canAccessAiAssistAndWhatsApp(
+    currentUser?.rol,
+    appRole,
+    currentUser?.area,
+    currentUser?.areas
+  )
   const canEditActionGeneral =
     canEditActionGeneralByRole(currentUser?.rol) || isSuperAdmin || isDirection
   const isActionCreator = !!accionLive?.created_by && accionLive.created_by === currentUser?.id
@@ -397,7 +406,7 @@ export function AccionFormDialog({
   }
 
   async function tryAutoSendWhatsApp(accionId: string, responsableId: string | null | undefined) {
-    if (!accionId || !responsableId) return
+    if (!canUseWhatsApp || !accionId || !responsableId) return
     try {
       const identity = await whatsappIntegrationService.getIdentity(responsableId)
       if (!identity?.external_user_id) return
@@ -816,7 +825,7 @@ export function AccionFormDialog({
 
   const formBaseId = `${dialogId ?? 'accion-form-dialog'}-form`
   const showEmailButton = isEdit && !!accion
-  const showWhatsAppButtons = isEdit && !!accionLive
+  const showWhatsAppButtons = canUseWhatsApp && isEdit && !!accionLive
   const showMarkDoneButton = canMarkActionDone
   const isManualNotificationPending = manualEmailPending || whatsappPending
   const hasLeadingFooterActions =
@@ -1075,7 +1084,7 @@ export function AccionFormDialog({
                 canToggle={canManageChecklistStructure || isActionResponsible}
                 responsableNames={responsableNames}
                 users={checklistUsers}
-                onWhatsAppFollowup={handleWhatsAppCheckpointFollowup}
+                onWhatsAppFollowup={canUseWhatsApp ? handleWhatsAppCheckpointFollowup : undefined}
                 whatsappFollowupPending={whatsappPending}
                 onResponsableAssigned={(input) =>
                   notifyCheckpointResponsable({

@@ -253,10 +253,12 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405)
 
   const expected = Deno.env.get('WHATSAPP_DISPATCHER_SECRET')?.trim() || ''
-  if (expected) {
-    const provided = req.headers.get('x-dispatcher-secret')?.trim() || ''
-    if (provided !== expected) return unauthorized()
+  if (!expected) {
+    console.error('whatsapp-followup-dispatcher missing WHATSAPP_DISPATCHER_SECRET')
+    return unauthorized()
   }
+  const provided = req.headers.get('x-dispatcher-secret')?.trim() || ''
+  if (provided !== expected) return unauthorized()
 
   try {
     const supabase = adminClient()

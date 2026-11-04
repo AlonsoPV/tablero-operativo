@@ -8,7 +8,17 @@ import type { UserProfile, CreateUserInput, UpdateUserInput, UsersFilter } from 
 
 const TABLE = 'usuarios'
 
-type InviteUserResponseBody = { ok?: boolean; message?: string; profile?: UserProfile | null }
+type InviteUserResponseBody = {
+  ok?: boolean
+  message?: string
+  profile?: UserProfile | null
+  temporary_password?: string
+}
+
+export type CreateUserResult = {
+  profile: UserProfile | null
+  temporaryPassword: string | null
+}
 type AdminSetPasswordResponseBody = { ok?: boolean; message?: string }
 
 function isUnauthorizedListError(error: unknown): boolean {
@@ -520,7 +530,7 @@ export const usersAdminService = {
    * Envía una invitación por correo. La Edge Function crea el usuario en Auth
    * y el trigger de Supabase sincroniza el perfil en public.usuarios.
    */
-  async create(input: CreateUserInput): Promise<UserProfile | null> {
+  async create(input: CreateUserInput): Promise<CreateUserResult> {
     const payload = {
       email: input.email.trim().toLowerCase(),
       nombre: input.nombre.trim(),
@@ -539,12 +549,16 @@ export const usersAdminService = {
     if (data && data.ok === false && typeof data.message === 'string') {
       throw new Error(mapInviteUserFacingMessage(data.message))
     }
-    const profile = data?.profile ?? null
+    let profile = data?.profile ?? null
     if (profile && input.primary_role_id && input.role_ids?.length) {
       await setRolesViaRpc(profile.id, input.role_ids, input.primary_role_id)
-      return this.getById(profile.id)
+      profile = await this.getById(profile.id)
     }
-    return profile
+    const temporaryPassword =
+      typeof data?.temporary_password === 'string' && data.temporary_password.trim()
+        ? data.temporary_password.trim()
+        : null
+    return { profile, temporaryPassword }
   },
 
   /**

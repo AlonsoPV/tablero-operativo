@@ -1,6 +1,7 @@
 /**
  * Proxy servidor a ElevenLabs TTS. Devuelve audioBase64 (mp3).
  * Secrets: ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID (opcionales: ELEVENLABS_MODEL_ID).
+ * Requiere JWT de Asistente IA (área OKRS / Super Admin).
  */
 import type { ServerResponse } from 'node:http'
 import {
@@ -9,10 +10,13 @@ import {
   readStringEnv,
   type VercelRequestLike,
 } from './_shared/http'
+import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth'
 
 const MAX_TEXT_CHARS = 1200
 const DEFAULT_MODEL = 'eleven_multilingual_v2'
 const DEFAULT_VOICE = '21m00Tcm4TlvDq8ikWAM'
+const RATE_LIMIT = 20
+const RATE_WINDOW_MS = 60_000
 
 export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
   const res = asJsonResponse(serverRes)
@@ -20,6 +24,22 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
   try {
     if (req.method !== 'POST') {
       return res.status(405).json({ error: 'Metodo no permitido. Usa POST.' })
+    }
+
+    const auth = await requireAssistantAuth(req, { requireAiModule: true })
+    if (!auth.ok) {
+      return res.status(auth.status).json({ error: auth.error })
+    }
+
+    const rate = checkAssistantRateLimit({
+      key: `${auth.usuarioId}:elevenlabs-tts`,
+      limit: RATE_LIMIT,
+      windowMs: RATE_WINDOW_MS,
+    })
+    if (!rate.ok) {
+      return res.status(429).json({
+        error: `Demasiadas solicitudes de voz. Espera ${rate.retryAfterSec}s.`,
+      })
     }
 
     const apiKey = process.env.ELEVENLABS_API_KEY
