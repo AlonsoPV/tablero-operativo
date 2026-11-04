@@ -14,8 +14,6 @@ import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assista
 import { enableSystemCaCertificates } from './_shared/enableSystemCa'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError'
 
-enableSystemCaCertificates()
-
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
 const DEFAULT_MODEL = 'gemini-2.5-flash'
 const MAX_AUDIO_CHARS = 6_000_000
@@ -42,6 +40,7 @@ function cleanTranscript(text: string) {
 
 export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
   const res = asJsonResponse(serverRes)
+  enableSystemCaCertificates()
   try {
     if (req.method !== 'POST') {
       return res.status(405).json({ error: 'Metodo no permitido. Usa POST.' })

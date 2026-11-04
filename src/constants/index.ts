@@ -9,11 +9,30 @@ type ViteImportMeta = ImportMeta & {
 }
 
 function readViteEnv() {
-  return (import.meta as ViteImportMeta).env
+  try {
+    return (import.meta as ViteImportMeta).env
+  } catch {
+    return undefined
+  }
+}
+
+function readNodeEnv(name: string): string | undefined {
+  const runtime = globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> }
+  }
+  const value = runtime.process?.env?.[name]
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function readPublicEnv(name: 'VITE_APP_URL' | 'VITE_GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED') {
+  const fromProcess = readNodeEnv(name)
+  if (fromProcess) return fromProcess
+  const fromVite = readViteEnv()?.[name]
+  return typeof fromVite === 'string' && fromVite.trim() ? fromVite.trim() : undefined
 }
 
 export const APP_BASE_URL = (
-  readViteEnv()?.VITE_APP_URL?.trim() || PRODUCTION_APP_BASE_URL
+  readPublicEnv('VITE_APP_URL') || PRODUCTION_APP_BASE_URL
 ).replace(/\/+$/, '')
 
 /** Rutas según módulos de lovable-spec §5 */
@@ -94,4 +113,4 @@ export function getPasswordResetRedirectUrl() {
 
 /** Exportar minutas, acciones y recordatorios a Google Calendar / Tasks / Gmail. */
 export const GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED =
-  readViteEnv()?.VITE_GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED !== 'false'
+  readPublicEnv('VITE_GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED') !== 'false'
