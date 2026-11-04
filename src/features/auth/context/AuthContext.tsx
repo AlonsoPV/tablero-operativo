@@ -345,7 +345,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         devWarn('invalid refresh token → clearing session', error)
 
         try {
-          await authService.signOut()
+          await authService.signOut({ localOnly: true })
         } catch (signOutError) {
           devWarn('signOut after invalid refresh token failed', signOutError)
         } finally {

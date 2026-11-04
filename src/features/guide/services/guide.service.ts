@@ -169,7 +169,14 @@ function createLocalSession(usuarioId: string): GuideSession {
 }
 
 async function authHeaders() {
-  const { data } = await supabase.auth.getSession()
+  const { data, error } = await supabase.auth.getSession()
+  if (error) {
+    const message = error.message.toLowerCase()
+    if (message.includes('refresh token') || message.includes('invalid jwt')) {
+      throw new Error('Tu sesion expiro. Cierra sesion e inicia de nuevo.')
+    }
+    throw error
+  }
   const token = data.session?.access_token
   if (!token) throw new Error('Debes iniciar sesion para usar Guia.')
   return {
