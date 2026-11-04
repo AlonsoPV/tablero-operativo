@@ -8,10 +8,10 @@ import {
   readNumberEnv,
   readRequestBody,
   readStringEnv,
-} from './_shared/http'
-import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth'
-import { enableSystemCaCertificates } from './_shared/enableSystemCa'
-import { loadGuideBoardContext } from './_shared/guideBoardContext'
+} from './_shared/http.js'
+import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth.js'
+import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
+import { loadGuideBoardContext } from './_shared/guideBoardContext.js'
 import {
   formatExecutiveReport,
   inferGuideWorkIntent,
@@ -21,8 +21,8 @@ import {
   serializePendingWork,
   withWorkInInterpretation,
   type GuideCreatedWork,
-} from './_shared/guideWork'
-import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError'
+} from './_shared/guideWork.js'
+import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
 
 const GUIDE_SYSTEM_PROMPT = `
 Eres Guia, un acompanante conversacional reflexivo. No eres terapeuta, medico ni coach clinico.

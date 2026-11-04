@@ -1,6 +1,6 @@
-import { defineApiHandler, readRequestBody } from './_shared/http'
-import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth'
-import { cancelPendingOp, confirmPendingOp } from './_shared/assistantOpsRuntime'
+import { defineApiHandler, readRequestBody } from './_shared/http.js'
+import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth.js'
+import { cancelPendingOp, confirmPendingOp } from './_shared/assistantOpsRuntime.js'
 
 const RATE_LIMIT = 30
 const RATE_WINDOW_MS = 60_000

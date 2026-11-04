@@ -10,7 +10,7 @@
     "dev": "node --use-system-ca ./node_modules/vite/bin/vite.js",
     "dev:prod": "node --use-system-ca ./node_modules/vite/bin/vite.js --mode prodlocal",
     "build": "tsc -b && node ./node_modules/vite/bin/vite.js build",
-    "vercel-build": "npm run build",
+    "vercel-build": "npm run build && node scripts/bundle-api.mjs",
     "lint": "eslint .",
     "test": "vitest run",
     "preview": "node --use-system-ca ./node_modules/vite/bin/vite.js preview",

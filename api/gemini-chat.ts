@@ -2,17 +2,17 @@ import {
   defineApiHandler,
   readNumberEnv,
   readRequestBody,
-} from './_shared/http'
-import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth'
-import { enableSystemCaCertificates } from './_shared/enableSystemCa'
-import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError'
-import { runGeminiToolLoop } from './_shared/geminiToolLoop'
+} from './_shared/http.js'
+import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth.js'
+import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
+import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
+import { runGeminiToolLoop } from './_shared/geminiToolLoop.js'
 import {
   appendAssistantContexts,
   composeSystemPrompt,
   isAssistantMode,
   sanitizeMessages,
-} from '../src/lib/assistantPrompts'
+} from '../src/lib/assistantPrompts.js'
 
 type GeminiContent = {
   role: 'user' | 'model'

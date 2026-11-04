@@ -7,10 +7,10 @@ import {
   readNumberEnv,
   readRequestBody,
   readStringEnv,
-} from './_shared/http'
-import { requireAssistantAuth } from './_shared/assistantAuth'
-import { enableSystemCaCertificates } from './_shared/enableSystemCa'
-import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError'
+} from './_shared/http.js'
+import { requireAssistantAuth } from './_shared/assistantAuth.js'
+import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
+import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
 
 export type AssistantAudioIntent = 'plan_actions' | 'advisory'
 

@@ -1,4 +1,4 @@
-import { defineApiHandler, type VercelRequestLike } from './_shared/http'
+import { defineApiHandler, type VercelRequestLike } from './_shared/http.js'
 
 type DemoRequestBody = {
   name?: string

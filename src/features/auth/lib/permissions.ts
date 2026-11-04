@@ -7,7 +7,7 @@
  * - user_roles.app_role = rol de aplicacion (admin / super_admin).
  */
 
-import { ROUTES } from '../../../constants'
+import { ROUTES } from '../../../constants/index.js'
 import type { Usuario } from '../../../types'
 
 /** Roles que tienen privilegios de admin (spec 2.2). */

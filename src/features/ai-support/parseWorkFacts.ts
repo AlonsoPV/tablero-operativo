@@ -1,4 +1,4 @@
-import { addCalendarDays } from '../../lib/dateUtils'
+import { addCalendarDays } from '../../lib/dateUtils.js'
 
 export type WorkFacts = {
   dateYmd: string | null

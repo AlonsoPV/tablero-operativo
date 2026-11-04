@@ -1,4 +1,4 @@
-import { getAppNow } from './clock'
+import { getAppNow } from './clock.js'
 
 /** Zona horaria de Ciudad de México */
 const CDMX_TZ = 'America/Mexico_City'
