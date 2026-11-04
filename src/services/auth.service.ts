@@ -97,8 +97,10 @@ export const authService = {
     return data
   },
 
-  async signOut() {
-    const { error } = await supabase.auth.signOut()
+  async signOut(options?: { localOnly?: boolean }) {
+    const { error } = await supabase.auth.signOut(
+      options?.localOnly ? { scope: 'local' } : undefined
+    )
     if (error) throw error
   },
 
