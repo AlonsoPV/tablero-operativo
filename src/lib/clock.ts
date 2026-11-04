@@ -5,8 +5,10 @@
  * en lugar del reloj del sistema. Sirve para demos y pruebas reproducibles.
  * En producción no definas esta variable.
  */
+type ViteImportMeta = ImportMeta & { env?: { VITE_DEV_FIXED_NOW?: string } }
+
 export function getAppNow(): Date {
-  const raw = import.meta.env.VITE_DEV_FIXED_NOW as string | undefined
+  const raw = (import.meta as ViteImportMeta).env?.VITE_DEV_FIXED_NOW
   if (raw?.trim()) {
     const d = new Date(raw.trim())
     if (!Number.isNaN(d.getTime())) return d

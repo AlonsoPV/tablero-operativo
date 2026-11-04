@@ -226,10 +226,12 @@ export function rewriteDatesInText(text: string, fromYmd: string | null, toYmd: 
   if (fromYmd && fromYmd !== toYmd) {
     const fromLong = formatWorkDateLong(fromYmd)
     const toLong = formatWorkDateLong(toYmd)
-    next = next.replaceAll(fromYmd, toYmd)
-    next = next.replaceAll(formatWorkDateLabel(fromYmd), formatWorkDateLabel(toYmd))
-    next = next.replaceAll(fromLong, toLong)
-    next = next.replaceAll(fromLong.replace(/ de \d{4}$/, ''), toLong.replace(/ de \d{4}$/, ''))
+    next = next.split(fromYmd).join(toYmd)
+    next = next.split(formatWorkDateLabel(fromYmd)).join(formatWorkDateLabel(toYmd))
+    next = next.split(fromLong).join(toLong)
+    next = next
+      .split(fromLong.replace(/ de \d{4}$/, ''))
+      .join(toLong.replace(/ de \d{4}$/, ''))
   }
   return next
 }

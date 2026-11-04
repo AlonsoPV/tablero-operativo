@@ -1,7 +1,19 @@
 export const APP_NAME = 'SCRUMBAN'
 export const PRODUCTION_APP_BASE_URL = 'https://scrumbanemx.vercel.app'
+
+type ViteImportMeta = ImportMeta & {
+  env?: {
+    VITE_APP_URL?: string
+    VITE_GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED?: string
+  }
+}
+
+function readViteEnv() {
+  return (import.meta as ViteImportMeta).env
+}
+
 export const APP_BASE_URL = (
-  import.meta.env.VITE_APP_URL?.trim() || PRODUCTION_APP_BASE_URL
+  readViteEnv()?.VITE_APP_URL?.trim() || PRODUCTION_APP_BASE_URL
 ).replace(/\/+$/, '')
 
 /** Rutas según módulos de lovable-spec §5 */
@@ -63,11 +75,14 @@ export const ROUTES = {
 } as const
 
 export function getRuntimeAppBaseUrl() {
-  if (typeof window === 'undefined') return APP_BASE_URL
+  const browser = globalThis as typeof globalThis & {
+    window?: { location?: { hostname?: string; origin?: string } }
+  }
+  const location = browser.window?.location
+  if (!location?.hostname || !location.origin) return APP_BASE_URL
 
-  const { hostname, origin } = window.location
-  if (hostname === new URL(PRODUCTION_APP_BASE_URL).hostname) {
-    return origin.replace(/\/+$/, '')
+  if (location.hostname === new URL(PRODUCTION_APP_BASE_URL).hostname) {
+    return location.origin.replace(/\/+$/, '')
   }
 
   return APP_BASE_URL
@@ -79,4 +94,4 @@ export function getPasswordResetRedirectUrl() {
 
 /** Exportar minutas, acciones y recordatorios a Google Calendar / Tasks / Gmail. */
 export const GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED =
-  import.meta.env.VITE_GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED !== 'false'
+  readViteEnv()?.VITE_GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED !== 'false'

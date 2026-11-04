@@ -134,17 +134,19 @@ type ActionContext = {
   notasEscalamiento?: string | null
 }
 
-async function readChatResponse(response: Response) {
+type GeminiChatResponse = {
+  answer?: string
+  error?: string
+  proposals?: AiChatMessage['proposals']
+  clarification?: AiChatMessage['clarification']
+}
+
+async function readChatResponse(response: Response): Promise<GeminiChatResponse> {
   const text = await response.text()
-  if (!text.trim()) return {} as { answer?: string; error?: string; proposals?: unknown; clarification?: unknown }
+  if (!text.trim()) return {}
 
   try {
-    return JSON.parse(text) as {
-      answer?: string
-      error?: string
-      proposals?: AiChatMessage['proposals']
-      clarification?: AiChatMessage['clarification']
-    }
+    return JSON.parse(text) as GeminiChatResponse
   } catch {
     return { error: text.trim().slice(0, 220) }
   }
