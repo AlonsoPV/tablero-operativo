@@ -63,6 +63,10 @@ flowchart LR
 
 **Seguridad:** la API key de Gemini (`GEMINI_API_KEY`) vive solo en Vercel. Nunca se expone al navegador.
 
+### Canal WhatsApp (Fase 1)
+
+El webhook de Meta (`whatsapp-webhook`) reenvía texto libre de usuarios OKRS / Super Admin a `POST /api/whatsapp-assistant` (secreto `WHATSAPP_ASSISTANT_SECRET`, no JWT). Las escrituras se proponen y el usuario confirma con botones `aiop:` o sí/no. Detalle operativo: [whatsapp.md](./whatsapp.md).
+
 ---
 
 ## 3. Estructura de archivos

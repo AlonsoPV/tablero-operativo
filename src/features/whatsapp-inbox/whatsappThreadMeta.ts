@@ -5,6 +5,7 @@ export type WhatsAppInteractionKind =
   | 'action_followup'
   | 'action_close'
   | 'operator'
+  | 'assistant'
   | 'user_reply'
   | 'user_button'
   | 'other'
@@ -117,6 +118,16 @@ export function resolveThreadMeta(message: WhatsAppThreadMessage): WhatsAppThrea
       actionTitle,
       checkpointText,
       isActionOutbound: true,
+      isUserReply: false,
+    }
+  }
+  if (message.source === 'ai') {
+    return {
+      kind: 'assistant',
+      label: 'Asistente',
+      actionTitle,
+      checkpointText,
+      isActionOutbound: false,
       isUserReply: false,
     }
   }

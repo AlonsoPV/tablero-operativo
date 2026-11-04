@@ -104,6 +104,7 @@ function kindChipClass(kind: WhatsAppInteractionKind) {
     case 'action_followup':
     case 'action_close':
     case 'operator':
+    case 'assistant':
       return 'bg-primary/10 text-primary'
     default:
       return 'bg-muted/70 text-muted-foreground'

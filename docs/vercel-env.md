@@ -40,6 +40,9 @@ El endpoint `/api/gemini-chat` se ejecuta en Vercel y llama a Gemini desde servi
 | `GEMINI_MAX_TOKENS` | Opcional. Por defecto `700`. |
 | `GEMINI_TEMPERATURE` | Opcional. Por defecto `0.25`. |
 | `GEMINI_TIMEOUT_MS` | Opcional. Por defecto `20000`. |
+| `WHATSAPP_ASSISTANT_SECRET` | Secreto compartido con Edge `whatsapp-webhook` (header `x-whatsapp-assistant-secret`). |
+| `WHATSAPP_AI_TIMEOUT_MS` | Opcional. Timeout Gemini del chatbot WhatsApp. Por defecto `12000`. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Solo servidor, para `/api/whatsapp-assistant`. Nunca `VITE_`. |
 
 No uses `VITE_GEMINI_API_KEY`: cualquier variable con prefijo `VITE_` queda expuesta al navegador.
 
