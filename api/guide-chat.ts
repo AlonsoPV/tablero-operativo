@@ -22,7 +22,7 @@ import {
   withWorkInInterpretation,
   type GuideCreatedWork,
 } from './_shared/guideWork.js'
-import { normalizeGeminiModel } from './_shared/geminiModel.js'
+import { geminiModelCandidates, isGeminiCapacityStatus } from './_shared/geminiModel.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
 
 const GUIDE_SYSTEM_PROMPT = `
@@ -185,36 +185,44 @@ function parseTurnPayload(raw: string): { answer: string; drafts: ReturnType<typ
 async function callGemini(system: string, user: string, maxTokens: number, signal: AbortSignal) {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error('missing_gemini')
-  const model = normalizeGeminiModel(readStringEnv('GEMINI_MODEL', 'gemini-2.5-flash-lite'))
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal,
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: 'user', parts: [{ text: user }] }],
-      generationConfig: {
-        maxOutputTokens: maxTokens,
-        temperature: readNumberEnv('GUIDE_CLAUDE_TEMPERATURE', 0.65),
-      },
-    }),
-  })
-  if (!response.ok) {
-    const err = await response.text()
-    console.error('guide-chat Gemini', response.status, err.slice(0, 300))
-    throw new Error(`gemini_${response.status}`)
+  const candidates = geminiModelCandidates(readStringEnv('GEMINI_MODEL', ''))
+  let lastStatus = 0
+  for (let i = 0; i < candidates.length; i++) {
+    const model = candidates[i]!
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [{ text: user }] }],
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          temperature: readNumberEnv('GUIDE_CLAUDE_TEMPERATURE', 0.65),
+        },
+      }),
+    })
+    if (!response.ok) {
+      const err = await response.text()
+      lastStatus = response.status
+      console.error('guide-chat Gemini', model, response.status, err.slice(0, 300))
+      if (isGeminiCapacityStatus(response.status) && i < candidates.length - 1) continue
+      throw new Error(`gemini_${response.status}`)
+    }
+    const data = (await response.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+    }
+    const text = data.candidates?.[0]?.content?.parts
+      ?.map((part) => part.text)
+      .filter(Boolean)
+      .join('')
+      .trim()
+    if (!text) throw new Error('gemini_empty')
+    if (i > 0) console.warn('guide-chat Gemini fallback model', { model })
+    return text
   }
-  const data = (await response.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
-  }
-  const text = data.candidates?.[0]?.content?.parts
-    ?.map((part) => part.text)
-    .filter(Boolean)
-    .join('')
-    .trim()
-  if (!text) throw new Error('gemini_empty')
-  return text
+  throw new Error(lastStatus ? `gemini_${lastStatus}` : 'gemini_failed')
 }
 
 async function callClaude(system: string, user: string, maxTokens: number, signal: AbortSignal) {

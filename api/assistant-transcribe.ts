@@ -10,7 +10,7 @@ import {
 } from './_shared/http.js'
 import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth.js'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
-import { normalizeGeminiModel } from './_shared/geminiModel.js'
+import { geminiModelCandidates, isGeminiCapacityStatus } from './_shared/geminiModel.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
 
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
@@ -82,45 +82,55 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Formato de audio no soportado.' })
     }
 
-    const model = normalizeGeminiModel(
+    const candidates = geminiModelCandidates(
       readStringEnv('GEMINI_TRANSCRIBE_MODEL', readStringEnv('GEMINI_MODEL', DEFAULT_MODEL)),
-      DEFAULT_MODEL,
     )
-    const url = `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), readNumberEnv('GEMINI_TIMEOUT_MS', 35000))
-
-    let response: Response
-    try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          contents: [
+    const geminiBody = {
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { inlineData: { mimeType: mimeType.split(';')[0] || 'audio/webm', data: audioBase64 } },
             {
-              role: 'user',
-              parts: [
-                { inlineData: { mimeType: mimeType.split(';')[0] || 'audio/webm', data: audioBase64 } },
-                {
-                  text: 'Transcribe este audio en espanol. Devuelve solo las palabras dichas, sin comillas ni comentarios. Si no hay habla, responde exactamente nada (cadena vacia).',
-                },
-              ],
+              text: 'Transcribe este audio en espanol. Devuelve solo las palabras dichas, sin comillas ni comentarios. Si no hay habla, responde exactamente nada (cadena vacia).',
             },
           ],
-          generationConfig: {
-            maxOutputTokens: 800,
-            temperature: 0,
-          },
-        }),
-      })
+        },
+      ],
+      generationConfig: {
+        maxOutputTokens: 800,
+        temperature: 0,
+      },
+    }
+
+    let response: Response | undefined
+    try {
+      for (let i = 0; i < candidates.length; i++) {
+        const model = candidates[i]!
+        const url = `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
+        response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify(geminiBody),
+        })
+        if (response.ok) {
+          if (i > 0) console.warn('assistant-transcribe Gemini fallback model', { model })
+          break
+        }
+        const errorText = await response.text()
+        console.error('assistant-transcribe Gemini', model, response.status, errorText.slice(0, 400))
+        if (!isGeminiCapacityStatus(response.status) || i === candidates.length - 1) {
+          return res.status(502).json({ error: 'No se pudo transcribir el dictado.' })
+        }
+      }
     } finally {
       clearTimeout(timeout)
     }
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('assistant-transcribe Gemini', response.status, errorText.slice(0, 400))
+    if (!response?.ok) {
       return res.status(502).json({ error: 'No se pudo transcribir el dictado.' })
     }
 
