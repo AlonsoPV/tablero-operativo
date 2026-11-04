@@ -18,7 +18,13 @@ export function asJsonResponse(res: ServerResponse): JsonResponse {
     },
     json(payload: unknown) {
       res.setHeader('Content-Type', 'application/json; charset=utf-8')
-      res.end(JSON.stringify(payload))
+      try {
+        res.end(JSON.stringify(payload))
+      } catch (error) {
+        console.error('asJsonResponse stringify', error)
+        res.statusCode = 500
+        res.end(JSON.stringify({ error: 'Error inesperado al responder.' }))
+      }
     },
   }
 }

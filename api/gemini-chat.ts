@@ -9,8 +9,6 @@ import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assista
 import { enableSystemCaCertificates } from './_shared/enableSystemCa'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError'
 import { runGeminiToolLoop } from './_shared/geminiToolLoop'
-
-enableSystemCaCertificates()
 import {
   appendAssistantContexts,
   composeSystemPrompt,
@@ -68,6 +66,7 @@ function readGeminiError(errorText: string) {
 
 export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
   const res = asJsonResponse(serverRes)
+  enableSystemCaCertificates()
 
   try {
     if (req.method !== 'POST') {

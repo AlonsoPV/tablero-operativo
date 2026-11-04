@@ -7,10 +7,28 @@
  */
 type ViteImportMeta = ImportMeta & { env?: { VITE_DEV_FIXED_NOW?: string } }
 
+function readNodeEnv(name: string): string | undefined {
+  const runtime = globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> }
+  }
+  const value = runtime.process?.env?.[name]
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function readFixedNow(): string | undefined {
+  const fromProcess = readNodeEnv('VITE_DEV_FIXED_NOW')
+  if (fromProcess) return fromProcess
+  try {
+    return (import.meta as ViteImportMeta).env?.VITE_DEV_FIXED_NOW?.trim() || undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function getAppNow(): Date {
-  const raw = (import.meta as ViteImportMeta).env?.VITE_DEV_FIXED_NOW
-  if (raw?.trim()) {
-    const d = new Date(raw.trim())
+  const raw = readFixedNow()
+  if (raw) {
+    const d = new Date(raw)
     if (!Number.isNaN(d.getTime())) return d
   }
   return new Date()

@@ -16,8 +16,6 @@ import { loadGuideBoardContext } from './_shared/guideBoardContext'
 import { guideOpening, guideWorkInstructions } from './_shared/guideWork'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError'
 
-enableSystemCaCertificates()
-
 const SESSION_MS = 15 * 60 * 1000 - 1000
 const SESSION_SELECT =
   'id,usuario_id,provider,provider_session_id,status,started_at,expires_at,closed_at,close_reason,created_at,updated_at'
@@ -35,6 +33,7 @@ function isMissingGuideTable(error: { message?: string; code?: string } | null |
 
 export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
   const res = asJsonResponse(serverRes)
+  enableSystemCaCertificates()
 
   try {
     if (req.method !== 'POST') {

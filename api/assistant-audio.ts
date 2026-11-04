@@ -14,8 +14,6 @@ import { requireAssistantAuth } from './_shared/assistantAuth'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError'
 
-enableSystemCaCertificates()
-
 export type AssistantAudioIntent = 'plan_actions' | 'advisory'
 
 export type ActionDraftPriority = 'P1_Alta' | 'P2_Media' | 'P3_Baja'
@@ -440,6 +438,7 @@ async function callClaude(system: string, user: string, signal: AbortSignal) {
 
 export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
   const res = asJsonResponse(serverRes)
+  enableSystemCaCertificates()
 
   try {
     if (req.method !== 'POST') {

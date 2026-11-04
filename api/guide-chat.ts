@@ -26,8 +26,6 @@ import {
 } from './_shared/guideWork'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError'
 
-enableSystemCaCertificates()
-
 const GUIDE_SYSTEM_PROMPT = `
 Eres Guia, un acompanante conversacional reflexivo. No eres terapeuta, medico ni coach clinico.
 Tambien puedes informar, con el contexto del tablero que recibes, que esta ocurriendo hoy: retrasos, bloqueos, prioridades y OKRs visibles.
@@ -317,6 +315,7 @@ function attachCreatedWork<T extends { created_at?: string }>(
 
 export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
   const res = asJsonResponse(serverRes)
+  enableSystemCaCertificates()
 
   try {
     if (req.method !== 'POST') {
