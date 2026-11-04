@@ -10,6 +10,7 @@ import {
 } from './_shared/http.js'
 import { requireAssistantAuth } from './_shared/assistantAuth.js'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
+import { DEFAULT_GEMINI_MODEL, normalizeGeminiModel } from './_shared/geminiModel.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
 
 export type AssistantAudioIntent = 'plan_actions' | 'advisory'
@@ -50,7 +51,6 @@ export type AssistantAudioResult = {
 const MAX_TEXT_CHARS = 4000
 const MAX_CONTEXT_CHARS = 6000
 const MAX_CLARIFICATIONS_CHARS = 2000
-const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite'
 const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-20250514'
 const DEFAULT_MAX_TOKENS = 2200
 const DEFAULT_TEMPERATURE = 0.2
@@ -263,7 +263,7 @@ async function callGemini(system: string, user: string, signal: AbortSignal) {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error('missing_gemini')
 
-  const model = readStringEnv('GEMINI_MODEL', DEFAULT_GEMINI_MODEL).replace(/^models\//, '')
+  const model = normalizeGeminiModel(readStringEnv('GEMINI_MODEL', DEFAULT_GEMINI_MODEL))
   const url = `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
 
   const response = await fetch(url, {

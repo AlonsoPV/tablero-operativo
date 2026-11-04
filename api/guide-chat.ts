@@ -22,6 +22,7 @@ import {
   withWorkInInterpretation,
   type GuideCreatedWork,
 } from './_shared/guideWork.js'
+import { normalizeGeminiModel } from './_shared/geminiModel.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
 
 const GUIDE_SYSTEM_PROMPT = `
@@ -184,7 +185,7 @@ function parseTurnPayload(raw: string): { answer: string; drafts: ReturnType<typ
 async function callGemini(system: string, user: string, maxTokens: number, signal: AbortSignal) {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error('missing_gemini')
-  const model = readStringEnv('GEMINI_MODEL', 'gemini-2.5-flash-lite').replace(/^models\//, '')
+  const model = normalizeGeminiModel(readStringEnv('GEMINI_MODEL', 'gemini-2.5-flash-lite'))
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
   const response = await fetch(url, {
     method: 'POST',

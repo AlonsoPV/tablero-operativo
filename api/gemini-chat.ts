@@ -6,6 +6,7 @@ import {
 import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth.js'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
+import { DEFAULT_GEMINI_MODEL, normalizeGeminiModel } from './_shared/geminiModel.js'
 import { runGeminiToolLoop } from './_shared/geminiToolLoop.js'
 import {
   appendAssistantContexts,
@@ -20,7 +21,6 @@ type GeminiContent = {
 }
 
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
-const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite'
 const DEFAULT_MAX_OUTPUT_TOKENS = 700
 const DEFAULT_TEMPERATURE = 0.25
 const DEFAULT_TIMEOUT_MS = 20000
@@ -41,10 +41,6 @@ function cleanAssistantText(text: string) {
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
-}
-
-function normalizeGeminiModel(model: string) {
-  return model.trim().replace(/^models\//, '') || DEFAULT_GEMINI_MODEL
 }
 
 function readGeminiError(errorText: string) {
@@ -172,7 +168,9 @@ export default defineApiHandler(async (req, res) => {
       console.error('Gemini API Error:', { status, model, reason: safeReason })
       if ([400, 401, 403, 404].includes(status)) {
         return res.status(502).json({
-          error: `Gemini rechazo la solicitud (${status}). Revisa GEMINI_API_KEY, GEMINI_MODEL y permisos del proyecto.`,
+          error: safeReason
+            ? `Gemini rechazo la solicitud (${status}) con modelo "${model}": ${safeReason.slice(0, 180)}`
+            : `Gemini rechazo la solicitud (${status}) con modelo "${model}". Usa un ID tipo gemini-3.1-flash-lite (no el nombre de la UI).`,
         })
       }
       if (status === 429) {
