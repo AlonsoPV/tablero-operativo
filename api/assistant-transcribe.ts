@@ -2,13 +2,11 @@
  * Transcribe audio dictado (webm/mp4/ogg) a texto con Gemini.
  * Auth: Authorization Bearer (JWT Supabase) + módulo ai_assist.
  */
-import type { ServerResponse } from 'node:http'
 import {
-  asJsonResponse,
+  defineApiHandler,
   readNumberEnv,
   readRequestBody,
   readStringEnv,
-  type VercelRequestLike,
 } from './_shared/http'
 import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa'
@@ -38,8 +36,7 @@ function cleanTranscript(text: string) {
   return cleaned
 }
 
-export default async function handler(req: VercelRequestLike, serverRes: ServerResponse) {
-  const res = asJsonResponse(serverRes)
+export default defineApiHandler(async (req, res) => {
   enableSystemCaCertificates()
   try {
     if (req.method !== 'POST') {
@@ -147,4 +144,4 @@ export default async function handler(req: VercelRequestLike, serverRes: ServerR
     console.error('assistant-transcribe', error)
     return res.status(500).json({ error: 'Error inesperado al transcribir.' })
   }
-}
+})
