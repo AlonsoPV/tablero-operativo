@@ -200,7 +200,7 @@ export function WhatsAppSeguimientoPage() {
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const [compose, setCompose] = useState<WhatsAppComposeOptions | null>(null)
-  const [templateParams, setTemplateParams] = useState(['', '', ''])
+  const [templateParams, setTemplateParams] = useState(['', ''])
   const [newOpen, setNewOpen] = useState(false)
   const [contactSearch, setContactSearch] = useState('')
   const [contacts, setContacts] = useState<WhatsAppInboxContact[]>([])
@@ -619,7 +619,7 @@ export function WhatsAppSeguimientoPage() {
                         {[...templateParams].filter(Boolean).join(' · ') || '—'}
                       </span>
                     </p>
-                    <div className="grid gap-2 sm:grid-cols-3">
+                    <div className="grid gap-2 sm:grid-cols-2">
                       {compose.templates[0].bodyParams.map((param, idx) => (
                         <Input
                           key={param.key}
