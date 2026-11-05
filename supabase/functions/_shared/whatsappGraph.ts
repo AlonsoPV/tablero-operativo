@@ -35,6 +35,27 @@ export function normalizePhone(raw: string | null | undefined): string | null {
   return digits
 }
 
+export function phoneVariants(raw: string | null | undefined): string[] {
+  const digits = (raw ?? '').replace(/\D/g, '')
+  if (digits.length < 10 || digits.length > 15) return []
+  const out = new Set<string>([digits])
+  if (digits.length === 10) {
+    out.add(`52${digits}`)
+    out.add(`521${digits}`)
+  }
+  if (digits.length === 12 && digits.startsWith('52') && !digits.startsWith('521')) {
+    const local = digits.slice(2)
+    out.add(local)
+    out.add(`521${local}`)
+  }
+  if (digits.length === 13 && digits.startsWith('521')) {
+    const local = digits.slice(3)
+    out.add(local)
+    out.add(`52${local}`)
+  }
+  return [...out]
+}
+
 export function renderTemplate(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, key: string) => vars[key] ?? '')
 }
@@ -75,11 +96,13 @@ export async function findWhatsAppIdentity(supabase: SupabaseClient, usuarioId: 
 
 export async function hasOpenSession(supabase: SupabaseClient, waId: string): Promise<boolean> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const variants = phoneVariants(waId)
+  if (variants.length === 0) return false
   const { data } = await supabase
     .from('external_inbound_messages')
     .select('id,created_at')
     .eq('channel', 'whatsapp')
-    .eq('external_user_id', waId)
+    .in('external_user_id', variants)
     .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(1)

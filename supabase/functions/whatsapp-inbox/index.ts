@@ -104,6 +104,27 @@ function normalizePhone(raw: string | null | undefined): string | null {
   return digits
 }
 
+function phoneVariants(raw: string | null | undefined): string[] {
+  const digits = (raw ?? '').replace(/\D/g, '')
+  if (digits.length < 10 || digits.length > 15) return []
+  const out = new Set<string>([digits])
+  if (digits.length === 10) {
+    out.add(`52${digits}`)
+    out.add(`521${digits}`)
+  }
+  if (digits.length === 12 && digits.startsWith('52') && !digits.startsWith('521')) {
+    const local = digits.slice(2)
+    out.add(local)
+    out.add(`521${local}`)
+  }
+  if (digits.length === 13 && digits.startsWith('521')) {
+    const local = digits.slice(3)
+    out.add(local)
+    out.add(`52${local}`)
+  }
+  return [...out]
+}
+
 function textPayload(to: string, text: string) {
   return {
     messaging_product: 'whatsapp',
@@ -168,11 +189,13 @@ function extractMessageId(json: Record<string, unknown>): string | null {
 
 async function hasOpenSession(supabase: ReturnType<typeof adminClient>, waId: string): Promise<boolean> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const variants = phoneVariants(waId)
+  if (variants.length === 0) return false
   const { data } = await supabase
     .from('external_inbound_messages')
     .select('id')
     .eq('channel', 'whatsapp')
-    .eq('external_user_id', waId)
+    .in('external_user_id', variants)
     .gte('created_at', since)
     .limit(1)
   return Boolean(data && data.length > 0)
