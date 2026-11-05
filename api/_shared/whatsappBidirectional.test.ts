@@ -48,6 +48,7 @@ describe('inferFollowupTextAction', () => {
 describe('isVerActividadesButton', () => {
   it('matches title and id', () => {
     expect(isVerActividadesButton(null, 'Ver actividades')).toBe(true)
+    expect(isVerActividadesButton(null, 'Más información')).toBe(true)
     expect(isVerActividadesButton('ver_actividades', null)).toBe(true)
     expect(isVerActividadesButton('chk:x:done', 'Realizada')).toBe(false)
   })

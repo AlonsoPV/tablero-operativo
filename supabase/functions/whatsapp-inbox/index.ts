@@ -213,9 +213,9 @@ function availableTemplates() {
         language: cfg.templateLanguage,
         label: 'Contacto inicial (plantilla Meta aprobada)',
         description:
-          'Usar cuando la ventana de 24 h está cerrada. Plantilla Meta: {{1}}=fecha/hora, {{2}}=nombre.',
+          'Usar cuando la ventana de 24 h está cerrada. Plantilla Meta: {{1}}=ahora (Hoy es), {{2}}=nombre.',
         bodyParams: [
-          { key: 'fecha', label: 'Fecha / hora ({{1}})', required: true },
+          { key: 'fecha', label: 'Hoy es — fecha/hora ({{1}})', required: true },
           { key: 'nombre', label: 'Nombre ({{2}})', required: true },
         ],
       },

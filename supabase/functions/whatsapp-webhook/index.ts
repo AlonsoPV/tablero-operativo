@@ -291,8 +291,18 @@ function isVerActividadesButton(rawId: string | null | undefined, title: string 
     .toLowerCase()
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
-  if (id === 'ver_actividades' || id === 'ver-actividades' || id.includes('ver_actividades')) return true
-  return /\bver actividades\b/.test(label)
+  if (
+    id === 'ver_actividades' ||
+    id === 'ver-actividades' ||
+    id.includes('ver_actividades') ||
+    id.includes('mas_informacion') ||
+    id.includes('mas-informacion') ||
+    id === 'more_info'
+  ) {
+    return true
+  }
+  // Plantilla Meta: botón "Más información" (quick reply) o "Ver actividades"
+  return /\bver actividades\b/.test(label) || /\bmas informacion\b/.test(label)
 }
 
 function inboundPreview(message: WaMessage): string {
@@ -1066,7 +1076,31 @@ async function handleVerActividades(
       `${i + 1}. ${row.titulo_accion ?? 'Actividad'} — ${row.estado ?? '?'} (compromiso: ${row.fecha ?? 's/f'})`
     )
   })
+  lines.push('', 'Escribe aqui para consultar el tablero o reportar avance.')
   await replyText(supabase, params.waId, lines.join('\n'), params.usuarioId)
+}
+
+/** Botón personalizado de plantilla: lista + abre chatbot si el usuario es OKRS/Super Admin. */
+async function handleMasInformacion(
+  supabase: ReturnType<typeof adminClient>,
+  params: { waId: string; usuarioId: string }
+) {
+  await handleVerActividades(supabase, params)
+  const aiHandled = await maybeHandleWhatsAppAi(supabase, {
+    waId: params.waId,
+    usuarioId: params.usuarioId,
+    action: 'chat',
+    text:
+      'El usuario toco Mas informacion. Resume sus actividades abiertas y pregunta en que puedes ayudar. Responde corto, en espanol, sin markdown.',
+  })
+  if (!aiHandled) {
+    await replyText(
+      supabase,
+      params.waId,
+      'Tambien puedes escribirme en texto libre para consultar el tablero.',
+      params.usuarioId
+    )
+  }
 }
 
 async function handleEvidence(
@@ -1389,9 +1423,9 @@ Deno.serve(async (req) => {
             continue
           }
 
-          // 3) Botón plantilla "Ver actividades"
+          // 3) Botón plantilla personalizado ("Más información" / Ver actividades)
           if (isVerActividadesButton(buttonRaw, buttonTitle)) {
-            await handleVerActividades(supabase, {
+            await handleMasInformacion(supabase, {
               waId,
               usuarioId: identity.usuario_id,
             })
@@ -1448,13 +1482,29 @@ Deno.serve(async (req) => {
           }
 
           if (!action || !kind) {
-            if (message.type === 'text' && message.text?.body) {
-              await maybeHandleWhatsAppAi(supabase, {
+            const chatText =
+              (message.type === 'text' && message.text?.body?.trim()) ||
+              buttonTitle?.trim() ||
+              ''
+            // Texto libre o botón personalizado no operativo → chatbot (OKRS / Super Admin).
+            if (
+              chatText &&
+              (message.type === 'text' || message.type === 'button' || message.type === 'interactive')
+            ) {
+              const aiHandled = await maybeHandleWhatsAppAi(supabase, {
                 waId,
                 usuarioId: identity.usuario_id,
                 action: 'chat',
-                text: message.text.body,
+                text: chatText,
               })
+              if (!aiHandled && message.type === 'text') {
+                await replyText(
+                  supabase,
+                  waId,
+                  'Puedes reportar avance con Realizada, En proceso o Requiero apoyo, o esperar el recordatorio.',
+                  identity.usuario_id
+                )
+              }
             }
             continue
           }

@@ -81,6 +81,15 @@ export function isVerActividadesButton(rawId: string | null | undefined, title: 
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-  if (id === 'ver_actividades' || id === 'ver-actividades' || id.includes('ver_actividades')) return true
-  return /\bver actividades\b/.test(label)
+  if (
+    id === 'ver_actividades' ||
+    id === 'ver-actividades' ||
+    id.includes('ver_actividades') ||
+    id.includes('mas_informacion') ||
+    id.includes('mas-informacion') ||
+    id === 'more_info'
+  ) {
+    return true
+  }
+  return /\bver actividades\b/.test(label) || /\bmas informacion\b/.test(label)
 }

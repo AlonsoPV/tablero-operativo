@@ -144,7 +144,7 @@ async function loadFollowupSettings(supabase: ReturnType<typeof createClient>) {
 async function findWhatsAppIdentity(supabase: ReturnType<typeof createClient>, usuarioId: string) {
   const { data } = await supabase
     .from('user_channel_identities')
-    .select('id,usuario_id,external_user_id,external_chat_id,status')
+    .select('id,usuario_id,external_user_id,external_chat_id,display_name,status')
     .eq('channel', 'whatsapp')
     .eq('usuario_id', usuarioId)
     .eq('status', 'active')
@@ -214,9 +214,27 @@ function textPayload(to: string, text: string) {
   }
 }
 
-/** Plantilla Meta: {{1}}=fecha/hora, {{2}}=nombre (exactamente 2 body params). */
+/** "Hoy es: {{1}}" → ahora en CDMX (YYYY-MM-DD HH:mm). */
+function formatNowForTemplate() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date())
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`
+}
+
+/** Plantilla Meta: {{1}}=fecha/hora actual, {{2}}=nombre (exactamente 2 body params). */
 function initialTemplateBodyParams(input: { fecha?: string | null; nombre?: string | null }) {
-  return [(input.fecha || 'sin fecha').slice(0, 1024), (input.nombre || 'usuario').slice(0, 1024)]
+  return [
+    (input.fecha || formatNowForTemplate()).slice(0, 1024),
+    (input.nombre || 'usuario').slice(0, 1024),
+  ]
 }
 
 function templatePayload(
@@ -359,15 +377,20 @@ Deno.serve(async (req) => {
 
 async function resolveUsuarioNombre(
   supabase: ReturnType<typeof adminClient>,
-  usuarioId: string | null
+  usuarioId: string | null,
+  preferredDisplayName?: string | null
 ) {
+  const preferred = typeof preferredDisplayName === 'string' ? preferredDisplayName.trim() : ''
+  if (preferred) return preferred
   if (!usuarioId) return 'usuario'
   const { data } = await supabase
     .from('usuarios')
     .select('nombre,email')
     .eq('id', usuarioId)
     .maybeSingle()
-  return (data?.nombre || data?.email || 'usuario') as string
+  const nombre = typeof data?.nombre === 'string' ? data.nombre.trim() : ''
+  const email = typeof data?.email === 'string' ? data.email.trim() : ''
+  return nombre || email || 'usuario'
 }
 
 function checklistBlockFromCorporate(checkpoints: Checkpoint[]): string {
@@ -611,7 +634,11 @@ async function sendCorporate(params: {
     if (!checkpoint) return jsonResponse({ error: 'checkpoint_not_found' }, 404)
   }
 
-  const responsable = await resolveUsuarioNombre(supabase, corporate.responsable)
+  const responsable = await resolveUsuarioNombre(
+    supabase,
+    corporate.responsable,
+    identity.display_name
+  )
   const vars: Record<string, string> = {
     responsable_nombre: responsable,
     titulo_accion: corporate.titulo_accion ?? 'Actividad',
@@ -624,8 +651,9 @@ async function sendCorporate(params: {
   let graphBody: Record<string, unknown>
   let deliveryKind = messageType
 
+  // Plantilla Meta: {{1}} = "Hoy es", {{2}} = saludo — no uses fecha de compromiso aquí.
   const templateBody = initialTemplateBodyParams({
-    fecha: vars.fecha_compromiso,
+    fecha: formatNowForTemplate(),
     nombre: vars.responsable_nombre,
   })
 
@@ -744,7 +772,7 @@ async function sendTeam(params: {
     checklistText = checklist[checklistIndex]?.text ?? ''
   }
 
-  const responsable = await resolveUsuarioNombre(supabase, team.asignado_a)
+  const responsable = await resolveUsuarioNombre(supabase, team.asignado_a, identity.display_name)
   const fechaCompromiso = team.fecha_limite
     ? String(team.fecha_limite).slice(0, 10)
     : 'sin fecha'
@@ -761,7 +789,7 @@ async function sendTeam(params: {
   let deliveryKind = messageType
 
   const templateBody = initialTemplateBodyParams({
-    fecha: vars.fecha_compromiso,
+    fecha: formatNowForTemplate(),
     nombre: vars.responsable_nombre,
   })
 
