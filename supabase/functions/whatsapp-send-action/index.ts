@@ -197,7 +197,7 @@ function interactiveFollowupPayload(to: string, bodyText: string, buttonIdPrefix
       action: {
         buttons: [
           { type: 'reply', reply: { id: `${buttonIdPrefix}:done`, title: 'Realizada' } },
-          { type: 'reply', reply: { id: `${buttonIdPrefix}:progress`, title: 'En progreso' } },
+          { type: 'reply', reply: { id: `${buttonIdPrefix}:progress`, title: 'En proceso' } },
           { type: 'reply', reply: { id: `${buttonIdPrefix}:support`, title: 'Requiero apoyo' } },
         ],
       },
@@ -479,36 +479,41 @@ async function logDelivery(
   }
 }
 
+function reminderStageForIndex(index: number): string {
+  if (index <= 0) return 'configured_delay'
+  return `repeat_${index + 1}`
+}
+
+/** Jobs a nivel acción (bidireccional.md): checkpoint_id null + target_type=action. */
 async function scheduleCorporateFollowups(
   supabase: ReturnType<typeof adminClient>,
   params: {
     accionId: string
     usuarioId: string
     waId: string
-    checkpoints: Checkpoint[]
     delayMinutes: number
     followupsPerDay: number
   }
 ) {
   if (params.followupsPerDay <= 0) return
-  const pending = params.checkpoints.filter((c) => c.activo !== false && !c.completado)
-  if (pending.length === 0) return
   const delay = Math.max(1, params.delayMinutes)
   const rows: Array<Record<string, unknown>> = []
-  for (const cp of pending) {
-    for (let i = 0; i < params.followupsPerDay; i++) {
-      rows.push({
-        scope: 'corporate',
-        accion_id: params.accionId,
-        checkpoint_id: cp.id,
-        usuario_id: params.usuarioId,
-        wa_id: params.waId,
-        status: 'pending',
-        scheduled_at: new Date(Date.now() + delay * (i + 1) * 60_000).toISOString(),
-        attempts: 0,
-        payload: { source: 'initial_send' },
-      })
-    }
+  for (let i = 0; i < params.followupsPerDay; i++) {
+    rows.push({
+      scope: 'corporate',
+      accion_id: params.accionId,
+      checkpoint_id: null,
+      usuario_id: params.usuarioId,
+      wa_id: params.waId,
+      status: 'pending',
+      scheduled_at: new Date(Date.now() + delay * (i + 1) * 60_000).toISOString(),
+      attempts: 0,
+      payload: {
+        source: 'initial_send',
+        target_type: 'action',
+        reminder_stage: reminderStageForIndex(i),
+      },
+    })
   }
   if (rows.length) await supabase.from('whatsapp_followup_jobs').insert(rows)
 }
@@ -674,7 +679,6 @@ async function sendCorporate(params: {
       accionId: corporate.id,
       usuarioId: corporate.responsable,
       waId: to,
-      checkpoints: (checkpoints ?? []) as Checkpoint[],
       delayMinutes: settings.followup_delay_minutes,
       followupsPerDay: settings.followups_per_day,
     })

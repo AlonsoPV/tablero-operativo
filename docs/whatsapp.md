@@ -352,23 +352,24 @@ Si token = `WHATSAPP_VERIFY_TOKEN` → responder el challenge en texto plano.
 ### Botones (ids)
 
 ```text
-chk:<checkpoint_uuid>:done
-chk:<checkpoint_uuid>:progress
-chk:<checkpoint_uuid>:support
-aiop:<pending_op_uuid>:ok
-aiop:<pending_op_uuid>:no
+act:<accion_uuid>:done|progress|support
+chk:<checkpoint_uuid>:done|progress|support
+tchk:<team_uuid>:<index>:done|progress|support
+aiop:<pending_op_uuid>:ok|no
 ```
 
-Títulos UI checkpoint: **Realizada** / **En proceso** / **Requiero apoyo**.  
-Títulos UI asistente: **Confirmar** / **Cancelar**.
+Títulos UI seguimiento: **Realizada** / **En proceso** / **Requiero apoyo**.  
+Títulos UI asistente: **Confirmar** / **Cancelar**.  
+Followups automáticos tras `initial` usan `act:` (nivel acción). Followup manual por checkpoint usa `chk:`. Detalle: [bidireccional.md](./bidireccional.md).
 
 ### Efectos en tablero
 
 | Acción usuario | Efecto |
 | --- | --- |
-| `done` | Checkpoint `completado=true`; si no quedan pendientes → acción `Completada`; si no → `En_Proceso`; crea `whatsapp_result_requests` y pide descripción |
-| `progress` | Acción → `En_Proceso` (salvo ya `En_Pausa`) |
-| `support` | Acción → `En_Pausa` |
+| `done` (`act:`) | Todos los checkpoints activos pendientes → acción `Hecho` + pedir evidencia |
+| `done` (`chk:`) | Ese checkpoint `completado`; si no quedan pendientes → `Hecho`; si no → `En_Ejecucion` + evidencia |
+| `progress` | Acción → `En_Ejecucion` (salvo ya `Bloqueado`) + pedir evidencia |
+| `support` | Acción → `Bloqueado` + prompt de apoyo |
 
 ### Texto libre como fallback
 

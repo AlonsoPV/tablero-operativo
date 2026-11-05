@@ -116,7 +116,7 @@ function interactiveFollowupPayload(to: string, bodyText: string, buttonIdPrefix
       action: {
         buttons: [
           { type: 'reply', reply: { id: `${buttonIdPrefix}:done`, title: 'Realizada' } },
-          { type: 'reply', reply: { id: `${buttonIdPrefix}:progress`, title: 'En progreso' } },
+          { type: 'reply', reply: { id: `${buttonIdPrefix}:progress`, title: 'En proceso' } },
           { type: 'reply', reply: { id: `${buttonIdPrefix}:support`, title: 'Requiero apoyo' } },
         ],
       },
@@ -222,6 +222,46 @@ type JobRow = {
   checklist_index: number | null
   attempts: number
   status: string
+  payload: Record<string, unknown> | null
+}
+
+function jobTargetType(job: JobRow): 'action' | 'checkpoint_legacy' | 'team' {
+  if (job.scope === 'team') return 'team'
+  const payloadType = typeof job.payload?.target_type === 'string' ? job.payload.target_type : ''
+  if (payloadType === 'action' || !job.checkpoint_id) return 'action'
+  return 'checkpoint_legacy'
+}
+
+function jobReminderStage(job: JobRow): string {
+  return typeof job.payload?.reminder_stage === 'string' && job.payload.reminder_stage
+    ? job.payload.reminder_stage
+    : 'configured_delay'
+}
+
+function fitInteractiveBody(text: string) {
+  const clean = text.trim()
+  if (clean.length <= 1024) return clean
+  return `${clean.slice(0, 1000).trim()}…`
+}
+
+function buildActionFollowupBody(input: {
+  titulo: string
+  pendingLines: string[]
+}) {
+  const list =
+    input.pendingLines.length > 0
+      ? input.pendingLines.map((line, i) => `${i + 1}. ${line}`).join('\n')
+      : '1. (sin checkpoints pendientes)'
+  return fitInteractiveBody(
+    [
+      `Seguimiento: ${input.titulo}`,
+      '',
+      'Pendientes:',
+      list,
+      '',
+      'Responde con el boton: Realizada, En proceso o Requiero apoyo.',
+    ].join('\n')
+  )
 }
 
 function unauthorized() {
@@ -269,7 +309,7 @@ Deno.serve(async (req) => {
     const { data: jobs, error } = await supabase
       .from('whatsapp_followup_jobs')
       .select(
-        'id,scope,usuario_id,wa_id,accion_id,checkpoint_id,team_action_id,checklist_index,attempts,status'
+        'id,scope,usuario_id,wa_id,accion_id,checkpoint_id,team_action_id,checklist_index,attempts,status,payload'
       )
       .eq('status', 'pending')
       .lte('scheduled_at', nowIso)
@@ -280,7 +320,7 @@ Deno.serve(async (req) => {
     const results: Array<Record<string, unknown>> = []
 
     for (const job of (jobs ?? []) as JobRow[]) {
-      await supabase
+      const { data: claimed } = await supabase
         .from('whatsapp_followup_jobs')
         .update({
           status: 'processing',
@@ -289,6 +329,13 @@ Deno.serve(async (req) => {
         })
         .eq('id', job.id)
         .eq('status', 'pending')
+        .select('id')
+        .maybeSingle()
+
+      if (!claimed?.id) {
+        results.push({ id: job.id, status: 'skipped', reason: 'already_claimed' })
+        continue
+      }
 
       try {
         const outcome = await processJob(supabase, job, settings, templateName, templateLanguage)
@@ -313,6 +360,32 @@ Deno.serve(async (req) => {
   }
 })
 
+async function cancelDuplicateActionJobs(
+  supabase: ReturnType<typeof adminClient>,
+  job: JobRow
+) {
+  if (!job.accion_id) return
+  const stage = jobReminderStage(job)
+  const { data: siblings } = await supabase
+    .from('whatsapp_followup_jobs')
+    .select('id,payload')
+    .eq('scope', 'corporate')
+    .eq('accion_id', job.accion_id)
+    .eq('usuario_id', job.usuario_id)
+    .eq('status', 'pending')
+    .neq('id', job.id)
+
+  for (const sibling of siblings ?? []) {
+    const payload = (sibling.payload ?? {}) as Record<string, unknown>
+    const siblingStage =
+      typeof payload.reminder_stage === 'string' ? payload.reminder_stage : 'configured_delay'
+    const siblingType = typeof payload.target_type === 'string' ? payload.target_type : ''
+    if (siblingType === 'action' && siblingStage === stage) {
+      await cancel(supabase, sibling.id as string, 'duplicate_action_stage')
+    }
+  }
+}
+
 async function processJob(
   supabase: ReturnType<typeof adminClient>,
   job: JobRow,
@@ -321,21 +394,12 @@ async function processJob(
   templateLanguage: string
 ) {
   if (job.scope === 'corporate') {
-    if (!job.accion_id || !job.checkpoint_id) {
+    if (!job.accion_id) {
       await cancel(supabase, job.id, 'missing_corporate_ids')
       return { status: 'canceled', reason: 'missing_corporate_ids' }
     }
 
-    const { data: checkpoint } = await supabase
-      .from('accion_checkpoints')
-      .select('id,texto,completado,activo,accion_id')
-      .eq('id', job.checkpoint_id)
-      .maybeSingle()
-
-    if (!checkpoint || checkpoint.completado || checkpoint.activo === false) {
-      await cancel(supabase, job.id, 'checkpoint_done_or_missing')
-      return { status: 'canceled', reason: 'checkpoint_done_or_missing' }
-    }
+    const target = jobTargetType(job)
 
     const { data: action } = await supabase
       .from('acciones_diarias')
@@ -360,6 +424,86 @@ async function processJob(
       .select('nombre,email')
       .eq('id', job.usuario_id)
       .maybeSingle()
+
+    if (target === 'action') {
+      await cancelDuplicateActionJobs(supabase, job)
+
+      const { data: pendingCheckpoints } = await supabase
+        .from('accion_checkpoints')
+        .select('id,texto,completado,activo,orden')
+        .eq('accion_id', job.accion_id)
+        .eq('activo', true)
+        .eq('completado', false)
+        .order('orden', { ascending: true })
+
+      const pendingLines = (pendingCheckpoints ?? []).map(
+        (c) => (typeof c.texto === 'string' && c.texto.trim() ? c.texto.trim() : 'Checkpoint')
+      )
+      const text = buildActionFollowupBody({
+        titulo: action.titulo_accion ?? 'Actividad',
+        pendingLines,
+      })
+      const open = await hasOpenSession(supabase, to)
+      const graphBody = open
+        ? interactiveFollowupPayload(to, text, `act:${action.id}`)
+        : templatePayload(to, templateName, templateLanguage, [
+            (user?.nombre || user?.email || 'usuario') as string,
+            action.titulo_accion ?? 'Actividad',
+            action.fecha ?? 'sin fecha',
+          ])
+
+      const result = await graphSendMessage(graphBody)
+      const messageId = extractMessageId(result.json)
+
+      await logDispatcherDelivery(supabase, {
+        accionId: action.id,
+        usuarioId: job.usuario_id,
+        waId: to,
+        messageId,
+        ok: result.ok,
+        errorRaw: result.raw,
+        bodyText: open ? text : `[Plantilla] ${templateName}`,
+        payload: {
+          message_type: 'checkpoint_followup',
+          checkpoint_id: null,
+          wa_id: to,
+          source: 'followup_job',
+          followup_job_id: job.id,
+          target_type: 'action',
+          reminder_stage: jobReminderStage(job),
+          request: graphBody,
+          response: result.json,
+        },
+      })
+
+      if (!result.ok) {
+        await fail(supabase, job.id, result.raw.slice(0, 2000))
+        return { status: 'failed', reason: 'graph_send_failed' }
+      }
+
+      await supabase
+        .from('whatsapp_followup_jobs')
+        .update({ status: 'sent', sent_at: new Date().toISOString(), error_message: null })
+        .eq('id', job.id)
+      return { status: 'sent', externalMessageId: messageId, target_type: 'action' }
+    }
+
+    // Legacy: un job por checkpoint (chk:)
+    if (!job.checkpoint_id) {
+      await cancel(supabase, job.id, 'missing_corporate_ids')
+      return { status: 'canceled', reason: 'missing_corporate_ids' }
+    }
+
+    const { data: checkpoint } = await supabase
+      .from('accion_checkpoints')
+      .select('id,texto,completado,activo,accion_id')
+      .eq('id', job.checkpoint_id)
+      .maybeSingle()
+
+    if (!checkpoint || checkpoint.completado || checkpoint.activo === false) {
+      await cancel(supabase, job.id, 'checkpoint_done_or_missing')
+      return { status: 'canceled', reason: 'checkpoint_done_or_missing' }
+    }
 
     const vars = {
       responsable_nombre: (user?.nombre || user?.email || 'usuario') as string,
@@ -393,7 +537,9 @@ async function processJob(
         message_type: 'checkpoint_followup',
         checkpoint_id: checkpoint.id,
         wa_id: to,
-        source: 'dispatcher',
+        source: 'followup_job',
+        followup_job_id: job.id,
+        target_type: 'checkpoint_legacy',
         request: graphBody,
         response: result.json,
       },
@@ -480,7 +626,8 @@ async function processJob(
       message_type: 'checkpoint_followup',
       checklist_index: job.checklist_index,
       wa_id: to,
-      source: 'dispatcher',
+      source: 'followup_job',
+      followup_job_id: job.id,
       request: graphBody,
       response: result.json,
     },

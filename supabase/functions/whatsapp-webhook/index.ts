@@ -116,7 +116,7 @@ function interactiveFollowupPayload(to: string, bodyText: string, buttonIdPrefix
       action: {
         buttons: [
           { type: 'reply', reply: { id: `${buttonIdPrefix}:done`, title: 'Realizada' } },
-          { type: 'reply', reply: { id: `${buttonIdPrefix}:progress`, title: 'En progreso' } },
+          { type: 'reply', reply: { id: `${buttonIdPrefix}:progress`, title: 'En proceso' } },
           { type: 'reply', reply: { id: `${buttonIdPrefix}:support`, title: 'Requiero apoyo' } },
         ],
       },
@@ -231,13 +231,22 @@ async function verifyMetaSignature(rawBody: string, signatureHeader: string | nu
 }
 
 function parseButtonId(raw: string | null | undefined): {
-  kind: 'corporate' | 'team' | null
+  kind: 'action' | 'corporate' | 'team' | null
+  accionId?: string
   checkpointId?: string
   teamActionId?: string
   checklistIndex?: number
   action: 'done' | 'progress' | 'support' | null
 } {
   const value = (raw ?? '').trim()
+  const act = /^act:([0-9a-fA-F-]{36}):(done|progress|support)$/i.exec(value)
+  if (act) {
+    return {
+      kind: 'action',
+      accionId: act[1],
+      action: act[2].toLowerCase() as 'done' | 'progress' | 'support',
+    }
+  }
   const corp = /^chk:([0-9a-fA-F-]{36}):(done|progress|support)$/i.exec(value)
   if (corp) {
     return {
@@ -265,10 +274,25 @@ function inferTextAction(text: string): 'done' | 'progress' | 'support' | null {
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
   if (!t) return null
-  if (/\b(realizada|hecho|done|completad[oa]|lista)\b/.test(t)) return 'done'
-  if (/\b(en progreso|en proceso|avance|progress|trabajando)\b/.test(t)) return 'progress'
-  if (/\b(requiero apoyo|ayuda|support|bloquead[oa]|apoyo)\b/.test(t)) return 'support'
+  if (/\b(realizada|realizado|hecho|done|completad[oa]|lista|listo)\b/.test(t)) return 'done'
+  if (/\b(en progreso|en proceso|proceso|avance|avanzando|progress|trabajando)\b/.test(t)) {
+    return 'progress'
+  }
+  if (/\b(requiero apoyo|necesito apoyo|necesito ayuda|ayuda|support|bloquead[oa]|apoyo)\b/.test(t)) {
+    return 'support'
+  }
   return null
+}
+
+function isVerActividadesButton(rawId: string | null | undefined, title: string | null | undefined) {
+  const id = (rawId ?? '').trim().toLowerCase()
+  const label = (title ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+  if (id === 'ver_actividades' || id === 'ver-actividades' || id.includes('ver_actividades')) return true
+  return /\bver actividades\b/.test(label)
 }
 
 function inboundPreview(message: WaMessage): string {
@@ -391,7 +415,8 @@ async function replyText(
   supabase: ReturnType<typeof adminClient>,
   to: string,
   body: string,
-  usuarioId?: string | null
+  usuarioId?: string | null,
+  extras?: Record<string, unknown>
 ) {
   try {
     const graphBody = textPayload(to, body)
@@ -413,6 +438,7 @@ async function replyText(
         request: graphBody,
         response: result.json,
         source: 'webhook_auto_reply',
+        ...(extras ?? {}),
       },
     })
   } catch (error) {
@@ -640,6 +666,112 @@ async function resolveTeamStateId(
   )
 }
 
+async function applyActionResponse(
+  supabase: ReturnType<typeof adminClient>,
+  params: {
+    accionId: string
+    action: 'done' | 'progress' | 'support'
+    usuarioId: string
+    waId: string
+  }
+) {
+  const { data: actionRow } = await supabase
+    .from('acciones_diarias')
+    .select('id,estado,responsable,titulo_accion')
+    .eq('id', params.accionId)
+    .maybeSingle()
+  if (!actionRow) return { ok: false as const, reason: 'action_not_found' }
+
+  if (params.action === 'support') {
+    await supabase.from('acciones_diarias').update({ estado: 'Bloqueado' }).eq('id', actionRow.id)
+    return {
+      ok: true as const,
+      askResult: false,
+      askSupport: true,
+      accionId: actionRow.id,
+      titulo: actionRow.titulo_accion ?? 'Actividad',
+    }
+  }
+
+  if (params.action === 'progress') {
+    if (actionRow.estado !== 'Bloqueado') {
+      await supabase.from('acciones_diarias').update({ estado: 'En_Ejecucion' }).eq('id', actionRow.id)
+    }
+    await supabase.from('whatsapp_result_requests').insert({
+      scope: 'corporate',
+      accion_id: actionRow.id,
+      checkpoint_id: null,
+      usuario_id: params.usuarioId,
+      wa_id: params.waId,
+      status: 'waiting',
+      expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+    })
+    return {
+      ok: true as const,
+      askResult: true,
+      askSupport: false,
+      accionId: actionRow.id,
+      titulo: actionRow.titulo_accion ?? 'Actividad',
+      resultLabel: 'En proceso' as const,
+    }
+  }
+
+  // done — todos los checkpoints activos pendientes
+  const { data: pending } = await supabase
+    .from('accion_checkpoints')
+    .select('id')
+    .eq('accion_id', actionRow.id)
+    .eq('activo', true)
+    .eq('completado', false)
+
+  const nowIso = new Date().toISOString()
+  for (const cp of pending ?? []) {
+    await supabase
+      .from('accion_checkpoints')
+      .update({
+        completado: true,
+        checked_at: nowIso,
+        checked_by: params.usuarioId,
+      })
+      .eq('id', cp.id)
+  }
+
+  await supabase
+    .from('acciones_diarias')
+    .update({
+      estado: 'Hecho',
+      completed_at: nowIso,
+      completed_by: params.usuarioId,
+    })
+    .eq('id', actionRow.id)
+
+  await supabase
+    .from('whatsapp_followup_jobs')
+    .update({ status: 'canceled', updated_at: nowIso })
+    .eq('scope', 'corporate')
+    .eq('accion_id', actionRow.id)
+    .eq('status', 'pending')
+
+  await supabase.from('whatsapp_result_requests').insert({
+    scope: 'corporate',
+    accion_id: actionRow.id,
+    checkpoint_id: null,
+    usuario_id: params.usuarioId,
+    wa_id: params.waId,
+    status: 'waiting',
+    expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+  })
+
+  return {
+    ok: true as const,
+    askResult: true,
+    askSupport: false,
+    accionId: actionRow.id,
+    titulo: actionRow.titulo_accion ?? 'Actividad',
+    resultLabel: 'Realizada' as const,
+  }
+}
+
 async function handleCorporateAction(
   supabase: ReturnType<typeof adminClient>,
   params: {
@@ -658,7 +790,7 @@ async function handleCorporateAction(
 
   const { data: actionRow } = await supabase
     .from('acciones_diarias')
-    .select('id,estado,responsable')
+    .select('id,estado,responsable,titulo_accion')
     .eq('id', checkpoint.accion_id)
     .maybeSingle()
   if (!actionRow) return { ok: false as const, reason: 'action_not_found' }
@@ -668,7 +800,13 @@ async function handleCorporateAction(
       .from('acciones_diarias')
       .update({ estado: 'Bloqueado' })
       .eq('id', actionRow.id)
-    return { ok: true as const, askResult: false, accionId: actionRow.id }
+    return {
+      ok: true as const,
+      askResult: false,
+      askSupport: true,
+      accionId: actionRow.id,
+      titulo: actionRow.titulo_accion ?? 'Actividad',
+    }
   }
 
   if (params.action === 'progress') {
@@ -678,7 +816,23 @@ async function handleCorporateAction(
         .update({ estado: 'En_Ejecucion' })
         .eq('id', actionRow.id)
     }
-    return { ok: true as const, askResult: false, accionId: actionRow.id }
+    await supabase.from('whatsapp_result_requests').insert({
+      scope: 'corporate',
+      accion_id: actionRow.id,
+      checkpoint_id: checkpoint.id,
+      usuario_id: params.usuarioId,
+      wa_id: params.waId,
+      status: 'waiting',
+      expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+    })
+    return {
+      ok: true as const,
+      askResult: true,
+      askSupport: false,
+      accionId: actionRow.id,
+      titulo: actionRow.titulo_accion ?? 'Actividad',
+      resultLabel: 'En proceso' as const,
+    }
   }
 
   // done — update directo (service role; RPC exige auth.uid())
@@ -723,9 +877,17 @@ async function handleCorporateAction(
     usuario_id: params.usuarioId,
     wa_id: params.waId,
     status: 'waiting',
+    expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
   })
 
-  return { ok: true as const, askResult: true, accionId: actionRow.id }
+  return {
+    ok: true as const,
+    askResult: true,
+    askSupport: false,
+    accionId: actionRow.id,
+    titulo: actionRow.titulo_accion ?? 'Actividad',
+    resultLabel: 'Realizada' as const,
+  }
 }
 
 async function handleTeamAction(
@@ -769,7 +931,16 @@ async function handleTeamAction(
         })
         .eq('id', team.id)
     }
-    return { ok: true as const, askResult: false, teamActionId: team.id }
+    await supabase.from('whatsapp_result_requests').insert({
+      scope: 'team',
+      team_action_id: team.id,
+      checklist_index: params.checklistIndex,
+      usuario_id: params.usuarioId,
+      wa_id: params.waId,
+      status: 'waiting',
+      expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+    })
+    return { ok: true as const, askResult: true, teamActionId: team.id }
   }
 
   const checklist = Array.isArray(team.checklist) ? [...(team.checklist as Array<Record<string, unknown>>)] : []
@@ -811,9 +982,91 @@ async function handleTeamAction(
     usuario_id: params.usuarioId,
     wa_id: params.waId,
     status: 'waiting',
+    expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
   })
 
   return { ok: true as const, askResult: true, teamActionId: team.id }
+}
+
+async function requestResultComment(
+  supabase: ReturnType<typeof adminClient>,
+  params: {
+    waId: string
+    usuarioId: string
+    label: 'Realizada' | 'En proceso'
+    accionId?: string | null
+  }
+) {
+  const lines: string[] = [`*${params.label}*`, '', 'Responde con el numero de actividad y tu avance.', '', '*Actividades*']
+  if (params.accionId) {
+    const { data: action } = await supabase
+      .from('acciones_diarias')
+      .select('titulo_accion')
+      .eq('id', params.accionId)
+      .maybeSingle()
+    lines.push(`1. ${action?.titulo_accion ?? 'Actividad'}`)
+  } else {
+    const { data: openActions } = await supabase
+      .from('acciones_diarias')
+      .select('titulo_accion,estado')
+      .eq('responsable', params.usuarioId)
+      .not('estado', 'in', '(Hecho,Verificado)')
+      .order('updated_at', { ascending: false })
+      .limit(8)
+    if (openActions && openActions.length > 0) {
+      openActions.forEach((row, i) => {
+        lines.push(`${i + 1}. ${row.titulo_accion ?? 'Actividad'}`)
+      })
+    } else {
+      lines.push('1. (sin actividades abiertas)')
+    }
+  }
+  lines.push('', 'Puedes enviar texto, foto, PDF o Excel.')
+  await replyText(supabase, params.waId, lines.join('\n'), params.usuarioId)
+}
+
+async function sendSupportContactPrompt(
+  supabase: ReturnType<typeof adminClient>,
+  params: { waId: string; usuarioId: string; titulo?: string }
+) {
+  const title = params.titulo ? ` (${params.titulo})` : ''
+  await replyText(
+    supabase,
+    params.waId,
+    [
+      `Registramos que requieres apoyo${title}. La actividad quedo Bloqueada.`,
+      '',
+      'Escribe a tu lider o responde aqui con el bloqueo concreto para dar seguimiento.',
+    ].join('\n'),
+    params.usuarioId,
+    { support_contact_sent: true }
+  )
+}
+
+async function handleVerActividades(
+  supabase: ReturnType<typeof adminClient>,
+  params: { waId: string; usuarioId: string }
+) {
+  const { data: openActions } = await supabase
+    .from('acciones_diarias')
+    .select('titulo_accion,estado,fecha')
+    .eq('responsable', params.usuarioId)
+    .not('estado', 'in', '(Hecho,Verificado)')
+    .order('fecha', { ascending: true })
+    .limit(12)
+
+  if (!openActions || openActions.length === 0) {
+    await replyText(supabase, params.waId, 'No tienes actividades abiertas en el tablero.', params.usuarioId)
+    return
+  }
+
+  const lines = ['*Tus actividades abiertas*', '']
+  openActions.forEach((row, i) => {
+    lines.push(
+      `${i + 1}. ${row.titulo_accion ?? 'Actividad'} — ${row.estado ?? '?'} (compromiso: ${row.fecha ?? 's/f'})`
+    )
+  })
+  await replyText(supabase, params.waId, lines.join('\n'), params.usuarioId)
 }
 
 async function handleEvidence(
@@ -824,11 +1077,13 @@ async function handleEvidence(
     message: WaMessage
   }
 ) {
+  const nowIso = new Date().toISOString()
   const { data: waiting } = await supabase
     .from('whatsapp_result_requests')
-    .select('id,scope,accion_id,team_action_id,checkpoint_id,checklist_index')
+    .select('id,scope,accion_id,team_action_id,checkpoint_id,checklist_index,expires_at')
     .eq('wa_id', params.waId)
     .eq('status', 'waiting')
+    .gt('expires_at', nowIso)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -907,23 +1162,65 @@ async function resolveFallbackTarget(
   waId: string,
   usuarioId: string
 ) {
-  const { data: deliveries } = await supabase
+  const phone = normalizePhone(waId) || waId
+  const { data: byPhone } = await supabase
     .from('action_delivery_log')
-    .select('id,accion_id,team_action_id,payload,created_at')
+    .select('id,accion_id,team_action_id,payload,created_at,external_chat_id,usuario_id')
     .eq('channel', 'whatsapp')
-    .eq('usuario_id', usuarioId)
     .eq('delivery_status', 'sent')
+    .eq('external_chat_id', phone)
     .order('created_at', { ascending: false })
     .limit(10)
 
-  for (const delivery of deliveries ?? []) {
+  let deliveries = byPhone ?? []
+  if (deliveries.length === 0) {
+    const { data: byUser } = await supabase
+      .from('action_delivery_log')
+      .select('id,accion_id,team_action_id,payload,created_at,external_chat_id,usuario_id')
+      .eq('channel', 'whatsapp')
+      .eq('delivery_status', 'sent')
+      .eq('usuario_id', usuarioId)
+      .order('created_at', { ascending: false })
+      .limit(10)
+    deliveries = byUser ?? []
+  }
+
+  for (const delivery of deliveries) {
     const payload = (delivery.payload ?? {}) as Record<string, unknown>
     if (payload.message_type !== 'checkpoint_followup') continue
+
+    const request = (payload.request ?? {}) as Record<string, unknown>
+    const interactive = (request.interactive ?? {}) as Record<string, unknown>
+    const actionBlock = (interactive.action ?? {}) as { buttons?: Array<{ reply?: { id?: string } }> }
+    const buttonId = actionBlock.buttons?.[0]?.reply?.id ?? ''
+    const fromButton = parseButtonId(buttonId)
+    if (fromButton.kind === 'action' && fromButton.accionId) {
+      return { kind: 'action' as const, accionId: fromButton.accionId }
+    }
+    if (fromButton.kind === 'corporate' && fromButton.checkpointId) {
+      return { kind: 'corporate' as const, checkpointId: fromButton.checkpointId }
+    }
+    if (fromButton.kind === 'team' && fromButton.teamActionId != null && fromButton.checklistIndex != null) {
+      return {
+        kind: 'team' as const,
+        teamActionId: fromButton.teamActionId,
+        checklistIndex: fromButton.checklistIndex,
+      }
+    }
+
+    if (payload.target_type === 'action' && delivery.accion_id) {
+      return { kind: 'action' as const, accionId: delivery.accion_id as string }
+    }
+
     const checkpointId =
       typeof payload.checkpoint_id === 'string' ? payload.checkpoint_id : null
     if (checkpointId) {
       return { kind: 'corporate' as const, checkpointId }
     }
+    if (!checkpointId && delivery.accion_id && payload.source === 'followup_job') {
+      return { kind: 'action' as const, accionId: delivery.accion_id as string }
+    }
+
     if (delivery.team_action_id) {
       const checklistIndex =
         typeof payload.checklist_index === 'number'
@@ -934,18 +1231,6 @@ async function resolveFallbackTarget(
           kind: 'team' as const,
           teamActionId: delivery.team_action_id as string,
           checklistIndex,
-        }
-      }
-      const request = (payload.request ?? {}) as Record<string, unknown>
-      const interactive = (request.interactive ?? {}) as Record<string, unknown>
-      const action = (interactive.action ?? {}) as { buttons?: Array<{ reply?: { id?: string } }> }
-      const buttonId = action.buttons?.[0]?.reply?.id ?? ''
-      const parsed = parseButtonId(buttonId)
-      if (parsed.kind === 'team' && parsed.teamActionId != null && parsed.checklistIndex != null) {
-        return {
-          kind: 'team' as const,
-          teamActionId: parsed.teamActionId,
-          checklistIndex: parsed.checklistIndex,
         }
       }
     }
@@ -1062,25 +1347,20 @@ Deno.serve(async (req) => {
             message.button?.payload ||
             message.interactive?.list_reply?.id ||
             null
-          const aiOp = parseAiOpButton(buttonRaw)
-          if (aiOp) {
-            await maybeHandleWhatsAppAi(supabase, {
-              waId,
-              usuarioId: identity.usuario_id,
-              action: aiOp.action,
-              opId: aiOp.opId,
-            })
-            continue
-          }
+          const buttonTitle =
+            message.interactive?.button_reply?.title ||
+            message.button?.text ||
+            message.interactive?.list_reply?.title ||
+            null
 
-          const parsed = parseButtonId(buttonRaw)
-          let action = parsed.action
-          let kind = parsed.kind
-          let checkpointId = parsed.checkpointId
-          let teamActionId = parsed.teamActionId
-          let checklistIndex = parsed.checklistIndex
-
-          if (!action && message.type === 'text' && message.text?.body) {
+          // 1) Evidencia pendiente (texto/media) antes de AI / followups
+          if (
+            message.type === 'text' ||
+            message.type === 'image' ||
+            message.type === 'document' ||
+            message.type === 'audio' ||
+            message.type === 'video'
+          ) {
             const evidenceHandled = await handleEvidence(supabase, {
               waId,
               usuarioId: identity.usuario_id,
@@ -1095,16 +1375,54 @@ Deno.serve(async (req) => {
               )
               continue
             }
+          }
+
+          // 2) Confirmación de propuestas IA (aiop:)
+          const aiOp = parseAiOpButton(buttonRaw)
+          if (aiOp) {
+            await maybeHandleWhatsAppAi(supabase, {
+              waId,
+              usuarioId: identity.usuario_id,
+              action: aiOp.action,
+              opId: aiOp.opId,
+            })
+            continue
+          }
+
+          // 3) Botón plantilla "Ver actividades"
+          if (isVerActividadesButton(buttonRaw, buttonTitle)) {
+            await handleVerActividades(supabase, {
+              waId,
+              usuarioId: identity.usuario_id,
+            })
+            continue
+          }
+
+          const parsed = parseButtonId(buttonRaw)
+          let action = parsed.action
+          let kind = parsed.kind
+          let accionId = parsed.accionId
+          let checkpointId = parsed.checkpointId
+          let teamActionId = parsed.teamActionId
+          let checklistIndex = parsed.checklistIndex
+          let operationalMiss = false
+
+          if (!action && message.type === 'text' && message.text?.body) {
             action = inferTextAction(message.text.body)
             if (action) {
               const fallback = await resolveFallbackTarget(supabase, waId, identity.usuario_id)
-              if (fallback?.kind === 'corporate') {
+              if (fallback?.kind === 'action') {
+                kind = 'action'
+                accionId = fallback.accionId
+              } else if (fallback?.kind === 'corporate') {
                 kind = 'corporate'
                 checkpointId = fallback.checkpointId
               } else if (fallback?.kind === 'team') {
                 kind = 'team'
                 teamActionId = fallback.teamActionId
                 checklistIndex = fallback.checklistIndex
+              } else {
+                operationalMiss = true
               }
             }
           }
@@ -1116,19 +1434,16 @@ Deno.serve(async (req) => {
               message.type === 'audio' ||
               message.type === 'video')
           ) {
-            const evidenceHandled = await handleEvidence(supabase, {
+            continue
+          }
+
+          if (operationalMiss) {
+            await replyText(
+              supabase,
               waId,
-              usuarioId: identity.usuario_id,
-              message,
-            })
-            if (evidenceHandled) {
-              await replyText(
-                supabase,
-                waId,
-                'Gracias. Registramos tu evidencia en el tablero.',
-                identity.usuario_id
-              )
-            }
+              'No hay un seguimiento reciente para asociar tu respuesta. Espera el recordatorio o abre el tablero.',
+              identity.usuario_id
+            )
             continue
           }
 
@@ -1144,7 +1459,30 @@ Deno.serve(async (req) => {
             continue
           }
 
-          if (kind === 'corporate' && checkpointId) {
+          if (kind === 'action' && accionId) {
+            const result = await applyActionResponse(supabase, {
+              accionId,
+              action,
+              usuarioId: identity.usuario_id,
+              waId,
+            })
+            if (result.ok) {
+              if (result.askSupport) {
+                await sendSupportContactPrompt(supabase, {
+                  waId,
+                  usuarioId: identity.usuario_id,
+                  titulo: result.titulo,
+                })
+              } else if (result.askResult) {
+                await requestResultComment(supabase, {
+                  waId,
+                  usuarioId: identity.usuario_id,
+                  label: result.resultLabel ?? 'Realizada',
+                  accionId: result.accionId,
+                })
+              }
+            }
+          } else if (kind === 'corporate' && checkpointId) {
             const result = await handleCorporateAction(supabase, {
               checkpointId,
               action,
@@ -1152,27 +1490,19 @@ Deno.serve(async (req) => {
               waId,
             })
             if (result.ok) {
-              if (result.askResult) {
-                await replyText(
-                  supabase,
+              if (result.askSupport) {
+                await sendSupportContactPrompt(supabase, {
                   waId,
-                  'Marcado como realizada. Envia una breve descripcion o un archivo como evidencia.',
-                  identity.usuario_id
-                )
-              } else if (action === 'progress') {
-                await replyText(
-                  supabase,
+                  usuarioId: identity.usuario_id,
+                  titulo: result.titulo,
+                })
+              } else if (result.askResult) {
+                await requestResultComment(supabase, {
                   waId,
-                  'Registramos avance: la actividad quedo En ejecucion.',
-                  identity.usuario_id
-                )
-              } else {
-                await replyText(
-                  supabase,
-                  waId,
-                  'Registramos que requieres apoyo. La actividad quedo Bloqueada.',
-                  identity.usuario_id
-                )
+                  usuarioId: identity.usuario_id,
+                  label: result.resultLabel ?? 'Realizada',
+                  accionId: result.accionId,
+                })
               }
             }
           } else if (kind === 'team' && teamActionId != null && checklistIndex != null) {
@@ -1184,27 +1514,17 @@ Deno.serve(async (req) => {
               waId,
             })
             if (result.ok) {
-              if (result.askResult) {
-                await replyText(
-                  supabase,
+              if (action === 'support') {
+                await sendSupportContactPrompt(supabase, {
                   waId,
-                  'Punto marcado como realizado. Envia una breve descripcion o un archivo como evidencia.',
-                  identity.usuario_id
-                )
-              } else if (action === 'progress') {
-                await replyText(
-                  supabase,
+                  usuarioId: identity.usuario_id,
+                })
+              } else if (result.askResult) {
+                await requestResultComment(supabase, {
                   waId,
-                  'Registramos avance en la actividad de equipo.',
-                  identity.usuario_id
-                )
-              } else {
-                await replyText(
-                  supabase,
-                  waId,
-                  'Registramos que requieres apoyo. La actividad quedo bloqueada.',
-                  identity.usuario_id
-                )
+                  usuarioId: identity.usuario_id,
+                  label: action === 'progress' ? 'En proceso' : 'Realizada',
+                })
               }
             }
           }

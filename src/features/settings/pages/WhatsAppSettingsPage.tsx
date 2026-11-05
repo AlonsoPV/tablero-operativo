@@ -134,7 +134,8 @@ export function WhatsAppSettingsPage() {
             <CardHeader>
               <CardTitle className="text-base">Seguimientos automáticos</CardTitle>
               <CardDescription>
-                Tras el envío inicial se programan jobs por checkpoint / ítem de checklist pendiente.
+                Tras el envío inicial (corporate) se programan N jobs a nivel acción con botones
+                act:. El followup manual por checkpoint sigue usando chk:. Team usa tchk: por ítem.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
