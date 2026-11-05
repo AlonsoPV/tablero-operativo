@@ -477,17 +477,10 @@ async function processJob(
         pendingLines,
       })
       const open = await hasOpenSession(supabase, to)
-      const graphBody = open
-        ? interactiveFollowupPayload(to, text, `act:${action.id}`)
-        : templatePayload(
-            to,
-            templateName,
-            templateLanguage,
-            initialTemplateBodyParams({
-              fecha: formatNowForTemplate(),
-              nombre: resolveContactNombre(user, identity?.display_name),
-            })
-          )
+      if (!open) {
+        return await deferUntilSession(supabase, job, 'waiting_open_session')
+      }
+      const graphBody = interactiveFollowupPayload(to, text, `act:${action.id}`)
 
       const result = await graphSendMessage(graphBody)
       const messageId = extractMessageId(result.json)
@@ -551,17 +544,10 @@ async function processJob(
     }
     const text = renderTemplate(settings.checkpoint_followup_template, vars)
     const open = await hasOpenSession(supabase, to)
-    const graphBody = open
-      ? interactiveFollowupPayload(to, text, `chk:${checkpoint.id}`)
-      : templatePayload(
-          to,
-          templateName,
-          templateLanguage,
-          initialTemplateBodyParams({
-            fecha: formatNowForTemplate(),
-            nombre: vars.responsable_nombre,
-          })
-        )
+    if (!open) {
+      return await deferUntilSession(supabase, job, 'waiting_open_session')
+    }
+    const graphBody = interactiveFollowupPayload(to, text, `chk:${checkpoint.id}`)
 
     const result = await graphSendMessage(graphBody)
     const messageId = extractMessageId(result.json)
@@ -644,17 +630,10 @@ async function processJob(
   }
   const text = renderTemplate(settings.checkpoint_followup_template, vars)
   const open = await hasOpenSession(supabase, to)
-  const graphBody = open
-    ? interactiveFollowupPayload(to, text, `tchk:${team.id}:${job.checklist_index}`)
-    : templatePayload(
-        to,
-        templateName,
-        templateLanguage,
-        initialTemplateBodyParams({
-          fecha: formatNowForTemplate(),
-          nombre: vars.responsable_nombre,
-        })
-      )
+  if (!open) {
+    return await deferUntilSession(supabase, job, 'waiting_open_session')
+  }
+  const graphBody = interactiveFollowupPayload(to, text, `tchk:${team.id}:${job.checklist_index}`)
 
   const result = await graphSendMessage(graphBody)
   const messageId = extractMessageId(result.json)
@@ -702,4 +681,25 @@ async function fail(supabase: ReturnType<typeof adminClient>, id: string, reason
     .from('whatsapp_followup_jobs')
     .update({ status: 'failed', error_message: reason.slice(0, 2000) })
     .eq('id', id)
+}
+
+/** Interactive followup requiere ventana 24h (inbound del usuario). No reenviar la plantilla de saludo. */
+async function deferUntilSession(
+  supabase: ReturnType<typeof adminClient>,
+  job: JobRow,
+  reason: string
+) {
+  if ((job.attempts ?? 0) >= 48) {
+    await fail(supabase, job.id, reason)
+    return { status: 'failed' as const, reason }
+  }
+  await supabase
+    .from('whatsapp_followup_jobs')
+    .update({
+      status: 'pending',
+      scheduled_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+      error_message: reason.slice(0, 2000),
+    })
+    .eq('id', job.id)
+  return { status: 'deferred' as const, reason }
 }

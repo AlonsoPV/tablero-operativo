@@ -48,3 +48,19 @@ where direction = 'outbound'
   and coalesce(payload->>'support_contact_sent', '') = 'true'
 order by created_at desc
 limit 20;
+
+-- 6) Diagnóstico rápido de por qué no salen followups
+select status, error_message, count(*) as n
+from public.whatsapp_followup_jobs
+group by 1, 2
+order by n desc;
+
+-- 7) Settings actuales (0 followups_per_day = no se programan jobs)
+select followup_delay_minutes, followups_per_day, updated_at
+from public.whatsapp_followup_settings
+where id = 'default';
+
+-- 8) Cron (debe existir whatsapp-followup-dispatcher)
+select jobid, jobname, schedule, active
+from cron.job
+where jobname like '%whatsapp%';

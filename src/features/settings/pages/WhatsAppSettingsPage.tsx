@@ -134,8 +134,9 @@ export function WhatsAppSettingsPage() {
             <CardHeader>
               <CardTitle className="text-base">Seguimientos automáticos</CardTitle>
               <CardDescription>
-                Tras el envío inicial (corporate) se programan N jobs a nivel acción con botones
-                act:. El followup manual por checkpoint sigue usando chk:. Team usa tchk: por ítem.
+                Tras un envío inicial exitoso se programan N jobs. El dispatcher solo manda botones
+                act: cuando el usuario ya escribió (ventana 24 h). 0 = no programa nada. Guardar aquí
+                no dispara WhatsApp: el envío sale al crear/asignar o con el botón WhatsApp de la acción.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -178,7 +179,8 @@ export function WhatsAppSettingsPage() {
             <CardHeader>
               <CardTitle className="text-base">Plantillas de texto</CardTitle>
               <CardDescription>
-                Se usan dentro de la ventana de 24 h. Fuera de ventana el envío usa la plantilla Meta configurada en secrets.
+                Estas plantillas son texto de sesión (24 h). La plantilla Meta de saludo vive en secrets
+                (`WHATSAPP_INITIAL_TEMPLATE_NAME`) y solo se usa si el usuario aún no ha escrito.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
