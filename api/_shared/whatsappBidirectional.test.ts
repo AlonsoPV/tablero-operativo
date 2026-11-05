@@ -3,6 +3,7 @@ import {
   inferFollowupTextAction,
   isVerActividadesButton,
   parseFollowupButtonId,
+  whatsappPhoneVariants,
 } from './whatsappBidirectional'
 
 describe('parseFollowupButtonId', () => {
@@ -49,7 +50,17 @@ describe('isVerActividadesButton', () => {
   it('matches title and id', () => {
     expect(isVerActividadesButton(null, 'Ver actividades')).toBe(true)
     expect(isVerActividadesButton(null, 'Más información')).toBe(true)
+    expect(isVerActividadesButton('Más información', 'Más información')).toBe(true)
     expect(isVerActividadesButton('ver_actividades', null)).toBe(true)
     expect(isVerActividadesButton('chk:x:done', 'Realizada')).toBe(false)
+  })
+})
+
+describe('whatsappPhoneVariants', () => {
+  it('matches Meta MX wa_id with stored 52 number', () => {
+    const stored = whatsappPhoneVariants('525511981149')
+    const inbound = whatsappPhoneVariants('5215511981149')
+    expect(stored).toEqual(expect.arrayContaining(['525511981149', '5215511981149', '5511981149']))
+    expect(inbound).toEqual(expect.arrayContaining(['525511981149', '5215511981149']))
   })
 })
