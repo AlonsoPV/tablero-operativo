@@ -118,7 +118,7 @@ export function interactiveFollowupPayload(to: string, bodyText: string, buttonI
       action: {
         buttons: [
           { type: 'reply', reply: { id: `${buttonIdPrefix}:done`, title: 'Realizada' } },
-          { type: 'reply', reply: { id: `${buttonIdPrefix}:progress`, title: 'En progreso' } },
+          { type: 'reply', reply: { id: `${buttonIdPrefix}:progress`, title: 'En proceso' } },
           { type: 'reply', reply: { id: `${buttonIdPrefix}:support`, title: 'Requiero apoyo' } },
         ],
       },
