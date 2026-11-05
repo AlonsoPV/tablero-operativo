@@ -1,12 +1,4 @@
 import { useState, useCallback } from 'react'
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,19 +9,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { SettingsPageHeader } from '@/components/layout/SettingsPageHeader'
 import { UserFilters } from '../components/UserFilters'
 import { UsersTable } from '../components/UsersTable'
-import { UserForm } from '../components/UserForm'
+import { UserEditDialog } from '../components/UserEditDialog'
 import { useUsers, useCreateUser, useUpdateUser, useToggleUserStatus } from '../hooks'
 import type { UserProfile, UsersFilter } from '../types/user.types'
 import type { UserFormValues } from '../schemas/user.schema'
 import { toCreateUserInput, toUpdateUserInput } from '../utils/userFormMappers'
 import { toast } from 'sonner'
-import { Plus } from 'lucide-react'
 import { useAreas } from '@/features/catalogs/hooks/useAreas'
 
 const DEFAULT_FILTER: UsersFilter = {}
-const USER_FORM_ID = 'user-form-dialog'
 
 export function UsersPage() {
   const [filter, setFilter] = useState<UsersFilter>(DEFAULT_FILTER)
@@ -131,18 +122,13 @@ export function UsersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Usuarios</h2>
-          <p className="text-muted-foreground">
-            Invita personas por correo y gestiona su ficha en el tablero.
-          </p>
-        </div>
-        <Button onClick={handleCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          Invitar usuario
-        </Button>
-      </div>
+      <SettingsPageHeader
+        eyebrow="Configuración"
+        title="Usuarios"
+        description="Invita personas por correo, revisa su ficha y ajusta rol, área o acceso."
+        onAdd={handleCreate}
+        addLabel="Invitar usuario"
+      />
 
       <UserFilters
         filter={filter}
@@ -163,63 +149,17 @@ export function UsersPage() {
         isLoading={isLoading}
       />
 
-      <Dialog open={formOpen} onOpenChange={(open) => !open && setFormOpen(false)}>
-        <DialogContent className="flex max-h-[min(90dvh,720px)] w-[calc(100vw-2rem)] max-w-lg grid-rows-none flex-col overflow-hidden p-0 gap-0">
-          <DialogHeader className="shrink-0 border-b border-border/60 px-6 pb-4 pt-6 pr-12 text-left">
-            <DialogTitle>{editingUser ? 'Editar ficha' : 'Invitar a alguien nuevo'}</DialogTitle>
-            <DialogDescription className="text-left text-sm text-muted-foreground">
-              {editingUser
-                ? 'Los cambios aplican a su ficha en el tablero (rol, área y estado).'
-                : 'Con correo, nombre y rol basta. Creamos el acceso confirmado y su ficha en el tablero.'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-4">
-            <UserForm
-              key={editingUser ? editingUser.id : 'create-user'}
-              formId={USER_FORM_ID}
-              hideActions
-              defaultValues={
-                editingUser
-                  ? {
-                      nombre: editingUser.nombre,
-                      rol: editingUser.rol,
-                      role_ids: editingUser.role_ids ?? [],
-                      primary_role_id: editingUser.primary_role_id ?? null,
-                      area: editingUser.area ?? null,
-                      activo: editingUser.activo,
-                    }
-                  : undefined
-              }
-              membershipAreaNames={editingUser?.areas ?? []}
-              onSubmit={handleFormSubmit}
-              onCancel={() => setFormOpen(false)}
-              isSubmitting={createUser.isPending || updateUser.isPending}
-              isCreate={!editingUser}
-            />
-          </div>
-          <div className="flex shrink-0 justify-end gap-2 border-t border-border/60 bg-muted/20 px-6 py-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setFormOpen(false)}
-              disabled={createUser.isPending || updateUser.isPending}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="submit"
-              form={USER_FORM_ID}
-              disabled={createUser.isPending || updateUser.isPending}
-            >
-              {createUser.isPending || updateUser.isPending
-                ? 'Guardando…'
-                : editingUser
-                  ? 'Guardar cambios'
-                  : 'Crear usuario'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <UserEditDialog
+        open={formOpen}
+        onOpenChange={(open) => {
+          setFormOpen(open)
+          if (!open) setEditingUser(null)
+        }}
+        mode={editingUser ? 'edit' : 'create'}
+        user={editingUser}
+        onSubmit={handleFormSubmit}
+        isSubmitting={createUser.isPending || updateUser.isPending}
+      />
 
       <AlertDialog open={!!confirmToggle} onOpenChange={() => setConfirmToggle(null)}>
         <AlertDialogContent>

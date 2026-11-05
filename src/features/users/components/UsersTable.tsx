@@ -13,11 +13,16 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { UserProfile } from '../types/user.types'
-import { MoreHorizontal, Pencil, Eye, UserCheck, UserX } from 'lucide-react'
+import { Eye, MoreHorizontal, Pencil, UserCheck, UserX, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { ROUTES } from '@/constants'
+import { UserPersonBadge } from './UserPersonBadge'
+import { formatUserDate, userAreaLabels, userRoleLabels } from '../utils/userDisplay'
+
 interface UsersTableProps {
   users: UserProfile[]
   onEdit: (user: UserProfile) => void
@@ -25,18 +30,8 @@ interface UsersTableProps {
   isLoading?: boolean
 }
 
-function formatDate(iso: string) {
-  try {
-    return new Date(iso).toLocaleDateString('es-ES', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  } catch {
-    return iso
-  }
+function detailPath(id: string) {
+  return ROUTES.SETTINGS_USERS_DETAIL.replace(':id', id)
 }
 
 export function UsersTable({
@@ -47,21 +42,26 @@ export function UsersTable({
 }: UsersTableProps) {
   if (isLoading) {
     return (
-      <div className="rounded-md border bg-card">
-        <div className="flex h-[320px] items-center justify-center text-muted-foreground">
-          Cargando listado…
-        </div>
+      <div
+        className="flex h-[320px] items-center justify-center rounded-xl border border-border/60 bg-card text-sm text-muted-foreground"
+        aria-busy="true"
+        aria-live="polite"
+      >
+        Cargando listado…
       </div>
     )
   }
 
   if (!users.length) {
     return (
-      <div className="rounded-md border bg-card">
-        <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-          <p className="text-muted-foreground">No hay usuarios que coincidan con los filtros.</p>
-          <p className="text-sm text-muted-foreground">
-            Prueba ajustar los criterios o agrega el primer usuario.
+      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/80 bg-card/60 px-6 py-16 text-center">
+        <span className="flex h-11 w-11 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <Users className="h-5 w-5" aria-hidden />
+        </span>
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-foreground">Sin coincidencias</p>
+          <p className="max-w-sm text-sm text-muted-foreground">
+            No hay usuarios con estos filtros. Ajusta la búsqueda o invita a alguien nuevo.
           </p>
         </div>
       </div>
@@ -69,82 +69,152 @@ export function UsersTable({
   }
 
   return (
-    <div className="rounded-md border bg-card">
+    <div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-muted/25 px-4 py-2.5">
+        <p className="text-xs font-medium text-muted-foreground">
+          {users.length} {users.length === 1 ? 'persona' : 'personas'}
+        </p>
+        <p className="hidden text-xs text-muted-foreground sm:block">
+          Ver abre la ficha · Editar cambia rol, área y estado
+        </p>
+      </div>
       <Table>
         <TableHeader>
-          <TableRow>
-            <TableHead>Nombre</TableHead>
-            <TableHead>Correo</TableHead>
-            <TableHead>Rol</TableHead>
-            <TableHead>Área</TableHead>
-            <TableHead>Activo</TableHead>
-            <TableHead>Fecha alta</TableHead>
-            <TableHead className="w-[70px]">Acciones</TableHead>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="sticky left-0 z-[1] min-w-[220px] bg-card pl-4">Persona</TableHead>
+            <TableHead className="min-w-[140px]">Rol</TableHead>
+            <TableHead className="min-w-[120px]">Área</TableHead>
+            <TableHead className="w-[100px]">Estatus</TableHead>
+            <TableHead className="hidden min-w-[140px] lg:table-cell">Alta</TableHead>
+            <TableHead className="sticky right-0 z-[1] w-[1%] bg-card pr-4 text-right">
+              Acciones
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {users.map((user) => (
-            <TableRow key={user.id}>
-              <TableCell className="font-medium">{user.nombre}</TableCell>
-              <TableCell className="max-w-[220px] truncate text-muted-foreground" title={user.email ?? undefined}>
-                {user.email ?? '—'}
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-1">
-                  {(user.role_names?.length ? user.role_names : [user.rol]).map((role) => (
-                    <Badge key={role} variant="secondary">{role}</Badge>
-                  ))}
-                </div>
-              </TableCell>
-              <TableCell className="text-muted-foreground">{user.area ?? '—'}</TableCell>
-              <TableCell>
-                <Badge variant={user.activo ? 'success' : 'muted'}>
-                  {user.activo ? 'Activo' : 'Inactivo'}
-                </Badge>
-              </TableCell>
-              <TableCell className="text-muted-foreground text-sm">
-                {formatDate(user.created_at)}
-              </TableCell>
-              <TableCell>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <MoreHorizontal className="h-4 w-4" />
-                      <span className="sr-only">Abrir menú</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem asChild>
-                      <Link to={`/settings/users/${user.id}`}>
-                        <Eye className="mr-2 h-4 w-4" />
-                        Ver detalle
+          {users.map((user) => {
+            const roles = userRoleLabels(user)
+            const areas = userAreaLabels(user)
+            return (
+              <TableRow key={user.id} className="group">
+                <TableCell className="sticky left-0 z-[1] bg-card pl-4 group-hover:bg-muted/50">
+                  <Link
+                    to={detailPath(user.id)}
+                    className="flex min-w-0 items-center gap-3 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <UserPersonBadge nombre={user.nombre} />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-foreground group-hover:text-primary">
+                        {user.nombre}
+                      </span>
+                      <span
+                        className="block truncate text-xs text-muted-foreground"
+                        title={user.email ?? undefined}
+                      >
+                        {user.email ?? 'Sin correo'}
+                      </span>
+                    </span>
+                  </Link>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1">
+                    {roles.slice(0, 2).map((role) => (
+                      <Badge key={role} variant="secondary" className="font-normal">
+                        {role}
+                      </Badge>
+                    ))}
+                    {roles.length > 2 ? (
+                      <Badge variant="outline" className="font-normal">
+                        +{roles.length - 2}
+                      </Badge>
+                    ) : null}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  {areas.length ? (
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-foreground">{areas[0]}</p>
+                      {areas.length > 1 ? (
+                        <p className="truncate text-xs text-muted-foreground">
+                          +{areas.length - 1} más
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant={user.activo ? 'success' : 'muted'}
+                    className={cn(!user.activo && 'text-muted-foreground')}
+                  >
+                    {user.activo ? 'Activo' : 'Inactivo'}
+                  </Badge>
+                </TableCell>
+                <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
+                  {formatUserDate(user.created_at)}
+                </TableCell>
+                <TableCell className="sticky right-0 z-[1] bg-card pr-4 group-hover:bg-muted/50">
+                  <div className="flex items-center justify-end gap-1">
+                    <Button variant="ghost" size="sm" className="h-8 px-2 text-muted-foreground" asChild>
+                      <Link to={detailPath(user.id)}>
+                        <Eye className="mr-1.5 h-3.5 w-3.5" />
+                        Ver
                       </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onEdit(user)}>
-                      <Pencil className="mr-2 h-4 w-4" />
-                      Editar
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => onToggleStatus(user)}
-                      className={cn(!user.activo && 'text-emerald-600')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-muted-foreground"
+                      onClick={() => onEdit(user)}
                     >
-                      {user.activo ? (
-                        <>
-                          <UserX className="mr-2 h-4 w-4" />
-                          Desactivar
-                        </>
-                      ) : (
-                        <>
-                          <UserCheck className="mr-2 h-4 w-4" />
-                          Activar
-                        </>
-                      )}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
-          ))}
+                      <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                      Editar
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                          <MoreHorizontal className="h-4 w-4" />
+                          <span className="sr-only">Más acciones de {user.nombre}</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem asChild>
+                          <Link to={detailPath(user.id)}>
+                            <Eye className="mr-2 h-4 w-4" />
+                            Ver detalle
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onEdit(user)}>
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Editar ficha
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => onToggleStatus(user)}
+                          className={cn(!user.activo && 'text-emerald-700 focus:text-emerald-700')}
+                        >
+                          {user.activo ? (
+                            <>
+                              <UserX className="mr-2 h-4 w-4" />
+                              Desactivar
+                            </>
+                          ) : (
+                            <>
+                              <UserCheck className="mr-2 h-4 w-4" />
+                              Activar
+                            </>
+                          )}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )
+          })}
         </TableBody>
       </Table>
     </div>
