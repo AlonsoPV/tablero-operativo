@@ -464,7 +464,12 @@ function parseAiOpButton(raw: string | null | undefined): { opId: string; action
 
 function whatsappAiEnabled() {
   const flag = (Deno.env.get('WHATSAPP_AI_ENABLED') || '').trim().toLowerCase()
-  return flag === '1' || flag === 'true' || flag === 'yes'
+  if (flag === '0' || flag === 'false' || flag === 'no') return false
+  if (flag === '1' || flag === 'true' || flag === 'yes') return true
+  // Si el cerebro está configurado, encender aunque falte el flag explícito.
+  const secret = Deno.env.get('WHATSAPP_ASSISTANT_SECRET')?.trim() || ''
+  const base = (Deno.env.get('APP_URL') || Deno.env.get('VITE_APP_URL') || '').trim()
+  return Boolean(secret && base)
 }
 
 function interactiveAiOpPayload(to: string, bodyText: string, opId: string) {

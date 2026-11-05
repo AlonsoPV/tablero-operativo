@@ -521,9 +521,13 @@ async function scheduleCorporateFollowups(
     waId: string
     delayMinutes: number
     followupsPerDay: number
+    checkpoints?: Checkpoint[]
   }
 ) {
-  if (params.followupsPerDay <= 0) return
+  if (params.followupsPerDay <= 0) {
+    console.warn('whatsapp-send-action skip followups: followups_per_day=0')
+    return { scheduled: 0, mode: 'skipped_zero' as const }
+  }
   const delay = Math.max(1, params.delayMinutes)
   const rows: Array<Record<string, unknown>> = []
   for (let i = 0; i < params.followupsPerDay; i++) {
@@ -543,7 +547,33 @@ async function scheduleCorporateFollowups(
       },
     })
   }
-  if (rows.length) await supabase.from('whatsapp_followup_jobs').insert(rows)
+  const { error } = await supabase.from('whatsapp_followup_jobs').insert(rows)
+  if (!error) return { scheduled: rows.length, mode: 'action' as const }
+
+  console.error('whatsapp-send-action action-level jobs failed', error.message)
+  const pending = (params.checkpoints ?? []).filter((c) => c.activo !== false && !c.completado)
+  if (pending.length === 0) {
+    throw new Error(`followup_jobs_insert_failed: ${error.message}`)
+  }
+  const legacy: Array<Record<string, unknown>> = []
+  for (const cp of pending) {
+    for (let i = 0; i < params.followupsPerDay; i++) {
+      legacy.push({
+        scope: 'corporate',
+        accion_id: params.accionId,
+        checkpoint_id: cp.id,
+        usuario_id: params.usuarioId,
+        wa_id: params.waId,
+        status: 'pending',
+        scheduled_at: new Date(Date.now() + delay * (i + 1) * 60_000).toISOString(),
+        attempts: 0,
+        payload: { source: 'initial_send', target_type: 'checkpoint_legacy' },
+      })
+    }
+  }
+  const { error: legacyError } = await supabase.from('whatsapp_followup_jobs').insert(legacy)
+  if (legacyError) throw new Error(`followup_jobs_insert_failed: ${legacyError.message}`)
+  return { scheduled: legacy.length, mode: 'checkpoint_legacy' as const }
 }
 
 async function scheduleTeamFollowups(
@@ -700,13 +730,15 @@ async function sendCorporate(params: {
     )
   }
 
+  let followups: { scheduled: number; mode: string } = { scheduled: 0, mode: 'none' }
   if (messageType === 'initial') {
-    await scheduleCorporateFollowups(supabase, {
+    followups = await scheduleCorporateFollowups(supabase, {
       accionId: corporate.id,
       usuarioId: corporate.responsable,
       waId: to,
       delayMinutes: settings.followup_delay_minutes,
       followupsPerDay: settings.followups_per_day,
+      checkpoints: (checkpoints ?? []) as Checkpoint[],
     })
   }
 
@@ -726,6 +758,8 @@ async function sendCorporate(params: {
     messageType,
     externalMessageId: messageId,
     openSession: open,
+    followupsScheduled: followups.scheduled,
+    followupsMode: followups.mode,
   })
 }
 

@@ -514,7 +514,8 @@ order by created_at desc limit 20;
 | Sin prompt de resultado | Parser `done` + fila en `whatsapp_result_requests` |
 | Jobs no salen | Cron URL, dispatcher secret, filas `pending` vencidas |
 | Plantilla 132001 | Nombre/idioma no existen en el WABA; ajustar secrets |
-| Chatbot no responde | Flag `WHATSAPP_AI_ENABLED`, secreto igual en Edge y Vercel, `APP_URL`, RPC aplicada, usuario OKRS/Super Admin |
+| Chatbot no responde | `WHATSAPP_ASSISTANT_SECRET` + `APP_URL` en Edge (y en Vercel el mismo secreto); RPC `can_use_ai_whatsapp_for_usuario`; usuario OKRS/Super Admin; webhook redesplegado |
+| Followups no salen | `followups_per_day=0`; jobs no insertados (migración 04130000); cron 401 (Vault `whatsapp_dispatcher_secret` ≠ Edge y/o falta `supabase_anon_key`); ventana 24 h cerrada (`waiting_open_session`) |
 
 ---
 
