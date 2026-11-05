@@ -211,11 +211,22 @@ function verifyChallenge(url: URL): Response | null {
   const mode = url.searchParams.get('hub.mode')
   const token = url.searchParams.get('hub.verify_token')
   const challenge = url.searchParams.get('hub.challenge')
-  const expected = Deno.env.get('WHATSAPP_VERIFY_TOKEN')?.trim() || ''
+  const expected =
+    Deno.env.get('WHATSAPP_VERIFY_TOKEN')?.trim() ||
+    Deno.env.get('token_de_verificacion')?.trim() ||
+    ''
   if (mode === 'subscribe' && expected && token === expected && challenge) {
     return new Response(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } })
   }
   if (mode === 'subscribe') {
+    console.error(
+      'whatsapp-webhook verify failed',
+      JSON.stringify({
+        hasExpected: Boolean(expected),
+        tokenLen: (token ?? '').length,
+        challengeLen: (challenge ?? '').length,
+      })
+    )
     return new Response('forbidden', { status: 403 })
   }
   return null

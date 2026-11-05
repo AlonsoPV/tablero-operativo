@@ -17,9 +17,29 @@ if (typeof getCA === 'function' && typeof setCA === 'function') {
   setCA([...new Set([...getCA('default'), ...getCA('system'), ...getCA('extra')])])
 }
 
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+/** Carga .env local sin pisar SUPABASE_ACCESS_TOKEN ya exportado en la shell. */
+async function loadDotEnv() {
+  try {
+    const raw = await readFile(path.join(ROOT, '.env'), 'utf8')
+    for (const line of raw.split(/\r?\n/)) {
+      if (!line || line.trim().startsWith('#') || !line.includes('=')) continue
+      const i = line.indexOf('=')
+      const key = line.slice(0, i).trim()
+      const value = line.slice(i + 1).trim().replace(/^["']|["']$/g, '')
+      if (!key || key === 'SUPABASE_ACCESS_TOKEN') continue
+      if (!process.env[key]) process.env[key] = value
+    }
+  } catch {
+    // sin .env es ok
+  }
+}
+
+await loadDotEnv()
+
 const REF = process.env.SUPABASE_PROJECT_REF || 'xhpasmjzuwifmjhrsumb'
 const TOKEN = (process.env.SUPABASE_ACCESS_TOKEN || '').trim()
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const FN_DIR = path.join(ROOT, 'supabase', 'functions')
 
 const FUNCTIONS = [
@@ -109,10 +129,17 @@ if (!hit) {
 }
 console.log(`token ok → ${hit.name} (${REF})`)
 
+const verifyToken =
+  (process.env.WHATSAPP_VERIFY_TOKEN || process.env.token_de_verificacion || '').trim() ||
+  'what2do_whatsapp_verify_2026'
+
 await api('POST', `/v1/projects/${REF}/secrets`, {
-  json: [{ name: 'WHATSAPP_WEBHOOK_ALLOW_UNSIGNED', value: '1' }],
+  json: [
+    { name: 'WHATSAPP_WEBHOOK_ALLOW_UNSIGNED', value: '1' },
+    { name: 'WHATSAPP_VERIFY_TOKEN', value: verifyToken },
+  ],
 })
-console.log('secret WHATSAPP_WEBHOOK_ALLOW_UNSIGNED=1')
+console.log(`secrets set: WHATSAPP_WEBHOOK_ALLOW_UNSIGNED=1, WHATSAPP_VERIFY_TOKEN (len=${verifyToken.length})`)
 
 // Si no hay secreto de dispatcher, el cron (Vault vacío) deja de recibir 401.
 // Cuando configures Vault, define WHATSAPP_DISPATCHER_SECRET en Edge + vault.
