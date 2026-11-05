@@ -54,6 +54,8 @@ function appendFiles(lines, title, relPaths) {
 }
 
 const lines = []
+// Evita que GitHub Pages / Jekyll interprete `{{` del JSX como Liquid.
+lines.push('{% raw %}')
 lines.push('# Landing `/producto` — código completo para replicar')
 lines.push('')
 lines.push('Documento generado desde el código fuente de `src/pages/product/` y sus dependencias UI.')
@@ -140,6 +142,7 @@ lines.push('3. `ComparisonSection` y `ExecutiveCaseSplit` existen en el código 
 lines.push('4. Alias `@/` → `src/`.')
 lines.push('5. Endpoint opcional: `POST /api/demo-request` (fallback a `mailto:demo@scrumban.mx`).')
 lines.push('6. Configura Tailwind con `darkMode` y el plugin que mapea colores a `hsl(var(--token))` como en el proyecto.')
+lines.push('{% endraw %}')
 lines.push('')
 
 fs.writeFileSync(outPath, lines.join('\n'), 'utf8')
