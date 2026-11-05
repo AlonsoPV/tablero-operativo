@@ -39,6 +39,13 @@ const router = createBrowserRouter([
     },
   },
   {
+    path: '/agente',
+    lazy: async () => {
+      const { AgentLandingPage } = await import('@/pages/agent/AgentLandingPage')
+      return { Component: AgentLandingPage }
+    },
+  },
+  {
     path: '/',
     element: <ProtectedRoute />,
     hydrateFallbackElement: <PageLoadingFallback />,

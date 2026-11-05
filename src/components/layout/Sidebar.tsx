@@ -248,7 +248,9 @@ export function Sidebar() {
         <section
           key={group.id}
           className={cn(
-            'overflow-hidden rounded-xl border transition-colors',
+            // shrink-0: con overflow-hidden, un flex item puede reducir min-size a 0 y
+            // recortar enlaces sin activar scroll del <nav> padre.
+            'shrink-0 overflow-hidden rounded-xl border transition-colors',
             isExpanded
               ? 'border-sidebar-accent/70 bg-sidebar-accent/25'
               : hasActive
