@@ -124,6 +124,11 @@ function interactiveFollowupPayload(to: string, bodyText: string, buttonIdPrefix
   }
 }
 
+/** Plantilla Meta: {{1}}=fecha/hora, {{2}}=nombre (exactamente 2 body params). */
+function initialTemplateBodyParams(input: { fecha?: string | null; nombre?: string | null }) {
+  return [(input.fecha || 'sin fecha').slice(0, 1024), (input.nombre || 'usuario').slice(0, 1024)]
+}
+
 function templatePayload(
   to: string,
   templateName: string,
@@ -446,11 +451,15 @@ async function processJob(
       const open = await hasOpenSession(supabase, to)
       const graphBody = open
         ? interactiveFollowupPayload(to, text, `act:${action.id}`)
-        : templatePayload(to, templateName, templateLanguage, [
-            (user?.nombre || user?.email || 'usuario') as string,
-            action.titulo_accion ?? 'Actividad',
-            action.fecha ?? 'sin fecha',
-          ])
+        : templatePayload(
+            to,
+            templateName,
+            templateLanguage,
+            initialTemplateBodyParams({
+              fecha: action.fecha,
+              nombre: (user?.nombre || user?.email || 'usuario') as string,
+            })
+          )
 
       const result = await graphSendMessage(graphBody)
       const messageId = extractMessageId(result.json)
@@ -516,11 +525,15 @@ async function processJob(
     const open = await hasOpenSession(supabase, to)
     const graphBody = open
       ? interactiveFollowupPayload(to, text, `chk:${checkpoint.id}`)
-      : templatePayload(to, templateName, templateLanguage, [
-          vars.responsable_nombre,
-          vars.titulo_accion,
-          vars.checkpoint_texto || vars.fecha_compromiso,
-        ])
+      : templatePayload(
+          to,
+          templateName,
+          templateLanguage,
+          initialTemplateBodyParams({
+            fecha: vars.fecha_compromiso,
+            nombre: vars.responsable_nombre,
+          })
+        )
 
     const result = await graphSendMessage(graphBody)
     const messageId = extractMessageId(result.json)
@@ -605,11 +618,15 @@ async function processJob(
   const open = await hasOpenSession(supabase, to)
   const graphBody = open
     ? interactiveFollowupPayload(to, text, `tchk:${team.id}:${job.checklist_index}`)
-    : templatePayload(to, templateName, templateLanguage, [
-        vars.responsable_nombre,
-        vars.titulo_accion,
-        vars.checkpoint_texto || vars.fecha_compromiso,
-      ])
+    : templatePayload(
+        to,
+        templateName,
+        templateLanguage,
+        initialTemplateBodyParams({
+          fecha: vars.fecha_compromiso,
+          nombre: vars.responsable_nombre,
+        })
+      )
 
   const result = await graphSendMessage(graphBody)
   const messageId = extractMessageId(result.json)

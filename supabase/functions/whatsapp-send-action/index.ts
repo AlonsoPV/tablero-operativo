@@ -214,6 +214,11 @@ function textPayload(to: string, text: string) {
   }
 }
 
+/** Plantilla Meta: {{1}}=fecha/hora, {{2}}=nombre (exactamente 2 body params). */
+function initialTemplateBodyParams(input: { fecha?: string | null; nombre?: string | null }) {
+  return [(input.fecha || 'sin fecha').slice(0, 1024), (input.nombre || 'usuario').slice(0, 1024)]
+}
+
 function templatePayload(
   to: string,
   templateName: string,
@@ -619,36 +624,29 @@ async function sendCorporate(params: {
   let graphBody: Record<string, unknown>
   let deliveryKind = messageType
 
+  const templateBody = initialTemplateBodyParams({
+    fecha: vars.fecha_compromiso,
+    nombre: vars.responsable_nombre,
+  })
+
   if (messageType === 'commitment_close') {
     const text = renderTemplate(settings.commitment_close_template, vars)
     graphBody = open
       ? textPayload(to, text)
-      : templatePayload(to, templateName, templateLanguage, [
-          vars.responsable_nombre,
-          vars.titulo_accion,
-          vars.fecha_compromiso,
-        ])
+      : templatePayload(to, templateName, templateLanguage, templateBody)
     deliveryKind = 'commitment_close'
   } else if (messageType === 'checkpoint_followup') {
     const text = renderTemplate(settings.checkpoint_followup_template, vars)
     const prefix = `chk:${checkpoint!.id}`
     graphBody = open
       ? interactiveFollowupPayload(to, text, prefix)
-      : templatePayload(to, templateName, templateLanguage, [
-          vars.responsable_nombre,
-          vars.titulo_accion,
-          vars.checkpoint_texto || vars.fecha_compromiso,
-        ])
+      : templatePayload(to, templateName, templateLanguage, templateBody)
     deliveryKind = 'checkpoint_followup'
   } else {
     const text = renderTemplate(settings.initial_text_template, vars)
     graphBody = open
       ? textPayload(to, text)
-      : templatePayload(to, templateName, templateLanguage, [
-          vars.responsable_nombre,
-          vars.titulo_accion,
-          vars.fecha_compromiso,
-        ])
+      : templatePayload(to, templateName, templateLanguage, templateBody)
     deliveryKind = 'initial'
   }
 
@@ -762,36 +760,29 @@ async function sendTeam(params: {
   let graphBody: Record<string, unknown>
   let deliveryKind = messageType
 
+  const templateBody = initialTemplateBodyParams({
+    fecha: vars.fecha_compromiso,
+    nombre: vars.responsable_nombre,
+  })
+
   if (messageType === 'commitment_close') {
     const text = renderTemplate(settings.commitment_close_template, vars)
     graphBody = open
       ? textPayload(to, text)
-      : templatePayload(to, templateName, templateLanguage, [
-          vars.responsable_nombre,
-          vars.titulo_accion,
-          vars.fecha_compromiso,
-        ])
+      : templatePayload(to, templateName, templateLanguage, templateBody)
     deliveryKind = 'commitment_close'
   } else if (messageType === 'checkpoint_followup') {
     const text = renderTemplate(settings.checkpoint_followup_template, vars)
     const prefix = `tchk:${team.id}:${checklistIndex}`
     graphBody = open
       ? interactiveFollowupPayload(to, text, prefix)
-      : templatePayload(to, templateName, templateLanguage, [
-          vars.responsable_nombre,
-          vars.titulo_accion,
-          vars.checkpoint_texto || vars.fecha_compromiso,
-        ])
+      : templatePayload(to, templateName, templateLanguage, templateBody)
     deliveryKind = 'checkpoint_followup'
   } else {
     const text = renderTemplate(settings.initial_text_template, vars)
     graphBody = open
       ? textPayload(to, text)
-      : templatePayload(to, templateName, templateLanguage, [
-          vars.responsable_nombre,
-          vars.titulo_accion,
-          vars.fecha_compromiso,
-        ])
+      : templatePayload(to, templateName, templateLanguage, templateBody)
     deliveryKind = 'initial'
   }
 

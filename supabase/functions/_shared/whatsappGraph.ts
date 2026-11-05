@@ -135,6 +135,19 @@ export function textPayload(to: string, text: string) {
   }
 }
 
+/**
+ * Body de la plantilla Meta inicial aprobada:
+ *   Hoy es: {{1}}
+ *   ¡Hola {{2}}!
+ * Solo 2 params: fecha/hora, nombre.
+ */
+export function initialTemplateBodyParams(input: { fecha?: string | null; nombre?: string | null }) {
+  return [
+    (input.fecha || 'sin fecha').slice(0, 1024),
+    (input.nombre || 'usuario').slice(0, 1024),
+  ]
+}
+
 export function templatePayload(
   to: string,
   templateName: string,

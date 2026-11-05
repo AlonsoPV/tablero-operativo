@@ -213,11 +213,10 @@ function availableTemplates() {
         language: cfg.templateLanguage,
         label: 'Contacto inicial (plantilla Meta aprobada)',
         description:
-          'Usar cuando la ventana de 24 h está cerrada. Requiere 3 variables de cuerpo aprobadas en Meta.',
+          'Usar cuando la ventana de 24 h está cerrada. Plantilla Meta: {{1}}=fecha/hora, {{2}}=nombre.',
         bodyParams: [
-          { key: 'nombre', label: 'Nombre del contacto', required: true },
-          { key: 'asunto', label: 'Asunto / actividad', required: true },
-          { key: 'detalle', label: 'Detalle / fecha o mensaje', required: true },
+          { key: 'fecha', label: 'Fecha / hora ({{1}})', required: true },
+          { key: 'nombre', label: 'Nombre ({{2}})', required: true },
         ],
       },
     ]
@@ -368,17 +367,17 @@ Deno.serve(async (req) => {
           return jsonResponse({ error: 'missing_whatsapp_secrets' }, 500)
         }
         const params = templateParams.filter(Boolean)
-        if (params.length < 3) {
+        if (params.length < 2) {
           return jsonResponse(
             {
               error: 'template_params_required',
-              detail: 'La plantilla requiere 3 campos: nombre, asunto y detalle.',
+              detail: 'La plantilla requiere 2 campos: fecha/hora y nombre.',
             },
             400
           )
         }
-        graphBody = templatePayload(waId, cfg.templateName, cfg.templateLanguage, params.slice(0, 3))
-        bodyText = `[Plantilla ${cfg.templateName}] ${params.slice(0, 3).join(' · ')}`
+        graphBody = templatePayload(waId, cfg.templateName, cfg.templateLanguage, params.slice(0, 2))
+        bodyText = `[Plantilla ${cfg.templateName}] ${params.slice(0, 2).join(' · ')}`
         messageKind = 'template'
       }
 
