@@ -135,15 +135,30 @@ export function textPayload(to: string, text: string) {
   }
 }
 
+/** "Hoy es: {{1}}" → ahora en CDMX (YYYY-MM-DD HH:mm). */
+export function formatNowForTemplate() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date())
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`
+}
+
 /**
  * Body de la plantilla Meta inicial aprobada:
  *   Hoy es: {{1}}
  *   ¡Hola {{2}}!
- * Solo 2 params: fecha/hora, nombre.
+ * Solo 2 params: fecha/hora actual, nombre.
  */
 export function initialTemplateBodyParams(input: { fecha?: string | null; nombre?: string | null }) {
   return [
-    (input.fecha || 'sin fecha').slice(0, 1024),
+    (input.fecha || formatNowForTemplate()).slice(0, 1024),
     (input.nombre || 'usuario').slice(0, 1024),
   ]
 }

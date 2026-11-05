@@ -281,7 +281,8 @@ await whatsappIntegrationService.sendAction(accionId, responsableId, {
 
 1. Busca última interacción inbound del `wa_id`.  
 2. Si está dentro de 24 h → envía **texto/interactive** libre.  
-3. Si no → intenta **plantilla** `WHATSAPP_INITIAL_TEMPLATE_NAME` (default `nueva_actividad_what2do`) con **2** body params: `{{1}}=fecha/hora`, `{{2}}=nombre` (como en Meta Manager).  
+3. Si no → intenta **plantilla** `WHATSAPP_INITIAL_TEMPLATE_NAME` (default `nueva_actividad_what2do`) con **2** body params: `{{1}}=ahora CDMX` (“Hoy es”), `{{2}}=nombre` (display_name / usuarios.nombre / email).  
+   El botón **Más información** (tipo personalizado / quick reply) lista actividades y abre el chatbot Gemini para OKRS/Super Admin. Texto libre posterior también va al chatbot (después de evidencia y keywords operativos).  
 4. Si la plantilla falla (p. ej. no existe) → fallback a texto libre (puede fallar con error 24 h de Meta).  
 5. Registra en `action_delivery_log` flags `used_template`, `template_fallback`, errores.  
 

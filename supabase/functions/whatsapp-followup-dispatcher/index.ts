@@ -63,12 +63,23 @@ async function loadFollowupSettings(supabase: ReturnType<typeof createClient>) {
 async function findWhatsAppIdentity(supabase: ReturnType<typeof createClient>, usuarioId: string) {
   const { data } = await supabase
     .from('user_channel_identities')
-    .select('id,usuario_id,external_user_id,external_chat_id,status')
+    .select('id,usuario_id,external_user_id,external_chat_id,display_name,status')
     .eq('channel', 'whatsapp')
     .eq('usuario_id', usuarioId)
     .eq('status', 'active')
     .maybeSingle()
   return data
+}
+
+function resolveContactNombre(
+  user: { nombre?: string | null; email?: string | null } | null | undefined,
+  displayName?: string | null
+) {
+  const preferred = typeof displayName === 'string' ? displayName.trim() : ''
+  if (preferred) return preferred
+  const nombre = typeof user?.nombre === 'string' ? user.nombre.trim() : ''
+  const email = typeof user?.email === 'string' ? user.email.trim() : ''
+  return nombre || email || 'usuario'
 }
 
 async function hasOpenSession(supabase: ReturnType<typeof createClient>, waId: string): Promise<boolean> {
@@ -124,9 +135,26 @@ function interactiveFollowupPayload(to: string, bodyText: string, buttonIdPrefix
   }
 }
 
-/** Plantilla Meta: {{1}}=fecha/hora, {{2}}=nombre (exactamente 2 body params). */
+function formatNowForTemplate() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date())
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`
+}
+
+/** Plantilla Meta: {{1}}=fecha/hora actual, {{2}}=nombre. */
 function initialTemplateBodyParams(input: { fecha?: string | null; nombre?: string | null }) {
-  return [(input.fecha || 'sin fecha').slice(0, 1024), (input.nombre || 'usuario').slice(0, 1024)]
+  return [
+    (input.fecha || formatNowForTemplate()).slice(0, 1024),
+    (input.nombre || 'usuario').slice(0, 1024),
+  ]
 }
 
 function templatePayload(
@@ -456,8 +484,8 @@ async function processJob(
             templateName,
             templateLanguage,
             initialTemplateBodyParams({
-              fecha: action.fecha,
-              nombre: (user?.nombre || user?.email || 'usuario') as string,
+              fecha: formatNowForTemplate(),
+              nombre: resolveContactNombre(user, identity?.display_name),
             })
           )
 
@@ -515,7 +543,7 @@ async function processJob(
     }
 
     const vars = {
-      responsable_nombre: (user?.nombre || user?.email || 'usuario') as string,
+      responsable_nombre: resolveContactNombre(user, identity?.display_name),
       titulo_accion: action.titulo_accion ?? 'Actividad',
       fecha_compromiso: action.fecha ?? 'sin fecha',
       checklist_bloque: '',
@@ -530,7 +558,7 @@ async function processJob(
           templateName,
           templateLanguage,
           initialTemplateBodyParams({
-            fecha: vars.fecha_compromiso,
+            fecha: formatNowForTemplate(),
             nombre: vars.responsable_nombre,
           })
         )
@@ -608,7 +636,7 @@ async function processJob(
     .maybeSingle()
 
   const vars = {
-    responsable_nombre: (user?.nombre || user?.email || 'usuario') as string,
+    responsable_nombre: resolveContactNombre(user, identity?.display_name),
     titulo_accion: team.titulo ?? 'Actividad de equipo',
     fecha_compromiso: team.fecha_limite ? String(team.fecha_limite).slice(0, 10) : 'sin fecha',
     checklist_bloque: '',
@@ -623,7 +651,7 @@ async function processJob(
         templateName,
         templateLanguage,
         initialTemplateBodyParams({
-          fecha: vars.fecha_compromiso,
+          fecha: formatNowForTemplate(),
           nombre: vars.responsable_nombre,
         })
       )

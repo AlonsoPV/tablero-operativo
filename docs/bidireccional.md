@@ -219,7 +219,7 @@ Además de poner la acción en `Bloqueado`, el webhook envía un prompt de conta
 
 ### 4.6 Otros inbound útiles
 
-- Botón de plantilla tipo **“Ver actividades”**: puede reenviar detalle de actividades abiertas (no es chk/act).
+- Botón de plantilla **personalizado** (“Más información” / “Ver actividades”): lista actividades abiertas y, si el usuario es OKRS/Super Admin, abre el chatbot Gemini. El clic llega como `type=button` (quick reply), no como URL.
 - Todo inbound se guarda (idealmente) como raw para auditoría aunque no se reconozca el botón.
 
 ---
