@@ -114,6 +114,9 @@ await api('POST', `/v1/projects/${REF}/secrets`, {
 })
 console.log('secret WHATSAPP_WEBHOOK_ALLOW_UNSIGNED=1')
 
+// Si no hay secreto de dispatcher, el cron (Vault vacío) deja de recibir 401.
+// Cuando configures Vault, define WHATSAPP_DISPATCHER_SECRET en Edge + vault.
+
 for (const fn of FUNCTIONS) {
   await deployOne(fn)
 }
