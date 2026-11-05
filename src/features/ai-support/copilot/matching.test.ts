@@ -80,5 +80,8 @@ describe('copilot matching and safety', () => {
     expect(prompt).toMatch(/DATOS NO CONFIABLES/)
     expect(prompt).toMatch(/Confirmar/)
     expect(prompt).toMatch(/Hecho y Verificado/)
+    expect(prompt).toMatch(/organigrama/)
+    expect(prompt).toMatch(/get_module_data/)
+    expect(prompt).toMatch(/permiso/)
   })
 })

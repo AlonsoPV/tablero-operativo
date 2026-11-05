@@ -5,6 +5,10 @@ export const COPILOT_READ_TOOLS = [
   'get_pending_verifications',
   'get_okr_progress',
   'search_people',
+  'get_dashboard_summary',
+  'get_org_chart',
+  'get_module_data',
+  'search_board',
 ] as const
 
 export const COPILOT_WRITE_TOOLS = [

@@ -78,6 +78,70 @@ export const COPILOT_FUNCTION_DECLARATIONS: GeminiFunctionDeclaration[] = [
     },
   },
   {
+    name: 'get_dashboard_summary',
+    description:
+      'Resumen del dashboard: conteos de acciones abiertas, retraso, bloqueadas, Hecho y OKR operativo. Solo si el usuario puede ver /dashboard.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_org_chart',
+    description:
+      'Organigrama: personas, a quien reportan y equipo directo. Filtro opcional por nombre. Solo si el usuario puede ver /organigrama.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Nombre o fragmento para enfocar a una persona.' },
+      },
+    },
+  },
+  {
+    name: 'get_module_data',
+    description:
+      'Lee un modulo del tablero que el usuario tenga permiso de ver: kpis, gaps, impacto, tickets, team_kanban, calendar, challenges, notifications, sprints, strategy, disciplina, academy, areas, plan_accion, reports, distancias, dashboard u org_chart.',
+    parameters: {
+      type: 'object',
+      properties: {
+        module: {
+          type: 'string',
+          enum: [
+            'dashboard',
+            'kpis',
+            'gaps',
+            'impacto',
+            'org_chart',
+            'tickets',
+            'team_kanban',
+            'calendar',
+            'challenges',
+            'notifications',
+            'sprints',
+            'strategy',
+            'disciplina',
+            'academy',
+            'areas',
+            'plan_accion',
+            'reports',
+            'distancias',
+          ],
+        },
+        query: { type: 'string', description: 'Filtro opcional: nombre, titulo o fecha YYYY-MM-DD.' },
+      },
+      required: ['module'],
+    },
+  },
+  {
+    name: 'search_board',
+    description:
+      'Busca texto en el tablero (acciones, personas, tickets, KPIs, gaps, retos, organigrama) solo en modulos autorizados para el usuario.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Texto a buscar.' },
+      },
+      required: ['query'],
+    },
+  },
+  {
     name: 'create_action',
     description:
       'Propone crear una accion. No la ejecuta. Requiere titulo y fecha. Si el responsable es ambiguo, no inventes.',

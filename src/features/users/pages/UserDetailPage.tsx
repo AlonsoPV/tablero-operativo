@@ -1,12 +1,6 @@
 import { useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,7 +14,7 @@ import {
 import { UserDetailCard } from '../components/UserDetailCard'
 import { PasswordManagementCard } from '../components/PasswordManagementCard'
 import { UserWhatsAppCard } from '../components/UserWhatsAppCard'
-import { UserForm } from '../components/UserForm'
+import { UserEditDialog } from '../components/UserEditDialog'
 import { UserHierarchySection } from '../components/UserHierarchySection'
 import { useUser, useUserAuthEmail, useUpdateUser, useToggleUserStatus, useCurrentUser } from '../hooks'
 import type { UserFormValues } from '../schemas/user.schema'
@@ -35,12 +29,10 @@ import {
 import { useAppRole } from '@/features/auth/hooks/useAppRole'
 import { mapManagerUpdateError } from '@/features/org-chart/utils/orgHierarchy'
 import { useAreas } from '@/features/catalogs/hooks/useAreas'
-
-const USER_FORM_ID = 'user-detail-form'
+import { ROUTES } from '@/constants'
 
 export function UserDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
   const [formOpen, setFormOpen] = useState(false)
   const [confirmToggle, setConfirmToggle] = useState(false)
 
@@ -81,7 +73,7 @@ export function UserDetailPage() {
       },
       {
         onSuccess: () => {
-          toast.success('Usuario actualizado correctamente')
+          toast.success('Cambios guardados')
           setFormOpen(false)
         },
         onError: (err) => {
@@ -98,11 +90,15 @@ export function UserDetailPage() {
       { id: user.id, activo: !user.activo },
       {
         onSuccess: () => {
-          toast.success(user.activo ? 'Usuario desactivado' : 'Usuario activado')
+          toast.success(
+            user.activo
+              ? 'Cuenta desactivada: no podrá entrar hasta que la reactives.'
+              : 'Cuenta activada: ya puede entrar al tablero.'
+          )
           setConfirmToggle(false)
         },
         onError: (err) => {
-          toast.error(err instanceof Error ? err.message : 'Error al cambiar estatus')
+          toast.error(err instanceof Error ? err.message : 'No pudimos cambiar el estado. Inténtalo de nuevo.')
         },
       }
     )
@@ -110,8 +106,11 @@ export function UserDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-64 items-center justify-center text-muted-foreground">
-        Cargando usuario...
+      <div
+        className="flex h-64 items-center justify-center text-sm text-muted-foreground"
+        aria-busy="true"
+      >
+        Cargando ficha…
       </div>
     )
   }
@@ -119,9 +118,11 @@ export function UserDetailPage() {
   if (isError || !user) {
     return (
       <div className="space-y-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/settings/users')}>
-          <ArrowLeft className="mr-1 h-4 w-4" />
-          Volver al listado
+        <Button variant="ghost" size="sm" asChild>
+          <Link to={ROUTES.SETTINGS_USERS}>
+            <ArrowLeft className="mr-1 h-4 w-4" />
+            Volver al listado
+          </Link>
         </Button>
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
           {error instanceof Error ? error.message : 'Usuario no encontrado'}
@@ -131,12 +132,19 @@ export function UserDetailPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/settings/users')}>
-          <ArrowLeft className="mr-1 h-4 w-4" />
-          Volver al listado
-        </Button>
+    <div className="mx-auto max-w-5xl space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <Button variant="ghost" size="sm" className="-ml-2 h-8 w-fit px-2 text-muted-foreground" asChild>
+            <Link to={ROUTES.SETTINGS_USERS}>
+              <ArrowLeft className="mr-1 h-4 w-4" />
+              Usuarios
+            </Link>
+          </Button>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Ficha de persona
+          </p>
+        </div>
       </div>
 
       <UserDetailCard
@@ -147,79 +155,49 @@ export function UserDetailPage() {
         isToggling={toggleStatus.isPending}
       />
 
-      <UserHierarchySection user={user} users={orgUsers} />
+      <div className="space-y-2">
+        <h2 className="text-sm font-semibold tracking-tight text-foreground">Organización</h2>
+        <UserHierarchySection user={user} users={orgUsers} />
+      </div>
 
-      <UserWhatsAppCard
-        usuarioId={user.id}
-        userNombre={user.nombre}
-        canManage={canManageWhatsApp}
+      <div className="space-y-2">
+        <h2 className="text-sm font-semibold tracking-tight text-foreground">Canales y acceso</h2>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <UserWhatsAppCard
+            usuarioId={user.id}
+            userNombre={user.nombre}
+            canManage={canManageWhatsApp}
+          />
+          <PasswordManagementCard
+            usuarioId={user.id}
+            userNombre={user.nombre}
+            userEmail={email ?? null}
+            hasAuthAccount={Boolean(user.user_id)}
+          />
+        </div>
+      </div>
+
+      <UserEditDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        mode="edit"
+        user={user}
+        onSubmit={handleFormSubmit}
+        isSubmitting={updateUser.isPending}
+        managerOptions={orgUsers}
+        canEditManager={canEditManager}
       />
-
-      <PasswordManagementCard
-        usuarioId={user.id}
-        userNombre={user.nombre}
-        userEmail={email ?? null}
-        hasAuthAccount={Boolean(user.user_id)}
-      />
-
-      <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent
-          aria-describedby={undefined}
-          className="flex max-h-[min(90dvh,720px)] w-[calc(100vw-2rem)] max-w-lg grid-rows-none flex-col overflow-hidden p-0 gap-0"
-        >
-          <DialogHeader className="shrink-0 border-b border-border/60 px-6 pb-4 pt-6 pr-12 text-left">
-            <DialogTitle>Editar usuario</DialogTitle>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-4">
-            <UserForm
-              key={`edit-user-${user.id}`}
-              formId={USER_FORM_ID}
-              hideActions
-              editingUserId={user.id}
-              managerOptions={orgUsers}
-              canEditManager={canEditManager}
-              defaultValues={{
-                nombre: user.nombre,
-                rol: user.rol,
-                role_ids: user.role_ids ?? [],
-                primary_role_id: user.primary_role_id ?? null,
-                area: user.area ?? null,
-                activo: user.activo,
-                manager_user_id: user.manager_user_id ?? null,
-              }}
-              membershipAreaNames={user.areas ?? []}
-              onSubmit={handleFormSubmit}
-              onCancel={() => setFormOpen(false)}
-              isSubmitting={updateUser.isPending}
-              isCreate={false}
-            />
-          </div>
-          <div className="flex shrink-0 justify-end gap-2 border-t border-border/60 bg-muted/20 px-6 py-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setFormOpen(false)}
-              disabled={updateUser.isPending}
-            >
-              Cancelar
-            </Button>
-            <Button type="submit" form={USER_FORM_ID} disabled={updateUser.isPending}>
-              {updateUser.isPending ? 'Guardando…' : 'Guardar cambios'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <AlertDialog open={confirmToggle} onOpenChange={setConfirmToggle}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {user.activo ? 'Desactivar usuario' : 'Activar usuario'}
+              {user.activo ? 'Desactivar cuenta' : 'Activar cuenta'}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {user.activo
-                ? `¿Desactivar a ${user.nombre}? El usuario no podrá acceder hasta que se reactive.`
-                : `¿Activar a ${user.nombre}?`}
+                ? `¿Desactivar a ${user.nombre}? No podrá entrar al tablero hasta que reactives su cuenta.`
+                : `¿Activar a ${user.nombre}? Podrá volver a entrar con su correo y contraseña.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -236,4 +214,3 @@ export function UserDetailPage() {
     </div>
   )
 }
-

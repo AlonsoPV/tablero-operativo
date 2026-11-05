@@ -27,11 +27,11 @@ export function UserHierarchySection({ user, users }: UserHierarchySectionProps)
   const escalation = buildEscalationChain(user.id, users)
 
   return (
-    <Card>
+    <Card className="border-border/60 shadow-sm">
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
         <div className="flex items-center gap-2">
           <Network className="h-5 w-5 text-primary" aria-hidden />
-          <CardTitle className="text-base">Jerarquía organizacional</CardTitle>
+          <CardTitle className="text-base">Jerarquía</CardTitle>
         </div>
         <Link
           to={ROUTES.ORG_CHART}

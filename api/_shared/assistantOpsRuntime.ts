@@ -22,6 +22,7 @@ import type {
   CopilotToolResult,
   CopilotWriteTool,
 } from '../../src/features/ai-support/copilot/types.js'
+import { dispatchBoardReadTool } from './assistantBoardReads.js'
 
 export type CopilotActor = {
   supabase: SupabaseClient
@@ -395,28 +396,6 @@ async function toolGetPendingVerifications(actor: CopilotActor): Promise<Copilot
   })
 }
 
-async function toolGetOkrProgress(actor: CopilotActor): Promise<CopilotToolResult> {
-  const { data, error } = await actor.supabase.rpc('okr_dashboard')
-  if (error) {
-    return denied('get_okr_progress', 'No tienes acceso a OKRs o el tablero no está disponible.')
-  }
-  const payload = data as { objectives?: unknown[]; keyResults?: unknown[]; initiatives?: unknown[] }
-  const objectives = Array.isArray(payload?.objectives) ? payload.objectives : []
-  return readOk('get_okr_progress', {
-    objectives: objectives.length,
-    keyResults: Array.isArray(payload?.keyResults) ? payload.keyResults.length : 0,
-    initiatives: Array.isArray(payload?.initiatives) ? payload.initiatives.length : 0,
-    items: objectives.slice(0, 8).map((item) => {
-      const row = item as Record<string, unknown>
-      return {
-        id: row.id,
-        nombre: row.nombre_okr,
-        scope: row.scope,
-      }
-    }),
-  })
-}
-
 async function toolSearchPeople(actor: CopilotActor, args: Record<string, unknown>): Promise<CopilotToolResult> {
   const name = asString(args.name, 80)
   if (!name) return denied('search_people', 'Indica un nombre.')
@@ -683,6 +662,8 @@ export async function dispatchCopilotTool(
 ): Promise<CopilotToolResult> {
   const args = asArgs(rawArgs)
   try {
+    const board = await dispatchBoardReadTool(actor, name, args)
+    if (board) return board
     switch (name) {
       case 'get_my_actions':
         return await toolGetMyActions(actor, args)
@@ -692,8 +673,6 @@ export async function dispatchCopilotTool(
         return await toolGetTeamActions(actor, args)
       case 'get_pending_verifications':
         return await toolGetPendingVerifications(actor)
-      case 'get_okr_progress':
-        return await toolGetOkrProgress(actor)
       case 'search_people':
         return await toolSearchPeople(actor, args)
       case 'create_action':
