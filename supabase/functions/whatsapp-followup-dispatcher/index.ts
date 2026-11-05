@@ -332,10 +332,18 @@ function dispatcherAuthorized(req: Request): boolean {
   const anonKey =
     Deno.env.get('SUPABASE_ANON_KEY')?.trim() ||
     Deno.env.get('SUPABASE_PUBLISHABLE_KEY')?.trim() ||
+    Deno.env.get('SB_PUBLISHABLE_KEY')?.trim() ||
     ''
   if (token && serviceKey && token === serviceKey) return true
   if (token && anonKey && token === anonKey) return true
   if (expected && token === expected) return true
+
+  // Cron suele llegar sin Vault configurado (Authorization vacío / secret vacío).
+  // Sin WHATSAPP_DISPATCHER_SECRET: no bloquear el worker (igual que webhook sin App Secret).
+  if (!expected) {
+    console.warn('whatsapp-followup-dispatcher missing WHATSAPP_DISPATCHER_SECRET; allowing request')
+    return true
+  }
   return false
 }
 
