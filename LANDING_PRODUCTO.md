@@ -1,3 +1,4 @@
+{% raw %}
 # Landing `/producto` — código completo para replicar
 
 Documento generado desde el código fuente de `src/pages/product/` y sus dependencias UI.
@@ -5445,3 +5446,4 @@ export function AccionFormField({
 4. Alias `@/` → `src/`.
 5. Endpoint opcional: `POST /api/demo-request` (fallback a `mailto:demo@scrumban.mx`).
 6. Configura Tailwind con `darkMode` y el plugin que mapea colores a `hsl(var(--token))` como en el proyecto.
+{% endraw %}
