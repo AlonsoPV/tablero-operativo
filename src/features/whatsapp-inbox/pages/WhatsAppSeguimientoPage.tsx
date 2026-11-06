@@ -30,6 +30,10 @@ import {
   summarizeThread,
   type WhatsAppInteractionKind,
 } from '@/features/whatsapp-inbox/whatsappThreadMeta'
+import {
+  formatWhatsAppDeliveryError,
+  resolveWhatsAppDeliveryVerdict,
+} from '@/features/whatsapp-inbox/whatsappDeliveryVerdict'
 
 type ThreadFilter = 'all' | 'actions' | 'replies'
 
@@ -70,29 +74,22 @@ function formatDay(iso: string) {
   })
 }
 
-function statusLabel(status: string | null | undefined) {
-  switch (status) {
-    case 'queued':
-      return 'En cola'
-    case 'sent':
-      return 'Enviado'
-    case 'delivered':
-      return 'Entregado'
-    case 'read':
-      return 'Leído'
-    case 'failed':
-      return 'Error'
-    default:
-      return status || ''
+function StatusIcon({
+  status,
+  ok,
+  uncertain,
+}: {
+  status: string | null | undefined
+  ok: boolean
+  uncertain: boolean
+}) {
+  if (status === 'failed' || !ok) {
+    return <AlertCircle className="h-3.5 w-3.5 text-destructive" aria-hidden />
   }
-}
-
-function StatusIcon({ status }: { status: string | null | undefined }) {
-  if (status === 'failed') return <AlertCircle className="h-3.5 w-3.5 text-destructive" aria-hidden />
   if (status === 'read' || status === 'delivered') {
     return <CheckCheck className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
   }
-  if (status === 'sent' || status === 'queued') {
+  if (status === 'sent' || status === 'queued' || uncertain) {
     return <Check className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
   }
   return null
@@ -118,6 +115,12 @@ function newClientRequestId() {
 
 function ThreadMessageBubble({ message }: { message: WhatsAppThreadMessage }) {
   const meta = resolveThreadMeta(message)
+  const delivery = resolveWhatsAppDeliveryVerdict({
+    deliveryStatus: message.delivery_status,
+    metaMessageId: message.meta_message_id,
+    errorMessage: message.error_message,
+  })
+  const formattedError = formatWhatsAppDeliveryError(message.error_message)
   const outbound = message.direction === 'outbound'
   const actionish = meta.isActionOutbound
   const replyish = meta.isUserReply
@@ -168,14 +171,26 @@ function ThreadMessageBubble({ message }: { message: WhatsAppThreadMessage }) {
           >
             <span>{formatFriendlyDate(message.created_at)}</span>
             {outbound ? (
-              <span className="inline-flex items-center gap-1">
-                <StatusIcon status={message.delivery_status} />
-                {statusLabel(message.delivery_status)}
+              <span
+                className="inline-flex items-center gap-1"
+                title={`${delivery.verdict} · ${delivery.recommendation}`}
+              >
+                <StatusIcon
+                  status={message.delivery_status}
+                  ok={delivery.ok}
+                  uncertain={delivery.uncertain}
+                />
+                {delivery.label}
               </span>
             ) : null}
           </div>
-          {message.error_message ? (
-            <p className="mt-1 text-[11px] opacity-90">{message.error_message}</p>
+          {outbound && delivery.uncertain && delivery.ok ? (
+            <p className="mt-1 text-[11px] opacity-80">{delivery.recommendation}</p>
+          ) : null}
+          {formattedError ? (
+            <p className="mt-1 text-[11px] opacity-90" title={message.error_message ?? undefined}>
+              {formattedError}
+            </p>
           ) : null}
         </div>
       </div>

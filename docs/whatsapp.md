@@ -112,6 +112,7 @@ verify_jwt = false
 | `api/_shared/whatsappAiConfirm.ts` | Parser botones `aiop:` y sí/no |
 | `supabase/functions/whatsapp-followup-dispatcher/index.ts` | Procesa cola |
 | `supabase/scripts/audit_whatsapp_message_flow.sql` | Auditoría SQL |
+| `supabase/scripts/validate_last_5_whatsapp_outbound.sql` | Últimas 5 detonaciones + veredicto OK/ERROR (131049, sync log, identidad) |
 
 Migraciones clave:
 
@@ -146,7 +147,8 @@ Ruta UI settings: `ROUTES.SETTINGS_WHATSAPP` → `/settings/whatsapp`.
 | `WHATSAPP_INITIAL_TEMPLATE_NAME` | No | Default `nueva_actividad_what2do` |
 | `WHATSAPP_INITIAL_TEMPLATE_LANGUAGE` | No | Default `es_MX` |
 | `WHATSAPP_DISPATCHER_SECRET` | Recomendado | Header `x-dispatcher-secret` del dispatcher |
-| `WHATSAPP_AI_ENABLED` | No | `1` activa el chatbot Gemini en texto libre (OKRS / Super Admin) |
+| `WHATSAPP_AI_ENABLED` | No | `1` activa el AgentRouter (chatbot) para OKRS / Super Admin |
+| `WHATSAPP_OPS_KEYWORDS_FOR_AI_USERS` | No | `1` permite keywords Realizada/etc. también a OKRS (default: off → texto libre = agente) |
 | `WHATSAPP_ASSISTANT_SECRET` | Si AI enabled | Mismo valor que en Vercel; header hacia `/api/whatsapp-assistant` |
 | `APP_URL` | Si AI enabled | URL pública del tablero (`https://scrumbanemx.vercel.app`) |
 | `WHATSAPP_BUSINESS_ACCOUNT_ID` / WABA | Útil | Suscripción app / plantillas (ops Meta) |
@@ -390,19 +392,32 @@ Tras `done`, el bot pide texto o media. El siguiente mensaje:
 
 Formatos: pdf, png, jpg, csv, xlsx, xls, bin.
 
-### Chatbot Gemini (Fase 1)
+### Chatbot Gemini — flujo independiente del Ops
 
-Prioridad en cada inbound (no mezclar):
+Mismo número WABA, **dos routers** en `whatsapp-webhook`:
 
-1. Número no vinculado → mensaje actual.
-2. Evidencia / botones checkpoint / keywords (`done|progress|support`) → flujo operativo.
-3. Botón `aiop:<uuid>:ok|no` o texto corto `sí`/`no` con op pendiente → confirmar/cancelar.
-4. Texto libre → `POST {APP_URL}/api/whatsapp-assistant` (solo si `WHATSAPP_AI_ENABLED=1` y RPC `can_use_ai_whatsapp_for_usuario`).
-5. Si Gemini falla: reply corto; **siempre 200 a Meta**.
+| Flujo | Quién | Qué maneja |
+| --- | --- | --- |
+| **Ops** | Todos | Evidencia, botones `act:`/`chk:`/`tchk:`, keywords ops (solo no-AI), follow-ups, plantilla `nueva_actividad_what2do` |
+| **Agent** | OKRS / Super Admin (`can_use_ai_whatsapp_for_usuario`) | Texto libre → Gemini, botones `aiop:`, “Más información” con asistente |
 
-El cerebro vive en Vercel (`GEMINI_*` ya configuradas). Edge **no** necesita `GEMINI_API_KEY`. Escrituras al tablero solo tras confirmar (`assistant_pending_ops`, TTL 10 min). Inbox etiqueta `source=ai` como **Asistente**.
+Prioridad inbound:
 
-No commitear secretos. No hay toggle en UI: el flag env basta.
+1. Número no vinculado → mensaje fijo.
+2. Evidencia pendiente → **Ops**.
+3. Botones `act:`/`chk:`/`tchk:` → **Ops** (también OKRS).
+4. Botones `aiop:` → **Agent**.
+5. “Más información” → listado/botones ops; chatbot **solo** si `can_use_ai`.
+6. Texto libre:
+   - `can_use_ai` → **Agent** (por defecto **sin** keywords ops; override `WHATSAPP_OPS_KEYWORDS_FOR_AI_USERS=1`).
+   - resto → keywords ops o ayuda operativa; **nunca** Gemini.
+7. Si Gemini falla: reply corto; **siempre 200 a Meta**.
+
+Payload hilo: `flow: 'ops' | 'agent'`. Política testeable: `src/lib/whatsappFlowRouting.ts`.
+
+El cerebro vive en Vercel (`GEMINI_*`). Edge **no** necesita `GEMINI_API_KEY`. Escrituras al tablero solo tras confirmar (`assistant_pending_ops`). Inbox: `source=ai` / `flow=agent` → **Asistente**.
+
+No commitear secretos. Flags: `WHATSAPP_AI_ENABLED`, opcional `WHATSAPP_OPS_KEYWORDS_FOR_AI_USERS`.
 
 ---
 

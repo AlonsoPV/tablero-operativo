@@ -292,11 +292,64 @@ function extractMessageId(json: Record<string, unknown>): string | null {
   return typeof first.id === 'string' ? first.id : null
 }
 
+/** Clasifica aceptación Graph vs fallo inmediato (la entrega real llega por webhook statuses). */
+function classifyGraphSend(result: {
+  ok: boolean
+  status: number
+  json: Record<string, unknown>
+  raw: string
+}) {
+  const messageId = extractMessageId(result.json)
+  if (result.ok && messageId) {
+    return {
+      graphAccepted: true as const,
+      pendingMetaDelivery: true as const,
+      verdict: 'OK_ACEPTADO' as const,
+      externalMessageId: messageId,
+      errorCode: null as number | null,
+      errorMessage: null as string | null,
+    }
+  }
+  const err =
+    result.json.error && typeof result.json.error === 'object'
+      ? (result.json.error as Record<string, unknown>)
+      : null
+  const codeRaw = err?.code
+  const errorCode =
+    typeof codeRaw === 'number'
+      ? codeRaw
+      : typeof codeRaw === 'string' && /^\d+$/.test(codeRaw)
+        ? Number(codeRaw)
+        : null
+  const errorPayload = {
+    code: errorCode,
+    title: typeof err?.type === 'string' ? err.type : null,
+    message: typeof err?.message === 'string' ? err.message : null,
+    error_data: err?.error_data ?? null,
+    fbtrace_id: typeof err?.fbtrace_id === 'string' ? err.fbtrace_id : null,
+    verdict: 'ERROR_GRAPH' as const,
+    source: 'graph_send',
+    http_status: result.status,
+  }
+  return {
+    graphAccepted: false as const,
+    pendingMetaDelivery: false as const,
+    verdict: 'ERROR_GRAPH' as const,
+    externalMessageId: messageId,
+    errorCode,
+    errorMessage: JSON.stringify(errorPayload).slice(0, 2000),
+  }
+}
+
 type SendBody = {
   scope?: WhatsAppScope
   messageType?: WhatsAppMessageType
   accionId?: string
+  accion_id?: string
   checkpointId?: string
+  checkpoint_id?: string
+  relatedActionIds?: string[]
+  related_action_ids?: string[]
   teamActionId?: string
   checklistIndex?: number
 }
@@ -374,8 +427,13 @@ Deno.serve(async (req) => {
         templateName,
         templateLanguage,
         messageType,
-        accionId: body.accionId,
-        checkpointId: body.checkpointId,
+        accionId: body.accionId || body.accion_id,
+        checkpointId: body.checkpointId || body.checkpoint_id,
+        relatedActionIds: Array.isArray(body.relatedActionIds)
+          ? body.relatedActionIds
+          : Array.isArray(body.related_action_ids)
+            ? body.related_action_ids
+            : [],
       })
     }
 
@@ -643,6 +701,7 @@ async function sendCorporate(params: {
   messageType: WhatsAppMessageType
   accionId?: string
   checkpointId?: string
+  relatedActionIds?: string[]
 }) {
   const { supabase, settings, templateName, templateLanguage, messageType } = params
   if (!params.accionId) return jsonResponse({ error: 'accion_id_required' }, 400)
@@ -692,17 +751,38 @@ async function sendCorporate(params: {
     corporate.responsable,
     identity.display_name
   )
+  const relatedIds = (params.relatedActionIds ?? []).filter(
+    (id) => typeof id === 'string' && id && id !== corporate.id
+  )
+  let relatedTitles: string[] = []
+  if (relatedIds.length > 0 && messageType === 'initial') {
+    const { data: relatedRows } = await supabase
+      .from('acciones_diarias')
+      .select('id,titulo_accion')
+      .in('id', relatedIds.slice(0, 8))
+    relatedTitles = (relatedRows ?? [])
+      .map((row) => (typeof row.titulo_accion === 'string' ? row.titulo_accion.trim() : ''))
+      .filter(Boolean)
+  }
+  const activityTitles = [corporate.titulo_accion ?? 'Actividad', ...relatedTitles]
   const vars: Record<string, string> = {
     responsable_nombre: responsable,
     titulo_accion: corporate.titulo_accion ?? 'Actividad',
     fecha_compromiso: corporate.fecha ?? 'sin fecha',
     checklist_bloque: checklistBlockFromCorporate((checkpoints ?? []) as Checkpoint[]),
     checkpoint_texto: checkpoint?.texto ?? '',
+    actividades_total: String(activityTitles.length),
+    actividades_titulos: activityTitles.map((title, i) => `${i + 1}. ${title}`).join('\n'),
+    actividades_instrucciones:
+      activityTitles.length > 1
+        ? `\nActividades (${activityTitles.length}):\n${activityTitles.map((title, i) => `${i + 1}. ${title}`).join('\n')}`
+        : '',
   }
 
   const open = await hasOpenSession(supabase, to)
   let graphBody: Record<string, unknown>
   let deliveryKind = messageType
+  let sessionText = ''
 
   // Plantilla Meta: {{1}} = "Hoy es", {{2}} = saludo — no uses fecha de compromiso aquí.
   const templateBody = initialTemplateBodyParams({
@@ -711,28 +791,46 @@ async function sendCorporate(params: {
   })
 
   if (messageType === 'commitment_close') {
-    const text = renderTemplate(settings.commitment_close_template, vars)
+    sessionText = renderTemplate(settings.commitment_close_template, vars)
     graphBody = open
-      ? textPayload(to, text)
+      ? textPayload(to, sessionText)
       : templatePayload(to, templateName, templateLanguage, templateBody)
     deliveryKind = 'commitment_close'
   } else if (messageType === 'checkpoint_followup') {
-    const text = renderTemplate(settings.checkpoint_followup_template, vars)
+    sessionText = renderTemplate(settings.checkpoint_followup_template, vars)
     const prefix = `chk:${checkpoint!.id}`
     graphBody = open
-      ? interactiveFollowupPayload(to, text, prefix)
+      ? interactiveFollowupPayload(to, sessionText, prefix)
       : templatePayload(to, templateName, templateLanguage, templateBody)
     deliveryKind = 'checkpoint_followup'
   } else {
-    const text = renderTemplate(settings.initial_text_template, vars)
+    sessionText = renderTemplate(settings.initial_text_template, vars)
+    if (vars.actividades_instrucciones && !/\{\{\s*actividades_/i.test(settings.initial_text_template)) {
+      sessionText = `${sessionText.trim()}${vars.actividades_instrucciones}`
+    }
     graphBody = open
-      ? textPayload(to, text)
+      ? textPayload(to, sessionText)
       : templatePayload(to, templateName, templateLanguage, templateBody)
     deliveryKind = 'initial'
   }
 
-  const result = await graphSendMessage(graphBody)
-  const messageId = extractMessageId(result.json)
+  let result = await graphSendMessage(graphBody)
+  let usedTemplate = !open
+  let templateFallback = false
+  if (!result.ok && usedTemplate && sessionText) {
+    const fallbackBody =
+      messageType === 'checkpoint_followup'
+        ? interactiveFollowupPayload(to, sessionText, `chk:${checkpoint!.id}`)
+        : textPayload(to, sessionText)
+    const fallbackResult = await graphSendMessage(fallbackBody)
+    if (fallbackResult.ok) {
+      graphBody = fallbackBody
+      result = fallbackResult
+      templateFallback = true
+      usedTemplate = false
+    }
+  }
+  const classified = classifyGraphSend(result)
 
   await logDelivery(supabase, {
     accionId: corporate.id,
@@ -740,15 +838,38 @@ async function sendCorporate(params: {
     usuarioId: corporate.responsable,
     waId: to,
     deliveryKind,
-    status: result.ok ? 'sent' : 'failed',
-    externalMessageId: messageId,
-    error: result.ok ? null : result.raw.slice(0, 2000),
-    payload: { request: graphBody, response: result.json, open_session: open },
+    status: classified.graphAccepted ? 'sent' : 'failed',
+    externalMessageId: classified.externalMessageId,
+    error: classified.errorMessage,
+    payload: {
+      request: graphBody,
+      response: result.json,
+      open_session: open,
+      used_template: usedTemplate,
+      template_fallback: templateFallback,
+      related_action_ids: relatedIds,
+      flow: 'ops',
+      delivery_verdict: classified.verdict,
+      graph_accepted: classified.graphAccepted,
+      pending_meta_delivery: classified.pendingMetaDelivery,
+      meta_error_code: classified.errorCode,
+    },
   })
 
-  if (!result.ok) {
+  if (!classified.graphAccepted) {
     return jsonResponse(
-      { error: 'graph_send_failed', status: result.status, detail: result.json },
+      {
+        error: 'graph_send_failed',
+        status: result.status,
+        detail: result.json,
+        flow: 'ops',
+        delivery: {
+          ok: false,
+          verdict: classified.verdict,
+          errorCode: classified.errorCode,
+          pendingMetaDelivery: false,
+        },
+      },
       502
     )
   }
@@ -778,11 +899,18 @@ async function sendCorporate(params: {
   return jsonResponse({
     ok: true,
     scope: 'corporate',
+    flow: 'ops',
     messageType,
-    externalMessageId: messageId,
+    externalMessageId: classified.externalMessageId,
     openSession: open,
     followupsScheduled: followups.scheduled,
     followupsMode: followups.mode,
+    delivery: {
+      ok: true,
+      verdict: classified.verdict,
+      pendingMetaDelivery: true,
+      note: 'Graph aceptó el mensaje. La entrega real (delivered/failed) llega por webhook statuses.',
+    },
   })
 }
 
@@ -872,27 +1000,45 @@ async function sendTeam(params: {
   }
 
   const result = await graphSendMessage(graphBody)
-  const messageId = extractMessageId(result.json)
+  const classified = classifyGraphSend(result)
 
   await logDelivery(supabase, {
     teamActionId: team.id,
     usuarioId: team.asignado_a,
     waId: to,
     deliveryKind,
-    status: result.ok ? 'sent' : 'failed',
-    externalMessageId: messageId,
-    error: result.ok ? null : result.raw.slice(0, 2000),
+    status: classified.graphAccepted ? 'sent' : 'failed',
+    externalMessageId: classified.externalMessageId,
+    error: classified.errorMessage,
     payload: {
       request: graphBody,
       response: result.json,
       open_session: open,
+      used_template: !open,
+      template_fallback: false,
       checklist_index: checklistIndex,
+      flow: 'ops',
+      delivery_verdict: classified.verdict,
+      graph_accepted: classified.graphAccepted,
+      pending_meta_delivery: classified.pendingMetaDelivery,
+      meta_error_code: classified.errorCode,
     },
   })
 
-  if (!result.ok) {
+  if (!classified.graphAccepted) {
     return jsonResponse(
-      { error: 'graph_send_failed', status: result.status, detail: result.json },
+      {
+        error: 'graph_send_failed',
+        status: result.status,
+        detail: result.json,
+        flow: 'ops',
+        delivery: {
+          ok: false,
+          verdict: classified.verdict,
+          errorCode: classified.errorCode,
+          pendingMetaDelivery: false,
+        },
+      },
       502
     )
   }
@@ -921,8 +1067,15 @@ async function sendTeam(params: {
   return jsonResponse({
     ok: true,
     scope: 'team',
+    flow: 'ops',
     messageType,
-    externalMessageId: messageId,
+    externalMessageId: classified.externalMessageId,
     openSession: open,
+    delivery: {
+      ok: true,
+      verdict: classified.verdict,
+      pendingMetaDelivery: true,
+      note: 'Graph aceptó el mensaje. La entrega real (delivered/failed) llega por webhook statuses.',
+    },
   })
 }

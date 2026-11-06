@@ -23,10 +23,10 @@ const actionContext = {
 describe('composeSystemPrompt', () => {
   it('homologates execution, logistics and OKRs in one specialty', () => {
     const prompt = composeSystemPrompt('operativo')
-    expect(prompt).toContain('ejecucion, logistica y OKRs')
-    expect(prompt).toContain('Agile, Scrum, Kanban, Scrumban')
-    expect(prompt).toContain('KPIs logisticos')
-    expect(prompt).toContain('No apruebes un OKR solo por su redaccion')
+    expect(prompt).toContain('PROMPT MAESTRO — CONSULTOR OPERATIVO IA')
+    expect(prompt).toContain('Agile, Scrum, Kanban y Scrumban')
+    expect(prompt).toContain('máxima utilidad con mínima fricción')
+    expect(prompt).toContain('No apruebes un OKR únicamente porque está bien redactado')
     expect(prompt).not.toContain('CALIDAD ORIENTATIVA')
   })
 
@@ -34,7 +34,7 @@ describe('composeSystemPrompt', () => {
     const prompt = composeSystemPrompt('agile_eos_scalingup', { hasActionContext: true })
     expect(prompt).toContain('CONTEXTO DE ACCION')
     expect(prompt).toContain('checklist de la accion')
-    expect(prompt).toContain('KPIs logisticos')
+    expect(prompt).toContain('PROMPT MAESTRO — CONSULTOR OPERATIVO IA')
   })
 
   it('adds board analysis rules for optimization recommendations', () => {
@@ -46,7 +46,7 @@ describe('composeSystemPrompt', () => {
 
   it('adds detailed OKR evaluation when an OKR is in context', () => {
     const prompt = composeSystemPrompt('logistics', { hasOkrContext: true })
-    expect(prompt).toContain('KPIs logisticos')
+    expect(prompt).toContain('PROMPT MAESTRO — CONSULTOR OPERATIVO IA')
     expect(prompt).toContain('EVALUACION DEL OBJETIVO')
     expect(prompt).toContain('CALIDAD ORIENTATIVA')
     expect(prompt).toContain('No cuentes tarjetas como incidentes')

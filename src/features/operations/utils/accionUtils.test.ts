@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import type { AccionDiaria } from '@/types'
 import {
+  accionIdPublico,
   getAccionKanbanColumn,
   getAutoEstadoPorFechaCompromiso,
   getFechaCompromisoSlot,
@@ -122,5 +123,11 @@ describe('accionUtils fecha compromiso CDMX', () => {
   it('detecta fecha UTC erronea (2026-06-06) como futura en CDMX', () => {
     expect(getFechaCompromisoSlot('2026-06-06')).toBe('future')
     expect(getAccionKanbanColumn(baseAccion({ fecha: '2026-06-06', estado: 'Pendiente' }))).toBe('Pendiente')
+  })
+})
+
+describe('accionIdPublico', () => {
+  it('deriva emx_XXXXX de los últimos 12 hex del UUID', () => {
+    expect(accionIdPublico('00000000-0000-4000-8000-00000000007b')).toBe('emx_00123')
   })
 })

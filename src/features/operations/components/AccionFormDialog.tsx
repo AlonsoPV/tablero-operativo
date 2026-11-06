@@ -114,6 +114,8 @@ export interface AccionFormDialogProps {
   responsableNames?: Record<string, string>
   /** Id opcional del contenedor del diálogo (ej. kanban-accion-dialog, dashboard-accion-dialog) */
   dialogId?: string
+  /** Marca la tag OKR al abrir el formulario de creación. */
+  defaultEsOkr?: boolean
 }
 
 export function AccionFormDialog({
@@ -124,6 +126,7 @@ export function AccionFormDialog({
   onSuccess,
   responsableNames = {},
   dialogId,
+  defaultEsOkr = false,
 }: AccionFormDialogProps) {
   const qc = useQueryClient()
   const {
@@ -520,7 +523,7 @@ export function AccionFormDialog({
         story_points: 0,
         sprint_id: null,
         responsable_bloqueo: null,
-        es_okr: false,
+        es_okr: defaultEsOkr,
       }
     }
     const prioridadResuelta = resolveAccionPrioridadNombre(accionLive, priorities)
@@ -550,7 +553,7 @@ export function AccionFormDialog({
       responsable_bloqueo: accionLive.responsable_bloqueo ?? null,
       es_okr: Boolean(accionLive.es_okr),
     }
-  }, [accionLive, defaultFecha, priorities])
+  }, [accionLive, defaultEsOkr, defaultFecha, priorities])
 
   const handleSubmit = (values: AccionCreateInput) => {
     setSubmitFooterErrors(null)

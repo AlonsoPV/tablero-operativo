@@ -75,7 +75,7 @@ export function UsersTable({
           {users.length} {users.length === 1 ? 'persona' : 'personas'}
         </p>
         <p className="hidden text-xs text-muted-foreground sm:block">
-          Ver abre la ficha · Editar cambia rol, área y estado
+          Acciones: ver ficha, editar o cambiar estatus
         </p>
       </div>
       <Table>
@@ -155,62 +155,49 @@ export function UsersTable({
                 <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
                   {formatUserDate(user.created_at)}
                 </TableCell>
-                <TableCell className="sticky right-0 z-[1] bg-card pr-4 group-hover:bg-muted/50">
-                  <div className="flex items-center justify-end gap-1">
-                    <Button variant="ghost" size="sm" className="h-8 px-2 text-muted-foreground" asChild>
-                      <Link to={detailPath(user.id)}>
-                        <Eye className="mr-1.5 h-3.5 w-3.5" />
-                        Ver
-                      </Link>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-2 text-muted-foreground"
-                      onClick={() => onEdit(user)}
-                    >
-                      <Pencil className="mr-1.5 h-3.5 w-3.5" />
-                      Editar
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                          <MoreHorizontal className="h-4 w-4" />
-                          <span className="sr-only">Más acciones de {user.nombre}</span>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem asChild>
-                          <Link to={detailPath(user.id)}>
-                            <Eye className="mr-2 h-4 w-4" />
-                            Ver detalle
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onEdit(user)}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Editar ficha
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => onToggleStatus(user)}
-                          className={cn(!user.activo && 'text-emerald-700 focus:text-emerald-700')}
-                        >
-                          {user.activo ? (
-                            <>
-                              <UserX className="mr-2 h-4 w-4" />
-                              Desactivar
-                            </>
-                          ) : (
-                            <>
-                              <UserCheck className="mr-2 h-4 w-4" />
-                              Activar
-                            </>
-                          )}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
+                <TableCell className="sticky right-0 z-[1] bg-card pr-4 text-right group-hover:bg-muted/50">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                        <span className="sr-only">Acciones de {user.nombre}</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuItem asChild>
+                        <Link to={detailPath(user.id)}>
+                          <Eye className="mr-2 h-4 w-4" />
+                          Ver detalle
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onEdit(user)}>
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Editar ficha
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => onToggleStatus(user)}
+                        className={cn(!user.activo && 'text-emerald-700 focus:text-emerald-700')}
+                      >
+                        {user.activo ? (
+                          <>
+                            <UserX className="mr-2 h-4 w-4" />
+                            Desactivar
+                          </>
+                        ) : (
+                          <>
+                            <UserCheck className="mr-2 h-4 w-4" />
+                            Activar
+                          </>
+                        )}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             )

@@ -46,7 +46,6 @@ import { ROUTES } from '@/constants'
 import { okrService } from './service'
 import { EditorFrame, KeyResultForm, ObjectiveForm } from './OkrForms'
 import { OkrLinkInitiativePanel } from './OkrLinkInitiativePanel'
-import { TeamInitiativeCreator } from './TeamInitiativeCreator'
 import { useCanSeeOkrTags } from './useCanSeeOkrTags'
 import { AccionFormDialog } from '@/features/operations/components/AccionFormDialog'
 import { useRouteAccess } from '@/features/auth/hooks/useRouteAccess'
@@ -810,20 +809,11 @@ export function OkrPage() {
           ) : null}
         </DialogContent>
       </Dialog>
-      {createAction && resumeLink?.type === 'link' && resumeLink.objective.area_id ? (
-        <TeamInitiativeCreator
-          areaId={resumeLink.objective.area_id}
-          areaName={
-            data.areas.find((a) => a.id === resumeLink.objective.area_id)
-              ?.nombre ?? 'Equipo'
-          }
-          defaultEsOkr
-          onClose={() => void closeActionCreator()}
-          onDone={closeActionCreator}
-        />
-      ) : createAction ? (
+      {createAction ? (
         <AccionFormDialog
+          dialogId="okr-accion-dialog"
           open={createAction}
+          defaultEsOkr
           onOpenChange={(open) => {
             if (!open) void closeActionCreator()
           }}

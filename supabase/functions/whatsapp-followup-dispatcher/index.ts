@@ -262,6 +262,7 @@ async function logDispatcherDelivery(
     failed_at: params.ok ? null : new Date().toISOString(),
     payload: {
       ...params.payload,
+      flow: 'ops',
       legacy_table: 'action_delivery_log',
     },
   })

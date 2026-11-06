@@ -24,6 +24,7 @@ describe('parseFollowupButtonId', () => {
       checklistIndex: 2,
       action: 'support',
     })
+    expect(parseFollowupButtonId('digest:done')).toBeNull()
   })
 
   it('rejects aiop and garbage', () => {
@@ -39,6 +40,7 @@ describe('inferFollowupTextAction', () => {
     expect(inferFollowupTextAction('avanzando')).toBe('progress')
     expect(inferFollowupTextAction('proceso')).toBe('progress')
     expect(inferFollowupTextAction('necesito ayuda')).toBe('support')
+    expect(inferFollowupTextAction('Requiero apoyo')).toBe('support')
   })
 
   it('ignores unrelated text', () => {
