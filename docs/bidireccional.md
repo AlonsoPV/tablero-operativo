@@ -17,6 +17,8 @@ WhatsApp ──envía──►  comentario + adjuntos
 
 No es un chat libre genérico: es un **protocolo de seguimiento de acciones** ligado a `acciones_diarias` + `accion_checkpoints`.
 
+El **chatbot Gemini** (OKRS / Super Admin) es un flujo **independiente** en el mismo número: no usa jobs de follow-up ni la plantilla de nueva actividad para conversar. Ver [whatsapp.md § Chatbot](./whatsapp.md). Usuarios operativos nunca entran al agente; reportan avance con botones del recordatorio.
+
 ---
 
 ## 2. Piezas involucradas
@@ -219,7 +221,7 @@ Además de poner la acción en `Bloqueado`, el webhook envía un prompt de conta
 
 ### 4.6 Otros inbound útiles
 
-- Botón de plantilla **personalizado** (“Más información” / “Ver actividades”): lista actividades abiertas y, si el usuario es OKRS/Super Admin, abre el chatbot Gemini. El clic llega como `type=button` (quick reply), no como URL.
+- Botón de plantilla **personalizado** (“Más información” / “Ver actividades”): lista actividades / botones ops para todos; el chatbot Gemini solo se abre si el usuario es OKRS/Super Admin. El clic llega como `type=button` (quick reply), no como URL.
 - Todo inbound se guarda (idealmente) como raw para auditoría aunque no se reconozca el botón.
 
 ---

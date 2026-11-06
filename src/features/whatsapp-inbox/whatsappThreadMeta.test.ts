@@ -75,6 +75,16 @@ describe('whatsappThreadMeta', () => {
     )
     expect(meta.isUserReply).toBe(true)
     expect(meta.kind).toBe('user_button')
+
+    const apoyo = resolveThreadMeta(
+      msg({
+        direction: 'inbound',
+        source: 'contact',
+        message_kind: 'text',
+        body_text: 'Requiero apoyo',
+      })
+    )
+    expect(apoyo.kind).toBe('user_button')
   })
 
   it('resume envios y respuestas', () => {

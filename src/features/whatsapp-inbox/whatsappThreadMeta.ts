@@ -76,7 +76,7 @@ export function resolveThreadMeta(message: WhatsAppThreadMessage): WhatsAppThrea
     const buttonish =
       messageType === 'interactive' ||
       messageType === 'button' ||
-      /^(Realizada|En progreso|Requiero apoyo)$/i.test(body)
+      /^(Realizada|En proceso|En Proceso|Requiero apoyo|Necesito Apoyo)$/i.test(body)
     return {
       kind: buttonish ? 'user_button' : 'user_reply',
       label: buttonish ? 'Respuesta (botón)' : 'Respuesta del usuario',
@@ -121,7 +121,7 @@ export function resolveThreadMeta(message: WhatsAppThreadMessage): WhatsAppThrea
       isUserReply: false,
     }
   }
-  if (message.source === 'ai') {
+  if (message.source === 'ai' || asString(payload.flow) === 'agent') {
     return {
       kind: 'assistant',
       label: 'Asistente',

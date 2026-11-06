@@ -155,12 +155,14 @@ export const whatsappIntegrationService = {
     accionId: string
     messageType?: WhatsAppMessageType
     checkpointId?: string
+    relatedActionIds?: string[]
   }) {
     return invokeSendAction({
       scope: 'corporate',
       messageType: input.messageType ?? 'initial',
       accionId: input.accionId,
       checkpointId: input.checkpointId,
+      relatedActionIds: input.relatedActionIds,
     })
   },
 

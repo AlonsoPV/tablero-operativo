@@ -1,3 +1,12 @@
+/**
+ * WhatsApp webhook — entry compartido (mismo WABA).
+ *
+ * Dos flujos independientes (política: src/lib/whatsappFlowRouting.ts):
+ * - OpsRouter: evidencia, act:/chk:/tchk:, keywords ops (no-AI), ayuda operativa
+ * - AgentRouter: aiop:, texto libre Gemini (OKRS/Super Admin), Más información+AI
+ *
+ * send-action / followup-dispatcher son solo Ops. Assistant vive en /api/whatsapp-assistant.
+ */
 // @ts-nocheck — Dashboard solo sube index.ts; el bundler Deno exige specifier npm:
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -91,21 +100,6 @@ async function findWhatsAppIdentity(supabase: ReturnType<typeof createClient>, u
     .eq('status', 'active')
     .maybeSingle()
   return data
-}
-
-async function hasOpenSession(supabase: ReturnType<typeof createClient>, waId: string): Promise<boolean> {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-  const variants = phoneVariants(waId)
-  if (variants.length === 0) return false
-  const { data } = await supabase
-    .from('external_inbound_messages')
-    .select('id,created_at')
-    .eq('channel', 'whatsapp')
-    .in('external_user_id', variants)
-    .gte('created_at', since)
-    .order('created_at', { ascending: false })
-    .limit(1)
-  return Boolean(data && data.length > 0)
 }
 
 async function graphSendMessage(body: Record<string, unknown>) {
@@ -311,7 +305,7 @@ function inferTextAction(text: string): 'done' | 'progress' | 'support' | null {
     .trim()
     .toLowerCase()
     .normalize('NFD')
-    .replace(/\p{M}/gu, '')
+    .replace(/[\u0300-\u036f]/g, '')
   if (!t) return null
   if (/\b(realizada|realizado|hecho|done|completad[oa]|lista|listo)\b/.test(t)) return 'done'
   if (/\b(en progreso|en proceso|proceso|avance|avanzando|progress|trabajando)\b/.test(t)) {
@@ -329,7 +323,7 @@ function isVerActividadesButton(rawId: string | null | undefined, title: string 
       .trim()
       .toLowerCase()
       .normalize('NFD')
-      .replace(/\p{M}/gu, '')
+      .replace(/[\u0300-\u036f]/g, '')
       .replace(/[_-]+/g, ' ')
   const id = fold(rawId ?? '')
   const label = fold(title ?? '')
@@ -396,6 +390,39 @@ async function upsertThreadMessage(
   return (data?.id as string | undefined) ?? null
 }
 
+/** Normaliza error de status webhook Meta a JSON estable (code/title/message). */
+function normalizeMetaStatusError(err: unknown): {
+  errorMessage: string
+  errorCode: number | null
+  verdict: 'ERROR_META'
+} {
+  const root =
+    err && typeof err === 'object' && !Array.isArray(err)
+      ? (err as Record<string, unknown>)
+      : null
+  const codeRaw = root?.code
+  const errorCode =
+    typeof codeRaw === 'number'
+      ? codeRaw
+      : typeof codeRaw === 'string' && /^\d+$/.test(codeRaw)
+        ? Number(codeRaw)
+        : null
+  const payload = {
+    code: errorCode,
+    title: typeof root?.title === 'string' ? root.title : null,
+    message: typeof root?.message === 'string' ? root.message : null,
+    error_data: root?.error_data ?? null,
+    href: typeof root?.href === 'string' ? root.href : null,
+    verdict: 'ERROR_META' as const,
+    source: 'meta_status_webhook',
+  }
+  return {
+    errorMessage: JSON.stringify(payload).slice(0, 2000),
+    errorCode,
+    verdict: 'ERROR_META',
+  }
+}
+
 async function applyMetaStatus(
   supabase: ReturnType<typeof adminClient>,
   statusEvent: { id?: string; status?: string; timestamp?: string; errors?: unknown[] }
@@ -409,6 +436,7 @@ async function applyMetaStatus(
     : new Date().toISOString()
 
   const patch: Record<string, unknown> = {}
+  let failedNorm: ReturnType<typeof normalizeMetaStatusError> | null = null
   if (status === 'sent') {
     patch.delivery_status = 'sent'
     patch.sent_at = ts
@@ -422,7 +450,8 @@ async function applyMetaStatus(
     patch.delivery_status = 'failed'
     patch.failed_at = ts
     const err = Array.isArray(statusEvent.errors) ? statusEvent.errors[0] : null
-    patch.error_message = err ? JSON.stringify(err).slice(0, 2000) : 'meta_status_failed'
+    failedNorm = normalizeMetaStatusError(err ?? { message: 'meta_status_failed' })
+    patch.error_message = failedNorm.errorMessage
   } else {
     return
   }
@@ -430,7 +459,7 @@ async function applyMetaStatus(
   // No degradar read → delivered, etc.
   const { data: current } = await supabase
     .from('whatsapp_messages')
-    .select('id,delivery_status')
+    .select('id,delivery_status,payload')
     .eq('meta_message_id', metaId)
     .maybeSingle()
 
@@ -446,6 +475,28 @@ async function applyMetaStatus(
     const next = rank[String(patch.delivery_status)] ?? 0
     // Solo avanzar (o marcar failed). No degradar read→delivered ni delivered→sent.
     if (next > cur || patch.delivery_status === 'failed') {
+      if (failedNorm) {
+        const prevPayload =
+          current.payload && typeof current.payload === 'object' && !Array.isArray(current.payload)
+            ? (current.payload as Record<string, unknown>)
+            : {}
+        patch.payload = {
+          ...prevPayload,
+          delivery_verdict: failedNorm.verdict,
+          meta_error_code: failedNorm.errorCode,
+          meta_status: 'failed',
+        }
+      } else if (status === 'delivered' || status === 'read') {
+        const prevPayload =
+          current.payload && typeof current.payload === 'object' && !Array.isArray(current.payload)
+            ? (current.payload as Record<string, unknown>)
+            : {}
+        patch.payload = {
+          ...prevPayload,
+          delivery_verdict: 'OK_ENTREGADO',
+          meta_status: status,
+        }
+      }
       await supabase.from('whatsapp_messages').update(patch).eq('id', current.id)
     }
   }
@@ -459,6 +510,11 @@ async function applyMetaStatus(
       })
       .eq('external_message_id', metaId)
       .eq('channel', 'whatsapp')
+    console.error('whatsapp meta delivery failed', {
+      wamid: metaId,
+      code: failedNorm?.errorCode ?? null,
+      error: patch.error_message,
+    })
   }
 }
 
@@ -473,6 +529,7 @@ async function replyText(
     const graphBody = textPayload(to, body)
     const result = await graphSendMessage(graphBody)
     const metaId = extractMessageId(result.json)
+    const flow = typeof extras?.flow === 'string' ? extras.flow : 'ops'
     await upsertThreadMessage(supabase, {
       wa_id: to,
       usuario_id: usuarioId ?? null,
@@ -489,6 +546,7 @@ async function replyText(
         request: graphBody,
         response: result.json,
         source: 'webhook_auto_reply',
+        flow,
         ...(extras ?? {}),
       },
     })
@@ -561,11 +619,116 @@ async function replyAi(
         request: graphBody,
         response: result.json,
         source: 'webhook_ai_reply',
+        flow: 'agent',
       },
     })
   } catch (error) {
     console.error('whatsapp ai reply failed', error)
   }
+}
+
+/** Alineado a src/lib/whatsappFlowRouting.ts — mantener en sync. */
+function opsKeywordsForAiUsersEnabled() {
+  const flag = (Deno.env.get('WHATSAPP_OPS_KEYWORDS_FOR_AI_USERS') || '').trim().toLowerCase()
+  return flag === '1' || flag === 'true' || flag === 'yes'
+}
+
+async function canUseAiWhatsApp(
+  supabase: ReturnType<typeof adminClient>,
+  usuarioId: string
+): Promise<boolean> {
+  if (!whatsappAiEnabled()) return false
+  const { data: allowed, error } = await supabase.rpc('can_use_ai_whatsapp_for_usuario', {
+    p_usuario_id: usuarioId,
+  })
+  if (error) {
+    console.error('whatsapp-webhook AI access rpc', error.message)
+    return false
+  }
+  return allowed === true
+}
+
+type InboundRoute =
+  | { kind: 'ops_button'; buttonId: string }
+  | { kind: 'agent_aiop'; opId: string; action: 'confirm' | 'cancel' }
+  | { kind: 'mas_info' }
+  | { kind: 'ops_keyword'; action: 'done' | 'progress' | 'support'; text: string }
+  | { kind: 'agent_free_text'; text: string }
+  | { kind: 'ops_help'; text?: string }
+  | { kind: 'ignore' }
+
+/**
+ * Debe espejar `src/lib/whatsappFlowRouting.ts` (anti-drift).
+ * Rutas estructuradas no dependen de canUseAi; el texto libre sí.
+ */
+/** Etiqueta de hilo para inbound; mas_info cuenta como ops (disparador de gate mixto). */
+function inboundFlowForRoute(route: InboundRoute): 'ops' | 'agent' {
+  if (route.kind === 'agent_aiop' || route.kind === 'agent_free_text') return 'agent'
+  return 'ops'
+}
+
+/** Botones / media que no requieren RPC can_use_ai. null = hay que resolver texto libre. */
+function resolveStructuredInboundRoute(input: {
+  buttonId?: string | null
+  buttonTitle?: string | null
+  messageType?: string | null
+}): InboundRoute | null {
+  const buttonId = input.buttonId?.trim() || null
+  const buttonTitle = input.buttonTitle?.trim() || null
+  const messageType = input.messageType ?? ''
+
+  const aiOp = parseAiOpButton(buttonId)
+  if (aiOp) return { kind: 'agent_aiop', opId: aiOp.opId, action: aiOp.action }
+
+  if (isVerActividadesButton(buttonId, buttonTitle)) return { kind: 'mas_info' }
+
+  if (buttonId && /^(act|chk|tchk):/i.test(buttonId)) {
+    return { kind: 'ops_button', buttonId }
+  }
+
+  if (
+    messageType === 'image' ||
+    messageType === 'document' ||
+    messageType === 'audio' ||
+    messageType === 'video'
+  ) {
+    return { kind: 'ignore' }
+  }
+
+  return null
+}
+
+function resolveInboundRoute(input: {
+  canUseAi: boolean
+  buttonId?: string | null
+  buttonTitle?: string | null
+  textBody?: string | null
+  messageType?: string | null
+}): InboundRoute {
+  const structured = resolveStructuredInboundRoute(input)
+  if (structured) return structured
+
+  const buttonTitle = input.buttonTitle?.trim() || null
+  const textBody = input.textBody?.trim() || null
+  const messageType = input.messageType ?? ''
+
+  const freeText =
+    textBody ||
+    (messageType === 'button' || messageType === 'interactive' ? buttonTitle : null) ||
+    null
+  if (!freeText) return { kind: 'ignore' }
+
+  if (input.canUseAi) {
+    if (opsKeywordsForAiUsersEnabled()) {
+      const action = inferTextAction(freeText)
+      if (action) return { kind: 'ops_keyword', action, text: freeText }
+    }
+    return { kind: 'agent_free_text', text: freeText }
+  }
+
+  const action = inferTextAction(freeText)
+  if (action) return { kind: 'ops_keyword', action, text: freeText }
+  return { kind: 'ops_help', text: freeText }
 }
 
 async function callWhatsAppAssistant(input: {
@@ -623,17 +786,23 @@ async function maybeHandleWhatsAppAi(
     action: 'chat' | 'confirm' | 'cancel'
     text?: string
     opId?: string
+    /** Si ya se llamó a can_use_ai_whatsapp_for_usuario, evitar RPC duplicado. */
+    aiAllowed?: boolean
   }
 ): Promise<boolean> {
   if (!whatsappAiEnabled()) return false
-  const { data: allowed, error } = await supabase.rpc('can_use_ai_whatsapp_for_usuario', {
-    p_usuario_id: input.usuarioId,
-  })
-  if (error) {
-    console.error('whatsapp-webhook AI access rpc', error.message)
-    return false
+  let allowed = input.aiAllowed
+  if (allowed === undefined) {
+    const { data: rpcAllowed, error } = await supabase.rpc('can_use_ai_whatsapp_for_usuario', {
+      p_usuario_id: input.usuarioId,
+    })
+    if (error) {
+      console.error('whatsapp-webhook AI access rpc', error.message)
+      return false
+    }
+    allowed = rpcAllowed === true
   }
-  if (allowed !== true) return false
+  if (!allowed) return false
   const result = await callWhatsAppAssistant({
     action: input.action,
     waId: input.waId,
@@ -1195,6 +1364,7 @@ async function sendLatestActionFollowupButtons(
       source: 'template_button_followup',
       message_type: 'checkpoint_followup',
       target_type: 'action',
+      flow: 'ops',
     },
   })
   await supabase.from('action_delivery_log').insert({
@@ -1212,6 +1382,7 @@ async function sendLatestActionFollowupButtons(
       wa_id: params.waId,
       source: 'template_button',
       target_type: 'action',
+      flow: 'ops',
       request: graphBody,
       response: result.json,
     },
@@ -1233,7 +1404,7 @@ async function sendLatestActionFollowupButtons(
 
 async function handleVerActividades(
   supabase: ReturnType<typeof adminClient>,
-  params: { waId: string; usuarioId: string }
+  params: { waId: string; usuarioId: string; canUseAi?: boolean }
 ) {
   const { data: openActions } = await supabase
     .from('acciones_diarias')
@@ -1243,8 +1414,15 @@ async function handleVerActividades(
     .order('fecha', { ascending: true })
     .limit(12)
 
+  const flow = params.canUseAi ? 'agent' : 'ops'
   if (!openActions || openActions.length === 0) {
-    await replyText(supabase, params.waId, 'No tienes actividades abiertas en el tablero.', params.usuarioId)
+    await replyText(
+      supabase,
+      params.waId,
+      'No tienes actividades abiertas en el tablero.',
+      params.usuarioId,
+      { flow }
+    )
     return
   }
 
@@ -1254,23 +1432,42 @@ async function handleVerActividades(
       `${i + 1}. ${row.titulo_accion ?? 'Actividad'} — ${row.estado ?? '?'} (compromiso: ${row.fecha ?? 's/f'})`
     )
   })
-  lines.push('', 'Escribe aqui para consultar el tablero o reportar avance.')
-  await replyText(supabase, params.waId, lines.join('\n'), params.usuarioId)
+  lines.push(
+    '',
+    params.canUseAi
+      ? 'Escribe en texto libre para consultar al asistente del tablero.'
+      : 'Usa los botones del recordatorio (Realizada / En proceso / Requiero apoyo) para reportar avance.'
+  )
+  await replyText(supabase, params.waId, lines.join('\n'), params.usuarioId, { flow })
 }
 
-/** Botón personalizado de plantilla: botones act: + lista + chatbot si OKRS/Super Admin. */
+/**
+ * Botón plantilla "Más información":
+ * - Ops estructurado (botones follow-up / listado) para todos
+ * - Chatbot solo si canUseAi (OKRS / Super Admin)
+ * - Ops: si ya salieron botones, no enviar segundo mensaje de ayuda
+ */
 async function handleMasInformacion(
   supabase: ReturnType<typeof adminClient>,
-  params: { waId: string; usuarioId: string }
+  params: { waId: string; usuarioId: string; canUseAi: boolean }
 ) {
   const sentButtons = await sendLatestActionFollowupButtons(supabase, params)
   if (!sentButtons) {
-    await handleVerActividades(supabase, params)
+    await handleVerActividades(supabase, {
+      waId: params.waId,
+      usuarioId: params.usuarioId,
+      canUseAi: params.canUseAi,
+    })
   }
+
+  // Operativo: listado o botones bastan; no duplicar copy de ayuda.
+  if (!params.canUseAi) return
+
   const aiHandled = await maybeHandleWhatsAppAi(supabase, {
     waId: params.waId,
     usuarioId: params.usuarioId,
     action: 'chat',
+    aiAllowed: params.canUseAi,
     text:
       'El usuario toco Mas informacion. Resume sus actividades abiertas y pregunta en que puedes ayudar. Responde corto, en espanol, sin markdown.',
   })
@@ -1279,7 +1476,8 @@ async function handleMasInformacion(
       supabase,
       params.waId,
       'Tambien puedes escribirme en texto libre para consultar el tablero.',
-      params.usuarioId
+      params.usuarioId,
+      { flow: 'agent' }
     )
   }
 }
@@ -1530,26 +1728,32 @@ Deno.serve(async (req) => {
             throw inboundError
           }
 
-          await upsertThreadMessage(supabase, {
-            wa_id: waId,
-            usuario_id: identity?.usuario_id ?? null,
-            direction: 'inbound',
-            source: 'contact',
-            message_kind: message.type ?? 'unknown',
-            body_text: inboundPreview(message),
-            meta_message_id: message.id ?? null,
-            delivery_status: 'delivered',
-            sent_at: new Date().toISOString(),
-            delivered_at: new Date().toISOString(),
-            payload: { message, value, source: 'webhook_inbound' },
-          })
-
           if (!identity?.usuario_id) {
+            await upsertThreadMessage(supabase, {
+              wa_id: waId,
+              usuario_id: null,
+              direction: 'inbound',
+              source: 'contact',
+              message_kind: message.type ?? 'unknown',
+              body_text: inboundPreview(message),
+              meta_message_id: message.id ?? null,
+              delivery_status: 'delivered',
+              sent_at: new Date().toISOString(),
+              delivered_at: new Date().toISOString(),
+              payload: {
+                message,
+                value,
+                source: 'webhook_inbound',
+                flow: 'ops',
+                route_kind: 'unlinked_user',
+              },
+            })
             await replyText(
               supabase,
               waId,
               'Tu numero no esta vinculado a un usuario del tablero.',
-              null
+              null,
+              { flow: 'ops' }
             )
             continue
           }
@@ -1570,7 +1774,7 @@ Deno.serve(async (req) => {
             message.interactive?.list_reply?.title ||
             null
 
-          // 1) Evidencia pendiente (texto/media) antes de AI / followups
+          // --- Shared: evidencia pendiente (Ops) antes de routers ---
           if (
             message.type === 'text' ||
             message.type === 'image' ||
@@ -1584,73 +1788,177 @@ Deno.serve(async (req) => {
               message,
             })
             if (evidenceHandled) {
+              await upsertThreadMessage(supabase, {
+                wa_id: waId,
+                usuario_id: identity.usuario_id,
+                direction: 'inbound',
+                source: 'contact',
+                message_kind: message.type ?? 'unknown',
+                body_text: inboundPreview(message),
+                meta_message_id: message.id ?? null,
+                delivery_status: 'delivered',
+                sent_at: new Date().toISOString(),
+                delivered_at: new Date().toISOString(),
+                payload: {
+                  message,
+                  value,
+                  source: 'webhook_inbound',
+                  flow: 'ops',
+                  route_kind: 'evidence',
+                },
+              })
               await replyText(
                 supabase,
                 waId,
                 'Gracias. Registramos tu evidencia en el tablero.',
-                identity.usuario_id
+                identity.usuario_id,
+                { flow: 'ops' }
               )
               continue
             }
           }
 
-          // 2) Confirmación de propuestas IA (aiop:)
-          const aiOp = parseAiOpButton(buttonRaw)
-          if (aiOp) {
-            await maybeHandleWhatsAppAi(supabase, {
+          const routeInput = {
+            buttonId: buttonRaw,
+            buttonTitle,
+            textBody: message.type === 'text' ? message.text?.body ?? null : null,
+            messageType: message.type,
+          }
+          // Deferir RPC: botones ops / media ignore no consultan can_use_ai.
+          const structured = resolveStructuredInboundRoute(routeInput)
+          let canUseAi = false
+          let route: InboundRoute
+          if (structured && structured.kind !== 'agent_aiop' && structured.kind !== 'mas_info') {
+            route = structured
+          } else {
+            canUseAi = await canUseAiWhatsApp(supabase, identity.usuario_id)
+            route = structured ?? resolveInboundRoute({ canUseAi, ...routeInput })
+          }
+          const inboundFlow = inboundFlowForRoute(route)
+
+          await upsertThreadMessage(supabase, {
+            wa_id: waId,
+            usuario_id: identity.usuario_id,
+            direction: 'inbound',
+            source: 'contact',
+            message_kind: message.type ?? 'unknown',
+            body_text: inboundPreview(message),
+            meta_message_id: message.id ?? null,
+            delivery_status: 'delivered',
+            sent_at: new Date().toISOString(),
+            delivered_at: new Date().toISOString(),
+            payload: {
+              message,
+              value,
+              source: 'webhook_inbound',
+              flow: inboundFlow,
+              route_kind: route.kind,
+            },
+          })
+
+          // --- AgentRouter: aiop confirm/cancel ---
+          if (route.kind === 'agent_aiop') {
+            if (!canUseAi) {
+              await replyText(
+                supabase,
+                waId,
+                'Usa los botones Realizada, En proceso o Requiero apoyo del recordatorio, o abre el tablero.',
+                identity.usuario_id,
+                { flow: 'ops' }
+              )
+              continue
+            }
+            const aiHandled = await maybeHandleWhatsAppAi(supabase, {
               waId,
               usuarioId: identity.usuario_id,
-              action: aiOp.action,
-              opId: aiOp.opId,
+              action: route.action,
+              opId: route.opId,
+              aiAllowed: canUseAi,
             })
+            if (!aiHandled) {
+              await replyText(
+                supabase,
+                waId,
+                'No pude confirmar la operacion ahora. Intenta de nuevo o abre el tablero.',
+                identity.usuario_id,
+                { flow: 'agent' }
+              )
+            }
             continue
           }
 
-          // 3) Botón plantilla personalizado ("Más información" / Ver actividades)
-          if (isVerActividadesButton(buttonRaw, buttonTitle)) {
+          // --- Gate Más información (ops list + agent solo si canUseAi) ---
+          if (route.kind === 'mas_info') {
             await handleMasInformacion(supabase, {
               waId,
               usuarioId: identity.usuario_id,
+              canUseAi,
             })
             continue
           }
 
-          const parsed = parseButtonId(buttonRaw)
-          let action = parsed.action
-          let kind = parsed.kind
-          let accionId = parsed.accionId
-          let checkpointId = parsed.checkpointId
-          let teamActionId = parsed.teamActionId
-          let checklistIndex = parsed.checklistIndex
+          // --- OpsRouter: botones estructurados o keywords ---
+          let action: 'done' | 'progress' | 'support' | null = null
+          let kind: 'action' | 'corporate' | 'team' | null = null
+          let accionId: string | null = null
+          let checkpointId: string | null = null
+          let teamActionId: string | null = null
+          let checklistIndex: number | null = null
           let operationalMiss = false
 
-          if (!action && message.type === 'text' && message.text?.body) {
-            action = inferTextAction(message.text.body)
-            if (action) {
-              const fallback = await resolveFallbackTarget(supabase, waId, identity.usuario_id)
-              if (fallback?.kind === 'action') {
-                kind = 'action'
-                accionId = fallback.accionId
-              } else if (fallback?.kind === 'corporate') {
-                kind = 'corporate'
-                checkpointId = fallback.checkpointId
-              } else if (fallback?.kind === 'team') {
-                kind = 'team'
-                teamActionId = fallback.teamActionId
-                checklistIndex = fallback.checklistIndex
-              } else {
-                operationalMiss = true
-              }
+          if (route.kind === 'ops_button') {
+            const parsed = parseButtonId(route.buttonId)
+            action = parsed.action
+            kind = parsed.kind
+            accionId = parsed.accionId
+            checkpointId = parsed.checkpointId
+            teamActionId = parsed.teamActionId
+            checklistIndex = parsed.checklistIndex
+          } else if (route.kind === 'ops_keyword') {
+            action = route.action
+            const fallback = await resolveFallbackTarget(supabase, waId, identity.usuario_id)
+            if (fallback?.kind === 'action') {
+              kind = 'action'
+              accionId = fallback.accionId
+            } else if (fallback?.kind === 'corporate') {
+              kind = 'corporate'
+              checkpointId = fallback.checkpointId
+            } else if (fallback?.kind === 'team') {
+              kind = 'team'
+              teamActionId = fallback.teamActionId
+              checklistIndex = fallback.checklistIndex
+            } else {
+              operationalMiss = true
             }
-          }
-
-          if (
-            !action &&
-            (message.type === 'image' ||
-              message.type === 'document' ||
-              message.type === 'audio' ||
-              message.type === 'video')
-          ) {
+          } else if (route.kind === 'agent_free_text') {
+            const aiHandled = await maybeHandleWhatsAppAi(supabase, {
+              waId,
+              usuarioId: identity.usuario_id,
+              action: 'chat',
+              text: route.text,
+              aiAllowed: canUseAi,
+            })
+            if (!aiHandled) {
+              await replyText(
+                supabase,
+                waId,
+                'No pude consultar el asistente ahora. Intenta de nuevo en unos minutos.',
+                identity.usuario_id,
+                { flow: 'agent' }
+              )
+            }
+            continue
+          } else if (route.kind === 'ops_help') {
+            await replyText(
+              supabase,
+              waId,
+              'Puedes reportar avance con los botones Realizada, En proceso o Requiero apoyo del recordatorio, o esperar el siguiente seguimiento.',
+              identity.usuario_id,
+              { flow: 'ops' }
+            )
+            continue
+          } else {
+            // ignore (media sin evidencia, etc.)
             continue
           }
 
@@ -1659,38 +1967,13 @@ Deno.serve(async (req) => {
               supabase,
               waId,
               'No hay un seguimiento reciente para asociar tu respuesta. Espera el recordatorio o abre el tablero.',
-              identity.usuario_id
+              identity.usuario_id,
+              { flow: 'ops' }
             )
             continue
           }
 
-          if (!action || !kind) {
-            const chatText =
-              (message.type === 'text' && message.text?.body?.trim()) ||
-              buttonTitle?.trim() ||
-              ''
-            // Texto libre o botón personalizado no operativo → chatbot (OKRS / Super Admin).
-            if (
-              chatText &&
-              (message.type === 'text' || message.type === 'button' || message.type === 'interactive')
-            ) {
-              const aiHandled = await maybeHandleWhatsAppAi(supabase, {
-                waId,
-                usuarioId: identity.usuario_id,
-                action: 'chat',
-                text: chatText,
-              })
-              if (!aiHandled && message.type === 'text') {
-                await replyText(
-                  supabase,
-                  waId,
-                  'Puedes reportar avance con Realizada, En proceso o Requiero apoyo, o esperar el recordatorio.',
-                  identity.usuario_id
-                )
-              }
-            }
-            continue
-          }
+          if (!action || !kind) continue
 
           if (kind === 'action' && accionId) {
             const result = await applyActionResponse(supabase, {
