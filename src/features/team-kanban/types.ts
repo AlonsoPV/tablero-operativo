@@ -23,6 +23,8 @@ export type TeamChecklistItem = {
   checked_by?: string | null
 }
 export type TeamFrequency = 'diaria' | 'semanal' | 'quincenal' | 'mensual'
+export type TeamActionSource = 'team' | 'company'
+
 export type TeamAction = {
   id: string; area_id: string; estado_id: string; titulo: string; descripcion: string | null
   prioridad: string; asignado_a: string; lider_id: string; asignado_nombre: string
@@ -33,6 +35,8 @@ export type TeamAction = {
   serie_id?: string | null; ocurrencia_fecha?: string | null
   bloqueada: boolean; escalada: boolean; completed_at: string | null; created_at: string
   es_okr?: boolean
+  /** Origen: team = acciones_equipo; company = acciones_diarias marcadas OKR (área OKRS). */
+  source?: TeamActionSource
 }
 /** Plantilla de una accion frecuente: no vive en el tablero, genera ocurrencias. */
 export type TeamSeries = {

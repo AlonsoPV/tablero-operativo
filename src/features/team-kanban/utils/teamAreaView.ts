@@ -1,4 +1,5 @@
-import type { TeamAction, TeamArea, TeamBoard, TeamMember } from '../types'
+import type { AccionDiaria } from '@/types'
+import type { TeamAction, TeamArea, TeamBoard, TeamMember, TeamState } from '../types'
 
 function normalizeAreaName(value: string) {
   return value
@@ -6,6 +7,110 @@ function normalizeAreaName(value: string) {
     .replace(/[\u0300-\u036f]/g, '')
     .trim()
     .toLowerCase()
+}
+
+/** Área de catálogo OKRS (nombre canónico en seed). */
+export function isOkrsAreaName(value: string | null | undefined): boolean {
+  return normalizeAreaName(value ?? '') === 'okrs'
+}
+
+/**
+ * Preferir OKRS cuando el usuario tiene esa área asignada;
+ * si no, la primera área visible.
+ */
+export function pickDefaultTeamAreaId(areas: TeamArea[]): string | null {
+  if (!areas.length) return null
+  const okrs = areas.find((area) => isOkrsAreaName(area.nombre))
+  return okrs?.id ?? areas[0]?.id ?? null
+}
+
+function normalizeStateName(value: string) {
+  return normalizeAreaName(value).replace(/[\s_-]+/g, '')
+}
+
+export function mapCompanyEstadoToTeamStateId(
+  estado: string | null | undefined,
+  states: TeamState[]
+): string {
+  if (!states.length) return ''
+  const target = normalizeStateName(estado ?? '')
+  const exact = states.find((state) => normalizeStateName(state.nombre) === target)
+  if (exact) return exact.id
+  // Alias frecuentes corporativo ↔ catálogo
+  const aliases: Record<string, string[]> = {
+    enejecucion: ['enejecucion', 'proceso', 'enproceso'],
+    bloqueado: ['bloqueado', 'bloqueada'],
+    hecho: ['hecho', 'cerrado', 'finalizado'],
+    verificado: ['verificado'],
+  }
+  for (const [canonical, names] of Object.entries(aliases)) {
+    if (!names.includes(target) && canonical !== target) continue
+    const match = states.find((state) => names.includes(normalizeStateName(state.nombre)))
+    if (match) return match.id
+  }
+  return states.find((state) => !state.es_final)?.id ?? states[0].id
+}
+
+/** Convierte una acción diaria marcada OKR a tarjeta del tablero de equipos (área OKRS). */
+export function mapCompanyOkrActionToTeamAction(
+  accion: AccionDiaria,
+  areaId: string,
+  states: TeamState[],
+  assigneeName?: string | null
+): TeamAction {
+  const fecha = (accion.fecha ?? '').slice(0, 10)
+  const hora = (accion.hora_limite ?? '17:00').slice(0, 5)
+  const fechaLimite =
+    fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha)
+      ? new Date(`${fecha}T${hora || '17:00'}:00`).toISOString()
+      : null
+
+  return {
+    id: accion.id,
+    area_id: areaId,
+    estado_id: mapCompanyEstadoToTeamStateId(accion.estado, states),
+    titulo: accion.titulo_accion ?? 'Actividad OKR',
+    descripcion: accion.descripcion_accion ?? null,
+    prioridad: accion.prioridad ?? 'P2_Media',
+    asignado_a: accion.responsable,
+    lider_id: accion.created_by ?? accion.responsable,
+    asignado_nombre: assigneeName?.trim() || 'Sin asignar',
+    creado_por: accion.created_by ?? undefined,
+    fecha_limite: fechaLimite,
+    evidencia_requerida: Boolean(accion.evidencia_esperada?.trim()),
+    checklist: [],
+    bloqueada: accion.estado === 'Bloqueado',
+    escalada: Boolean(accion.escalado),
+    completed_at: accion.completed_at ?? null,
+    created_at: accion.created_at,
+    es_okr: true,
+    source: 'company',
+  }
+}
+
+export function mergeCompanyOkrActionsIntoBoard(
+  board: TeamBoard,
+  areaId: string,
+  companyActions: AccionDiaria[],
+  assigneeNames: Record<string, string> = {}
+): TeamBoard {
+  if (!companyActions.length) return board
+  const existingIds = new Set(board.actions.map((action) => action.id))
+  const mapped = companyActions
+    .filter((accion) => !existingIds.has(accion.id))
+    .map((accion) =>
+      mapCompanyOkrActionToTeamAction(
+        accion,
+        areaId,
+        board.states,
+        assigneeNames[accion.responsable] ?? null
+      )
+    )
+  if (!mapped.length) return board
+  return {
+    ...board,
+    actions: [...mapped, ...board.actions],
+  }
 }
 
 export function filterAssignedTeamAreas(

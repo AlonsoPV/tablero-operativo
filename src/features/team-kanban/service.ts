@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase/client'
+import type { AccionDiaria } from '@/types'
 import type { TeamAction, TeamArea, TeamBoard } from './types'
 
 function unwrap<T>(data: T | null, error: { message: string } | null): T {
@@ -24,6 +25,22 @@ export const teamKanbanService = {
   async board(areaId: string) {
     const { data, error } = await supabase.rpc('team_kanban_board', { p_area_id: areaId })
     return unwrap(data, error) as unknown as TeamBoard
+  },
+  /**
+   * Acciones diarias corporativas marcadas OKR para mostrarlas en el tablero
+   * del área OKRS (kanban por equipos).
+   */
+  async listCompanyOkrActions(): Promise<AccionDiaria[]> {
+    const { data, error } = await supabase
+      .from('acciones_diarias')
+      .select(
+        'id,fecha,titulo_accion,descripcion_accion,responsable,created_by,hora_limite,evidencia_esperada,estado,prioridad,escalado,completed_at,created_at,updated_at,es_okr,area'
+      )
+      .eq('es_okr', true)
+      .order('fecha', { ascending: true })
+      .limit(200)
+    if (error) throw new Error(error.message)
+    return (data ?? []) as AccionDiaria[]
   },
   async create(input: {
     areaId: string

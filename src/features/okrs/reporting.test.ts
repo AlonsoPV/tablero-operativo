@@ -83,6 +83,40 @@ describe('Historical OKR reporting', () => {
     ).toBeNull()
     expect(comparableChange([measurement()])).toBeNull()
   })
+  it('keeps every measurement after later KR target/baseline changes', () => {
+    const first = measurement({
+      id: 'm-week-1',
+      value: 20,
+      created_at: '2026-09-01T12:00:00Z',
+      baseline_snapshot: 24,
+      target_snapshot: 8,
+    })
+    const second = measurement({
+      id: 'm-week-2',
+      value: 14,
+      created_at: '2026-09-15T12:00:00Z',
+      baseline_snapshot: 24,
+      target_snapshot: 8,
+    })
+    const afterRetarget = measurement({
+      id: 'm-week-3',
+      value: 10,
+      created_at: '2026-09-29T12:00:00Z',
+      baseline_snapshot: 24,
+      target_snapshot: 4,
+    })
+    const history = measurementsFor([afterRetarget, first, second], 'k1')
+    expect(history.map((item) => item.id)).toEqual([
+      'm-week-3',
+      'm-week-2',
+      'm-week-1',
+    ])
+    expect(historicalProgress(history[2])).toBe(25)
+    expect(historicalProgress(history[1])).toBe(62.5)
+    expect(historicalProgress(history[0])).toBe(70)
+    expect(comparableChange(history)).toBeNull()
+  })
+
   it('orders history without mutating query data', () => {
     const rows = [
       measurement({ id: 'older', created_at: '2026-09-01T00:00:00Z' }),

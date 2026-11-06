@@ -10,14 +10,26 @@ import {
   RefreshCw,
   Trash2,
   TrendingUp,
+  Unlink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { UserPersonBadge } from '@/features/users/components/UserPersonBadge'
 import { cn } from '@/lib/utils'
 import {
   krProgress,
@@ -80,6 +92,10 @@ export function OkrKeyResultRow({
 }) {
   const [open, setOpen] = useState(false)
   const [chartOpen, setChartOpen] = useState(true)
+  const [pendingUnlink, setPendingUnlink] = useState<{
+    id: string
+    title: string
+  } | null>(null)
   useEffect(() => {
     if (highlighted) setOpen(true)
   }, [highlighted])
@@ -101,6 +117,9 @@ export function OkrKeyResultRow({
   const lastCheck = measurementLabel(kr, history)
   const canEdit = objective.can_manage && objective.activo && manual
   const currentLabel = metricText(kr.current_value, kr.unit)
+  const ownerName =
+    users.find((user) => user.id === kr.owner_user_id)?.nombre?.trim() ||
+    'Sin dueño'
 
   return (
     <section className={cn(tree && 'relative pl-6 sm:pl-8')}>
@@ -148,11 +167,17 @@ export function OkrKeyResultRow({
 
         <div className="hidden shrink-0 items-center gap-3 sm:flex">
           <span
-            className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-[10px] font-semibold uppercase text-muted-foreground"
-            title="Dueño del KR"
-            aria-hidden
+            className="flex max-w-[10rem] items-center gap-1.5"
+            title={`Dueño del KR: ${ownerName}`}
           >
-            KR
+            <UserPersonBadge
+              nombre={ownerName}
+              size="sm"
+              className="h-7 w-7 text-[10px]"
+            />
+            <span className="truncate text-xs text-muted-foreground">
+              {ownerName}
+            </span>
           </span>
           <div className="w-36 min-w-0">
             <p
@@ -174,7 +199,14 @@ export function OkrKeyResultRow({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-0.5 sm:hidden">
+        <div className="flex shrink-0 items-center gap-1.5 sm:hidden">
+          <span title={`Dueño del KR: ${ownerName}`}>
+            <UserPersonBadge
+              nombre={ownerName}
+              size="sm"
+              className="h-7 w-7 text-[10px]"
+            />
+          </span>
           <span
             className={cn(
               'text-xs font-semibold tabular-nums',
@@ -234,7 +266,18 @@ export function OkrKeyResultRow({
       {open && (
         <div className="mb-2 ml-8 space-y-3 rounded-xl border border-border/60 bg-muted/20 p-3 sm:ml-10 sm:p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-3">
+            <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Dueño</p>
+                <div className="mt-0.5 flex min-w-0 items-center gap-2">
+                  <UserPersonBadge
+                    nombre={ownerName}
+                    size="sm"
+                    className="h-7 w-7 text-[10px]"
+                  />
+                  <p className="truncate text-sm font-medium">{ownerName}</p>
+                </div>
+              </div>
               <div>
                 <p className="text-xs text-muted-foreground">Actual</p>
                 <p className="mt-0.5 text-base font-semibold tabular-nums">
@@ -276,6 +319,11 @@ export function OkrKeyResultRow({
             </p>
             <OkrConfidenceBadge value={history[0]?.confidence} />
           </div>
+          {manual && !kr.can_update ? (
+            <p className="text-xs text-muted-foreground">
+              Solo el dueño del KR o Super Admin puede actualizar el avance.
+            </p>
+          ) : null}
 
           <div className="overflow-hidden rounded-2xl border border-border/70 bg-background shadow-sm">
             <button
@@ -323,38 +371,41 @@ export function OkrKeyResultRow({
           </div>
 
           {objective.scope === 'team' ? (
-            <div className="overflow-hidden rounded-2xl border border-border/70 bg-background shadow-sm">
-              <div className="flex items-center justify-between gap-2 px-3 py-2.5 sm:px-3.5">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
-                    <Link2
-                      className="h-3.5 w-3.5 text-muted-foreground"
-                      aria-hidden
-                    />
+            <div className="overflow-hidden rounded-2xl border border-sky-500/25 bg-gradient-to-b from-sky-500/[0.08] to-background shadow-sm ring-1 ring-sky-500/10 dark:from-sky-400/[0.12]">
+              <div className="flex items-center justify-between gap-2 border-b border-sky-500/15 bg-sky-500/[0.06] px-3 py-3 sm:px-4">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 text-sky-700 shadow-sm dark:text-sky-300">
+                    <Link2 className="h-4 w-4" aria-hidden />
                   </span>
-                  <p className="text-sm font-semibold tracking-tight">
-                    Iniciativas
-                    {links.length > 0 ? (
-                      <span className="ml-1.5 text-xs font-medium text-muted-foreground">
-                        · {links.length}
-                      </span>
-                    ) : null}
-                  </p>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold tracking-tight">
+                      Iniciativas
+                      {links.length > 0 ? (
+                        <span className="ml-1.5 rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-sky-800 dark:text-sky-200">
+                          {links.length}
+                        </span>
+                      ) : null}
+                    </p>
+                    <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                      Acciones del tablero vinculadas a este KR
+                    </p>
+                  </div>
                 </div>
                 {canLinkInitiatives && links.length > 0 ? (
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-8 px-2.5 text-xs"
+                    className="h-9 border-sky-500/30 bg-background/80 px-3 text-xs hover:border-sky-500/50 hover:bg-sky-500/10"
                     onClick={onLink}
                   >
+                    <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />
                     Vincular
                   </Button>
                 ) : null}
               </div>
 
-              <div className="border-t border-border/50 px-3 py-3 sm:px-3.5">
+              <div className="px-3 py-3.5 sm:px-4">
                 {actionsPending && links.length > 0 ? (
                   <p className="text-xs text-muted-foreground">
                     Cargando estado de las iniciativas…
@@ -379,7 +430,14 @@ export function OkrKeyResultRow({
                         action={action}
                         busy={busy}
                         canUnlink={kr.can_update}
-                        onUnlink={() => onUnlink(link.id)}
+                        onUnlink={() =>
+                          setPendingUnlink({
+                            id: link.id,
+                            title:
+                              action?.title?.trim() ||
+                              'esta acción vinculada',
+                          })
+                        }
                       />
                     ))}
                   </div>
@@ -387,22 +445,23 @@ export function OkrKeyResultRow({
                   <button
                     type="button"
                     onClick={onLink}
-                    className="flex w-full items-center gap-3 rounded-xl border border-dashed border-border/80 bg-muted/15 px-3 py-3 text-left outline-none transition-colors hover:border-border hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex w-full items-center gap-3 rounded-xl border border-dashed border-sky-500/40 bg-background/80 px-3.5 py-4 text-left outline-none transition-colors hover:border-sky-500/60 hover:bg-sky-500/[0.08] focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-300">
-                      <Plus className="h-4 w-4" aria-hidden />
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 text-sky-700 dark:text-sky-300">
+                      <Plus className="h-5 w-5" aria-hidden />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium">
+                      <span className="block text-sm font-semibold tracking-tight">
                         Vincular una acción
                       </span>
-                      <span className="block text-xs text-muted-foreground">
-                        Solo acciones marcadas con la tag OKR.
+                      <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                        Solo acciones marcadas con la tag OKR. La acción sigue
+                        en el tablero; aquí solo se asocia al KR.
                       </span>
                     </span>
                   </button>
                 ) : (
-                  <p className="py-1 text-xs text-muted-foreground">
+                  <p className="rounded-lg border border-dashed border-border/70 bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
                     Sin iniciativas vinculadas.
                   </p>
                 )}
@@ -411,6 +470,56 @@ export function OkrKeyResultRow({
           ) : null}
         </div>
       )}
+
+      <AlertDialog
+        open={pendingUnlink !== null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && !busy) setPendingUnlink(null)
+        }}
+      >
+        <AlertDialogContent className="max-w-md gap-0 overflow-hidden p-0 sm:rounded-2xl">
+          <div className="border-b border-border/60 bg-muted/30 px-5 py-4 sm:px-6">
+            <AlertDialogHeader className="space-y-3 text-left">
+              <div className="flex items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                  <Unlink className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0 space-y-1">
+                  <AlertDialogTitle className="text-base">
+                    ¿Desvincular esta iniciativa?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="text-sm leading-relaxed">
+                    Se quitará la asociación de{' '}
+                    <span className="font-medium text-foreground">
+                      «{pendingUnlink?.title ?? 'la acción'}»
+                    </span>{' '}
+                    con este KR. La acción no se elimina del tablero; solo deja
+                    de aparecer como iniciativa de este resultado.
+                  </AlertDialogDescription>
+                </div>
+              </div>
+            </AlertDialogHeader>
+          </div>
+          <AlertDialogFooter className="gap-2 px-5 py-4 sm:flex-row sm:justify-end sm:space-x-0 sm:px-6">
+            <AlertDialogCancel disabled={busy} className="mt-0">
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy || !pendingUnlink}
+              className="bg-amber-600 text-white hover:bg-amber-600/90 focus-visible:ring-amber-600"
+              onClick={(event) => {
+                event.preventDefault()
+                if (!pendingUnlink) return
+                const id = pendingUnlink.id
+                setPendingUnlink(null)
+                onUnlink(id)
+              }}
+            >
+              {busy ? 'Desvinculando…' : 'Sí, desvincular'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   )
 }

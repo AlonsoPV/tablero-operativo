@@ -183,10 +183,7 @@ export function OkrHistoryChart({
     )
   )
 
-  const timeline = [...sorted]
-    .reverse()
-    .filter((item) => item.note !== 'Línea base inicial')
-    .slice(0, 8)
+  const timeline = [...sorted].reverse()
 
   return (
     <section className="min-w-0 space-y-4" aria-label={title}>
@@ -548,8 +545,8 @@ export function OkrHistoryChart({
         >
           <h4 className="text-sm font-semibold tracking-tight">Actividad</h4>
           <span className="text-xs text-muted-foreground">
-            {timeline.length}{' '}
-            {timeline.length === 1 ? 'medición' : 'mediciones'}
+            {sorted.length}{' '}
+            {sorted.length === 1 ? 'medición' : 'mediciones'}
           </span>
         </button>
         {timelineOpen && (
@@ -559,7 +556,7 @@ export function OkrHistoryChart({
                 Todavía no hay mediciones registradas.
               </p>
             ) : (
-              <ul className="divide-y divide-border/50">
+              <ul className="max-h-80 divide-y divide-border/50 overflow-y-auto">
                 {timeline.map((item) => {
                   const actor =
                     users.find((user) => user.id === item.created_by)?.nombre ??

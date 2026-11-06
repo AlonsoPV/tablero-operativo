@@ -67,8 +67,8 @@ export function LinkedInitiativeRow({
   return (
     <div
       className={cn(
-        'group flex items-start gap-3 rounded-xl border border-border/70 bg-background p-3 transition-all',
-        'hover:border-border hover:bg-muted/20 hover:shadow-sm'
+        'group flex items-start gap-3 rounded-xl border border-border/60 bg-card/95 p-3 shadow-sm transition-all',
+        'hover:border-sky-500/30 hover:bg-sky-500/[0.04] hover:shadow-md'
       )}
     >
       <span
@@ -136,7 +136,8 @@ export function LinkedInitiativeRow({
           type="button"
           disabled={busy}
           aria-label="Desvincular iniciativa"
-          className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          title="Desvincular del KR"
+          className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-amber-500/15 hover:text-amber-700 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 dark:hover:text-amber-300"
           onClick={onUnlink}
         >
           <Unlink className="h-3.5 w-3.5" />
