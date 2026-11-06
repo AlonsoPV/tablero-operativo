@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { teamKanbanService } from '../service'
 import { teamKanbanQueryKeys } from '../queryKeys'
-import { filterAssignedTeamAreas } from '../utils/teamAreaView'
+import { filterAssignedTeamAreas, pickDefaultTeamAreaId } from '../utils/teamAreaView'
 
 export function useTeamAreaScope() {
   const [searchParams] = useSearchParams()
@@ -40,7 +40,8 @@ export function useTeamAreaScope() {
       return
     }
     if (areaId && visibleAreas.some((area) => area.id === areaId)) return
-    setAreaId(visibleAreas[0].id)
+    // Equipo con área OKRS: entrar al tablero OKRS por defecto para ver acciones marcadas OKR.
+    setAreaId(pickDefaultTeamAreaId(visibleAreas))
   }, [visibleAreas, areaId, areaParam])
 
   return {

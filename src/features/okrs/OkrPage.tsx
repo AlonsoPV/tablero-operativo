@@ -1,5 +1,5 @@
 import { OkrReportHistory } from './OkrReportHistory'
-import { reportingSummary } from './reporting'
+import { measurementsFor, reportingSummary } from './reporting'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -787,7 +787,15 @@ export function OkrPage() {
                 )
                 await refresh()
                 if (modal.kr) {
-                  toast.success('Resultado clave actualizado')
+                  setHighlightedKrId(modal.kr.id)
+                  setExpandedIds((current) => {
+                    const next = new Set(current)
+                    next.add(modal.objective.id)
+                    return next
+                  })
+                  toast.success(
+                    'Resultado clave actualizado. El historial de mediciones se conserva.'
+                  )
                   setModal(null)
                 }
               }}
@@ -801,6 +809,14 @@ export function OkrPage() {
                 onSavingChange={setEditorSaving}
                 onCancel={() => setModal(null)}
                 onSaved={async () => {
+                  if ('kr' in modal) {
+                    setHighlightedKrId(modal.kr.id)
+                    setExpandedIds((current) => {
+                      const next = new Set(current)
+                      next.add(modal.objective.id)
+                      return next
+                    })
+                  }
                   await refresh()
                   setModal(null)
                 }}
@@ -1075,9 +1091,7 @@ function OkrEditor({
               Sin mediciones manuales registradas.
             </p>
           )}
-          {data.checkIns
-            .filter((c) => c.key_result_id === modal.kr.id)
-            .map((c) => (
+          {measurementsFor(data.checkIns, modal.kr.id).map((c) => (
               <div key={c.id} className="rounded-md border p-3 text-sm">
                 <div className="flex flex-wrap justify-between gap-3">
                   <strong>
