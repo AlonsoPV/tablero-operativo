@@ -9,6 +9,7 @@ export type WhatsAppInboundRoute =
   | { kind: 'ops_button'; buttonId: string }
   | { kind: 'agent_aiop'; opId: string; action: 'confirm' | 'cancel' }
   | { kind: 'mas_info' }
+  | { kind: 'agent_consult' }
   | { kind: 'ops_keyword'; action: 'done' | 'progress' | 'support'; text: string }
   | { kind: 'agent_free_text'; text: string }
   | { kind: 'ops_help'; text?: string }
@@ -75,17 +76,37 @@ export function inferOpsTextAction(text: string): 'done' | 'progress' | 'support
   return null
 }
 
+/** Ice breaker / comando Meta: «Consulta al Bot» o `/consulta`. */
+export function isConsultaAlBotText(text: string | null | undefined): boolean {
+  const t = (text ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[_-]+/g, ' ')
+  if (!t) return false
+  if (t === 'consulta al bot' || t === 'consulta' || t === '/consulta') return true
+  return /^\/consulta\b/.test(t) || /\bconsulta al bot\b/.test(t)
+}
+
 /**
  * Decide la ruta tras evidencia pendiente (evidencia se resuelve antes).
  * - Botones act/chk/tchk → ops (todos)
- * - aiop → agent (todos; el gate de acceso está en el handler)
- * - Más información → mas_info (handler decide agent vs ops list)
- * - Texto libre: canUseAi → agent; si no → keywords ops o ayuda ops (nunca agent)
+ * - aiop → agent (interacción de propuestas)
+ * - Más información / Ver actividades → mas_info (solo ops; no abre Gemini)
+ * - Consulta al Bot → agent_consult (única entrada explícita al asistente)
+ * - Keywords ops (Realizada / En proceso / apoyo) → siempre ops, también OKRS
+ * - Texto libre agent solo si canUseAi y hay sesión agent activa (tras Consulta al Bot / reply agent)
  */
 export function resolveWhatsAppInboundRoute(input: {
   canUseAi: boolean
-  /** Si false, OKRS tampoco usan keywords ops en texto (default plan). */
+  /**
+   * @deprecated Las keywords ops siempre aplican; se ignora.
+   * Conservado por compat de callers antiguos.
+   */
   opsKeywordsForAiUsers?: boolean
+  /** True si hubo outbound/agent reciente (p. ej. tras «Consulta al Bot»). */
+  agentSessionActive?: boolean
   buttonId?: string | null
   buttonTitle?: string | null
   textBody?: string | null
@@ -95,7 +116,7 @@ export function resolveWhatsAppInboundRoute(input: {
   const buttonTitle = input.buttonTitle?.trim() || null
   const textBody = input.textBody?.trim() || null
   const messageType = input.messageType ?? ''
-  const opsKeywordsForAiUsers = input.opsKeywordsForAiUsers === true
+  const agentSessionActive = input.agentSessionActive === true
 
   const aiOp = parseAiOpButtonId(buttonId)
   if (aiOp) {
@@ -126,16 +147,22 @@ export function resolveWhatsAppInboundRoute(input: {
 
   if (!freeText) return { kind: 'ignore' }
 
-  if (input.canUseAi) {
-    if (opsKeywordsForAiUsers) {
-      const action = inferOpsTextAction(freeText)
-      if (action) return { kind: 'ops_keyword', action, text: freeText }
-    }
-    return { kind: 'agent_free_text', text: freeText }
+  if (isConsultaAlBotText(freeText)) {
+    return { kind: 'agent_consult' }
+  }
+
+  // Ice breaker / texto «Ver actividades» → mismo gate ops que el botón.
+  if (isMasInfoButton(null, freeText)) {
+    return { kind: 'mas_info' }
   }
 
   const action = inferOpsTextAction(freeText)
   if (action) return { kind: 'ops_keyword', action, text: freeText }
+
+  if (input.canUseAi && agentSessionActive) {
+    return { kind: 'agent_free_text', text: freeText }
+  }
+
   return { kind: 'ops_help', text: freeText }
 }
 
@@ -147,6 +174,7 @@ export function flowForRoute(route: WhatsAppInboundRoute): WhatsAppFlow | null {
       return 'ops'
     case 'agent_aiop':
     case 'agent_free_text':
+    case 'agent_consult':
       return 'agent'
     case 'mas_info':
       return null // mixed gate

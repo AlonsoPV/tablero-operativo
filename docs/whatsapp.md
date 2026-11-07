@@ -30,6 +30,19 @@ Referencias Meta:
 
 Regla Meta crítica: fuera de la **ventana de 24 h** (sin mensaje reciente del usuario) no se puede iniciar con texto libre; hay que usar **plantilla aprobada**.
 
+### Disparadores de conversación (WhatsApp Manager)
+
+Ice breakers del número (no abren sesión solos; el usuario debe tocarlos). Textos canónicos:
+
+| Disparador | Efecto en webhook |
+| --- | --- |
+| `Ver actividades` | `mas_info` → listado/botones **Ops** (no Gemini) |
+| `Reportar avance` | Keyword `progress` → **Ops** |
+| `Necesito apoyo` | Keyword `support` → **Ops** (`Retraso`) |
+| `Consulta al Bot` | `agent_consult` → única entrada al asistente (OKRS/Super Admin) |
+
+Comando opcional: `/consulta` → mismo gate `agent_consult`. Tras el invite, el texto libre sigue en Agent mientras haya sesión (outbound `flow=agent` &lt; 24 h).
+
 ---
 
 ## 2. Arquitectura
@@ -148,7 +161,6 @@ Ruta UI settings: `ROUTES.SETTINGS_WHATSAPP` → `/settings/whatsapp`.
 | `WHATSAPP_INITIAL_TEMPLATE_LANGUAGE` | No | Default `es_MX` |
 | `WHATSAPP_DISPATCHER_SECRET` | Recomendado | Header `x-dispatcher-secret` del dispatcher |
 | `WHATSAPP_AI_ENABLED` | No | `1` activa el AgentRouter (chatbot) para OKRS / Super Admin |
-| `WHATSAPP_OPS_KEYWORDS_FOR_AI_USERS` | No | `1` permite keywords Realizada/etc. también a OKRS (default: off → texto libre = agente) |
 | `WHATSAPP_ASSISTANT_SECRET` | Si AI enabled | Mismo valor que en Vercel; header hacia `/api/whatsapp-assistant` |
 | `APP_URL` | Si AI enabled | URL pública del tablero (`https://scrumbanemx.vercel.app`) |
 | `WHATSAPP_BUSINESS_ACCOUNT_ID` / WABA | Útil | Suscripción app / plantillas (ops Meta) |
@@ -374,7 +386,7 @@ Followups automáticos tras `initial` usan `act:` (nivel acción). Followup manu
 | `done` (`act:`) | Todos los checkpoints activos pendientes → acción `Hecho` + pedir evidencia |
 | `done` (`chk:`) | Ese checkpoint `completado`; si no quedan pendientes → `Hecho`; si no → `En_Ejecucion` + evidencia |
 | `progress` | Acción → `En_Ejecucion` (salvo ya `Bloqueado`) + pedir evidencia |
-| `support` | Acción → `Bloqueado` + prompt de apoyo |
+| `support` | Acción → `Retraso` + prompt de apoyo |
 
 ### Texto libre como fallback
 
@@ -398,26 +410,28 @@ Mismo número WABA, **dos routers** en `whatsapp-webhook`:
 
 | Flujo | Quién | Qué maneja |
 | --- | --- | --- |
-| **Ops** | Todos | Evidencia, botones `act:`/`chk:`/`tchk:`, keywords ops (solo no-AI), follow-ups, plantilla `nueva_actividad_what2do` |
-| **Agent** | OKRS / Super Admin (`can_use_ai_whatsapp_for_usuario`) | Texto libre → Gemini, botones `aiop:`, “Más información” con asistente |
+| **Ops** | Todos | Evidencia, botones `act:`/`chk:`/`tchk:`, keywords ops, “Ver actividades” / Más información, follow-ups |
+| **Agent** | OKRS / Super Admin | Solo tras **Consulta al Bot** (o `/consulta`), texto libre en sesión agent, botones `aiop:` |
 
 Prioridad inbound:
 
 1. Número no vinculado → mensaje fijo.
 2. Evidencia pendiente → **Ops**.
 3. Botones `act:`/`chk:`/`tchk:` → **Ops** (también OKRS).
-4. Botones `aiop:` → **Agent**.
-5. “Más información” → listado/botones ops; chatbot **solo** si `can_use_ai`.
-6. Texto libre:
-   - `can_use_ai` → **Agent** (por defecto **sin** keywords ops; override `WHATSAPP_OPS_KEYWORDS_FOR_AI_USERS=1`).
-   - resto → keywords ops o ayuda operativa; **nunca** Gemini.
-7. Si Gemini falla: reply corto; **siempre 200 a Meta**.
+4. Botones `aiop:` → **Agent** (interacción de propuestas).
+5. “Más información” / `Ver actividades` → **solo Ops** (listado/botones; **no** Gemini).
+6. `Consulta al Bot` → **Agent** (invite); abre sesión ~24 h vía outbound `flow=agent`.
+7. Keywords ops (`Realizada` / `Reportar avance` / `Necesito apoyo`, etc.) → **siempre Ops**, también OKRS.
+8. Texto libre:
+   - `can_use_ai` **y** sesión agent activa → **Agent**.
+   - resto → ayuda operativa; **nunca** Gemini.
+9. Si Gemini falla: reply corto; **siempre 200 a Meta**.
 
 Payload hilo: `flow: 'ops' | 'agent'`. Política testeable: `src/lib/whatsappFlowRouting.ts`.
 
 El cerebro vive en Vercel (`GEMINI_*`). Edge **no** necesita `GEMINI_API_KEY`. Escrituras al tablero solo tras confirmar (`assistant_pending_ops`). Inbox: `source=ai` / `flow=agent` → **Asistente**.
 
-No commitear secretos. Flags: `WHATSAPP_AI_ENABLED`, opcional `WHATSAPP_OPS_KEYWORDS_FOR_AI_USERS`.
+No commitear secretos. Flag: `WHATSAPP_AI_ENABLED`.
 
 ---
 

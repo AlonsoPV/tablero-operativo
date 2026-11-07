@@ -317,11 +317,11 @@ async function applyActionResponse(
   if (!actionRow) return { ok: false as const }
 
   if (params.action === 'support') {
-    await supabase.from('acciones_diarias').update({ estado: 'Bloqueado' }).eq('id', actionRow.id)
+    await supabase.from('acciones_diarias').update({ estado: 'Retraso' }).eq('id', actionRow.id)
     await replyText(
       supabase,
       params.waId,
-      `Registramos que requieres apoyo en ${actionRow.titulo_accion ?? 'la actividad'}. Quedo Bloqueada.`,
+      `Registramos que requieres apoyo en ${actionRow.titulo_accion ?? 'la actividad'}. Quedó en Retraso.`,
       params.usuarioId
     )
     return { ok: true as const }

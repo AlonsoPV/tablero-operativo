@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   flowForRoute,
   inferOpsTextAction,
+  isConsultaAlBotText,
   isMasInfoButton,
   isOpsStructuredButton,
   parseAiOpButtonId,
@@ -17,6 +18,8 @@ describe('whatsappFlowRouting', () => {
     expect(isOpsStructuredButton('act:abc:done')).toBe(true)
     expect(isOpsStructuredButton('chk:abc:progress')).toBe(true)
     expect(isMasInfoButton('mas_informacion', 'Más información')).toBe(true)
+    expect(isConsultaAlBotText('Consulta al Bot')).toBe(true)
+    expect(isConsultaAlBotText('/consulta')).toBe(true)
   })
 
   it('operativo: keywords ops, nunca agent en texto libre', () => {
@@ -37,31 +40,51 @@ describe('whatsappFlowRouting', () => {
     expect(flowForRoute(help)).toBe('ops')
   })
 
-  it('OKRS: texto libre va a agent; Realizada no es keyword por defecto', () => {
-    const chat = resolveWhatsAppInboundRoute({
-      canUseAi: true,
-      textBody: 'Qué acciones rojas tengo?',
-      messageType: 'text',
-    })
-    expect(chat.kind).toBe('agent_free_text')
-    expect(flowForRoute(chat)).toBe('agent')
-
+  it('OKRS: reportar/apoyo siempre ops; agent solo con sesión o Consulta al Bot', () => {
     const realizada = resolveWhatsAppInboundRoute({
       canUseAi: true,
       textBody: 'Realizada',
       messageType: 'text',
     })
-    expect(realizada.kind).toBe('agent_free_text')
-  })
+    expect(realizada.kind).toBe('ops_keyword')
+    expect(flowForRoute(realizada)).toBe('ops')
 
-  it('OKRS con flag: keywords ops habilitados', () => {
-    const keyword = resolveWhatsAppInboundRoute({
+    const apoyo = resolveWhatsAppInboundRoute({
       canUseAi: true,
-      opsKeywordsForAiUsers: true,
-      textBody: 'Realizada',
+      textBody: 'Necesito apoyo',
       messageType: 'text',
     })
-    expect(keyword.kind).toBe('ops_keyword')
+    expect(apoyo.kind).toBe('ops_keyword')
+
+    const avance = resolveWhatsAppInboundRoute({
+      canUseAi: true,
+      textBody: 'Reportar avance',
+      messageType: 'text',
+    })
+    expect(avance.kind).toBe('ops_keyword')
+
+    const withoutSession = resolveWhatsAppInboundRoute({
+      canUseAi: true,
+      textBody: 'Qué acciones rojas tengo?',
+      messageType: 'text',
+    })
+    expect(withoutSession.kind).toBe('ops_help')
+
+    const withSession = resolveWhatsAppInboundRoute({
+      canUseAi: true,
+      agentSessionActive: true,
+      textBody: 'Qué acciones rojas tengo?',
+      messageType: 'text',
+    })
+    expect(withSession.kind).toBe('agent_free_text')
+    expect(flowForRoute(withSession)).toBe('agent')
+
+    const consult = resolveWhatsAppInboundRoute({
+      canUseAi: true,
+      textBody: 'Consulta al Bot',
+      messageType: 'text',
+    })
+    expect(consult.kind).toBe('agent_consult')
   })
 
   it('botones act siguen siendo ops aunque canUseAi', () => {
@@ -74,7 +97,7 @@ describe('whatsappFlowRouting', () => {
     expect(flowForRoute(route)).toBe('ops')
   })
 
-  it('botones chk/tchk van a ops; texto emx_ no es protocolo WhatsApp', () => {
+  it('botones chk/tchk van a ops; keywords con emx_ también ops', () => {
     const chk = resolveWhatsAppInboundRoute({
       canUseAi: true,
       buttonId: 'chk:123e4567-e89b-12d3-a456-426614174000:support',
@@ -95,8 +118,8 @@ describe('whatsappFlowRouting', () => {
       textBody: 'emx_123 Realizada',
       messageType: 'text',
     })
-    expect(byId.kind).toBe('agent_free_text')
-    expect(flowForRoute(byId)).toBe('agent')
+    expect(byId.kind).toBe('ops_keyword')
+    expect(flowForRoute(byId)).toBe('ops')
   })
 
   it('aiop es agent estructurado', () => {
@@ -143,10 +166,10 @@ describe('whatsappFlowRouting', () => {
         flow: 'ops',
       },
       {
-        name: 'emx_ texto OKRS → agent (no protocolo WA)',
+        name: 'emx_ texto OKRS → ops keyword (no agent)',
         input: { canUseAi: true, textBody: 'emx_45 Requiero apoyo', messageType: 'text' },
-        kind: 'agent_free_text',
-        flow: 'agent',
+        kind: 'ops_keyword',
+        flow: 'ops',
       },
       {
         name: 'ops_button chk con canUseAi',
@@ -162,7 +185,12 @@ describe('whatsappFlowRouting', () => {
       },
       {
         name: 'mas_info por título',
-        input: { canUseAi: false, buttonId: 'btn_1', buttonTitle: 'Más información', messageType: 'button' },
+        input: {
+          canUseAi: false,
+          buttonId: 'btn_1',
+          buttonTitle: 'Más información',
+          messageType: 'button',
+        },
         kind: 'mas_info',
         flow: null,
       },
@@ -173,22 +201,39 @@ describe('whatsappFlowRouting', () => {
         flow: null,
       },
       {
+        name: 'Ver actividades texto → mas_info',
+        input: { canUseAi: true, textBody: 'Ver actividades', messageType: 'text' },
+        kind: 'mas_info',
+        flow: null,
+      },
+      {
         name: 'media ignore',
         input: { canUseAi: true, messageType: 'audio' },
         kind: 'ignore',
         flow: null,
       },
       {
-        name: 'OKRS free text',
+        name: 'OKRS free text sin sesión → ops_help',
         input: { canUseAi: true, textBody: 'resumen de rojos', messageType: 'text' },
+        kind: 'ops_help',
+        flow: 'ops',
+      },
+      {
+        name: 'OKRS free text con sesión → agent',
+        input: {
+          canUseAi: true,
+          agentSessionActive: true,
+          textBody: 'resumen de rojos',
+          messageType: 'text',
+        },
         kind: 'agent_free_text',
         flow: 'agent',
       },
       {
-        name: 'OKRS Realizada → agent (default)',
+        name: 'OKRS Realizada → ops',
         input: { canUseAi: true, textBody: 'Realizada', messageType: 'text' },
-        kind: 'agent_free_text',
-        flow: 'agent',
+        kind: 'ops_keyword',
+        flow: 'ops',
       },
       {
         name: 'ops keyword',
@@ -203,14 +248,32 @@ describe('whatsappFlowRouting', () => {
         flow: 'ops',
       },
       {
-        name: 'interactive free text título → agent si AI',
+        name: 'Consulta al Bot → agent_consult (con AI)',
+        input: { canUseAi: true, textBody: 'Consulta al Bot', messageType: 'text' },
+        kind: 'agent_consult',
+        flow: 'agent',
+      },
+      {
+        name: 'Consulta al Bot → agent_consult (sin AI; handler niega)',
+        input: { canUseAi: false, textBody: 'Consulta al Bot', messageType: 'text' },
+        kind: 'agent_consult',
+        flow: 'agent',
+      },
+      {
+        name: '/consulta comando',
+        input: { canUseAi: true, textBody: '/consulta', messageType: 'text' },
+        kind: 'agent_consult',
+        flow: 'agent',
+      },
+      {
+        name: 'interactive free text título → ops_help sin sesión',
         input: {
           canUseAi: true,
           buttonTitle: 'Consulta tablero',
           messageType: 'interactive',
         },
-        kind: 'agent_free_text',
-        flow: 'agent',
+        kind: 'ops_help',
+        flow: 'ops',
       },
     ]
 

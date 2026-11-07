@@ -173,7 +173,7 @@ El texto libre se asocia al último `action_delivery_log` de ese teléfono con `
 | --- | --- | --- |
 | `done` | Marca **todos** los activos pendientes como completados | `Hecho` |
 | `progress` | — | `En_Ejecucion` |
-| `support` | — | `Bloqueado` |
+| `support` | — | `Retraso` |
 
 Además `done` / `progress` abren captura de resultado.
 
@@ -183,7 +183,7 @@ Además `done` / `progress` abren captura de resultado.
 | --- | --- | --- |
 | `done` | Ese checkpoint → `completado=true` | Si no quedan pendientes → `Hecho`; si no → `En_Ejecucion` |
 | `progress` | — | `En_Ejecucion` (salvo ya `Bloqueado`) |
-| `support` | — | `Bloqueado` |
+| `support` | — | `Retraso` |
 
 Team (fuera del núcleo corporate): botones `tchk:<team_uuid>:<index>:done|progress|support`.
 
@@ -217,7 +217,7 @@ Formatos media: pdf, png, jpg, csv, xlsx, xls.
 
 ### 4.5 Requiero apoyo
 
-Además de poner la acción en `Bloqueado`, el webhook envía un prompt de contacto/apoyo (`sendSupportContactPrompt`) y deja `support_contact_sent` en el payload outbound del hilo.
+Además de poner la acción en `Retraso`, el webhook envía un prompt de contacto/apoyo (`sendSupportContactPrompt`) y deja `support_contact_sent` en el payload outbound del hilo.
 
 ### 4.6 Otros inbound útiles
 
@@ -239,7 +239,7 @@ Además de poner la acción en `Bloqueado`, el webhook envía un prompt de conta
        │
        ├─ done     → checkpoints/acción + pedir evidencia
        ├─ progress → En_Ejecucion + pedir evidencia
-       └─ support  → Bloqueado + mensaje de apoyo
+       └─ support  → Retraso + mensaje de apoyo
        │
        ▼
  Usuario envía texto/foto
@@ -364,7 +364,7 @@ Auditoría SQL: [supabase/scripts/audit_whatsapp_bidirectional.sql](../supabase/
 5. Tocar **En proceso** → acción `En_Ejecucion` + prompt de resultado.  
 6. Enviar foto/texto → comentario en la acción.  
 7. Tocar **Realizada** (o texto “hecho”) → checkpoints/acción avanzan a `Hecho`.  
-8. Tocar **Requiero apoyo** en otra acción → `Bloqueado`.  
+8. Tocar **Requiero apoyo** en otra acción → `Retraso`.  
 
 ---
 
