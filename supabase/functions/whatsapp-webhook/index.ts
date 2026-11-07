@@ -627,12 +627,6 @@ async function replyAi(
   }
 }
 
-/** Alineado a src/lib/whatsappFlowRouting.ts — mantener en sync. */
-function opsKeywordsForAiUsersEnabled() {
-  const flag = (Deno.env.get('WHATSAPP_OPS_KEYWORDS_FOR_AI_USERS') || '').trim().toLowerCase()
-  return flag === '1' || flag === 'true' || flag === 'yes'
-}
-
 async function canUseAiWhatsApp(
   supabase: ReturnType<typeof adminClient>,
   usuarioId: string
@@ -648,10 +642,41 @@ async function canUseAiWhatsApp(
   return allowed === true
 }
 
+/** Sesión agent: outbound reciente con flow=agent (p. ej. tras «Consulta al Bot» o reply Gemini). */
+async function hasActiveAgentSession(
+  supabase: ReturnType<typeof adminClient>,
+  waId: string
+): Promise<boolean> {
+  const variants = phoneVariants(waId)
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  let query = supabase
+    .from('whatsapp_messages')
+    .select('payload,created_at')
+    .eq('direction', 'outbound')
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(25)
+  if (variants.length > 0) {
+    query = query.in('wa_id', variants)
+  } else {
+    query = query.eq('wa_id', waId)
+  }
+  const { data, error } = await query
+  if (error) {
+    console.error('whatsapp-webhook agent session lookup', error.message)
+    return false
+  }
+  return (data ?? []).some((row) => {
+    const payload = (row.payload ?? {}) as Record<string, unknown>
+    return payload.flow === 'agent' || payload.agent_consult === true
+  })
+}
+
 type InboundRoute =
   | { kind: 'ops_button'; buttonId: string }
   | { kind: 'agent_aiop'; opId: string; action: 'confirm' | 'cancel' }
   | { kind: 'mas_info' }
+  | { kind: 'agent_consult' }
   | { kind: 'ops_keyword'; action: 'done' | 'progress' | 'support'; text: string }
   | { kind: 'agent_free_text'; text: string }
   | { kind: 'ops_help'; text?: string }
@@ -663,8 +688,26 @@ type InboundRoute =
  */
 /** Etiqueta de hilo para inbound; mas_info cuenta como ops (disparador de gate mixto). */
 function inboundFlowForRoute(route: InboundRoute): 'ops' | 'agent' {
-  if (route.kind === 'agent_aiop' || route.kind === 'agent_free_text') return 'agent'
+  if (
+    route.kind === 'agent_aiop' ||
+    route.kind === 'agent_free_text' ||
+    route.kind === 'agent_consult'
+  ) {
+    return 'agent'
+  }
   return 'ops'
+}
+
+function isConsultaAlBotText(text: string | null | undefined): boolean {
+  const t = (text ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[_-]+/g, ' ')
+  if (!t) return false
+  if (t === 'consulta al bot' || t === 'consulta' || t === '/consulta') return true
+  return /^\/consulta\b/.test(t) || /\bconsulta al bot\b/.test(t)
 }
 
 /** Botones / media que no requieren RPC can_use_ai. null = hay que resolver texto libre. */
@@ -700,6 +743,7 @@ function resolveStructuredInboundRoute(input: {
 
 function resolveInboundRoute(input: {
   canUseAi: boolean
+  agentSessionActive?: boolean
   buttonId?: string | null
   buttonTitle?: string | null
   textBody?: string | null
@@ -711,6 +755,7 @@ function resolveInboundRoute(input: {
   const buttonTitle = input.buttonTitle?.trim() || null
   const textBody = input.textBody?.trim() || null
   const messageType = input.messageType ?? ''
+  const agentSessionActive = input.agentSessionActive === true
 
   const freeText =
     textBody ||
@@ -718,16 +763,21 @@ function resolveInboundRoute(input: {
     null
   if (!freeText) return { kind: 'ignore' }
 
-  if (input.canUseAi) {
-    if (opsKeywordsForAiUsersEnabled()) {
-      const action = inferTextAction(freeText)
-      if (action) return { kind: 'ops_keyword', action, text: freeText }
-    }
-    return { kind: 'agent_free_text', text: freeText }
+  if (isConsultaAlBotText(freeText)) {
+    return { kind: 'agent_consult' }
+  }
+
+  if (isVerActividadesButton(null, freeText)) {
+    return { kind: 'mas_info' }
   }
 
   const action = inferTextAction(freeText)
   if (action) return { kind: 'ops_keyword', action, text: freeText }
+
+  if (input.canUseAi && agentSessionActive) {
+    return { kind: 'agent_free_text', text: freeText }
+  }
+
   return { kind: 'ops_help', text: freeText }
 }
 
@@ -881,7 +931,12 @@ async function resolveTeamStateId(
     )
   }
   if (prefer === 'blocked') {
-    return list.find((r) => /bloquead/i.test(r.nombre) && !r.es_cierre)?.id ?? null
+    // Requiero apoyo → columna Retraso (o alias vencido); Bloqueado solo como fallback.
+    return (
+      list.find((r) => /retraso|vencid|atrasad/i.test(r.nombre) && !r.es_cierre)?.id ??
+      list.find((r) => /bloquead/i.test(r.nombre) && !r.es_cierre)?.id ??
+      null
+    )
   }
   return (
     list.find((r) => /en_ejecucion|ejecucion/i.test(r.nombre) && !r.es_cierre)?.id ??
@@ -908,7 +963,7 @@ async function applyActionResponse(
   if (!actionRow) return { ok: false as const, reason: 'action_not_found' }
 
   if (params.action === 'support') {
-    await supabase.from('acciones_diarias').update({ estado: 'Bloqueado' }).eq('id', actionRow.id)
+    await supabase.from('acciones_diarias').update({ estado: 'Retraso' }).eq('id', actionRow.id)
     return {
       ok: true as const,
       askResult: false,
@@ -1023,7 +1078,7 @@ async function handleCorporateAction(
   if (params.action === 'support') {
     await supabase
       .from('acciones_diarias')
-      .update({ estado: 'Bloqueado' })
+      .update({ estado: 'Retraso' })
       .eq('id', actionRow.id)
     return {
       ok: true as const,
@@ -1259,7 +1314,7 @@ async function sendSupportContactPrompt(
     supabase,
     params.waId,
     [
-      `Registramos que requieres apoyo${title}. La actividad quedo Bloqueada.`,
+      `Registramos que requieres apoyo${title}. La actividad quedó en Retraso.`,
       '',
       'Escribe a tu lider o responde aqui con el bloqueo concreto para dar seguimiento.',
     ].join('\n'),
@@ -1404,7 +1459,7 @@ async function sendLatestActionFollowupButtons(
 
 async function handleVerActividades(
   supabase: ReturnType<typeof adminClient>,
-  params: { waId: string; usuarioId: string; canUseAi?: boolean }
+  params: { waId: string; usuarioId: string }
 ) {
   const { data: openActions } = await supabase
     .from('acciones_diarias')
@@ -1414,14 +1469,13 @@ async function handleVerActividades(
     .order('fecha', { ascending: true })
     .limit(12)
 
-  const flow = params.canUseAi ? 'agent' : 'ops'
   if (!openActions || openActions.length === 0) {
     await replyText(
       supabase,
       params.waId,
       'No tienes actividades abiertas en el tablero.',
       params.usuarioId,
-      { flow }
+      { flow: 'ops' }
     )
     return
   }
@@ -1434,51 +1488,28 @@ async function handleVerActividades(
   })
   lines.push(
     '',
-    params.canUseAi
-      ? 'Escribe en texto libre para consultar al asistente del tablero.'
-      : 'Usa los botones del recordatorio (Realizada / En proceso / Requiero apoyo) para reportar avance.'
+    'Usa los botones del recordatorio (Realizada / En proceso / Requiero apoyo) para reportar avance.',
+    'Para el asistente, usa el disparador Consulta al Bot.'
   )
-  await replyText(supabase, params.waId, lines.join('\n'), params.usuarioId, { flow })
+  await replyText(supabase, params.waId, lines.join('\n'), params.usuarioId, { flow: 'ops' })
 }
 
 /**
- * Botón plantilla "Más información":
- * - Ops estructurado (botones follow-up / listado) para todos
- * - Chatbot solo si canUseAi (OKRS / Super Admin)
- * - Ops: si ya salieron botones, no enviar segundo mensaje de ayuda
+ * Botón / disparador "Más información" / "Ver actividades":
+ * - Solo Ops (listado o botones follow-up)
+ * - No abre Gemini; el asistente entra por «Consulta al Bot»
  */
 async function handleMasInformacion(
   supabase: ReturnType<typeof adminClient>,
   params: { waId: string; usuarioId: string; canUseAi: boolean }
 ) {
+  void params.canUseAi
   const sentButtons = await sendLatestActionFollowupButtons(supabase, params)
   if (!sentButtons) {
     await handleVerActividades(supabase, {
       waId: params.waId,
       usuarioId: params.usuarioId,
-      canUseAi: params.canUseAi,
     })
-  }
-
-  // Operativo: listado o botones bastan; no duplicar copy de ayuda.
-  if (!params.canUseAi) return
-
-  const aiHandled = await maybeHandleWhatsAppAi(supabase, {
-    waId: params.waId,
-    usuarioId: params.usuarioId,
-    action: 'chat',
-    aiAllowed: params.canUseAi,
-    text:
-      'El usuario toco Mas informacion. Resume sus actividades abiertas y pregunta en que puedes ayudar. Responde corto, en espanol, sin markdown.',
-  })
-  if (!aiHandled) {
-    await replyText(
-      supabase,
-      params.waId,
-      'Tambien puedes escribirme en texto libre para consultar el tablero.',
-      params.usuarioId,
-      { flow: 'agent' }
-    )
   }
 }
 
@@ -1827,12 +1858,16 @@ Deno.serve(async (req) => {
           // Deferir RPC: botones ops / media ignore no consultan can_use_ai.
           const structured = resolveStructuredInboundRoute(routeInput)
           let canUseAi = false
+          let agentSessionActive = false
           let route: InboundRoute
           if (structured && structured.kind !== 'agent_aiop' && structured.kind !== 'mas_info') {
             route = structured
           } else {
             canUseAi = await canUseAiWhatsApp(supabase, identity.usuario_id)
-            route = structured ?? resolveInboundRoute({ canUseAi, ...routeInput })
+            agentSessionActive = canUseAi ? await hasActiveAgentSession(supabase, waId) : false
+            route =
+              structured ??
+              resolveInboundRoute({ canUseAi, agentSessionActive, ...routeInput })
           }
           const inboundFlow = inboundFlowForRoute(route)
 
@@ -1894,6 +1929,37 @@ Deno.serve(async (req) => {
               usuarioId: identity.usuario_id,
               canUseAi,
             })
+            continue
+          }
+
+          // --- Ice breaker / comando «Consulta al Bot» ---
+          if (route.kind === 'agent_consult') {
+            if (!canUseAi) {
+              await replyText(
+                supabase,
+                waId,
+                [
+                  'El asistente solo está disponible para perfiles OKRS o Super Admin.',
+                  '',
+                  'Puedes usar: Ver actividades, Reportar avance o Necesito apoyo.',
+                ].join('\n'),
+                identity.usuario_id,
+                { flow: 'ops' }
+              )
+              continue
+            }
+            await replyText(
+              supabase,
+              waId,
+              [
+                '*Consulta al bot*',
+                '',
+                'Listo. Escribe tu pregunta sobre el tablero, OKRs o tu equipo.',
+                'Ejemplos: resumen de rojos, avance de mis OKRs, qué está en retraso.',
+              ].join('\n'),
+              identity.usuario_id,
+              { flow: 'agent', agent_consult: true }
+            )
             continue
           }
 

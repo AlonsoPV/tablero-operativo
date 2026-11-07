@@ -53,7 +53,7 @@ Acción / iniciativa (AccionFormDialog)
     └── Flujos:
         ├── Realizada      → Hecho + checkpoints + evidencia
         ├── En Proceso     → En_Ejecucion + evidencia
-        └── Necesito Apoyo → Bloqueado + prompt de apoyo
+        └── Necesito Apoyo → Retraso + prompt de apoyo
 ```
 
 ---
@@ -185,7 +185,7 @@ Parser: `src/lib/whatsappActionDigest.ts` + espejo en webhook. Política de rute
 | --- | --- | --- | --- |
 | **Realizada** (`done`) | Todos los activos pendientes → completados | `Hecho` | Pide evidencia (`whatsapp_result_requests`) |
 | **En Proceso** (`progress`) | Sin cambio | `En_Ejecucion` (salvo ya `Bloqueado`) | Pide avance / evidencia |
-| **Necesito Apoyo** (`support`) | Sin cambio | `Bloqueado` | Prompt de apoyo al líder |
+| **Necesito Apoyo** (`support`) | Sin cambio | `Retraso` | Prompt de apoyo al líder |
 
 Hecho ≠ Verificado. Marcar Realizada no verifica.
 
@@ -209,7 +209,7 @@ La evidencia posterior (texto / foto / PDF / Excel) se asocia a la acción del r
         │
         ├─ emx_ID + Realizada      → Hecho + evidencia
         ├─ emx_ID + En Proceso     → En_Ejecucion + evidencia
-        ├─ emx_ID + Necesito Apoyo → Bloqueado + apoyo
+        ├─ emx_ID + Necesito Apoyo → Retraso + apoyo
         ├─ botón (1 activa)        → mismo flujo sobre esa acción
         └─ botón (N activas)       → «Indica el ID emx_123»
                 │
@@ -281,7 +281,7 @@ Ventana Meta 24 h: el digest **interactive** exige sesión abierta. Si el `initi
 5. [ ] Tener ≥2 acciones activas en el mismo responsable; al vencer el delay, **un** mensaje listando ambas con `emx_`.
 6. [ ] Responder `emx_XXXXX Realizada` → estado `Hecho` + pedido de evidencia.
 7. [ ] Responder `emx_XXXXX En Proceso` → `En_Ejecucion`.
-8. [ ] Responder `emx_XXXXX Necesito Apoyo` → `Bloqueado` + texto de apoyo.
+8. [ ] Responder `emx_XXXXX Necesito Apoyo` → `Retraso` + texto de apoyo.
 9. [ ] Con varias activas, pulsar **Realizada** sin ID → el bot pide el `emx_`.
 10. [ ] Usuario OKRS: `emx_123 Realizada` no debe ir al chatbot Gemini.
 
