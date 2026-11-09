@@ -18,6 +18,7 @@ describe('whatsappFlowRouting', () => {
     expect(isOpsStructuredButton('act:abc:done')).toBe(true)
     expect(isOpsStructuredButton('chk:abc:progress')).toBe(true)
     expect(isMasInfoButton('mas_informacion', 'Más información')).toBe(true)
+    expect(isMasInfoButton(null, '/actividades')).toBe(true)
     expect(isConsultaAlBotText('Consulta al Bot')).toBe(true)
     expect(isConsultaAlBotText('/consulta')).toBe(true)
   })
