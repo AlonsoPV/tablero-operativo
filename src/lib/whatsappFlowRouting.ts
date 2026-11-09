@@ -51,13 +51,19 @@ export function isMasInfoButton(
   const haystack = `${id} ${label}`
   if (
     id === 'ver actividades' ||
+    id === '/actividades' ||
+    id === 'actividades' ||
     id.includes('ver_actividades') ||
     id.includes('mas informacion') ||
     id === 'more info'
   ) {
     return true
   }
-  return /ver actividades/.test(haystack) || /mas informacion/.test(haystack)
+  return (
+    /ver actividades/.test(haystack) ||
+    /mas informacion/.test(haystack) ||
+    /(^|\s)\/?actividades\b/.test(haystack)
+  )
 }
 
 export function inferOpsTextAction(text: string): 'done' | 'progress' | 'support' | null {

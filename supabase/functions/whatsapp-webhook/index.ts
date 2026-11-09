@@ -330,14 +330,20 @@ function isVerActividadesButton(rawId: string | null | undefined, title: string 
   const haystack = `${id} ${label}`
   if (
     id === 'ver actividades' ||
+    id === '/actividades' ||
+    id === 'actividades' ||
     id.includes('ver_actividades') ||
     id.includes('mas informacion') ||
     id === 'more info'
   ) {
     return true
   }
-  // Plantilla Meta: botón "Más información" (quick reply) o "Ver actividades"
-  return /ver actividades/.test(haystack) || /mas informacion/.test(haystack)
+  // Plantilla Meta: botón "Más información" (quick reply) o "Ver actividades" / comando /actividades
+  return (
+    /ver actividades/.test(haystack) ||
+    /mas informacion/.test(haystack) ||
+    /(^|\s)\/?actividades\b/.test(haystack)
+  )
 }
 
 function inboundPreview(message: WaMessage): string {
