@@ -6,7 +6,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { defineApiHandler, readRequestBody, readStringEnv } from './_shared/http.js'
 import { createServiceRoleClient, requireAssistantAuth } from './_shared/assistantAuth.js'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
-import { createGuideUserLink } from './_shared/guideUserLinks.js'
+import { clampGuideLinkDays, createGuideUserLink } from './_shared/guideUserLinks.js'
 import {
   isAppSuperAdminByAppRole,
   isDirectionByRole,
@@ -94,7 +94,7 @@ export default defineApiHandler(async (req, res) => {
     const created = await createGuideUserLink(supabase, {
       usuarioId,
       createdBy,
-      expiresInDays: payload.expires_in_days,
+      expiresInDays: clampGuideLinkDays(payload.expires_in_days),
       source: source || (internal ? 'whatsapp' : 'app'),
     })
     return res.status(200).json({
