@@ -17,6 +17,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ROUTES } from '@/constants'
 import { useRetellGuideCall } from '@/features/guide/hooks/useRetellGuideCall'
+import { GuidePersonalLinkButton } from '@/features/guide/components/GuidePersonalLinkButton'
 import { guideService } from '@/features/guide/services/guide.service'
 import type {
   GuideCompactMessage,
@@ -496,6 +497,11 @@ export function GuidePanel({
                   : '15 minutos para priorizar. Si hay que crear, sale de la conversacion')}
             </p>
           </div>
+          {!active ? (
+            <div className="shrink-0">
+              <GuidePersonalLinkButton compact usuarioId={usuarioId ?? undefined} />
+            </div>
+          ) : null}
           <div
             className="grid shrink-0 grid-cols-2 gap-0.5 rounded-full bg-background/70 p-1 shadow-sm ring-1 ring-border/50"
             role="tablist"

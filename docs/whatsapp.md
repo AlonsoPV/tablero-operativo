@@ -39,9 +39,11 @@ Ice breakers del número (no abren sesión solos; el usuario debe tocarlos). Tex
 | `Ver actividades` | `mas_info` → listado/botones **Ops** (no Gemini) |
 | `Reportar avance` | Keyword `progress` → **Ops** |
 | `Necesito apoyo` | Keyword `support` → **Ops** (`Retraso`) |
-| `Consulta al Bot` | `agent_consult` → única entrada al asistente (OKRS/Super Admin) |
+| `Consulta al Bot` / `Iniciar bot` | `agent_consult` → selector interactivo **Por mensaje** / **Por voz** (OKRS/Super Admin) |
+| `Por mensaje` (`aich:text`) | Continúa el agente de texto (Gemini) |
+| `Por voz` (`aich:voice`) | Genera liga personal Guía y la envía por WhatsApp |
 
-Comando opcional: `/consulta` → mismo gate `agent_consult`. Tras el invite, el texto libre sigue en Agent mientras haya sesión (outbound `flow=agent` &lt; 24 h).
+Comando opcional: `/consulta`. Keywords de canal: «quiero hablar por voz», «prefiero escribir». Tras elegir mensaje, el texto libre sigue en Agent mientras haya sesión (outbound `flow=agent` &lt; 24 h). Ligas: ver [usoLigasPersonalizadas.md](./usoLigasPersonalizadas.md).
 
 ---
 
@@ -411,7 +413,7 @@ Mismo número WABA, **dos routers** en `whatsapp-webhook`:
 | Flujo | Quién | Qué maneja |
 | --- | --- | --- |
 | **Ops** | Todos | Evidencia, botones `act:`/`chk:`/`tchk:`, keywords ops, “Ver actividades” / Más información, follow-ups |
-| **Agent** | OKRS / Super Admin | Solo tras **Consulta al Bot** (o `/consulta`), texto libre en sesión agent, botones `aiop:` |
+| **Agent** | OKRS / Super Admin | Solo tras **Consulta al Bot** (o `/consulta`), texto libre en sesión agent, botones `aiop:`. Precarga dashboard + OKRs + acciones propias/equipo y puede llamar herramientas de todo el tablero autorizado |
 
 Prioridad inbound:
 

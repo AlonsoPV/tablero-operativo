@@ -527,6 +527,9 @@ async function replyText(
 ) {
   try {
     const graphBody = textPayload(to, body)
+    if (extras?.preview_url === true && graphBody.text) {
+      graphBody.text.preview_url = true
+    }
     const result = await graphSendMessage(graphBody)
     const metaId = extractMessageId(result.json)
     const flow = typeof extras?.flow === 'string' ? extras.flow : 'ops'
@@ -586,6 +589,158 @@ function interactiveAiOpPayload(to: string, bodyText: string, opId: string) {
         ],
       },
     },
+  }
+}
+
+function interactiveChannelSelectorPayload(to: string) {
+  const bodyText = [
+    '¡Hola! Soy tu asistente operativo de Scrumban.',
+    '',
+    'Puedo ayudarte a consultar actividades, revisar prioridades, resolver bloqueos y dar seguimiento a tus objetivos.',
+    '',
+    '¿Cómo prefieres conversar?',
+  ].join('\n')
+  return {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text: bodyText.slice(0, 1024) },
+      action: {
+        buttons: [
+          { type: 'reply', reply: { id: 'aich:text', title: 'Por mensaje' } },
+          { type: 'reply', reply: { id: 'aich:voice', title: 'Por voz' } },
+        ],
+      },
+    },
+  }
+}
+
+async function replyChannelSelector(
+  supabase: ReturnType<typeof adminClient>,
+  to: string,
+  usuarioId: string
+) {
+  try {
+    const graphBody = interactiveChannelSelectorPayload(to)
+    const result = await graphSendMessage(graphBody)
+    const metaId = extractMessageId(result.json)
+    await upsertThreadMessage(supabase, {
+      wa_id: to,
+      usuario_id: usuarioId,
+      direction: 'outbound',
+      source: 'automation',
+      message_kind: 'interactive',
+      body_text: 'Selector de canal: Por mensaje / Por voz',
+      meta_message_id: metaId,
+      delivery_status: result.ok ? 'sent' : 'failed',
+      error_message: result.ok ? null : result.raw.slice(0, 2000),
+      sent_at: result.ok ? new Date().toISOString() : null,
+      failed_at: result.ok ? null : new Date().toISOString(),
+      payload: {
+        request: graphBody,
+        response: result.json,
+        source: 'webhook_channel_selector',
+        flow: 'agent',
+        agent_consult: true,
+        event: 'bot_start_selector_sent',
+      },
+    })
+  } catch (error) {
+    console.error('whatsapp channel selector failed', error)
+  }
+}
+
+async function handleAgentChannelText(
+  supabase: ReturnType<typeof adminClient>,
+  params: { waId: string; usuarioId: string }
+) {
+  await replyText(
+    supabase,
+    params.waId,
+    [
+      'Perfecto. Podemos continuar por aquí.',
+      '',
+      'Puedes preguntarme por tus pendientes, prioridades, acciones bloqueadas u OKRs. ¿Qué necesitas revisar?',
+    ].join('\n'),
+    params.usuarioId,
+    { flow: 'agent', agent_consult: true, event: 'channel_text_selected' }
+  )
+}
+
+async function createAndSendVoiceLink(
+  supabase: ReturnType<typeof adminClient>,
+  params: { waId: string; usuarioId: string }
+) {
+  const secret = Deno.env.get('WHATSAPP_ASSISTANT_SECRET')?.trim() || ''
+  const base = (Deno.env.get('APP_URL') || Deno.env.get('VITE_APP_URL') || '').trim().replace(/\/$/, '')
+  if (!secret || !base) {
+    await replyText(
+      supabase,
+      params.waId,
+      'No pude generar la liga de voz ahora (configuración incompleta). Intenta Por mensaje o vuelve en unos minutos.',
+      params.usuarioId,
+      { flow: 'agent', event: 'voice_link_config_missing' }
+    )
+    return
+  }
+
+  try {
+    const response = await fetch(`${base}/api/create-guide-user-link`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-whatsapp-assistant-secret': secret,
+      },
+      body: JSON.stringify({
+        usuario_id: params.usuarioId,
+        expires_in_days: 7,
+        source: 'whatsapp',
+      }),
+    })
+    const json = (await response.json().catch(() => ({}))) as {
+      link?: string
+      error?: string
+    }
+    if (!response.ok || !json.link) {
+      await replyText(
+        supabase,
+        params.waId,
+        json.error?.slice(0, 180) ||
+          'No pude generar la liga de voz ahora. Intenta de nuevo en unos minutos o usa Por mensaje.',
+        params.usuarioId,
+        { flow: 'agent', event: 'voice_link_error' }
+      )
+      return
+    }
+    await replyText(
+      supabase,
+      params.waId,
+      [
+        'Perfecto. Puedes hablar conmigo por voz desde este enlace:',
+        '',
+        json.link,
+        '',
+        'Al abrirlo, podrás iniciar la conversación con tu asistente operativo.',
+      ].join('\n'),
+      params.usuarioId,
+      {
+        flow: 'agent',
+        agent_consult: true,
+        event: 'voice_link_sent',
+        preview_url: true,
+      }
+    )
+  } catch (error) {
+    console.error('whatsapp voice link', error)
+    await replyText(
+      supabase,
+      params.waId,
+      'No pude generar la liga de voz ahora. Intenta de nuevo en unos minutos.',
+      params.usuarioId,
+      { flow: 'agent', event: 'voice_link_exception' }
+    )
   }
 }
 
@@ -677,6 +832,7 @@ type InboundRoute =
   | { kind: 'agent_aiop'; opId: string; action: 'confirm' | 'cancel' }
   | { kind: 'mas_info' }
   | { kind: 'agent_consult' }
+  | { kind: 'agent_channel'; channel: 'text' | 'voice' }
   | { kind: 'ops_keyword'; action: 'done' | 'progress' | 'support'; text: string }
   | { kind: 'agent_free_text'; text: string }
   | { kind: 'ops_help'; text?: string }
@@ -691,23 +847,64 @@ function inboundFlowForRoute(route: InboundRoute): 'ops' | 'agent' {
   if (
     route.kind === 'agent_aiop' ||
     route.kind === 'agent_free_text' ||
-    route.kind === 'agent_consult'
+    route.kind === 'agent_consult' ||
+    route.kind === 'agent_channel'
   ) {
     return 'agent'
   }
   return 'ops'
 }
 
-function isConsultaAlBotText(text: string | null | undefined): boolean {
-  const t = (text ?? '')
+function foldWaText(text: string | null | undefined) {
+  return (text ?? '')
     .trim()
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[_-]+/g, ' ')
+}
+
+function isConsultaAlBotText(text: string | null | undefined): boolean {
+  const t = foldWaText(text)
   if (!t) return false
-  if (t === 'consulta al bot' || t === 'consulta' || t === '/consulta') return true
-  return /^\/consulta\b/.test(t) || /\bconsulta al bot\b/.test(t)
+  if (
+    t === 'consulta al bot' ||
+    t === 'consulta' ||
+    t === '/consulta' ||
+    t === 'iniciar bot' ||
+    t === 'iniciar asistente' ||
+    t === 'hablar con el bot'
+  ) {
+    return true
+  }
+  return (
+    /^\/consulta\b/.test(t) ||
+    /\bconsulta al bot\b/.test(t) ||
+    /\biniciar bot\b/.test(t) ||
+    /\biniciar asistente\b/.test(t) ||
+    /\bhablar con el bot\b/.test(t)
+  )
+}
+
+function parseAiChannelButton(raw: string | null | undefined): 'text' | 'voice' | null {
+  const id = (raw ?? '').trim().toLowerCase()
+  if (id === 'aich:text' || id === 'aich_text') return 'text'
+  if (id === 'aich:voice' || id === 'aich_voice') return 'voice'
+  return null
+}
+
+function inferAiChannelText(text: string | null | undefined): 'text' | 'voice' | null {
+  const t = foldWaText(text)
+  if (!t) return null
+  if (/\b(por voz|hablar por voz|quiero hablar por voz|prefiero voz|llamada de voz)\b/.test(t)) {
+    return 'voice'
+  }
+  if (
+    /\b(por mensaje|prefiero escribir|quiero escribir|hablar por mensaje|seguir por texto)\b/.test(t)
+  ) {
+    return 'text'
+  }
+  return null
 }
 
 /** Botones / media que no requieren RPC can_use_ai. null = hay que resolver texto libre. */
@@ -722,6 +919,9 @@ function resolveStructuredInboundRoute(input: {
 
   const aiOp = parseAiOpButton(buttonId)
   if (aiOp) return { kind: 'agent_aiop', opId: aiOp.opId, action: aiOp.action }
+
+  const channel = parseAiChannelButton(buttonId)
+  if (channel) return { kind: 'agent_channel', channel }
 
   if (isVerActividadesButton(buttonId, buttonTitle)) return { kind: 'mas_info' }
 
@@ -766,6 +966,9 @@ function resolveInboundRoute(input: {
   if (isConsultaAlBotText(freeText)) {
     return { kind: 'agent_consult' }
   }
+
+  const channelText = inferAiChannelText(freeText)
+  if (channelText) return { kind: 'agent_channel', channel: channelText }
 
   if (isVerActividadesButton(null, freeText)) {
     return { kind: 'mas_info' }
@@ -1860,7 +2063,12 @@ Deno.serve(async (req) => {
           let canUseAi = false
           let agentSessionActive = false
           let route: InboundRoute
-          if (structured && structured.kind !== 'agent_aiop' && structured.kind !== 'mas_info') {
+          if (
+            structured &&
+            structured.kind !== 'agent_aiop' &&
+            structured.kind !== 'mas_info' &&
+            structured.kind !== 'agent_channel'
+          ) {
             route = structured
           } else {
             canUseAi = await canUseAiWhatsApp(supabase, identity.usuario_id)
@@ -1932,7 +2140,7 @@ Deno.serve(async (req) => {
             continue
           }
 
-          // --- Ice breaker / comando «Consulta al Bot» ---
+          // --- Iniciar bot / Consulta al Bot → selector mensaje|voz ---
           if (route.kind === 'agent_consult') {
             if (!canUseAi) {
               await replyText(
@@ -1944,22 +2152,36 @@ Deno.serve(async (req) => {
                   'Puedes usar: Ver actividades, Reportar avance o Necesito apoyo.',
                 ].join('\n'),
                 identity.usuario_id,
-                { flow: 'ops' }
+                { flow: 'ops', event: 'bot_start_denied' }
               )
               continue
             }
-            await replyText(
-              supabase,
-              waId,
-              [
-                '*Consulta al bot*',
-                '',
-                'Listo. Escribe tu pregunta sobre el tablero, OKRs o tu equipo.',
-                'Ejemplos: resumen de rojos, avance de mis OKRs, qué está en retraso.',
-              ].join('\n'),
-              identity.usuario_id,
-              { flow: 'agent', agent_consult: true }
-            )
+            await replyChannelSelector(supabase, waId, identity.usuario_id)
+            continue
+          }
+
+          if (route.kind === 'agent_channel') {
+            if (!canUseAi) {
+              await replyText(
+                supabase,
+                waId,
+                'El asistente solo está disponible para perfiles OKRS o Super Admin.',
+                identity.usuario_id,
+                { flow: 'ops', event: 'channel_denied' }
+              )
+              continue
+            }
+            if (route.channel === 'voice') {
+              await createAndSendVoiceLink(supabase, {
+                waId,
+                usuarioId: identity.usuario_id,
+              })
+            } else {
+              await handleAgentChannelText(supabase, {
+                waId,
+                usuarioId: identity.usuario_id,
+              })
+            }
             continue
           }
 

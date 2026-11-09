@@ -254,6 +254,12 @@ describe('whatsappFlowRouting', () => {
         flow: 'agent',
       },
       {
+        name: 'Iniciar bot → agent_consult',
+        input: { canUseAi: true, textBody: 'Iniciar bot', messageType: 'text' },
+        kind: 'agent_consult',
+        flow: 'agent',
+      },
+      {
         name: 'Consulta al Bot → agent_consult (sin AI; handler niega)',
         input: { canUseAi: false, textBody: 'Consulta al Bot', messageType: 'text' },
         kind: 'agent_consult',
@@ -263,6 +269,30 @@ describe('whatsappFlowRouting', () => {
         name: '/consulta comando',
         input: { canUseAi: true, textBody: '/consulta', messageType: 'text' },
         kind: 'agent_consult',
+        flow: 'agent',
+      },
+      {
+        name: 'aich text button',
+        input: { canUseAi: true, buttonId: 'aich:text', messageType: 'interactive' },
+        kind: 'agent_channel',
+        flow: 'agent',
+      },
+      {
+        name: 'aich voice button',
+        input: { canUseAi: true, buttonId: 'aich:voice', messageType: 'interactive' },
+        kind: 'agent_channel',
+        flow: 'agent',
+      },
+      {
+        name: 'keyword quiero hablar por voz',
+        input: { canUseAi: true, textBody: 'Quiero hablar por voz', messageType: 'text' },
+        kind: 'agent_channel',
+        flow: 'agent',
+      },
+      {
+        name: 'keyword prefiero escribir',
+        input: { canUseAi: true, textBody: 'Prefiero escribir', messageType: 'text' },
+        kind: 'agent_channel',
         flow: 'agent',
       },
       {

@@ -71,6 +71,10 @@ export const ROUTES = {
   AI_HISTORY: '/asistente-ia/historial',
   /** Bandeja de seguimiento WhatsApp (operadores). */
   AI_WHATSAPP_SEGUIMIENTO: '/asistente-ia/seguimiento-whatsapp',
+  /** Liga personal de Guía (pública). */
+  GUIA_INVITACION: '/guia/invitacion/:token',
+  /** Voz por liga personal de Guía (pública). */
+  GUIA_INVITACION_VOZ: '/guia/invitacion/:token/voz',
   /** Organigrama jerárquico de la organización. */
   ORG_CHART: '/organigrama',
   /** Plan de acción Scrum Master — acceso restringido por usuario. */

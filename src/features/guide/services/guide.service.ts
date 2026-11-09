@@ -294,14 +294,25 @@ export const guideService = {
   async createRetellWebCall(opts?: {
     replaceActive?: boolean
     intent?: 'consult' | 'create'
+    guideToken?: string
+    consent?: boolean
   }): Promise<GuideRetellWebCallResponse> {
-    const headers = await authHeaders()
+    const token = opts?.guideToken?.trim() || ''
+    const headers = token
+      ? { 'Content-Type': 'application/json' }
+      : await authHeaders()
     const response = await fetch('/api/guide-retell-web-call', {
       method: 'POST',
       headers,
       body: JSON.stringify({
         replace_active: opts?.replaceActive ?? true,
         intent: opts?.intent === 'create' ? 'create' : 'consult',
+        ...(token
+          ? {
+              guide_token: token,
+              consent: opts?.consent === true,
+            }
+          : {}),
       }),
     })
     const payload = (await response.json().catch(() => ({}))) as GuideRetellWebCallResponse & {
@@ -314,6 +325,58 @@ export const guideService = {
       throw new Error('Retell no devolvio una sesion usable.')
     }
     return payload
+  },
+
+  async createUserLink(usuarioId: string, expiresInDays = 30) {
+    const headers = await authHeaders()
+    const response = await fetch('/api/create-guide-user-link', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        usuario_id: usuarioId,
+        expires_in_days: expiresInDays,
+        source: 'app',
+      }),
+    })
+    const payload = (await response.json().catch(() => ({}))) as {
+      link?: string
+      expires_at?: string
+      usuario_id?: string
+      user_name?: string
+      error?: string
+    }
+    if (!response.ok || !payload.link) {
+      throw new Error(payload.error || 'No se pudo crear la liga personal.')
+    }
+    return {
+      link: payload.link,
+      expires_at: payload.expires_at ?? '',
+      usuario_id: payload.usuario_id ?? usuarioId,
+      user_name: payload.user_name ?? '',
+    }
+  },
+
+  async validateUserLink(token: string, markOpened = true) {
+    const response = await fetch('/api/validate-guide-user-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, mark_opened: markOpened }),
+    })
+    const payload = (await response.json().catch(() => ({}))) as {
+      valid?: boolean
+      user_name?: string
+      expires_at?: string
+      duration_minutes?: number
+      error?: string
+    }
+    if (!response.ok || payload.valid !== true) {
+      throw new Error(payload.error || 'Liga inválida o no disponible.')
+    }
+    return {
+      user_name: payload.user_name ?? 'Usuario',
+      expires_at: payload.expires_at ?? '',
+      duration_minutes: payload.duration_minutes ?? 15,
+    }
   },
 
   async abandonSession(sessionId: string): Promise<void> {

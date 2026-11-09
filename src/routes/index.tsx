@@ -46,6 +46,20 @@ const router = createBrowserRouter([
     },
   },
   {
+    path: ROUTES.GUIA_INVITACION,
+    lazy: async () => {
+      const { PublicGuideInvitationPage } = await import('@/pages/guia/PublicGuideInvitationPage')
+      return { Component: PublicGuideInvitationPage }
+    },
+  },
+  {
+    path: ROUTES.GUIA_INVITACION_VOZ,
+    lazy: async () => {
+      const { GuideVoiceInvitePage } = await import('@/pages/guia/GuideVoiceInvitePage')
+      return { Component: GuideVoiceInvitePage }
+    },
+  },
+  {
     path: '/',
     element: <ProtectedRoute />,
     hydrateFallbackElement: <PageLoadingFallback />,

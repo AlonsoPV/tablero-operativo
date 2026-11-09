@@ -8,9 +8,14 @@ import {
   readRequestBody,
   readStringEnv,
 } from './_shared/http.js'
-import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth.js'
+import {
+  checkAssistantRateLimit,
+  createServiceRoleClient,
+  requireAssistantAuth,
+} from './_shared/assistantAuth.js'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
 import { loadGuideBoardContext } from './_shared/guideBoardContext.js'
+import { markGuideLinkUsed, resolveGuideLinkOwner } from './_shared/guideUserLinks.js'
 import { guideOpening, guideWorkInstructions } from './_shared/guideWork.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
 
@@ -47,13 +52,54 @@ export default defineApiHandler(async (req, res) => {
       })
     }
 
-    const auth = await requireAssistantAuth(req, { requireAiModule: true })
-    if (!auth.ok) {
-      return res.status(auth.status).json({ error: auth.error })
+    const body = await readRequestBody(req)
+    if (body !== null && body !== undefined && typeof body !== 'object') {
+      return res.status(400).json({ error: 'Solicitud invalida.' })
+    }
+    const payload = (body ?? {}) as {
+      replace_active?: unknown
+      guide_token?: unknown
+      consent?: unknown
+      intent?: unknown
+    }
+    const replaceActive = Boolean(payload.replace_active)
+    const guideToken = typeof payload.guide_token === 'string' ? payload.guide_token.trim() : ''
+    const consent = payload.consent === true
+
+    let usuarioId = ''
+    let guideLinkId = ''
+    let supabase: ReturnType<typeof createServiceRoleClient>
+
+    if (guideToken) {
+      if (!consent) {
+        return res.status(400).json({ error: 'Debes aceptar el consentimiento para iniciar la voz.' })
+      }
+      try {
+        supabase = createServiceRoleClient()
+      } catch {
+        return res.status(500).json({ error: 'Falta SUPABASE_SERVICE_ROLE_KEY en el servidor.' })
+      }
+      try {
+        const owner = await resolveGuideLinkOwner(supabase, guideToken)
+        usuarioId = owner.usuario_id
+        guideLinkId = owner.link_id
+      } catch (error) {
+        const status =
+          typeof (error as { status?: number }).status === 'number' ? (error as { status: number }).status : 400
+        const message = error instanceof Error ? error.message : 'Liga inválida.'
+        return res.status(status).json({ error: message })
+      }
+    } else {
+      const auth = await requireAssistantAuth(req, { requireAiModule: true })
+      if (!auth.ok) {
+        return res.status(auth.status).json({ error: auth.error })
+      }
+      usuarioId = auth.usuarioId
+      supabase = auth.supabase
     }
 
     const rate = checkAssistantRateLimit({
-      key: `${auth.usuarioId}:guide-retell`,
+      key: `${usuarioId}:guide-retell`,
       limit: 10,
       windowMs: 60_000,
     })
@@ -63,18 +109,10 @@ export default defineApiHandler(async (req, res) => {
       })
     }
 
-    const body = await readRequestBody(req)
-    if (body !== null && body !== undefined && typeof body !== 'object') {
-      return res.status(400).json({ error: 'Solicitud invalida.' })
-    }
-    const replaceActive = Boolean((body as { replace_active?: unknown } | null)?.replace_active)
-
-    const supabase = auth.supabase
-
     const { data: usuario, error: usuarioError } = await supabase
       .from('usuarios')
       .select('id,nombre')
-      .eq('id', auth.usuarioId)
+      .eq('id', usuarioId)
       .maybeSingle()
 
     if (usuarioError || !usuario?.id) {
@@ -176,8 +214,9 @@ export default defineApiHandler(async (req, res) => {
         metadata: {
           guide_session_id: session.id,
           usuario_id: usuario.id,
-          guide_link_id: '',
+          guide_link_id: guideLinkId || '',
           product: 'guide',
+          source: guideLinkId ? 'guide_link' : 'authenticated',
         },
         retell_llm_dynamic_variables: {
           user_name: typeof usuario.nombre === 'string' && usuario.nombre.trim() ? usuario.nombre.trim() : 'Usuario',
@@ -237,6 +276,14 @@ export default defineApiHandler(async (req, res) => {
 
     if (updateError) {
       console.error('guide-retell-web-call call_id', updateError)
+    }
+
+    if (guideLinkId) {
+      try {
+        await markGuideLinkUsed(createServiceRoleClient(), guideLinkId)
+      } catch (error) {
+        console.error('guide-retell-web-call link use', error)
+      }
     }
 
     const transport = retellJson.transport === 'gateway' || retellJson.transport === 'livekit' ? retellJson.transport : undefined
