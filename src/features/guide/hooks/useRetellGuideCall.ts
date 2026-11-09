@@ -37,14 +37,17 @@ export function compactRetellMessages(messages: GuideMessage[]): GuideCompactMes
 }
 
 export function useRetellGuideCall(options?: {
+  guideToken?: string
   onRemoteEnded?: () => void
   onError?: (message: string) => void
 }) {
   const clientRef = useRef<RetellWebClient | null>(null)
   const sessionIdRef = useRef('')
   const localStopRef = useRef(false)
+  const guideTokenRef = useRef(options?.guideToken?.trim() || '')
   const onRemoteEndedRef = useRef(options?.onRemoteEnded)
   const onErrorRef = useRef(options?.onError)
+  guideTokenRef.current = options?.guideToken?.trim() || ''
   onRemoteEndedRef.current = options?.onRemoteEnded
   onErrorRef.current = options?.onError
 
@@ -102,6 +105,8 @@ export function useRetellGuideCall(options?: {
     const created = await guideService.createRetellWebCall({
       replaceActive: true,
       intent: opts?.intent === 'create' ? 'create' : 'consult',
+      guideToken: guideTokenRef.current || undefined,
+      consent: guideTokenRef.current ? true : undefined,
     })
     sessionIdRef.current = created.session.id
 

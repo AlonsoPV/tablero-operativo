@@ -12,7 +12,13 @@ import {
   normalizeGeminiModel,
 } from './_shared/geminiModel.js'
 import { runGeminiToolLoop } from './_shared/geminiToolLoop.js'
-import { cancelPendingOp, confirmPendingOp, type CopilotActor } from './_shared/assistantOpsRuntime.js'
+import {
+  cancelPendingOp,
+  confirmPendingOp,
+  dispatchCopilotTool,
+  serializeToolResultForModel,
+  type CopilotActor,
+} from './_shared/assistantOpsRuntime.js'
 import { inferAiConfirmText } from './_shared/whatsappAiConfirm.js'
 import { composeSystemPrompt, sanitizeMessages } from '../src/lib/assistantPrompts.js'
 import type { CopilotProposal } from '../src/features/ai-support/copilot/types.js'
@@ -32,11 +38,29 @@ CANAL WHATSAPP:
 - Responde en espanol, corto (maximo 900 caracteres).
 - No uses markdown ni simbolos # *.
 - No inventes telefonos, usuarios ni estados.
-- Consulta el tablero con herramientas si hace falta: dashboard, organigrama, KPIs, gaps, tickets, calendario, kanban por equipos y el resto de modulos que el usuario pueda ver.
+- Tienes un resumen inicial del tablero abajo. Usa herramientas para profundizar: dashboard, OKRs, organigrama, KPIs, gaps, tickets, calendario, kanban por equipos, acciones del equipo y el resto de modulos autorizados.
 - Si no tiene permiso para un modulo, dilo. No inventes cifras ni organigrama.
 - Las escrituras (crear/cambiar acciones) solo se proponen. El usuario confirma con boton o si/no.
 - Si ya hay una propuesta pendiente, pide confirmar o cancelar. No crees otra.
 `.trim()
+
+const BOARD_SEED_CHARS = 4200
+
+async function loadBoardSeedForWhatsApp(actor: CopilotActor): Promise<string> {
+  const [dashboard, okrs, mine, team] = await Promise.all([
+    dispatchCopilotTool(actor, 'get_dashboard_summary', {}),
+    dispatchCopilotTool(actor, 'get_okr_progress', {}),
+    dispatchCopilotTool(actor, 'get_my_actions', { filter: 'open', limit: 8 }),
+    dispatchCopilotTool(actor, 'get_team_actions', { limit: 8 }),
+  ])
+  const payload = {
+    dashboard: serializeToolResultForModel(dashboard),
+    okrs: serializeToolResultForModel(okrs),
+    mis_acciones: serializeToolResultForModel(mine),
+    equipo_caliente: serializeToolResultForModel(team),
+  }
+  return JSON.stringify(payload).slice(0, BOARD_SEED_CHARS)
+}
 
 type PendingPreview = {
   id: string
@@ -143,9 +167,23 @@ async function runGeminiChat(input: {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) throw Object.assign(new Error('missing_gemini'), { status: 500 })
 
-  const systemInstruction = `${composeSystemPrompt('operativo', {
-    hasBoardContext: true,
-  })}\n\n${WHATSAPP_CHANNEL_RULES}`
+  let boardSeed = ''
+  try {
+    boardSeed = await loadBoardSeedForWhatsApp(input.actor)
+  } catch (error) {
+    console.error('whatsapp-assistant board seed', error)
+  }
+
+  const systemInstruction = [
+    composeSystemPrompt('operativo', {
+      hasBoardContext: true,
+      hasOkrContext: true,
+    }),
+    WHATSAPP_CHANNEL_RULES,
+    boardSeed
+      ? `RESUMEN INICIAL DEL TABLERO (JSON; datos de herramientas; no inventes fuera de esto ni de llamadas posteriores):\n${boardSeed}`
+      : 'No se pudo precargar el resumen del tablero. Usa herramientas antes de responder cifras.',
+  ].join('\n\n')
   const candidates = geminiModelCandidates(process.env.GEMINI_MODEL)
   const generationConfig = {
     maxOutputTokens: readNumberEnv('GEMINI_MAX_TOKENS', DEFAULT_MAX_OUTPUT_TOKENS),

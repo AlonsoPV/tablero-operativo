@@ -810,6 +810,11 @@ async function toolModuleData(
       return readOk('get_module_data', { module, ...(await moduleReports(actor)) })
     case 'distancias':
       return readOk('get_module_data', { module, ...(await moduleDistancias(actor)) })
+    case 'okrs': {
+      const okr = await toolOkrProgress(actor)
+      if (!okr.ok) return { ...okr, tool: 'get_module_data' }
+      return readOk('get_module_data', { module, data: okr.data })
+    }
     default:
       return denied('get_module_data', 'Modulo no reconocido.')
   }
@@ -882,6 +887,29 @@ async function toolSearchBoard(actor: BoardActor, query: string): Promise<Copilo
   }
   if (canSeePath(actor, access, ROUTES.TEAM_KANBAN)) {
     jobs.push(run('kanban_equipos', async () => (await moduleTeamKanban(actor, access, query)).items))
+  }
+  if (canSeePath(actor, access, ROUTES.OKRS)) {
+    jobs.push(
+      run('okrs', async () => {
+        const { data } = await actor.supabase
+          .from('okrs')
+          .select('id,nombre_okr,scope,activo')
+          .eq('activo', true)
+          .ilike('nombre_okr', `%${escapeIlike(query)}%`)
+          .limit(8)
+        return clip(data ?? [], 8)
+      })
+    )
+    jobs.push(
+      run('key_results', async () => {
+        const { data } = await actor.supabase
+          .from('okr_key_results')
+          .select('id,okr_id,title,current_value,target_value,unit')
+          .ilike('title', `%${escapeIlike(query)}%`)
+          .limit(8)
+        return clip(data ?? [], 8)
+      })
+    )
   }
 
   await Promise.all(jobs)

@@ -1,9 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import {
-  canManageActionsByRole,
-  canViewAllBoardData,
-  isAnalystByRole,
-} from '../../src/features/auth/lib/permissions.js'
+import { canManageActionsByRole, isAnalystByRole } from '../../src/features/auth/lib/permissions.js'
 import { isCopilotWriteTool } from '../../src/features/ai-support/copilot/catalog.js'
 import {
   evaluatePendingTransition,
@@ -361,12 +357,8 @@ async function toolGetActionDetails(actor: CopilotActor, args: Record<string, un
 }
 
 async function toolGetTeamActions(actor: CopilotActor, args: Record<string, unknown>): Promise<CopilotToolResult> {
-  const { data: roles } = await actor.supabase
-    .from('user_roles')
-    .select('app_role')
-    .eq('user_id', actor.authUserId)
-  const appRole = (roles ?? [])[0] ? String((roles ?? [])[0].app_role) : null
-  if (!canViewAllBoardData(actor.rol, appRole)) {
+  // Misma amplitud que dashboard/search del tablero: Analista solo ve lo propio.
+  if (isAnalystByRole(actor.rol)) {
     return denied(
       'get_team_actions',
       'No tienes vista de tablero completo. Solo puedo consultar tus acciones asignadas.'

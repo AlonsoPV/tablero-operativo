@@ -10,6 +10,7 @@ export type WhatsAppInboundRoute =
   | { kind: 'agent_aiop'; opId: string; action: 'confirm' | 'cancel' }
   | { kind: 'mas_info' }
   | { kind: 'agent_consult' }
+  | { kind: 'agent_channel'; channel: 'text' | 'voice' }
   | { kind: 'ops_keyword'; action: 'done' | 'progress' | 'support'; text: string }
   | { kind: 'agent_free_text'; text: string }
   | { kind: 'ops_help'; text?: string }
@@ -76,17 +77,66 @@ export function inferOpsTextAction(text: string): 'done' | 'progress' | 'support
   return null
 }
 
-/** Ice breaker / comando Meta: «Consulta al Bot» o `/consulta`. */
-export function isConsultaAlBotText(text: string | null | undefined): boolean {
-  const t = (text ?? '')
+function foldWaText(text: string | null | undefined) {
+  return (text ?? '')
     .trim()
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[_-]+/g, ' ')
+}
+
+/** Ice breaker / comando: «Consulta al Bot», «Iniciar bot», `/consulta`. */
+export function isConsultaAlBotText(text: string | null | undefined): boolean {
+  const t = foldWaText(text)
   if (!t) return false
-  if (t === 'consulta al bot' || t === 'consulta' || t === '/consulta') return true
-  return /^\/consulta\b/.test(t) || /\bconsulta al bot\b/.test(t)
+  if (
+    t === 'consulta al bot' ||
+    t === 'consulta' ||
+    t === '/consulta' ||
+    t === 'iniciar bot' ||
+    t === 'iniciar asistente' ||
+    t === 'hablar con el bot'
+  ) {
+    return true
+  }
+  return (
+    /^\/consulta\b/.test(t) ||
+    /\bconsulta al bot\b/.test(t) ||
+    /\biniciar bot\b/.test(t) ||
+    /\biniciar asistente\b/.test(t) ||
+    /\bhablar con el bot\b/.test(t)
+  )
+}
+
+export function parseAiChannelButtonId(
+  raw: string | null | undefined
+): 'text' | 'voice' | null {
+  const id = (raw ?? '').trim().toLowerCase()
+  if (id === 'aich:text' || id === 'aich_text') return 'text'
+  if (id === 'aich:voice' || id === 'aich_voice') return 'voice'
+  return null
+}
+
+/** Cambio de canal: «quiero hablar por voz» / «prefiero escribir». */
+export function inferAiChannelText(
+  text: string | null | undefined
+): 'text' | 'voice' | null {
+  const t = foldWaText(text)
+  if (!t) return null
+  if (
+    /\b(por voz|hablar por voz|quiero hablar por voz|prefiero voz|llamada de voz)\b/.test(t)
+  ) {
+    return 'voice'
+  }
+  if (
+    /\b(por mensaje|prefiero escribir|quiero escribir|hablar por mensaje|seguir por texto)\b/.test(
+      t
+    )
+  ) {
+    return 'text'
+  }
+  return null
 }
 
 /**
@@ -94,9 +144,10 @@ export function isConsultaAlBotText(text: string | null | undefined): boolean {
  * - Botones act/chk/tchk → ops (todos)
  * - aiop → agent (interacción de propuestas)
  * - Más información / Ver actividades → mas_info (solo ops; no abre Gemini)
- * - Consulta al Bot → agent_consult (única entrada explícita al asistente)
+ * - Consulta al Bot / Iniciar bot → agent_consult (selector mensaje/voz)
+ * - aich:text|voice o keywords de canal → agent_channel
  * - Keywords ops (Realizada / En proceso / apoyo) → siempre ops, también OKRS
- * - Texto libre agent solo si canUseAi y hay sesión agent activa (tras Consulta al Bot / reply agent)
+ * - Texto libre agent solo si canUseAi y hay sesión agent activa
  */
 export function resolveWhatsAppInboundRoute(input: {
   canUseAi: boolean
@@ -121,6 +172,11 @@ export function resolveWhatsAppInboundRoute(input: {
   const aiOp = parseAiOpButtonId(buttonId)
   if (aiOp) {
     return { kind: 'agent_aiop', opId: aiOp.opId, action: aiOp.action }
+  }
+
+  const channelButton = parseAiChannelButtonId(buttonId)
+  if (channelButton) {
+    return { kind: 'agent_channel', channel: channelButton }
   }
 
   if (isMasInfoButton(buttonId, buttonTitle)) {
@@ -151,6 +207,11 @@ export function resolveWhatsAppInboundRoute(input: {
     return { kind: 'agent_consult' }
   }
 
+  const channelText = inferAiChannelText(freeText)
+  if (channelText) {
+    return { kind: 'agent_channel', channel: channelText }
+  }
+
   // Ice breaker / texto «Ver actividades» → mismo gate ops que el botón.
   if (isMasInfoButton(null, freeText)) {
     return { kind: 'mas_info' }
@@ -175,6 +236,7 @@ export function flowForRoute(route: WhatsAppInboundRoute): WhatsAppFlow | null {
     case 'agent_aiop':
     case 'agent_free_text':
     case 'agent_consult':
+    case 'agent_channel':
       return 'agent'
     case 'mas_info':
       return null // mixed gate

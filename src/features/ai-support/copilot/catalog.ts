@@ -48,7 +48,7 @@ export const COPILOT_FUNCTION_DECLARATIONS: GeminiFunctionDeclaration[] = [
   {
     name: 'get_team_actions',
     description:
-      'Retrasos y bloqueos de otras personas. Solo si el usuario tiene vista de tablero completo.',
+      'Retrasos y bloqueos de otras personas del tablero corporativo. Disponible si el usuario no es Analista (vista amplia de acciones).',
     parameters: {
       type: 'object',
       properties: {
@@ -97,7 +97,7 @@ export const COPILOT_FUNCTION_DECLARATIONS: GeminiFunctionDeclaration[] = [
   {
     name: 'get_module_data',
     description:
-      'Lee un modulo del tablero que el usuario tenga permiso de ver: kpis, gaps, impacto, tickets, team_kanban, calendar, challenges, notifications, sprints, strategy, disciplina, academy, areas, plan_accion, reports, distancias, dashboard u org_chart.',
+      'Lee un modulo del tablero que el usuario tenga permiso de ver: kpis, gaps, impacto, tickets, team_kanban, calendar, challenges, notifications, sprints, strategy, disciplina, academy, areas, plan_accion, reports, distancias, okrs, dashboard u org_chart.',
     parameters: {
       type: 'object',
       properties: {
@@ -122,6 +122,7 @@ export const COPILOT_FUNCTION_DECLARATIONS: GeminiFunctionDeclaration[] = [
             'plan_accion',
             'reports',
             'distancias',
+            'okrs',
           ],
         },
         query: { type: 'string', description: 'Filtro opcional: nombre, titulo o fecha YYYY-MM-DD.' },
@@ -132,7 +133,7 @@ export const COPILOT_FUNCTION_DECLARATIONS: GeminiFunctionDeclaration[] = [
   {
     name: 'search_board',
     description:
-      'Busca texto en el tablero (acciones, personas, tickets, KPIs, gaps, retos, organigrama) solo en modulos autorizados para el usuario.',
+      'Busca texto en el tablero (acciones, personas, tickets, KPIs, gaps, retos, organigrama, OKRs, kanban equipos) solo en modulos autorizados para el usuario.',
     parameters: {
       type: 'object',
       properties: {
