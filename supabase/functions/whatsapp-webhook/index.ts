@@ -1290,8 +1290,9 @@ async function resolveTeamStateId(
     )
   }
   return (
-    list.find((r) => /en_ejecucion|ejecucion/i.test(r.nombre) && !r.es_cierre)?.id ??
-    list.find((r) => /proceso|progreso|hoy/i.test(r.nombre) && !r.es_cierre)?.id ??
+    list.find((r) => /en[_\s-]?ejecucion|en[_\s-]?proceso|en[_\s-]?progreso/i.test(r.nombre) && !r.es_cierre)?.id ??
+    list.find((r) => /proceso|progreso|ejecucion/i.test(r.nombre) && !r.es_cierre)?.id ??
+    list.find((r) => /hoy/i.test(r.nombre) && !r.es_cierre)?.id ??
     list.find((r) => !r.es_cierre)?.id ??
     null
   )

@@ -30,6 +30,7 @@ const QUERY_KEY = ['whatsapp-followup-settings'] as const
 const TEMPLATE_VAR_TOKENS = [
   'responsable_nombre',
   'titulo_accion',
+  'descripcion_accion',
   'fecha_compromiso',
   'checklist_bloque',
   'checkpoint_texto',
@@ -41,6 +42,7 @@ const TEMPLATE_VARS: Array<{
 }> = [
   { token: 'responsable_nombre', short: 'Responsable' },
   { token: 'titulo_accion', short: 'Título' },
+  { token: 'descripcion_accion', short: 'Descripción' },
   { token: 'fecha_compromiso', short: 'Fecha' },
   { token: 'checklist_bloque', short: 'Checklist' },
   { token: 'checkpoint_texto', short: 'Checkpoint' },
@@ -49,6 +51,7 @@ const TEMPLATE_VARS: Array<{
 const SAMPLE: Record<(typeof TEMPLATE_VAR_TOKENS)[number], string> = {
   responsable_nombre: 'Ana Pérez',
   titulo_accion: 'Cerrar conciliación O2C',
+  descripcion_accion: 'Revisar partidas de la semana y cerrar diferencias antes del corte.',
   fecha_compromiso: '2026-11-05',
   checklist_bloque: '\nChecklist pendiente:\n1. Validar facturas\n2. Subir evidencia',
   checkpoint_texto: 'Validar facturas',
@@ -67,7 +70,7 @@ const TEMPLATE_TABS: Array<{
   {
     key: 'initial_text_template',
     label: 'Inicial',
-    hint: 'Al crear o asignar, si hay sesión abierta (24 h).',
+    hint: 'Al crear o asignar, si hay sesión abierta (24 h). Incluye los mismos botones de seguimiento: Realizada, En proceso y Requiero apoyo.',
   },
   {
     key: 'checkpoint_followup_template',
@@ -425,7 +428,10 @@ export function WhatsAppSettingsPage() {
                 id={`wa-${activeTab.key}`}
                 value={draft[activeTab.key] ?? ''}
                 onChange={(next) => setDraft((prev) => ({ ...prev, [activeTab.key]: next }))}
-                showButtonsHint={activeTab.key === 'checkpoint_followup_template'}
+                showButtonsHint={
+                  activeTab.key === 'initial_text_template' ||
+                  activeTab.key === 'checkpoint_followup_template'
+                }
               />
             </CardContent>
           </Card>

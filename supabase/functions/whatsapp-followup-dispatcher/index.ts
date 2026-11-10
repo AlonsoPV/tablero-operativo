@@ -481,7 +481,7 @@ async function processJob(
 
     const { data: action } = await supabase
       .from('acciones_diarias')
-      .select('id,titulo_accion,fecha,responsable,estado')
+      .select('id,titulo_accion,descripcion_accion,fecha,responsable,estado')
       .eq('id', job.accion_id)
       .maybeSingle()
 
@@ -583,6 +583,8 @@ async function processJob(
     const vars = {
       responsable_nombre: resolveContactNombre(user, identity?.display_name),
       titulo_accion: action.titulo_accion ?? 'Actividad',
+      descripcion_accion: (action.descripcion_accion ?? '').trim(),
+      descripcion: (action.descripcion_accion ?? '').trim(),
       fecha_compromiso: action.fecha ?? 'sin fecha',
       checklist_bloque: '',
       checkpoint_texto: checkpoint.texto ?? '',
@@ -637,7 +639,7 @@ async function processJob(
 
   const { data: team } = await supabase
     .from('acciones_equipo')
-    .select('id,titulo,fecha_limite,asignado_a,checklist,completed_at')
+    .select('id,titulo,descripcion,fecha_limite,asignado_a,checklist,completed_at')
     .eq('id', job.team_action_id)
     .maybeSingle()
 
@@ -669,6 +671,8 @@ async function processJob(
   const vars = {
     responsable_nombre: resolveContactNombre(user, identity?.display_name),
     titulo_accion: team.titulo ?? 'Actividad de equipo',
+    descripcion_accion: (team.descripcion ?? '').trim(),
+    descripcion: (team.descripcion ?? '').trim(),
     fecha_compromiso: team.fecha_limite ? String(team.fecha_limite).slice(0, 10) : 'sin fecha',
     checklist_bloque: '',
     checkpoint_texto: item.text ?? '',

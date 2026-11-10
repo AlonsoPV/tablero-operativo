@@ -768,6 +768,8 @@ async function sendCorporate(params: {
   const vars: Record<string, string> = {
     responsable_nombre: responsable,
     titulo_accion: corporate.titulo_accion ?? 'Actividad',
+    descripcion_accion: (corporate.descripcion_accion ?? '').trim(),
+    descripcion: (corporate.descripcion_accion ?? '').trim(),
     fecha_compromiso: corporate.fecha ?? 'sin fecha',
     checklist_bloque: checklistBlockFromCorporate((checkpoints ?? []) as Checkpoint[]),
     checkpoint_texto: checkpoint?.texto ?? '',
@@ -808,8 +810,9 @@ async function sendCorporate(params: {
     if (vars.actividades_instrucciones && !/\{\{\s*actividades_/i.test(settings.initial_text_template)) {
       sessionText = `${sessionText.trim()}${vars.actividades_instrucciones}`
     }
+    const prefix = checkpoint ? `chk:${checkpoint.id}` : `act:${corporate.id}`
     graphBody = open
-      ? textPayload(to, sessionText)
+      ? interactiveFollowupPayload(to, sessionText, prefix)
       : templatePayload(to, templateName, templateLanguage, templateBody)
     deliveryKind = 'initial'
   }
@@ -818,10 +821,13 @@ async function sendCorporate(params: {
   let usedTemplate = !open
   let templateFallback = false
   if (!result.ok && usedTemplate && sessionText) {
+    const fallbackPrefix = checkpoint ? `chk:${checkpoint.id}` : `act:${corporate.id}`
     const fallbackBody =
       messageType === 'checkpoint_followup'
         ? interactiveFollowupPayload(to, sessionText, `chk:${checkpoint!.id}`)
-        : textPayload(to, sessionText)
+        : messageType === 'initial'
+          ? interactiveFollowupPayload(to, sessionText, fallbackPrefix)
+          : textPayload(to, sessionText)
     const fallbackResult = await graphSendMessage(fallbackBody)
     if (fallbackResult.ok) {
       graphBody = fallbackBody
@@ -964,6 +970,8 @@ async function sendTeam(params: {
   const vars: Record<string, string> = {
     responsable_nombre: responsable,
     titulo_accion: team.titulo ?? 'Actividad de equipo',
+    descripcion_accion: (team.descripcion ?? '').trim(),
+    descripcion: (team.descripcion ?? '').trim(),
     fecha_compromiso: fechaCompromiso,
     checklist_bloque: checklistBlockFromTeam(checklist),
     checkpoint_texto: checklistText,
@@ -993,8 +1001,10 @@ async function sendTeam(params: {
     deliveryKind = 'checkpoint_followup'
   } else {
     const text = renderTemplate(settings.initial_text_template, vars)
+    const pendingIndex = checklist.findIndex((item) => !item.done)
+    const prefix = `tchk:${team.id}:${pendingIndex >= 0 ? pendingIndex : 0}`
     graphBody = open
-      ? textPayload(to, text)
+      ? interactiveFollowupPayload(to, text, prefix)
       : templatePayload(to, templateName, templateLanguage, templateBody)
     deliveryKind = 'initial'
   }

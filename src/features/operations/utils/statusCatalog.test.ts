@@ -7,6 +7,7 @@ import {
   inferStatusCatalogKeyFromNombre,
   isActionStatusActiveInCatalog,
   orderedActionStatuses,
+  columnsWithOccupiedStatuses,
   statusCatalogByKey,
   statusCatalogLabel,
 } from './statusCatalog'
@@ -97,6 +98,20 @@ describe('orderedActionStatuses', () => {
     expect(ordered[0]).toBe('Pendiente')
     expect(ordered).not.toContain('Verificado')
     expect(ordered).toContain('Hoy')
+  })
+
+  it('keeps occupied columns even when the catalog deactivated them', () => {
+    const catalog = [
+      status({ nombre: 'Pendiente', estado_key: 'Pendiente', orden: 10, activo: true }),
+      status({ nombre: 'En proceso', estado_key: 'En_Ejecucion', orden: 30, activo: false }),
+    ]
+    const ordered = orderedActionStatuses(catalog, [...ACTION_STATUS])
+    expect(ordered).not.toContain('En_Ejecucion')
+    const visible = columnsWithOccupiedStatuses(ordered, [...ACTION_STATUS], {
+      En_Ejecucion: { length: 1 },
+    })
+    expect(visible).toContain('En_Ejecucion')
+    expect(visible.indexOf('En_Ejecucion')).toBeGreaterThan(visible.indexOf('Pendiente'))
   })
 })
 

@@ -38,7 +38,7 @@ export function mapCompanyEstadoToTeamStateId(
   if (exact) return exact.id
   // Alias frecuentes corporativo ↔ catálogo
   const aliases: Record<string, string[]> = {
-    enejecucion: ['enejecucion', 'proceso', 'enproceso'],
+    enejecucion: ['enejecucion', 'en_ejecucion', 'proceso', 'enproceso', 'en_proceso', 'enprogreso'],
     bloqueado: ['bloqueado', 'bloqueada'],
     hecho: ['hecho', 'cerrado', 'finalizado'],
     verificado: ['verificado'],
