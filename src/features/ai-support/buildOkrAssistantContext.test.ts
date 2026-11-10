@@ -135,4 +135,17 @@ describe('buildOkrAssistantContext', () => {
       'Disponibilidad de unidades',
     ])
   })
+
+  it('marks multiple focused KRs', () => {
+    const payload = buildOkrAssistantContext(data, actions, {
+      objectiveId: 'okr-1',
+      keyResultIds: ['kr-activity', 'kr-fleet'],
+      today: '2026-07-01',
+    })
+    expect(payload?.focus).toBe('key_result')
+    expect(payload?.keyResults.filter((item) => item.focused).map((item) => item.id)).toEqual([
+      'kr-activity',
+      'kr-fleet',
+    ])
+  })
 })

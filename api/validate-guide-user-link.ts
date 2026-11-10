@@ -4,7 +4,7 @@
 import { defineApiHandler, readRequestBody } from './_shared/http.js'
 import { createServiceRoleClient } from './_shared/assistantAuth.js'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
-import { validateGuideUserLink } from './_shared/guideUserLinks.js'
+import { normalizeGuideLinkToken, validateGuideUserLink } from './_shared/guideUserLinks.js'
 
 export default defineApiHandler(async (req, res) => {
   enableSystemCaCertificates()
@@ -17,8 +17,8 @@ export default defineApiHandler(async (req, res) => {
     return res.status(400).json({ error: 'Solicitud invalida.' })
   }
   const payload = body as { token?: unknown; mark_opened?: unknown }
-  const token = typeof payload.token === 'string' ? payload.token : ''
-  if (!token.trim()) {
+  const token = normalizeGuideLinkToken(typeof payload.token === 'string' ? payload.token : '')
+  if (!token) {
     return res.status(400).json({ error: 'Falta el token.' })
   }
 

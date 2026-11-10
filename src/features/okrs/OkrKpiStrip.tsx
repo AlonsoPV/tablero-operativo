@@ -2,6 +2,7 @@ import { Plus, Target } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
+  formatProgressPercent,
   krProgress,
   type CheckIn,
   type KeyResult,
@@ -128,7 +129,7 @@ export function OkrKpiStrip({
                           toneTextClass(tone === 'muted' ? 'primary' : tone)
                         )}
                       >
-                        {Math.round(progress)}%
+                        {formatProgressPercent(progress)}
                       </span>
                     </div>
                     <div className="min-w-0 space-y-0.5">

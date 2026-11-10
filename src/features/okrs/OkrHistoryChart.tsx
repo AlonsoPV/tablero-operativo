@@ -87,7 +87,7 @@ export function OkrHistoryChart({
       : latest
         ? historicalProgress(latest)
         : null)
-  const tone = progressTone(resolvedProgress ?? 0)
+  const tone = progressTone(resolvedProgress)
   const today = new Date().toISOString().slice(0, 10)
   const daysLeft =
     periodEnd != null ? calendarDaysBetween(today, periodEnd) : null

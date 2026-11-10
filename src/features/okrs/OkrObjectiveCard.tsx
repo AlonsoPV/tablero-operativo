@@ -14,6 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { UserPersonBadge } from '@/features/users/components/UserPersonBadge'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import {
@@ -100,18 +101,21 @@ export function OkrObjectiveCard({
       ? data.objectives.find((item) => item.id === objective.parent_okr_id)
           ?.nombre_okr
       : null
+  const ownerName =
+    data.users.find((user) => user.id === objective.owner_user_id)?.nombre?.trim() ||
+    'Sin responsable'
 
   return (
     <article
       id={`okr-objective-${objective.id}`}
       className="min-w-0 border-b border-border/50 last:border-b-0"
     >
-      <div className="flex items-center gap-2 px-3 py-3.5 sm:gap-3 sm:px-4">
+      <div className="flex items-start gap-2 px-3 py-3.5 sm:items-center sm:gap-3 sm:px-4">
         <button
           type="button"
           aria-expanded={expanded}
           onClick={() => onExpandedChange(!expanded)}
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+          className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring sm:mt-0"
         >
           <ChevronDown
             className={cn(
@@ -123,7 +127,7 @@ export function OkrObjectiveCard({
         </button>
 
         <span
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-sky-500/15 text-sky-600 dark:text-sky-400"
+          className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-sky-500/15 text-sky-600 dark:text-sky-400 sm:mt-0"
           aria-hidden
         >
           <Flag className="h-4 w-4" />
@@ -139,7 +143,7 @@ export function OkrObjectiveCard({
             <span aria-hidden>·</span>
             <span>{scopeLabel}</span>
           </div>
-          <h2 className="mt-0.5 truncate text-[15px] font-semibold leading-snug sm:text-base">
+          <h2 className="mt-0.5 line-clamp-2 text-[15px] font-semibold leading-snug sm:truncate sm:text-base">
             {objective.nombre_okr}
           </h2>
           {parentName ? (
@@ -150,16 +154,31 @@ export function OkrObjectiveCard({
               </span>
             </div>
           ) : null}
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {periodRangeText(objective.start_date, objective.end_date)}
-          </p>
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <p className="text-xs text-muted-foreground">
+              {periodRangeText(objective.start_date, objective.end_date)}
+            </p>
+            <span
+              className="flex min-w-0 max-w-full items-center gap-1.5"
+              title={`Responsable: ${ownerName}`}
+            >
+              <UserPersonBadge
+                nombre={ownerName}
+                size="sm"
+                className="h-6 w-6 text-[9px]"
+              />
+              <span className="truncate text-xs text-muted-foreground">
+                {ownerName}
+              </span>
+            </span>
+          </div>
         </button>
 
         <div className="hidden w-40 shrink-0 sm:block">
           <div className="flex items-baseline justify-between gap-2 text-xs">
             <span className="text-muted-foreground">Progreso</span>
             <span className="font-semibold tabular-nums">
-              {progress == null ? '—' : `${Math.round(progress)}%`}
+              {progress == null ? 'Sin datos suficientes' : `${Math.round(progress)}%`}
             </span>
           </div>
           {progress != null && (
@@ -174,8 +193,8 @@ export function OkrObjectiveCard({
           )}
         </div>
 
-        <span className="tabular-nums text-sm font-semibold sm:hidden">
-          {progress == null ? '—' : `${Math.round(progress)}%`}
+        <span className="mt-1 shrink-0 tabular-nums text-sm font-semibold sm:mt-0 sm:hidden">
+          {progress == null ? 'Sin datos' : `${Math.round(progress)}%`}
         </span>
 
         <DropdownMenu>
@@ -183,7 +202,7 @@ export function OkrObjectiveCard({
             <Button
               size="icon"
               variant="ghost"
-              className="h-9 w-9 shrink-0"
+              className="mt-0.5 h-9 w-9 shrink-0 sm:mt-0"
               aria-label={`Más acciones de ${objective.nombre_okr}`}
             >
               <MoreHorizontal className="h-4 w-4" />

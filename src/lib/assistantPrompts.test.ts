@@ -62,6 +62,16 @@ describe('sanitizeActionContext', () => {
     expect(text).toContain('POD firmado')
     expect(text).toContain('Falta el POD')
   })
+
+  it('joins multiple selected actions', () => {
+    const text = sanitizeActionContext([
+      actionContext,
+      { ...actionContext, id: 'accion-2', titulo: 'Segunda accion' },
+    ])
+    expect(text).toContain('Acciones seleccionadas por el usuario (2):')
+    expect(text).toContain('Cerrar evidencia de ruta')
+    expect(text).toContain('Segunda accion')
+  })
 })
 
 describe('sanitizeOkrContext', () => {

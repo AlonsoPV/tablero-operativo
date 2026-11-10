@@ -28,6 +28,7 @@ export type OperationalActionItem = {
 export type OperationalSnapshot = {
   fetchedAt: string
   today: string
+  truncated?: boolean
   viewer: {
     usuarioId: string
     rol: string | null

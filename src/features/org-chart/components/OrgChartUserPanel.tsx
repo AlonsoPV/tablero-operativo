@@ -14,6 +14,7 @@ import { ROUTES } from '@/constants'
 import { useRouteAccess } from '@/features/auth/hooks/useRouteAccess'
 import { okrService } from '@/features/okrs/service'
 import {
+  formatProgressPercent,
   krProgress,
   objectivePeriod,
   type KeyResult,
@@ -101,16 +102,22 @@ export function OrgChartUserPanel({
         ({ objective }) =>
           objective.activo && objectivePeriod(objective, today) === 'Activo'
       )
-      .sort((a, b) => krProgress(a.kr) - krProgress(b.kr))
+      .sort((a, b) => {
+        const left = krProgress(a.kr)
+        const right = krProgress(b.kr)
+        if (left == null && right == null) return 0
+        if (left == null) return 1
+        if (right == null) return -1
+        return left - right
+      })
   }, [okrQuery.data, today, user.id])
 
   const avgProgress = useMemo(() => {
-    if (!ownedKeyResults.length) return null
-    const total = ownedKeyResults.reduce(
-      (sum, row) => sum + krProgress(row.kr),
-      0
-    )
-    return Math.round(total / ownedKeyResults.length)
+    const measured = ownedKeyResults
+      .map((row) => krProgress(row.kr))
+      .filter((value): value is number => value != null)
+    if (!measured.length) return null
+    return Math.round(measured.reduce((sum, value) => sum + value, 0) / measured.length)
   }, [ownedKeyResults])
 
   const area = user.areas?.[0] ?? user.area ?? null
@@ -294,7 +301,7 @@ export function OrgChartUserPanel({
                                   toneTextClass(tone)
                                 )}
                               >
-                                {Math.round(progress)}%
+                                {formatProgressPercent(progress)}
                               </span>
                             </div>
                             <div className="mt-1.5">

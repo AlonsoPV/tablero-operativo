@@ -42,8 +42,56 @@ export function guideAppBaseUrl() {
   return cleaned || 'https://scrumbanemx.vercel.app'
 }
 
-export function buildGuideInvitationUrl(token: string) {
-  return `${guideAppBaseUrl()}/guia/invitacion/${encodeURIComponent(token)}`
+/** Origins allowed when the client suggests a base URL for invitation links. */
+export function isAllowedGuideAppOrigin(raw: string | null | undefined) {
+  const cleaned = (raw ?? '').trim().replace(/\/+$/, '')
+  if (!cleaned) return false
+  let url: URL
+  try {
+    url = new URL(cleaned)
+  } catch {
+    return false
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+  const host = url.hostname.toLowerCase()
+  if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return true
+  if (host === 'scrumbanemx.vercel.app' || host.endsWith('.vercel.app')) return true
+  const configured = [
+    readStringEnv('APP_PUBLIC_URL'),
+    readStringEnv('APP_BASE_URL'),
+    readStringEnv('SITE_URL'),
+    readStringEnv('VITE_APP_URL'),
+    readStringEnv('APP_URL'),
+  ]
+  return configured.some((value) => {
+    if (!value) return false
+    try {
+      return new URL(value).origin === url.origin
+    } catch {
+      return false
+    }
+  })
+}
+
+export function resolveGuideAppBaseUrl(preferred?: string | null) {
+  const candidate = (preferred ?? '').trim().replace(/\/+$/, '')
+  if (candidate && isAllowedGuideAppOrigin(candidate)) return candidate
+  return guideAppBaseUrl()
+}
+
+export function buildGuideInvitationUrl(token: string, baseUrl?: string | null) {
+  const base = resolveGuideAppBaseUrl(baseUrl)
+  return `${base}/guia/invitacion/${encodeURIComponent(token)}`
+}
+
+export function normalizeGuideLinkToken(raw: string) {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  try {
+    return decodeURIComponent(trimmed)
+  } catch {
+    return trimmed
+  }
 }
 
 export async function createGuideUserLink(
@@ -53,6 +101,7 @@ export async function createGuideUserLink(
     createdBy?: string | null
     expiresInDays?: number
     source?: string | null
+    appBaseUrl?: string | null
   }
 ): Promise<{ link: string; expires_at: string; usuario_id: string; user_name: string; link_id: string }> {
   const { data: usuario, error: userError } = await supabase
@@ -71,6 +120,18 @@ export async function createGuideUserLink(
   const token = generateGuideToken()
   const tokenHash = hashGuideToken(token)
   const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
+  const source = input.source ?? null
+
+  // WhatsApp: una sola liga activa por usuario/origen (revoca previas antes de insertar).
+  if (source === 'whatsapp') {
+    const now = new Date().toISOString()
+    await supabase
+      .from('guide_user_links')
+      .update({ status: 'revoked', revoked_at: now, updated_at: now })
+      .eq('usuario_id', usuario.id)
+      .eq('status', 'active')
+      .eq('source', 'whatsapp')
+  }
 
   const { data: row, error } = await supabase
     .from('guide_user_links')
@@ -80,7 +141,7 @@ export async function createGuideUserLink(
       status: 'active',
       expires_at: expiresAt,
       created_by: input.createdBy ?? null,
-      source: input.source ?? null,
+      source,
     })
     .select('id,expires_at')
     .single()
@@ -96,7 +157,7 @@ export async function createGuideUserLink(
   }
 
   return {
-    link: buildGuideInvitationUrl(token),
+    link: buildGuideInvitationUrl(token, input.appBaseUrl),
     expires_at: String(row.expires_at),
     usuario_id: usuario.id,
     user_name: typeof usuario.nombre === 'string' && usuario.nombre.trim() ? usuario.nombre.trim() : 'Usuario',
@@ -114,15 +175,16 @@ export async function validateGuideUserLink(
   user_name: string
   expires_at: string
   duration_minutes: number
+  source: string | null
 }> {
-  const token = input.token.trim()
+  const token = normalizeGuideLinkToken(input.token)
   if (token.length < 32) {
     throw Object.assign(new Error('Liga inválida.'), { status: 400 })
   }
   const tokenHash = hashGuideToken(token)
   const { data: row, error } = await supabase
     .from('guide_user_links')
-    .select('id,usuario_id,status,expires_at,opened_at')
+    .select('id,usuario_id,status,expires_at,opened_at,source')
     .eq('token_hash', tokenHash)
     .maybeSingle()
 
@@ -175,18 +237,20 @@ export async function validateGuideUserLink(
     user_name: typeof usuario.nombre === 'string' && usuario.nombre.trim() ? usuario.nombre.trim() : 'Usuario',
     expires_at: String(row.expires_at),
     duration_minutes: GUIDE_LINK_DURATION_MINUTES,
+    source: typeof row.source === 'string' ? row.source : null,
   }
 }
 
 export async function resolveGuideLinkOwner(
   supabase: SupabaseClient,
   token: string
-): Promise<{ link_id: string; usuario_id: string; user_name: string }> {
+): Promise<{ link_id: string; usuario_id: string; user_name: string; source: string | null }> {
   const validated = await validateGuideUserLink(supabase, { token, markOpened: false })
   return {
     link_id: validated.link_id,
     usuario_id: validated.usuario_id,
     user_name: validated.user_name,
+    source: validated.source,
   }
 }
 

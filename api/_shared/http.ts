@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 export type VercelRequestLike = IncomingMessage & {
   body?: unknown
   method?: string
+  rawBody?: string
 }
 
 export type JsonResponse = {
@@ -31,15 +32,16 @@ function webHeadersToNode(request: Request): IncomingMessage['headers'] {
 
 async function webToNodeRequest(request: Request): Promise<VercelRequestLike> {
   let body: unknown
+  let rawBody = ''
   if (request.method !== 'GET' && request.method !== 'HEAD') {
-    const text = await request.text()
-    if (!text.trim()) {
+    rawBody = await request.text()
+    if (!rawBody.trim()) {
       body = {}
     } else {
       try {
-        body = JSON.parse(text)
+        body = JSON.parse(rawBody)
       } catch {
-        body = text
+        body = rawBody
       }
     }
   }
@@ -49,6 +51,7 @@ async function webToNodeRequest(request: Request): Promise<VercelRequestLike> {
     headers: webHeadersToNode(request),
     url: request.url,
     body,
+    rawBody,
   } as VercelRequestLike
 }
 
@@ -143,6 +146,12 @@ export function defineApiHandler(fn: ApiHandlerFn): ApiHandler {
 
   handler.fetch = runWeb
   return handler
+}
+
+export function readHeader(req: VercelRequestLike, name: string) {
+  const value = req.headers?.[name.toLowerCase()] ?? req.headers?.[name]
+  if (Array.isArray(value)) return value[0] ?? ''
+  return typeof value === 'string' ? value : ''
 }
 
 export async function readRequestBody(req: VercelRequestLike): Promise<unknown> {

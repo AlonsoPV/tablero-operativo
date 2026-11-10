@@ -83,13 +83,15 @@ export interface OkrData {
   can_manage_company: boolean
 }
 
+export const INSUFFICIENT_PROGRESS_LABEL = 'Sin datos suficientes'
+
+export type KrProgressInput = Pick<
+  KeyResult,
+  'baseline_value' | 'target_value' | 'current_value' | 'computed_progress'
+>
+
 /** Results are measured independently of action completion, including decreasing targets. */
-export function krProgress(
-  kr: Pick<
-    KeyResult,
-    'baseline_value' | 'target_value' | 'current_value' | 'computed_progress'
-  >
-): number {
+export function krProgress(kr: KrProgressInput): number | null {
   if (kr.computed_progress != null)
     return Math.max(0, Math.min(100, kr.computed_progress))
   const {
@@ -97,15 +99,66 @@ export function krProgress(
     target_value: target,
     current_value: current,
   } = kr
-  if (baseline == null || current == null || baseline === target) return 0
+  if (baseline == null || current == null || target == null || baseline === target) return null
   const value = ((current - baseline) / (target - baseline)) * 100
-  return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0
+  return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : null
 }
 
-export function objectiveProgress(results: KeyResult[]): number {
-  return results.length
-    ? results.reduce((total, kr) => total + krProgress(kr), 0) / results.length
-    : 0
+export function formatProgressPercent(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return INSUFFICIENT_PROGRESS_LABEL
+  return `${Math.round(value)}%`
+}
+
+/** Average of measurable key results. Missing data does not count as zero. */
+export function objectiveProgress(results: KrProgressInput[]): number | null {
+  const measured = results
+    .map((kr) => krProgress(kr))
+    .filter((value): value is number => value != null)
+  if (measured.length === 0) return null
+  return measured.reduce((total, value) => total + value, 0) / measured.length
+}
+
+export type OkrPaceStatus =
+  | 'sin_datos'
+  | 'sin_periodo'
+  | 'programado'
+  | 'archivado'
+  | 'finalizado'
+  | 'en_ritmo'
+  | 'bajo_ritmo'
+
+/** Share of the calendar period already elapsed. Null outside an active dated period. */
+export function expectedPeriodProgress(
+  objective: Pick<Objective, 'start_date' | 'end_date'>,
+  today: string
+): number | null {
+  if (!objective.start_date || !objective.end_date) return null
+  if (today < objective.start_date || today > objective.end_date) return null
+  const start = Date.parse(`${objective.start_date}T00:00:00Z`)
+  const end = Date.parse(`${objective.end_date}T00:00:00Z`)
+  const now = Date.parse(`${today}T00:00:00Z`)
+  if (![start, end, now].every(Number.isFinite) || end <= start) return null
+  return ((now - start) / (end - start)) * 100
+}
+
+/**
+ * Pace is a comparison against elapsed time, not a guessed cause.
+ * `sin_datos` means the progress itself cannot be calculated.
+ */
+export function objectivePaceStatus(
+  objective: Pick<Objective, 'activo' | 'start_date' | 'end_date'>,
+  progress: number | null,
+  today: string
+): OkrPaceStatus {
+  const period = objectivePeriod(objective, today)
+  if (period === 'Archivado') return 'archivado'
+  if (period === 'Programado') return 'programado'
+  if (period === 'Finalizado') return progress == null ? 'sin_datos' : 'finalizado'
+  if (period === 'Sin periodo') return progress == null ? 'sin_datos' : 'sin_periodo'
+  if (progress == null) return 'sin_datos'
+  const expected = expectedPeriodProgress(objective, today)
+  if (expected == null) return 'sin_periodo'
+  return progress < expected ? 'bajo_ritmo' : 'en_ritmo'
 }
 
 export function objectivePeriod(

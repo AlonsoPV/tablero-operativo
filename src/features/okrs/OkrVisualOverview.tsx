@@ -21,19 +21,29 @@ export function OkrVisualOverview({
   const groups = [
     {
       label: 'Logrados',
-      count: results.filter((k) => krProgress(k) >= 100).length,
+      count: results.filter((k) => {
+        const progress = krProgress(k)
+        return progress != null && progress >= 100
+      }).length,
       color: 'bg-emerald-500',
     },
     {
       label: 'En avance',
-      count: results.filter((k) => krProgress(k) > 0 && krProgress(k) < 100)
-        .length,
+      count: results.filter((k) => {
+        const progress = krProgress(k)
+        return progress != null && progress > 0 && progress < 100
+      }).length,
       color: 'bg-blue-500',
     },
     {
       label: 'Sin avance medido',
       count: results.filter((k) => krProgress(k) === 0).length,
       color: 'bg-slate-400',
+    },
+    {
+      label: 'Sin datos suficientes',
+      count: results.filter((k) => krProgress(k) == null).length,
+      color: 'bg-muted-foreground/40',
     },
   ]
   return (

@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CHANNEL_SELECTOR_DEBOUNCE_MS,
+  VOICE_LINK_RESEND_COOLDOWN_MS,
+  channelSelectorFallbackText,
+  extractVoiceLinkFromPayload,
   flowForRoute,
   inferOpsTextAction,
   isConsultaAlBotText,
   isMasInfoButton,
   isOpsStructuredButton,
+  isWithinCooldown,
   parseAiOpButtonId,
   resolveWhatsAppInboundRoute,
 } from './whatsappFlowRouting'
@@ -21,6 +26,28 @@ describe('whatsappFlowRouting', () => {
     expect(isMasInfoButton(null, '/actividades')).toBe(true)
     expect(isConsultaAlBotText('Consulta al Bot')).toBe(true)
     expect(isConsultaAlBotText('/consulta')).toBe(true)
+  })
+
+  it('cooldown selector/voz y extracción de liga', () => {
+    const now = Date.parse('2026-11-10T18:00:00.000Z')
+    expect(isWithinCooldown('2026-11-10T17:59:30.000Z', CHANNEL_SELECTOR_DEBOUNCE_MS, now)).toBe(
+      true
+    )
+    expect(isWithinCooldown('2026-11-10T17:58:00.000Z', CHANNEL_SELECTOR_DEBOUNCE_MS, now)).toBe(
+      false
+    )
+    expect(isWithinCooldown('2026-11-10T17:58:30.000Z', VOICE_LINK_RESEND_COOLDOWN_MS, now)).toBe(
+      true
+    )
+    expect(
+      extractVoiceLinkFromPayload({
+        event: 'voice_link_sent',
+        link: 'https://scrumbanemx.vercel.app/guia/invitacion/abc',
+      })
+    ).toBe('https://scrumbanemx.vercel.app/guia/invitacion/abc')
+    expect(extractVoiceLinkFromPayload({ event: 'voice_link_sent' })).toBeNull()
+    expect(channelSelectorFallbackText()).toContain('Por mensaje')
+    expect(channelSelectorFallbackText()).toContain('Por voz')
   })
 
   it('operativo: keywords ops, nunca agent en texto libre', () => {

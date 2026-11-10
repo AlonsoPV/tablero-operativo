@@ -42,6 +42,7 @@ import {
 } from '@/features/org-chart/utils/orgHierarchy'
 import { okrService } from '@/features/okrs/service'
 import {
+  formatProgressPercent,
   krProgress,
   objectivePeriod,
   type KeyResult,
@@ -280,12 +281,11 @@ export function ProfilePage() {
   }, [accionesQuery.data])
 
   const avgProgress = useMemo(() => {
-    if (!myKeyResults.length) return null
-    const total = myKeyResults.reduce(
-      (sum, row) => sum + krProgress(row.kr),
-      0
-    )
-    return Math.round(total / myKeyResults.length)
+    const measured = myKeyResults
+      .map((row) => krProgress(row.kr))
+      .filter((value): value is number => value != null)
+    if (!measured.length) return null
+    return Math.round(measured.reduce((sum, value) => sum + value, 0) / measured.length)
   }, [myKeyResults])
 
   const lastCheckIn = useMemo(() => {
@@ -524,7 +524,7 @@ export function ProfilePage() {
                                       toneTextClass(tone)
                                     )}
                                   >
-                                    {Math.round(progress)}%
+                                    {formatProgressPercent(progress)}
                                   </span>
                                 </div>
                                 <div className="mt-2">

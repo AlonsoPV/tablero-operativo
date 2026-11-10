@@ -28,7 +28,7 @@ import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/t
 const GUIDE_SYSTEM_PROMPT = `
 Eres Guia, un acompanante conversacional reflexivo. No eres terapeuta, medico ni coach clinico.
 Tambien puedes informar, con el contexto del tablero que recibes, que esta ocurriendo hoy: retrasos, bloqueos, prioridades y OKRs visibles.
-Si el usuario pide crear, anotar o dicta un pendiente, proponlo con titulo concreto, evidencia y pasos. Detectalo en la conversacion: no esperes que elija un modo. Queda para aprobar al terminar; no digas que ya se registro.
+Si el usuario pide crear, anotar o dicta un pendiente, proponlo con titulo concreto. Queda para aprobar al terminar; no digas que ya se registro. En voz resume titulo, responsable y fecha; no leas todos los pasos salvo que lo pidan. No inventes evidencia. Un aviso por WhatsApp no va incluido.
 Habla en espanol calido, claro y breve: 2 a 5 frases, menos de 140 palabras, una pregunta principal.
 No des diagnosticos, tratamientos ni dependencia emocional.
 No inventes acciones, conteos, avances, responsables ni KRs que el contexto no traiga.
@@ -56,7 +56,7 @@ Cada draft: title, description, objective, evidenceExpected, priority (P1_Alta|P
 kind=initiative solo con un KR identificable; usa el id exacto del contexto. Si no hay KR, usa kind=action.
 `.trim()
 
-const REFLECTION_PROMPT = `
+export const GUIDE_REFLECTION_PROMPT = `
 Eres un editor de diario y reporte ejecutivo. A partir de la conversacion, genera SOLO JSON valido:
 {
   "topic": "tema breve",
@@ -160,7 +160,7 @@ function parsePayloadMessages(raw: unknown): GuideMessageRow[] {
     .filter((row): row is GuideMessageRow => Boolean(row))
 }
 
-function extractJsonObject(text: string): unknown {
+export function extractJsonObject(text: string): unknown {
   const trimmed = text.trim()
   try {
     return JSON.parse(trimmed)
@@ -274,7 +274,7 @@ function isCapacityError(error: unknown) {
   return /^(gemini|claude)_(429|500|503|529)$/.test(code)
 }
 
-async function generateText(system: string, user: string, maxTokens: number, signal: AbortSignal) {
+export async function generateGuideText(system: string, user: string, maxTokens: number, signal: AbortSignal) {
   const hasGemini = Boolean(process.env.GEMINI_API_KEY)
   const hasClaude = Boolean(process.env.ANTHROPIC_API_KEY)
   const preferClaude =
@@ -505,8 +505,8 @@ export default defineApiHandler(async (req, res) => {
       const timeout = setTimeout(() => controller.abort(), 40000)
       let reflectionRaw = ''
       try {
-        reflectionRaw = await generateText(
-          REFLECTION_PROMPT,
+        reflectionRaw = await generateGuideText(
+          GUIDE_REFLECTION_PROMPT,
           [
             calendarLine(),
             boardContext || 'Contexto del tablero: no disponible.',
@@ -629,14 +629,19 @@ export default defineApiHandler(async (req, res) => {
               ? 'time_limit'
               : 'user_requested'
 
-        const { error: closeError } = await supabase
-          .from('guide_sessions')
-          .update({
-            status: 'completed',
-            closed_at: new Date().toISOString(),
-            close_reason: reason,
-          })
-          .eq('id', sessionId)
+        const closePatch = {
+          status: 'completed',
+          closed_at: new Date().toISOString(),
+          close_reason: reason,
+          report_status: 'ready',
+          report_error: null,
+        }
+        let { error: closeError } = await supabase.from('guide_sessions').update(closePatch).eq('id', sessionId)
+        if (closeError && /report_status|report_error/i.test(closeError.message ?? '')) {
+          const { report_status: _status, report_error: _error, ...base } = closePatch
+          const retry = await supabase.from('guide_sessions').update(base).eq('id', sessionId)
+          closeError = retry.error
+        }
 
         if (closeError) {
           console.error('guide-chat close', closeError)
@@ -717,7 +722,7 @@ export default defineApiHandler(async (req, res) => {
     const timeout = setTimeout(() => controller.abort(), 30000)
     let rawAnswer = ''
     try {
-      rawAnswer = await generateText(
+      rawAnswer = await generateGuideText(
         GUIDE_SYSTEM_PROMPT,
         userPrompt,
         readNumberEnv('GUIDE_TURN_MAX_TOKENS', 700),

@@ -114,15 +114,13 @@ export function remainingToTargetCopy(
   const current = kr.current_value
   const target = kr.target_value
   if (current == null || target == null) return null
-  if (
-    current === target ||
-    krProgress({
-      baseline_value: kr.baseline_value ?? null,
-      current_value: current,
-      target_value: target,
-      computed_progress: kr.computed_progress,
-    }) >= 100
-  ) {
+  const progress = krProgress({
+    baseline_value: kr.baseline_value ?? null,
+    current_value: current,
+    target_value: target,
+    computed_progress: kr.computed_progress,
+  })
+  if (current === target || (progress != null && progress >= 100)) {
     return 'Ya alcanzó la meta.'
   }
   const amount = Math.abs(target - current)
@@ -154,7 +152,8 @@ function isPercentUnit(unit: string) {
 
 export type ProgressTone = 'primary' | 'success' | 'warning' | 'danger' | 'muted'
 
-export function progressTone(value: number): ProgressTone {
+export function progressTone(value: number | null): ProgressTone {
+  if (value == null) return 'muted'
   if (value >= 70) return 'success'
   if (value >= 35) return 'warning'
   if (value > 0) return 'danger'
@@ -195,19 +194,20 @@ export function ProgressBar({
   size = 'md',
   tone = 'primary',
 }: {
-  value: number
+  value: number | null
   label: string
   size?: 'sm' | 'md'
   tone?: ProgressTone
 }) {
-  const rounded = Math.round(value)
+  const rounded = value == null ? null : Math.round(value)
   return (
     <div
       role="progressbar"
       aria-label={label}
-      aria-valuenow={rounded}
+      aria-valuenow={rounded ?? undefined}
       aria-valuemin={0}
       aria-valuemax={100}
+      aria-valuetext={value == null ? 'Sin datos suficientes' : undefined}
       className={cn(
         'overflow-hidden rounded-full bg-muted',
         size === 'md' ? 'h-2.5' : 'h-1.5'
@@ -215,7 +215,7 @@ export function ProgressBar({
     >
       <div
         className={cn('h-full rounded-full transition-all', toneFill[tone])}
-        style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
+        style={{ width: `${value == null ? 0 : Math.max(0, Math.min(100, value))}%` }}
       />
     </div>
   )

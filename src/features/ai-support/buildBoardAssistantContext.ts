@@ -1,3 +1,8 @@
+import { getAppNow } from '@/lib/clock'
+import {
+  isCorporateBlocked,
+  isCorporateOverdue,
+} from '@/features/metrics/corporateActionMetrics'
 import {
   objectivePeriod,
   objectiveProgress,
@@ -101,19 +106,20 @@ export function buildBoardAssistantContext(
   actions: AccionDiaria[],
   priorities: Priority[],
   okrData: OkrData | null | undefined,
-  today: string
+  today: string,
+  now = getAppNow()
 ): BoardAssistantContextPayload {
   const sorted = sortOpenActions(actions, priorities)
   const red = actions.filter(
-    (action) => action.estado === 'Retraso' || actionColor(action, priorities) === 'rojo'
+    (action) => isCorporateOverdue(action, now) || actionColor(action, priorities) === 'rojo'
   ).length
 
   return {
     today,
     actions: {
       totalOpen: actions.length,
-      delayed: actions.filter((action) => action.estado === 'Retraso').length,
-      blocked: actions.filter((action) => action.estado === 'Bloqueado').length,
+      delayed: actions.filter((action) => isCorporateOverdue(action, now)).length,
+      blocked: actions.filter((action) => isCorporateBlocked(action)).length,
       red,
       taggedOkr: actions.filter((action) => action.es_okr === true).length,
       byEstado: countByEstado(actions),
@@ -138,16 +144,14 @@ export function buildBoardAssistantContext(
             const keyResults = okrData.keyResults.filter((item) => item.okr_id === objective.id)
             const krIds = new Set(keyResults.map((item) => item.id))
             const initiatives = okrData.initiatives.filter((item) => krIds.has(item.key_result_id))
-            const measurable = keyResults.filter(
-              (item) => item.baseline_value != null && item.current_value != null
-            )
+            const progress = objectiveProgress(keyResults)
             return {
               nombre: objective.nombre_okr,
               scope: objective.scope,
               periodStatus: objectivePeriod(objective, today),
               krCount: keyResults.length,
               initiativeCount: initiatives.length,
-              progress: measurable.length > 0 ? Math.round(objectiveProgress(keyResults)) : null,
+              progress: progress == null ? null : Math.round(progress),
               krsWithoutBaseline: keyResults.filter((item) => item.baseline_value == null).length,
             }
           }),

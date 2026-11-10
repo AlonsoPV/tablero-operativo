@@ -145,6 +145,50 @@ export function inferAiChannelText(
   return null
 }
 
+/** Evita reenviar el selector interactivo si el usuario toca «Iniciar bot» dos veces. */
+export const CHANNEL_SELECTOR_DEBOUNCE_MS = 60_000
+/** Reenvía la misma liga de voz sin crear otra si aún está caliente. */
+export const VOICE_LINK_RESEND_COOLDOWN_MS = 120_000
+
+export function isWithinCooldown(
+  sentAtIso: string | null | undefined,
+  windowMs: number,
+  nowMs: number = Date.now()
+): boolean {
+  if (!sentAtIso) return false
+  const t = new Date(sentAtIso).getTime()
+  if (!Number.isFinite(t)) return false
+  return nowMs - t >= 0 && nowMs - t < windowMs
+}
+
+/** Extrae URL de liga guardada en payload de outbound (voice_link_sent). */
+export function extractVoiceLinkFromPayload(
+  payload: Record<string, unknown> | null | undefined
+): string | null {
+  if (!payload || typeof payload !== 'object') return null
+  const direct = payload.link
+  if (typeof direct === 'string' && /^https?:\/\//i.test(direct.trim())) {
+    return direct.trim()
+  }
+  const nested = payload.guide_link
+  if (typeof nested === 'string' && /^https?:\/\//i.test(nested.trim())) {
+    return nested.trim()
+  }
+  return null
+}
+
+export function channelSelectorFallbackText() {
+  return [
+    '¡Hola! Soy tu asistente operativo de Scrumban.',
+    '',
+    'Puedo ayudarte a consultar actividades, revisar prioridades, resolver bloqueos y dar seguimiento a tus objetivos.',
+    '',
+    '¿Cómo prefieres conversar?',
+    '',
+    'Responde: Por mensaje  o  Por voz',
+  ].join('\n')
+}
+
 /**
  * Decide la ruta tras evidencia pendiente (evidencia se resuelve antes).
  * - Botones act/chk/tchk → ops (todos)

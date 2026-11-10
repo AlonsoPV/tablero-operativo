@@ -39,6 +39,7 @@ import { DashboardUserLoginChartSection } from './components/DashboardUserLoginC
 import { DashboardRedUploadsByWeekSection } from './components/DashboardRedUploadsByWeekSection'
 import { DashboardFechaCompromisoChangesSection } from './components/DashboardFechaCompromisoChangesSection'
 import { DashboardExecutivePanel } from './components/DashboardExecutivePanel'
+import { formatCorporateScopeLabel } from '@/features/metrics/corporateActionMetrics'
 import { BauDashboardOverview } from './components/BauDashboardOverview'
 // import { DashboardOperationalOkrSection } from './components/DashboardOperationalOkrSection'
 import { useOperationalDashboardMetrics } from './hooks/useOperationalDashboardMetrics'
@@ -298,6 +299,18 @@ function BauDashboard({
     () => hasKanbanActiveFilters(filter),
     [filter]
   )
+  const scopeLabel = useMemo(
+    () =>
+      formatCorporateScopeLabel({
+        area: filter.area,
+        responsable: filter.responsable
+          ? responsableNames[filter.responsable]
+          : null,
+        periodStart: currentPeriod.start,
+        periodEnd: currentPeriod.end,
+      }),
+    [currentPeriod.end, currentPeriod.start, filter.area, filter.responsable, responsableNames]
+  )
 
   const handleFilterChange = useCallback(
     (next: AccionesFilter | Partial<AccionesFilter>) => {
@@ -379,6 +392,7 @@ function BauDashboard({
           metrics={executiveMetrics}
           priorities={priorities}
           responsableNames={responsableNames}
+          scopeLabel={scopeLabel}
           isLoading={isLoading || previousAccionesLoading}
           onDrillDown={handleDrillDown}
           onSelectAccion={handleSelectAccion}

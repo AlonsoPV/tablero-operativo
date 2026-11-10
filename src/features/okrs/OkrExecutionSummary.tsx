@@ -70,39 +70,52 @@ export function OkrExecutionSummary({
   ]
 
   return (
-    <section aria-label="Detalle del plan" className="space-y-4 px-4 py-4 sm:px-5 sm:py-5">
+    <section aria-label="Detalle del plan" className="space-y-3 px-3 py-4 sm:space-y-4 sm:px-5 sm:py-5">
       <h2 className="text-base font-semibold tracking-tight sm:text-lg">
         Detalle del plan
       </h2>
-      <div className="grid grid-cols-1 sm:grid-cols-3">
+      <div className="grid grid-cols-3 gap-2 sm:gap-0">
         {items.map((item, index) => (
           <div
             key={item.label}
             className={cn(
-              'flex min-w-0 items-center justify-between gap-3 px-1 py-3 sm:px-3 sm:py-1',
-              index > 0 && 'border-t border-border/60 sm:border-t-0 sm:border-l'
+              'flex min-w-0 flex-col items-center gap-2 rounded-xl bg-muted/30 px-1.5 py-3 text-center sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:rounded-none sm:bg-transparent sm:px-3 sm:py-1 sm:text-left',
+              index > 0 && 'sm:border-l sm:border-border/60'
             )}
           >
-            <div className="min-w-0">
-              <p className="truncate text-lg font-semibold tabular-nums tracking-tight sm:text-xl">
+            <div className="min-w-0 order-2 sm:order-1">
+              <p className="truncate text-sm font-semibold tabular-nums tracking-tight sm:text-xl">
                 {item.value}
               </p>
-              <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                {item.label}
+              <p className="mt-0.5 flex items-center justify-center gap-1 text-[11px] leading-tight text-muted-foreground sm:justify-start sm:text-xs">
+                <span className="truncate">{item.label}</span>
                 {item.hint ? (
-                  <span title={item.hint} className="inline-flex">
+                  <span title={item.hint} className="inline-flex shrink-0">
                     <Info className="h-3 w-3" aria-hidden />
                     <span className="sr-only">{item.hint}</span>
                   </span>
                 ) : null}
               </p>
             </div>
-            <RingProgress
-              value={item.ring}
-              label={`${item.label}: ${Math.round(item.ring)}%`}
-              tone={item.tone}
-              segments={item.segments}
-            />
+            <div className="order-1 sm:order-2">
+              <span className="sm:hidden">
+                <RingProgress
+                  value={item.ring}
+                  label={`${item.label}: ${Math.round(item.ring)}%`}
+                  tone={item.tone}
+                  segments={item.segments}
+                  size={36}
+                />
+              </span>
+              <span className="hidden sm:inline-flex">
+                <RingProgress
+                  value={item.ring}
+                  label={`${item.label}: ${Math.round(item.ring)}%`}
+                  tone={item.tone}
+                  segments={item.segments}
+                />
+              </span>
+            </div>
           </div>
         ))}
       </div>

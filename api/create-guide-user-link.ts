@@ -58,12 +58,15 @@ export default defineApiHandler(async (req, res) => {
     usuario_id?: unknown
     expires_in_days?: unknown
     source?: unknown
+    app_origin?: unknown
   }
   const usuarioId = typeof payload.usuario_id === 'string' ? payload.usuario_id.trim() : ''
   if (!usuarioId) {
     return res.status(400).json({ error: 'Falta usuario_id.' })
   }
   const source = typeof payload.source === 'string' ? payload.source.trim().slice(0, 40) : null
+  const appOrigin =
+    typeof payload.app_origin === 'string' ? payload.app_origin.trim().replace(/\/+$/, '') : ''
 
   const expected = readStringEnv('WHATSAPP_ASSISTANT_SECRET')
   const provided = readHeader(req, 'x-whatsapp-assistant-secret') ?? ''
@@ -96,6 +99,8 @@ export default defineApiHandler(async (req, res) => {
       createdBy,
       expiresInDays: clampGuideLinkDays(payload.expires_in_days),
       source: source || (internal ? 'whatsapp' : 'app'),
+      // App web: usa el origen actual (local/prod). WhatsApp interno conserva el env.
+      appBaseUrl: internal ? null : appOrigin || null,
     })
     return res.status(200).json({
       ...created,

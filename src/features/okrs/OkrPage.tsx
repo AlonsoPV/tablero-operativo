@@ -65,6 +65,7 @@ import {
 import {
   actionMatchesObjectiveArea,
   isTaggedOkrAction,
+  formatProgressPercent,
   krProgress,
   objectivePeriod,
   type ActionOption,
@@ -309,9 +310,12 @@ export function OkrPage() {
   const filteredKeyResults = data.keyResults.filter((kr) =>
     filteredKrIds.has(kr.okr_id)
   )
-  const onTrackShare = filteredKeyResults.length
-    ? (filteredKeyResults.filter((kr) => krProgress(kr) >= 70).length /
-        filteredKeyResults.length) *
+  const measurableKeyResults = filteredKeyResults.filter(
+    (kr) => krProgress(kr) != null
+  )
+  const onTrackShare = measurableKeyResults.length
+    ? (measurableKeyResults.filter((kr) => (krProgress(kr) ?? 0) >= 70).length /
+        measurableKeyResults.length) *
       100
     : null
   const timeline = planTimelineMetrics(filtered, today)
@@ -1340,13 +1344,12 @@ function OkrEditor({
                         Avance con esta medición
                       </span>
                       <strong className="tabular-nums">
-                        {Math.round(
+                        {formatProgressPercent(
                           krProgress({
                             ...modal.kr,
                             current_value: Number(measurement),
                           })
                         )}
-                        %
                       </strong>
                     </div>
                     <ProgressBar

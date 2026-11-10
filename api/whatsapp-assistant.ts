@@ -98,12 +98,15 @@ function clipReply(text: string) {
 }
 
 function proposalToReply(text: string, proposal: CopilotProposal) {
+  const fields = (proposal.fields ?? [])
+    .filter((field) => field.to && field.to !== 'Ninguno' && field.to !== 'No solicitado')
+    .map((field) => `${field.label}: ${field.to}`)
   const parts = [
-    clipReply(text || proposal.summary || proposal.title),
-    '',
-    `Propuesta: ${proposal.title}`,
+    'Prepare esta propuesta. Todavia no esta creada.',
     proposal.summary,
-    'Confirma con el boton o escribe si / no.',
+    ...fields,
+    clipReply(text),
+    'Escribe si para crearla o no para cancelar.',
   ].filter(Boolean)
   return clipReply(parts.join('\n'))
 }
@@ -320,12 +323,19 @@ export default defineApiHandler(async (req, res) => {
         return res.status(200).json({ text: 'Listo, cancele la propuesta. No se cambio nada en el tablero.', proposals: [] })
       }
       const result = await confirmPendingOp(actor, pending.id)
-      const title =
-        typeof result.preview?.title === 'string' && result.preview.title.trim()
-          ? result.preview.title.trim()
-          : 'la accion'
+      const created = result.result as { title?: string; fecha?: string; href?: string; checkpoints?: number } | null
+      const createdTitle = created?.title || 'La accion'
+      const lines = [
+        'Accion creada. Estado: Pendiente.',
+        createdTitle,
+        created?.fecha ? `Fecha de compromiso: ${created.fecha}` : '',
+        typeof created?.checkpoints === 'number' && created.checkpoints > 0
+          ? `Checkpoints pendientes: ${created.checkpoints}`
+          : '',
+        created?.href ? `Puedes consultarla en Scrumban: ${created.href}` : 'Puedes consultarla en Scrumban.',
+      ].filter(Boolean)
       return res.status(200).json({
-        text: `Hecho. Confirme "${title}" en el tablero.`,
+        text: lines.join('\n'),
         proposals: [],
         result: result.result ?? null,
       })

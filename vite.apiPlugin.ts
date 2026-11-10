@@ -23,6 +23,10 @@ const API_ROUTES: Record<string, string> = {
   '/api/elevenlabs-tts': 'api/elevenlabs-tts.ts',
   '/api/guide-chat': 'api/guide-chat.ts',
   '/api/guide-retell-web-call': 'api/guide-retell-web-call.ts',
+  '/api/guide-report-share': 'api/guide-report-share.ts',
+  '/api/guide-link-report': 'api/guide-link-report.ts',
+  '/api/create-guide-user-link': 'api/create-guide-user-link.ts',
+  '/api/validate-guide-user-link': 'api/validate-guide-user-link.ts',
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown) {

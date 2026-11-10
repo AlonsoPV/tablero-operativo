@@ -107,15 +107,21 @@ export function reportingSummary(objectives: Objective[], data: OkrData) {
   const measured = objectives
     .map((o) => data.keyResults.filter((k) => k.okr_id === o.id))
     .filter((results) => results.length > 0)
+  const averages = measured
+    .map((results) => objectiveProgress(results))
+    .filter((value): value is number => value != null)
   return {
-    average: measured.length
-      ? measured.reduce((sum, results) => sum + objectiveProgress(results), 0) /
-        measured.length
+    average: averages.length
+      ? averages.reduce((sum, value) => sum + value, 0) / averages.length
       : null,
     achieved: measured.filter((results) =>
-      results.every((k) => krProgress(k) >= 100)
+      results.every((k) => {
+        const progress = krProgress(k)
+        return progress != null && progress >= 100
+      })
     ).length,
     missingKrs: objectives.length - measured.length,
+    insufficientData: measured.flat().filter((k) => krProgress(k) == null).length,
     withoutCheckIn: measured
       .flat()
       .filter(
@@ -189,14 +195,24 @@ export function reportCsv(objectives: Objective[], data: OkrData): string {
         o.start_date,
         o.end_date,
         o.activo ? 'No' : 'Sí',
-        results.length ? Math.round(objectiveProgress(results)) : '',
+        results.length
+          ? (() => {
+              const progress = objectiveProgress(results)
+              return progress == null ? 'Sin datos suficientes' : Math.round(progress)
+            })()
+          : '',
         k?.title,
         data.users.find((u) => u.id === k?.owner_user_id)?.nombre,
         k?.baseline_value,
         k?.current_value,
         k?.target_value,
         k?.unit,
-        k ? Math.round(krProgress(k)) : '',
+        k
+          ? (() => {
+              const progress = krProgress(k)
+              return progress == null ? 'Sin datos suficientes' : Math.round(progress)
+            })()
+          : '',
         k ? measurementLabel(k, measurementsFor(data.checkIns, k.id)) : '',
       ])
     }

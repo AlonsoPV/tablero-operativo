@@ -165,6 +165,7 @@ function SummaryCard({
       </h3>
       <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
         {redOpen} rojas abiertas · {metrics.blockedActions.length} bloqueadas ·{' '}
+        {metrics.pendingVerificationActions.length} pendientes de verificar ·{' '}
         {metrics.dueTodayActions.length} con compromiso hoy
       </p>
     </CardShell>
@@ -455,6 +456,7 @@ export function BauDashboardOverview({
   metrics,
   priorities,
   responsableNames,
+  scopeLabel,
   isLoading,
   onDrillDown,
   onSelectAccion,
@@ -462,6 +464,7 @@ export function BauDashboardOverview({
   metrics: OperationalDashboardMetrics
   priorities: Priority[]
   responsableNames: Record<string, string>
+  scopeLabel?: string
   isLoading?: boolean
   onDrillDown: (input: DrillDownInput) => void
   onSelectAccion?: (accion: AccionDiaria) => void
@@ -480,6 +483,9 @@ export function BauDashboardOverview({
 
   return (
     <div className="space-y-4">
+      {scopeLabel ? (
+        <p className="text-xs text-muted-foreground">{scopeLabel}</p>
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-2">
         <SummaryCard metrics={metrics} onDrillDown={onDrillDown} />
         <PriorityDistributionCard metrics={metrics} onDrillDown={onDrillDown} />

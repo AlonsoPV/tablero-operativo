@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants'
 import {
   formatMetric,
+  formatProgressPercent,
   krProgress,
   type KeyResult,
   type Objective,
@@ -177,13 +178,20 @@ function KeyResultsDistributionCard({
 }: {
   keyResults: KeyResult[]
 }) {
-  const counts = useMemo(() => {
+  const distribution = useMemo(() => {
     const next = Array.from({ length: 10 }, () => 0)
+    let insufficient = 0
     for (const kr of keyResults) {
-      next[bucketIndex(krProgress(kr))] += 1
+      const progress = krProgress(kr)
+      if (progress == null) {
+        insufficient += 1
+        continue
+      }
+      next[bucketIndex(progress)] += 1
     }
-    return next
+    return { counts: next, insufficient }
   }, [keyResults])
+  const counts = distribution.counts
   const max = Math.max(1, ...counts)
 
   return (
@@ -220,6 +228,9 @@ function KeyResultsDistributionCard({
       </div>
       <p className="mt-3 text-center text-xs text-muted-foreground">
         Distribución de resultados clave
+        {distribution.insufficient > 0
+          ? ` · ${distribution.insufficient} sin datos suficientes`
+          : ''}
       </p>
     </CardShell>
   )
@@ -363,7 +374,7 @@ function ProgressRow({
                 },
                 {
                   label: 'Avance',
-                  value: `${Math.round(progress)}%`,
+                  value: formatProgressPercent(progress),
                   emphasize: true,
                 },
               ].map((item) => (

@@ -65,6 +65,11 @@ import { KanbanMineToggle } from '@/features/operations/components/KanbanMineTog
 import { useTeamActionCommentCounts } from './hooks/useTeamActionComentarios'
 import { useTeamAreaScope } from './hooks/useTeamAreaScope'
 import { formatRecurrenceLabel, upcomingOccurrenceDate } from './utils/recurrence'
+import {
+  isTeamActionBlocked,
+  isTeamActionOverdue,
+  isTeamDeadlinePast,
+} from './utils/teamDashboardMetrics'
 import { AccionFormDialog } from '@/features/operations/components/AccionFormDialog'
 import type { AccionDiaria } from '@/types'
 import {
@@ -145,9 +150,9 @@ function isOpenAction(action: TeamAction, board: TeamBoard) {
   return !state?.es_final
 }
 
-function isOverdue(action: TeamAction, board: TeamBoard) {
-  if (!action.fecha_limite || !isOpenAction(action, board)) return false
-  return new Date(action.fecha_limite).getTime() < Date.now()
+function isOverdue(action: TeamAction, board: TeamBoard, now = getAppNow()) {
+  if (!isOpenAction(action, board)) return false
+  return isTeamDeadlinePast(action.fecha_limite, now)
 }
 
 function isCritical(action: TeamAction, board: TeamBoard) {
@@ -189,14 +194,6 @@ function isTeamRetrasoStateName(value: string) {
 
 function findTeamRetrasoState(board: TeamBoard) {
   return board.states.find((state) => isTeamRetrasoStateName(state.nombre) && !state.es_final)
-}
-
-/** Misma idea que el Kanban corporativo: columna/estatus Retraso o fecha límite rebasada. */
-function isEnRetrasoTeam(action: TeamAction, board: TeamBoard) {
-  if (!isOpenAction(action, board) || action.bloqueada) return false
-  const retrasoState = findTeamRetrasoState(board)
-  if (retrasoState && getEffectiveTeamStateId(action, board) === retrasoState.id) return true
-  return isOverdue(action, board)
 }
 
 function getCdmxWallClockParts(date: Date) {
@@ -653,8 +650,8 @@ export function TeamKanbanPage() {
       if (filters.stateId !== 'all' && boardView && getEffectiveTeamStateId(action, boardView) !== filters.stateId) return false
       if (filters.alert && boardView) {
         const isOpen = isOpenAction(action, boardView)
-        const isBlocked = isOpen && action.bloqueada
-        const isOverdueAlert = isEnRetrasoTeam(action, boardView)
+        const isBlocked = isTeamActionBlocked(action, boardView)
+        const isOverdueAlert = isTeamActionOverdue(action, boardView, getAppNow())
         const isRedToday = isOpen && isRedPriority(action) && isTeamActionDueToday(action)
         if (filters.alert === 'active' && !isOpen) return false
         if ((filters.alert === 'overdue' || filters.alert === 'vencida') && !isOverdueAlert) return false
@@ -687,7 +684,7 @@ export function TeamKanbanPage() {
     const open = filteredActions.filter((action) => isOpenAction(action, boardView))
     return {
       rojos: open.filter((action) => isCritical(action, boardView)).length,
-      vencidas: open.filter((action) => isEnRetrasoTeam(action, boardView)).length,
+      vencidas: open.filter((action) => isTeamActionOverdue(action, boardView, getAppNow())).length,
       abiertas: open.length,
       retrasoLabel: findTeamRetrasoState(boardView)?.nombre ?? 'Retraso',
     }
