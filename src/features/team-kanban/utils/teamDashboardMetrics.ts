@@ -91,9 +91,17 @@ export function isTeamActionOpen(action: TeamAction, board: TeamBoard) {
   return !state?.es_final
 }
 
+import {
+  isTeamDeadlinePast,
+  isTeamPopulationRow,
+  summarizeTeamActions,
+} from '../../metrics/teamActionMetrics'
+
+export { isTeamDeadlinePast, isTeamPopulationRow, summarizeTeamActions }
+
 export function isTeamActionOverdue(action: TeamAction, board: TeamBoard, now = new Date()) {
-  if (!action.fecha_limite || !isTeamActionOpen(action, board)) return false
-  return new Date(action.fecha_limite).getTime() < now.getTime()
+  if (!isTeamActionOpen(action, board)) return false
+  return isTeamDeadlinePast(action.fecha_limite, now)
 }
 
 export function isTeamActionBlocked(action: TeamAction, board: TeamBoard) {

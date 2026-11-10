@@ -24,7 +24,7 @@ export const COPILOT_FUNCTION_DECLARATIONS: GeminiFunctionDeclaration[] = [
   {
     name: 'get_my_actions',
     description:
-      'Consulta acciones autorizadas del usuario. Filtros: open, overdue, due_week, stale, blocked, verification.',
+      'Consulta acciones corporativas autorizadas del usuario. overdue usa la columna Retraso (fecha y hora en CDMX) y no incluye Bloqueado. verification son acciones en Hecho, que no equivalen a Verificado. Si truncated es true, la lista está recortada.',
     parameters: {
       type: 'object',
       properties: {
@@ -63,7 +63,8 @@ export const COPILOT_FUNCTION_DECLARATIONS: GeminiFunctionDeclaration[] = [
   },
   {
     name: 'get_okr_progress',
-    description: 'Resumen de OKRs autorizados. Solo lectura.',
+    description:
+      'Resumen de OKRs autorizados con el mismo avance que el modulo. progress null significa sin datos suficientes, no cero. pace bajo_ritmo compara el avance medible con el tiempo transcurrido; sin_datos no es una causa inventada. without_initiatives no cambia el porcentaje. truncated indica recorte.',
     parameters: { type: 'object', properties: {} },
   },
   {
@@ -80,7 +81,7 @@ export const COPILOT_FUNCTION_DECLARATIONS: GeminiFunctionDeclaration[] = [
   {
     name: 'get_dashboard_summary',
     description:
-      'Resumen del dashboard: conteos de acciones abiertas, retraso, bloqueadas, Hecho y OKR operativo. Solo si el usuario puede ver /dashboard.',
+      'Resumen del dashboard BAU de acciones corporativas. Vencida, bloqueada, Hecho (pendiente de verificar) y Verificado son conteos distintos. El avance puede venir null cuando faltan datos. Incluye alcance, zona horaria y truncated si el lote de 400 filas se llenó. Solo si el usuario puede ver /dashboard.',
     parameters: { type: 'object', properties: {} },
   },
   {
@@ -145,18 +146,24 @@ export const COPILOT_FUNCTION_DECLARATIONS: GeminiFunctionDeclaration[] = [
   {
     name: 'create_action',
     description:
-      'Propone crear una accion. No la ejecuta. Requiere titulo y fecha. Si el responsable es ambiguo, no inventes.',
+      'Propone crear UNA accion corporativa. No la ejecuta ni avisa por WhatsApp. Pasa request con el texto del usuario. No inventes hechos, evidencia ni checkpoints que no haya pedido. Si el nombre es ambiguo, no elijas. Si pide varias, llama esta herramienta una vez por accion. Si solo pide una recomendacion, no llames esta herramienta.',
     parameters: {
       type: 'object',
       properties: {
+        request: { type: 'string', description: 'Pedido original del usuario.' },
         title: { type: 'string' },
         description: { type: 'string' },
-        due_hint: { type: 'string', description: 'Fecha en lenguaje natural o YYYY-MM-DD.' },
+        due_hint: { type: 'string', description: 'Fecha en lenguaje natural o YYYY-MM-DD. Obligatoria.' },
         due_time: { type: 'string', description: 'HH:MM opcional.' },
         assignee_id: { type: 'string' },
         assignee_name: { type: 'string' },
         priority: { type: 'string', enum: ['P1_Critica', 'P2_Media', 'P3_Baja'] },
         evidence_expected: { type: 'string' },
+        checkpoints: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Hasta 4 pasos que el usuario pidio. No los marques completos.',
+        },
       },
       required: ['title'],
     },

@@ -45,9 +45,10 @@ describe('buildBoardAssistantContext', () => {
           estado: 'Retraso',
           prioridad: 'Critica',
           es_okr: true,
+          fecha: '2026-10-28',
         }),
         action({ id: '2', titulo_accion: 'Revisar inventario', estado: 'Bloqueado' }),
-        action({ id: '3', titulo_accion: 'Llamar cliente', estado: 'Hoy' }),
+        action({ id: '3', titulo_accion: 'Llamar cliente', estado: 'Hoy', fecha: '2026-10-30' }),
       ],
       [
         {
@@ -62,7 +63,8 @@ describe('buildBoardAssistantContext', () => {
         },
       ],
       null,
-      '2026-10-29'
+      '2026-10-29',
+      new Date('2026-10-29T16:00:00-06:00')
     )
 
     expect(payload.actions.totalOpen).toBe(3)

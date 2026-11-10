@@ -171,8 +171,22 @@ describe('Historical OKR reporting', () => {
   it('does not count objectives without KRs as achieved or dilute their average', () => {
     expect(
       reportingSummary([objective(), objective({ id: 'empty' })], data)
-    ).toEqual({ average: 50, achieved: 0, missingKrs: 1, withoutCheckIn: 0 })
+    ).toEqual({ average: 50, achieved: 0, missingKrs: 1, insufficientData: 0, withoutCheckIn: 0 })
     expect(reportingSummary([], data).average).toBeNull()
+    expect(
+      reportingSummary(data.objectives, {
+        ...data,
+        keyResults: [
+          ...data.keyResults,
+          {
+            ...data.keyResults[0],
+            id: 'k-missing',
+            baseline_value: null,
+            current_value: null,
+          },
+        ],
+      })
+    ).toMatchObject({ average: 50, insufficientData: 1 })
     expect(
       reportingSummary(data.objectives, {
         ...data,

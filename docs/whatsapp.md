@@ -45,6 +45,12 @@ Ice breakers del número (no abren sesión solos; el usuario debe tocarlos). Tex
 
 Comando opcional: `/consulta`. Keywords de canal: «quiero hablar por voz», «prefiero escribir». Tras elegir mensaje, el texto libre sigue en Agent mientras haya sesión (outbound `flow=agent` &lt; 24 h). Ligas: ver [usoLigasPersonalizadas.md](./usoLigasPersonalizadas.md).
 
+Resiliencia del selector:
+
+- Si Graph rechaza el interactive, se envía **texto** pidiendo responder `Por mensaje` o `Por voz`.
+- Doble «Iniciar bot» en &lt; 60 s no reenvía el selector (aviso breve).
+- Doble «Por voz» en &lt; 120 s reenvía la misma URL si quedó en el payload (`link`); al crear una nueva, se revocan ligas activas previas `source=whatsapp`.
+
 ---
 
 ## 2. Arquitectura

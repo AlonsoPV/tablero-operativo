@@ -100,7 +100,9 @@ export function buildOkrAssistantContext(
   selection: {
     objectiveId: string
     keyResultId?: string | null
+    keyResultIds?: string[] | null
     initiativeId?: string | null
+    initiativeIds?: string[] | null
     today: string
   }
 ): OkrAssistantContextPayload | null {
@@ -111,18 +113,30 @@ export function buildOkrAssistantContext(
     ? data.objectives.find((item) => item.id === objective.parent_okr_id)
     : undefined
   const keyResults = data.keyResults.filter((item) => item.okr_id === objective.id)
-  const focusedInitiative = selection.initiativeId
-    ? data.initiatives.find((item) => item.id === selection.initiativeId)
-    : undefined
-  const focusedKrId = selection.keyResultId || focusedInitiative?.key_result_id || null
-  const focus: OkrAssistantFocus = focusedInitiative
-    ? 'initiative'
-    : focusedKrId
-      ? 'key_result'
-      : 'objective'
+  const focusedInitiativeIds = new Set(
+    [
+      ...(selection.initiativeIds ?? []),
+      ...(selection.initiativeId ? [selection.initiativeId] : []),
+    ].filter(Boolean)
+  )
+  const focusedKrIds = new Set(
+    [
+      ...(selection.keyResultIds ?? []),
+      ...(selection.keyResultId ? [selection.keyResultId] : []),
+      ...[...focusedInitiativeIds]
+        .map((id) => data.initiatives.find((item) => item.id === id)?.key_result_id)
+        .filter((id): id is string => Boolean(id)),
+    ].filter(Boolean)
+  )
+  const focus: OkrAssistantFocus =
+    focusedInitiativeIds.size > 0
+      ? 'initiative'
+      : focusedKrIds.size > 0
+        ? 'key_result'
+        : 'objective'
 
   const relatedKrIds = new Set(
-    focusedKrId ? [focusedKrId] : keyResults.map((item) => item.id)
+    focusedKrIds.size > 0 ? [...focusedKrIds] : keyResults.map((item) => item.id)
   )
   const relatedInitiatives = data.initiatives.filter((item) => relatedKrIds.has(item.key_result_id))
 
@@ -145,7 +159,7 @@ export function buildOkrAssistantContext(
         selection.today
       ),
     },
-    keyResults: keyResults.map((kr) => serializeKeyResult(kr, data, focusedKrId)),
+    keyResults: keyResults.map((kr) => serializeKeyResult(kr, data, focusedKrIds)),
     initiatives: relatedInitiatives.map((initiative) => {
       const option = resolveActionOption(initiative, actions)
       const kr = keyResults.find((item) => item.id === initiative.key_result_id)
@@ -157,16 +171,38 @@ export function buildOkrAssistantContext(
         kind: option?.kind ?? (initiative.team_action_id ? 'team' : 'company'),
         closed: Boolean(option?.closed),
         esOkr: option?.es_okr === true,
-        focused: initiative.id === selection.initiativeId,
+        focused: focusedInitiativeIds.has(initiative.id),
       }
     }),
   }
 }
 
+export function buildOkrAssistantContexts(
+  data: Pick<OkrData, 'objectives' | 'keyResults' | 'initiatives' | 'checkIns' | 'users' | 'areas'>,
+  actions: ActionOption[],
+  selection: {
+    objectiveIds: string[]
+    keyResultIds?: string[] | null
+    initiativeIds?: string[] | null
+    today: string
+  }
+): OkrAssistantContextPayload[] {
+  return selection.objectiveIds
+    .map((objectiveId) =>
+      buildOkrAssistantContext(data, actions, {
+        objectiveId,
+        keyResultIds: selection.keyResultIds,
+        initiativeIds: selection.initiativeIds,
+        today: selection.today,
+      })
+    )
+    .filter((item): item is OkrAssistantContextPayload => Boolean(item))
+}
+
 function serializeKeyResult(
   kr: KeyResultWithDirection,
   data: Pick<OkrData, 'checkIns' | 'users'>,
-  focusedKrId: string | null
+  focusedKrIds: Set<string>
 ) {
   const baseline = finiteOrNull(kr.baseline_value)
   const target = finiteOrNull(kr.target_value)
@@ -188,7 +224,7 @@ function serializeKeyResult(
     direction: kr.direction || (baseline != null && target != null && target < baseline ? 'decrease' : baseline != null && target != null && target > baseline ? 'increase' : ''),
     progress: canCompute ? krProgress(kr) : null,
     owner: nameById(data.users, kr.owner_user_id),
-    focused: kr.id === focusedKrId,
+    focused: focusedKrIds.has(kr.id),
     completeness: {
       hasBaseline: baseline != null,
       hasTarget: target != null,

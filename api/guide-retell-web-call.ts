@@ -83,6 +83,20 @@ export default defineApiHandler(async (req, res) => {
         const owner = await resolveGuideLinkOwner(supabase, guideToken)
         usuarioId = owner.usuario_id
         guideLinkId = owner.link_id
+        // Ligas creadas desde WhatsApp: mismo gate OKRS/Super Admin que el bot.
+        if (owner.source === 'whatsapp') {
+          const { data: allowed, error: accessError } = await supabase.rpc(
+            'can_use_ai_whatsapp_for_usuario',
+            { p_usuario_id: usuarioId }
+          )
+          if (accessError || allowed !== true) {
+            return res.status(403).json({
+              error:
+                'El asistente de voz por WhatsApp solo está disponible para perfiles OKRS o Super Admin.',
+              code: 'whatsapp_ai_denied',
+            })
+          }
+        }
       } catch (error) {
         const status =
           typeof (error as { status?: number }).status === 'number' ? (error as { status: number }).status : 400
@@ -161,17 +175,22 @@ export default defineApiHandler(async (req, res) => {
 
     const startedAt = new Date()
     const expiresAt = new Date(startedAt.getTime() + SESSION_MS)
-    const { data: session, error: insertError } = await supabase
-      .from('guide_sessions')
-      .insert({
-        usuario_id: usuario.id,
-        provider: 'retell',
-        status: 'active',
-        started_at: startedAt.toISOString(),
-        expires_at: expiresAt.toISOString(),
-      })
-      .select(SESSION_SELECT)
-      .single()
+    const sessionInsert: Record<string, unknown> = {
+      usuario_id: usuario.id,
+      provider: 'retell',
+      status: 'active',
+      started_at: startedAt.toISOString(),
+      expires_at: expiresAt.toISOString(),
+      report_status: 'pending',
+    }
+    if (guideLinkId) sessionInsert.guide_link_id = guideLinkId
+    let inserted = await supabase.from('guide_sessions').insert(sessionInsert).select(SESSION_SELECT).single()
+    if (inserted.error && /guide_link_id|report_status/i.test(inserted.error.message ?? '')) {
+      const { guide_link_id: _link, report_status: _status, ...base } = sessionInsert
+      inserted = await supabase.from('guide_sessions').insert(base).select(SESSION_SELECT).single()
+    }
+    const session = inserted.data
+    const insertError = inserted.error
 
     if (insertError || !session) {
       if (isMissingGuideTable(insertError)) {

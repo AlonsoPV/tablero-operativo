@@ -2,6 +2,10 @@ import { useMemo } from 'react'
 import type { AccionDiaria } from '@/types'
 import type { UserProfile } from '@/features/users/types/user.types'
 import type { Priority, Status } from '@/features/catalogs/types/catalogs.types'
+import {
+  isCorporateOverdue,
+  isPendingVerification,
+} from '@/features/metrics/corporateActionMetrics'
 import { findPriorityForAccion } from '@/features/operations/utils/resolveAccionPrioridad'
 import {
   priorityColorFor,
@@ -54,6 +58,7 @@ export type OperationalDashboardMetrics = {
   closedActions: AccionDiaria[]
   redClosedActions: AccionDiaria[]
   overdueActions: AccionDiaria[]
+  pendingVerificationActions: AccionDiaria[]
   blockedActions: AccionDiaria[]
   redActions: AccionDiaria[]
   yellowActions: AccionDiaria[]
@@ -215,7 +220,7 @@ function valueMetric(current: number, previous: number, higherIsGood = true): Da
   return { value: current, previous, trend: trend(current, previous, higherIsGood) }
 }
 
-function calculateCoreMetrics(
+export function calculateCoreMetrics(
   actions: AccionDiaria[],
   users: UserProfile[],
   priorities: Priority[],
@@ -238,7 +243,8 @@ function calculateCoreMetrics(
   /** Rojas cerradas para edad: solo Verificado (Hecho sigue contando como abierto). */
   const redClosedActions = redActions.filter((action) => isVerified(action, statusesByKey))
   const otherClosedActions = closedActions.filter((action) => !isRedPriority(action, priorities))
-  const overdueActions = openActions.filter((action) => action.fecha < today)
+  const overdueActions = actions.filter((action) => isCorporateOverdue(action))
+  const pendingVerificationActions = actions.filter((action) => isPendingVerification(action))
   const blockedActions = openActions.filter((action) => isBlocked(action, statusesByKey))
   const redOpenActions = redActions.filter((action) => !isVerified(action, statusesByKey))
   const otherOpenActions = openActions.filter((action) => !isRedPriority(action, priorities))
@@ -266,6 +272,7 @@ function calculateCoreMetrics(
     openActions,
     closedActions,
     overdueActions,
+    pendingVerificationActions,
     blockedActions,
     redActions,
     yellowActions: actionsByPriorityColor.amarillo,
@@ -401,6 +408,7 @@ export function useOperationalDashboardMetrics(input: {
         (action) => !isRedPriority(action, input.priorities)
       ),
       overdueActions: current.overdueActions,
+      pendingVerificationActions: current.pendingVerificationActions,
       blockedActions: current.blockedActions,
       redActions: current.redActions,
       yellowActions: current.yellowActions,

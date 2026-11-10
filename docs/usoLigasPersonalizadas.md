@@ -371,17 +371,17 @@ Duración de sesión de voz: **15 minutos** (igual que Guía autenticada).
 ## 2. Flujo extremo a extremo
 
 ```text
-Admin o el propio usuario
-  → create-guide-user-link
+Admin, el propio usuario, o WhatsApp (Por voz)
+  → POST /api/create-guide-user-link
   → URL /guia/invitacion/{token}
 
 Invitado (sin login)
   → PublicGuideInvitationPage
-  → validate-guide-user-link (mark_opened)
+  → POST /api/validate-guide-user-link (mark_opened)
   → confirma identidad + consentimiento mic/grabación
   → /guia/invitacion/{token}/voz
-  → GuideVoicePage
-  → create-guide-retell-web-call { guide_token, consent: true }
+  → GuideVoiceInvitePage
+  → POST /api/guide-retell-web-call { guide_token, consent: true }
   → Retell Web Call
   → guide-retell-webhook → diario / pilares del usuario dueño
 ```
@@ -393,7 +393,7 @@ Invitado (sin login)
 | Ruta | Componente | Auth |
 | --- | --- | --- |
 | `/guia/invitacion/:token` | `PublicGuideInvitationPage` | Pública |
-| `/guia/invitacion/:token/voz` | `GuideVoicePage` (lee `token` de params) | Pública |
+| `/guia/invitacion/:token/voz` | `GuideVoiceInvitePage` (lee `token` de params) | Pública |
 
 Constantes: `ROUTES.GUIA_INVITACION`, `ROUTES.GUIA_INVITACION_VOZ`.  
 Registradas **fuera** del layout autenticado en `src/routes/index.tsx`.
@@ -402,35 +402,35 @@ Registradas **fuera** del layout autenticado en `src/routes/index.tsx`.
 
 ## 4. Quién puede crear ligas
 
-Edge Function: `create-guide-user-link`.
+API Vercel: `POST /api/create-guide-user-link` ([api/create-guide-user-link.ts](../api/create-guide-user-link.ts)).
 
 | Caso | Permiso |
 | --- | --- |
-| Crear **su propia** liga | Usuario autenticado activo |
-| Crear liga **para otro** | Roles de negocio: `DG`, `Sistemas`, `super_admin`, `Direccion` |
-| Empresa distinta | Solo `super_admin` (el resto no puede cruzar `empresa`) |
+| Crear **su propia** liga | Usuario autenticado (Bearer JWT) activo |
+| Crear liga **para otro** | Roles: `DG`, `Sistemas`, `super_admin`, `Direccion` (y equivalentes) |
+| Origen WhatsApp | Header `x-whatsapp-assistant-secret` = `WHATSAPP_ASSISTANT_SECRET` (service role tras auth) |
 
 Requisito del **destinatario**:
 
 - Usuario `activo`.
-- Entendimiento en `submitted` o `approved`. Si no → `409`.
+- **No** hay gate de Entendimiento en este código (solo `activo`).
 
 Vigencia:
 
-- Default **30 días**.
+- Default **30 días** (WhatsApp usa **7**).
 - Rango aceptado: **1–90** días (`expires_in_days`).
 
-Generar otra liga **no invalida** las anteriores: cada una sigue válida hasta vencimiento o revocación.
+`source=whatsapp`: al crear una nueva, se **revocan** las activas previas del mismo usuario con ese origen (1 liga WA activa). Otras fuentes pueden coexistir hasta vencimiento o revocación.
 
 ---
 
-## 5. Dónde se crea en la UI
+## 5. Dónde se crea en la UI / WhatsApp
 
 | Lugar | Comportamiento |
 | --- | --- |
 | `GuidePersonalLinkButton` | “Obtener mi liga” → crea para el usuario actual, muestra diálogo y copia al clipboard |
-| Diario / voz autenticada | Mismo botón (compacto en voz) |
-| `UsersPage` (directorio) | Admin puede generar liga para un usuario (`guideService.createUserLink(user.id)`) |
+| WhatsApp «Por voz» | Webhook → `/api/create-guide-user-link` con secret; envía URL al chat |
+| Admin (si cableado) | `guideService.createUserLink(user.id)` |
 
 Cliente:
 
@@ -439,13 +439,13 @@ await guideService.createUserLink(usuarioId, expiresInDays?)
 // → { link, expires_at, usuario_id, user_name }
 ```
 
-Implementación: `src/features/guide/services/guide.service.ts` → `functions.invoke('create-guide-user-link')` con Bearer JWT.
+Implementación: `src/features/guide/services/guide.service.ts` → `fetch('/api/create-guide-user-link')` con Bearer JWT.
 
 ---
 
 ## 6. Modelo de datos (`guide_user_links`)
 
-Migración: `20260827235701_create_guide_user_links.sql`.
+Migración: `20261108120000_guide_user_links.sql`.
 
 | Columna | Uso |
 | --- | --- |
@@ -458,45 +458,39 @@ Migración: `20260827235701_create_guide_user_links.sql`.
 | `use_count` | Contador de llamadas iniciadas |
 | `revoked_at` / `replaced_by` | Revocación / reemplazo |
 | `created_by` | Quién generó la liga |
+| `source` | p. ej. `whatsapp`, `app` |
 
 Seguridad:
 
 - RLS ON.
 - `REVOKE ALL` a `anon` y `authenticated`.
-- Solo Edge Functions con **service role** leen/escriben.
+- Solo **service role** (APIs Vercel / Edge webhook) lee/escribe.
 - El token nunca se persiste en claro.
 
 ---
 
-## 7. Edge Functions
+## 7. APIs Vercel (no Edge `create-guide-user-link`)
 
-Deploy (junto al resto de Guía) con **`--no-verify-jwt`**:
+Las ligas se crean/validan en **Vercel** (`/api/...`). Deploy: push a `main` / redeploy Vercel. El webhook WhatsApp (Edge) solo **llama** esas APIs.
 
-```bash
-npm run supabase:deploy:guide:what2do
-```
+### 7.1 `POST /api/create-guide-user-link`
 
-Incluye `create-guide-user-link` y `validate-guide-user-link`.
-
-La validación pública **no lleva JWT**. Si el gateway exige JWT, la invitación falla con 401 antes de hashear el token.
-
-### 7.1 `create-guide-user-link`
-
-**Auth:** Bearer sesión.
+**Auth:** Bearer JWT **o** `x-whatsapp-assistant-secret`.
 
 **Body:**
 
 ```json
-{ "usuario_id": "<uuid>", "expires_in_days": 30 }
+{ "usuario_id": "<uuid>", "expires_in_days": 30, "source": "app" }
 ```
 
 **Proceso:**
 
-1. Valida creador y permisos.
-2. Valida destino + Entendimiento.
-3. Genera token aleatorio (32 bytes → base64url).
-4. Inserta `token_hash = sha256(token)`.
-5. Arma URL con `APP_PUBLIC_URL` | `APP_BASE_URL` | `SITE_URL` (fallback producción).
+1. Valida creador y permisos (o secret interno).
+2. Valida destino activo.
+3. Si `source=whatsapp`, revoca activas previas WA del usuario.
+4. Genera token aleatorio (32 bytes → base64url).
+5. Inserta `token_hash = sha256(token)`.
+6. Arma URL con `APP_PUBLIC_URL` | `APP_BASE_URL` | `SITE_URL` | `VITE_APP_URL`.
 
 **Respuesta:**
 
@@ -510,7 +504,7 @@ La validación pública **no lleva JWT**. Si el gateway exige JWT, la invitació
 }
 ```
 
-### 7.2 `validate-guide-user-link`
+### 7.2 `POST /api/validate-guide-user-link`
 
 **Auth:** ninguna (público).
 
@@ -525,8 +519,7 @@ La validación pública **no lleva JWT**. Si el gateway exige JWT, la invitació
 1. Rechaza token &lt; 32 chars.
 2. Busca por `token_hash`.
 3. Exige `status=active`, usuario activo, no vencida.
-4. Exige Entendimiento `submitted|approved`.
-5. Si `mark_opened` y aún no había `opened_at`, lo setea (+ `last_used_at`).
+4. Si `mark_opened` y aún no había `opened_at`, lo setea (+ `last_used_at`).
 
 **OK:**
 
@@ -539,11 +532,11 @@ La validación pública **no lleva JWT**. Si el gateway exige JWT, la invitació
 }
 ```
 
-Errores típicos: `400` liga inválida, `410` vencida/no disponible, `409` Entendimiento incompleto.
+Errores típicos: `400` liga inválida, `410` vencida/no disponible.
 
-### 7.3 Uso en la llamada: `create-guide-retell-web-call`
+### 7.3 Uso en la llamada: `POST /api/guide-retell-web-call`
 
-Desde `GuideVoicePage` con token de ruta:
+Desde `GuideVoiceInvitePage` con token de ruta:
 
 ```ts
 guideService.createRetellWebCall(guideToken, replaceActive?)
@@ -554,6 +547,7 @@ Reglas:
 
 - `consent` debe ser `true` o → `400`.
 - Resuelve perfil por hash del token (misma lógica que validate).
+- Si `source=whatsapp`, exige `can_use_ai_whatsapp_for_usuario` (OKRS / Super Admin).
 - Crea `guide_sessions` `provider=retell` para ese `usuario_id`.
 - Metadata Retell incluye `guide_link_id`.
 - Tras éxito: `use_count++`, `last_used_at=now()`.
@@ -574,7 +568,7 @@ Al cargar:
 4. Botón opcional “Probar micrófono”.
 5. “Comenzar conversación” → `/guia/invitacion/:token/voz`.
 
-`GuideVoicePage` en modo invitación:
+`GuideVoiceInvitePage` en modo invitación:
 
 - No muestra “Obtener mi liga”.
 - Al terminar, ofrece volver a la landing de invitación (no al diario autenticado).
@@ -586,9 +580,10 @@ Al cargar:
 
 | Variable | Dónde | Uso |
 | --- | --- | --- |
-| `APP_PUBLIC_URL` (o `APP_BASE_URL` / `SITE_URL`) | Edge | Base de la URL de la liga |
-| `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | Edge | Admin client |
-| `RETELL_*` / `GUIDE_RETELL_TOOL_SECRET` | Edge | Necesarios para la llamada de voz |
+| `APP_PUBLIC_URL` (o `APP_BASE_URL` / `SITE_URL` / `VITE_APP_URL`) | Vercel + Edge | Base de la URL de la liga |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | Vercel | Admin client en APIs |
+| `WHATSAPP_ASSISTANT_SECRET` | Vercel + Edge | Auth interna create-link desde webhook |
+| `RETELL_API_KEY` / `RETELL_GUIDE_AGENT_ID` | Vercel | Llamada de voz Guía |
 
 Sin `APP_PUBLIC_URL` correcto, la liga apunta al fallback hardcodeado de producción.
 
@@ -600,12 +595,11 @@ Sin `APP_PUBLIC_URL` correcto, la liga apunta al fallback hardcodeado de producc
 | --- | --- |
 | Token | Aleatorio; solo hash en DB |
 | Tabla | No accesible por Data API a clientes |
-| Validación | En Edge, no en el browser |
+| Validación | En API Vercel, no en el browser |
 | Consent | Obligatorio para iniciar call por liga |
 | Scope | Sesión/diario del dueño; no mezcla perfiles |
-| Multi-liga | Varias activas; compartir = responsabilidad del dueño |
-| Empresa | Admins no-super no cruzan empresas |
-| Gate | Entendimiento completado |
+| Multi-liga | App: varias activas; WhatsApp: 1 activa por usuario |
+| Gate WA | `source=whatsapp` → `can_use_ai_whatsapp_for_usuario` |
 
 La liga es un **bearer**: quien la tenga puede iniciar conversaciones a nombre de ese perfil. Tratarla como secreto compartido.
 
@@ -613,15 +607,17 @@ La liga es un **bearer**: quien la tenga puede iniciar conversaciones a nombre d
 
 ## 11. Checklist de réplica
 
-- [ ] Migración `guide_user_links` + revoke a anon/authenticated  
-- [ ] Deploy `create-guide-user-link` + `validate-guide-user-link` con `--no-verify-jwt`  
-- [ ] `APP_PUBLIC_URL` apuntando al front real  
+- [ ] Migración `20261108120000_guide_user_links.sql` + revoke a anon/authenticated  
+- [ ] Deploy Vercel (APIs create/validate/guide-retell)  
+- [ ] Redeploy Edge `whatsapp-webhook`  
+- [ ] `APP_PUBLIC_URL` / `APP_URL` apuntando al front real  
+- [ ] `WHATSAPP_ASSISTANT_SECRET` alineado Edge ↔ Vercel  
 - [ ] Rutas públicas de invitación + voz  
-- [ ] Botón “Obtener mi liga” + acción admin en usuarios  
+- [ ] Botón “Obtener mi liga”  
 - [ ] Landing: validate + consent + mic  
-- [ ] `create-guide-retell-web-call` acepta `guide_token` + `consent`  
+- [ ] `guide-retell-web-call` acepta `guide_token` + `consent`  
 - [ ] Probar: crear liga → abrir en incógnito → call → journal del dueño  
-- [ ] Probar: sin Entendimiento → 409; liga vencida → 410; JWT gateway ON → 401  
+- [ ] Probar: liga vencida → 410; WA sin OKRS → 403  
 
 ---
 
@@ -629,11 +625,11 @@ La liga es un **bearer**: quien la tenga puede iniciar conversaciones a nombre d
 
 ```bash
 # Crear (con JWT de admin/usuario)
-# POST /functions/v1/create-guide-user-link
+# POST /api/create-guide-user-link
 # { "usuario_id": "…", "expires_in_days": 30 }
 
 # Validar (sin JWT)
-# POST /functions/v1/validate-guide-user-link
+# POST /api/validate-guide-user-link
 # { "token": "…", "mark_opened": true }
 ```
 

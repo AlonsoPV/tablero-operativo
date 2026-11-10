@@ -1,6 +1,6 @@
-import { getAppNow } from '@/lib/clock'
-import { todayWallClockCDMX } from '@/lib/dateUtils'
-import type { AccionDiaria, ActionStatus } from '@/types'
+import { getAppNow } from '../../../lib/clock.js'
+import { todayWallClockCDMX } from '../../../lib/dateUtils.js'
+import type { AccionDiaria, ActionStatus } from '../../../types'
 
 const CDMX_TZ = 'America/Mexico_City'
 
@@ -100,20 +100,23 @@ function isAutoSyncEligible(accion: AccionDiaria): boolean {
 /**
  * Retraso si la fecha compromiso ya pasó o si hoy superó fecha + hora_limite (CDMX).
  */
-export function isEnRetraso(a: AccionDiaria): boolean {
+export function isEnRetraso(a: AccionDiaria, now = getAppNow()): boolean {
   if (ESTADOS_CERRADOS.includes(a.estado)) return false
-  return isPastAccionDeadline(a)
+  return isPastAccionDeadline(a, now)
 }
 
 /** Estado objetivo según fecha compromiso y hora límite en CDMX; null si no aplica cambio automático. */
-export function getAutoEstadoPorFechaCompromiso(accion: AccionDiaria): ActionStatus | null {
+export function getAutoEstadoPorFechaCompromiso(
+  accion: AccionDiaria,
+  now = getAppNow()
+): ActionStatus | null {
   if (!isAutoSyncEligible(accion)) return null
 
   const fecha = normalizeFechaCompromiso(accion.fecha)
-  const { ymd: today, hm } = getCdmxWallClock(getAppNow())
+  const { ymd: today, hm } = getCdmxWallClock(now)
   const deadlineHm = normalizeHoraLimite(accion.hora_limite)
 
-  if (isPastAccionDeadline(accion)) {
+  if (isPastAccionDeadline(accion, now)) {
     return accion.estado === 'Retraso' ? null : 'Retraso'
   }
   if (fecha > today) {
@@ -131,10 +134,10 @@ export function getAutoEstadoPorFechaCompromiso(accion: AccionDiaria): ActionSta
 }
 
 /** Columna Kanban efectiva según fecha compromiso (CDMX). */
-export function getAccionKanbanColumn(accion: AccionDiaria): ActionStatus {
+export function getAccionKanbanColumn(accion: AccionDiaria, now = getAppNow()): ActionStatus {
   if (accion.estado === 'Bloqueado') return 'Bloqueado'
   if (ESTADOS_CERRADOS.includes(accion.estado)) return accion.estado
-  const target = getAutoEstadoPorFechaCompromiso(accion)
+  const target = getAutoEstadoPorFechaCompromiso(accion, now)
   if (target) return target
   return accion.estado
 }

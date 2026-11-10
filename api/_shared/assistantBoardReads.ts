@@ -15,6 +15,24 @@ import { PLAN_ACCION_TRACKS } from '../../src/features/plan-accion/data/planAcci
 import { hasPlanAccionAccess } from '../../src/features/plan-accion/lib/planAccionAccess.js'
 import type { CopilotToolName, CopilotToolResult } from '../../src/features/ai-support/copilot/types.js'
 import { todayWallClockCDMX } from '../../src/lib/dateUtils.js'
+import {
+  CORPORATE_OPEN_READ_LIMIT,
+  CORPORATE_TIMEZONE,
+  countByArea,
+  isCorporateBlocked,
+  isCorporateOverdue,
+  readWasTruncated,
+  summarizeCorporateActions,
+  type CorporateActionLike,
+} from '../../src/features/metrics/corporateActionMetrics.js'
+import {
+  krProgress,
+  objectivePaceStatus,
+  objectiveProgress,
+  type KrProgressInput,
+  type Objective,
+} from '../../src/features/okrs/model.js'
+import { isTeamDeadlinePast, summarizeTeamActions } from '../../src/features/metrics/teamActionMetrics.js'
 
 type BoardActor = {
   supabase: SupabaseClient
@@ -240,17 +258,35 @@ function seesAllCorporateActions(actor: BoardActor) {
   return !isAnalystByRole(actor.rol)
 }
 
+function toCorporateAction(row: {
+  id?: string | null
+  estado?: string | null
+  fecha?: string | null
+  hora_limite?: string | null
+  area?: string | null
+}): CorporateActionLike | null {
+  if (!row.id || !row.estado || !row.fecha) return null
+  return {
+    id: row.id,
+    estado: row.estado,
+    fecha: row.fecha.slice(0, 10),
+    hora_limite: row.hora_limite,
+    area: row.area,
+  }
+}
+
 async function loadOpenActions(actor: BoardActor, allBoard: boolean) {
   let q = actor.supabase
     .from('acciones_diarias')
-    .select('id,fecha,titulo_accion,estado,prioridad,responsable,area,updated_at')
+    .select('id,fecha,hora_limite,titulo_accion,estado,prioridad,responsable,area,updated_at')
     .in('estado', OPEN_STATES)
   if (!allBoard) q = q.eq('responsable', actor.usuarioId)
-  const { data, error } = await q.order('fecha', { ascending: true }).limit(400)
+  const { data, error } = await q.order('fecha', { ascending: true }).limit(CORPORATE_OPEN_READ_LIMIT)
   if (error) throw error
   return (data ?? []) as Array<{
     id: string
     fecha?: string | null
+    hora_limite?: string | null
     titulo_accion?: string | null
     estado?: string | null
     prioridad?: string | null
@@ -273,10 +309,19 @@ async function dashboardSummary(actor: BoardActor, tool: CopilotToolName): Promi
   const gate = await denyUnlessModule(actor, tool, 'dashboard')
   if ('kind' in gate) return gate
   const today = todayWallClockCDMX()
-  const rows = await loadOpenActions(actor, seesAllCorporateActions(actor))
-  const overdue = rows.filter((row) => row.estado === 'Retraso' || Boolean(row.fecha && row.fecha < today))
-  const blocked = rows.filter((row) => row.estado === 'Bloqueado')
-  const dueToday = rows.filter((row) => row.fecha === today)
+  const seesAll = seesAllCorporateActions(actor)
+  const rows = await loadOpenActions(actor, seesAll)
+  const actions = rows.flatMap((row) => {
+    const action = toCorporateAction(row)
+    return action ? [action] : []
+  })
+  const summary = summarizeCorporateActions(actions, {
+    scope: seesAll ? 'organizacion' : 'responsable',
+    today,
+    truncated: readWasTruncated(rows.length, CORPORATE_OPEN_READ_LIMIT),
+  })
+  const overdue = actions.filter((row) => isCorporateOverdue(row))
+  const blocked = actions.filter((row) => isCorporateBlocked(row))
   let hechoQ = actor.supabase
     .from('acciones_diarias')
     .select('id', { count: 'exact', head: true })
@@ -310,16 +355,25 @@ async function dashboardSummary(actor: BoardActor, tool: CopilotToolName): Promi
   }
   return readOk(tool, {
     today,
-    scope: seesAllCorporateActions(actor) ? 'tablero' : 'propias',
-    open: rows.length,
-    overdue: overdue.length,
-    blocked: blocked.length,
-    due_today: dueToday.length,
+    scope: summary.scope,
+    scope_note: seesAll ? 'Tablero corporativo' : 'Solo acciones propias',
+    timezone: CORPORATE_TIMEZONE,
+    population: summary.population,
+    truncated: summary.truncated,
+    open: summary.open,
+    overdue: summary.overdue,
+    blocked: summary.blocked,
+    due_today: summary.dueToday,
+    pending_verification: hechoCount ?? 0,
+    blocked_by_area: countByArea(blocked),
     by_estado: countBy(rows.map((row) => row.estado)),
     by_prioridad: countBy(rows.map((row) => row.prioridad)),
     hecho_abiertos_verificacion: hechoCount ?? 0,
     sample_overdue: clip(
-      overdue.map((row) => ({ id: row.id, title: row.titulo_accion, fecha: row.fecha, estado: row.estado })),
+      overdue.map((row) => {
+        const source = rows.find((item) => item.id === row.id)
+        return { id: row.id, title: source?.titulo_accion, fecha: row.fecha, estado: row.estado }
+      }),
       8
     ),
     operational_okr: operational,
@@ -403,77 +457,196 @@ async function orgChart(actor: BoardActor, tool: CopilotToolName, name: string):
   return readOk(tool, summarizeOrg(users))
 }
 
+const OKR_OBJECTIVE_LIMIT = 20
+const OKR_INITIATIVE_LIMIT = 40
+
+type OkrReadRow = {
+  id: string
+  nombre_okr?: string | null
+  scope?: string | null
+  activo?: boolean | null
+  start_date?: string | null
+  end_date?: string | null
+}
+
+type KrReadRow = {
+  id: string
+  okr_id: string
+  title?: string | null
+  unit?: string | null
+  baseline_value: number | null
+  target_value: number | null
+  current_value: number | null
+  computed_progress?: number
+}
+
+function asProgressInput(kr: KrReadRow): KrProgressInput {
+  return {
+    baseline_value: kr.baseline_value,
+    target_value: kr.target_value as number,
+    current_value: kr.current_value,
+    computed_progress: kr.computed_progress,
+  }
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function asKrRow(row: Record<string, unknown>): KrReadRow | null {
+  const id = typeof row.id === 'string' ? row.id : ''
+  const okrId = typeof row.okr_id === 'string' ? row.okr_id : ''
+  if (!id || !okrId) return null
+  return {
+    id,
+    okr_id: okrId,
+    title: typeof row.title === 'string' ? row.title : null,
+    baseline_value: numberOrNull(row.baseline_value),
+    target_value: numberOrNull(row.target_value),
+    current_value: numberOrNull(row.current_value),
+    unit: typeof row.unit === 'string' ? row.unit : null,
+    computed_progress: numberOrNull(row.computed_progress) ?? undefined,
+  }
+}
+
+function shapeOkrProgress(input: {
+  objectives: OkrReadRow[]
+  keyResults: KrReadRow[]
+  initiatives: Array<{ key_result_id?: string | null }>
+  today: string
+  truncated: boolean
+}) {
+  const items = input.objectives.map((okr) => {
+    const krs = input.keyResults.filter((kr) => kr.okr_id === okr.id)
+    const krIds = new Set(krs.map((kr) => kr.id))
+    const linked = input.initiatives.filter(
+      (item) => item.key_result_id && krIds.has(item.key_result_id)
+    )
+    const objective: Pick<Objective, 'activo' | 'start_date' | 'end_date'> = {
+      activo: okr.activo !== false,
+      start_date: okr.start_date ?? null,
+      end_date: okr.end_date ?? null,
+    }
+    const progress = objectiveProgress(krs.map(asProgressInput))
+    const visibleKrs = krs.slice(0, 6)
+    return {
+      id: okr.id,
+      nombre: okr.nombre_okr,
+      scope: okr.scope,
+      periodo: [okr.start_date, okr.end_date].filter(Boolean).join(' a '),
+      progress,
+      pace: objectivePaceStatus(objective, progress, input.today),
+      insufficient_krs: krs.filter((kr) => krProgress(asProgressInput(kr)) == null).length,
+      without_initiatives: linked.length === 0,
+      krs_truncated: krs.length > visibleKrs.length,
+      krs: visibleKrs.map((kr) => {
+        const value = krProgress(asProgressInput(kr))
+        return {
+          id: kr.id,
+          title: kr.title,
+          actual: kr.current_value,
+          meta: kr.target_value,
+          baseline: kr.baseline_value,
+          unidad: kr.unit,
+          progress: value,
+          progress_label: value == null ? 'sin_datos_suficientes' : 'medible',
+        }
+      }),
+    }
+  })
+  const visible = items.slice(0, 8)
+  return {
+    objectives: input.objectives.length,
+    keyResults: input.keyResults.length,
+    initiatives: input.initiatives.length,
+    without_initiatives: items.filter((item) => item.without_initiatives).length,
+    insufficient_krs: items.reduce((sum, item) => sum + item.insufficient_krs, 0),
+    truncated:
+      input.truncated ||
+      items.length > visible.length ||
+      visible.some((item) => item.krs_truncated),
+    items: visible,
+  }
+}
+
 async function toolOkrProgress(actor: BoardActor): Promise<CopilotToolResult> {
   const gate = await denyUnlessModule(actor, 'get_okr_progress', 'okrs')
   if ('kind' in gate) return gate
+  const today = todayWallClockCDMX()
   const { data, error } = await actor.supabase
     .from('okrs')
     .select('id,nombre_okr,scope,area_id,owner_user_id,start_date,end_date,activo')
     .eq('activo', true)
     .order('start_date', { ascending: false })
-    .limit(20)
+    .limit(OKR_OBJECTIVE_LIMIT)
   if (error) {
     const rpc = await actor.supabase.rpc('okr_dashboard')
     if (rpc.error) return denied('get_okr_progress', 'No tienes acceso a OKRs o el tablero no está disponible.')
-    const payload = rpc.data as { objectives?: unknown[]; keyResults?: unknown[]; initiatives?: unknown[] }
-    const objectives = Array.isArray(payload?.objectives) ? payload.objectives : []
-    return readOk('get_okr_progress', {
-      objectives: objectives.length,
-      keyResults: Array.isArray(payload?.keyResults) ? payload.keyResults.length : 0,
-      initiatives: Array.isArray(payload?.initiatives) ? payload.initiatives.length : 0,
-      items: clip(
-        objectives.map((item) => {
-          const row = item as Record<string, unknown>
-          return { id: row.id, nombre: row.nombre_okr, scope: row.scope }
-        }),
-        8
-      ),
+    const payload = rpc.data as {
+      objectives?: unknown[]
+      keyResults?: unknown[]
+      initiatives?: unknown[]
+    }
+    const objectives = (Array.isArray(payload?.objectives) ? payload.objectives : []).flatMap((item) => {
+      const row = item as Record<string, unknown>
+      return typeof row.id === 'string'
+        ? [{
+            id: row.id,
+            nombre_okr: typeof row.nombre_okr === 'string' ? row.nombre_okr : null,
+            scope: typeof row.scope === 'string' ? row.scope : null,
+            activo: row.activo !== false,
+            start_date: typeof row.start_date === 'string' ? row.start_date : null,
+            end_date: typeof row.end_date === 'string' ? row.end_date : null,
+          } satisfies OkrReadRow]
+        : []
     })
+    const keyResults = (Array.isArray(payload?.keyResults) ? payload.keyResults : []).flatMap((item) => {
+      const row = asKrRow(item as Record<string, unknown>)
+      return row ? [row] : []
+    })
+    const initiatives = (Array.isArray(payload?.initiatives) ? payload.initiatives : []).flatMap((item) => {
+      const row = item as Record<string, unknown>
+      return typeof row.key_result_id === 'string' ? [{ key_result_id: row.key_result_id }] : []
+    })
+    return readOk('get_okr_progress', shapeOkrProgress({
+      objectives,
+      keyResults,
+      initiatives,
+      today,
+      truncated: objectives.length >= OKR_OBJECTIVE_LIMIT,
+    }))
   }
-  const objectives = (data ?? []) as Array<{
-    id: string
-    nombre_okr?: string
-    scope?: string
-    start_date?: string
-    end_date?: string
-  }>
+  const objectives = (data ?? []) as OkrReadRow[]
   const ids = objectives.map((row) => row.id)
-  const { data: krs } = ids.length
+  const krQuery = ids.length
     ? await actor.supabase
         .from('okr_key_results')
         .select('id,okr_id,title,current_value,target_value,baseline_value,unit')
         .in('okr_id', ids)
         .order('display_order', { ascending: true })
     : { data: [] as unknown[] }
-  const { data: initiatives } = ids.length
-    ? await actor.supabase.from('okr_initiatives').select('id,okr_id,title').in('okr_id', ids).limit(40)
-    : { data: [] as unknown[] }
-  return readOk('get_okr_progress', {
-    objectives: objectives.length,
-    keyResults: (krs ?? []).length,
-    initiatives: (initiatives ?? []).length,
-    items: clip(
-      objectives.map((okr) => ({
-        id: okr.id,
-        nombre: okr.nombre_okr,
-        scope: okr.scope,
-        periodo: [okr.start_date, okr.end_date].filter(Boolean).join(' a '),
-        krs: clip(
-          ((krs ?? []) as Array<Record<string, unknown>>)
-            .filter((kr) => kr.okr_id === okr.id)
-            .map((kr) => ({
-              title: kr.title,
-              actual: kr.current_value,
-              meta: kr.target_value,
-              baseline: kr.baseline_value,
-              unidad: kr.unit,
-            })),
-          6
-        ),
-      })),
-      8
-    ),
+  const keyResults = ((krQuery.data ?? []) as Array<Record<string, unknown>>).flatMap((row) => {
+    const parsed = asKrRow(row)
+    return parsed ? [parsed] : []
   })
+  const krIds = keyResults.map((kr) => kr.id)
+  const initiativeQuery = krIds.length
+    ? await actor.supabase
+        .from('okr_initiatives')
+        .select('id,key_result_id')
+        .in('key_result_id', krIds)
+        .limit(OKR_INITIATIVE_LIMIT)
+    : { data: [] as unknown[] }
+  const initiatives = (initiativeQuery.data ?? []) as Array<{ key_result_id?: string | null }>
+  return readOk('get_okr_progress', shapeOkrProgress({
+    objectives,
+    keyResults,
+    initiatives,
+    today,
+    truncated:
+      readWasTruncated(objectives.length, OKR_OBJECTIVE_LIMIT) ||
+      readWasTruncated(initiatives.length, OKR_INITIATIVE_LIMIT),
+  }))
 }
 
 async function moduleKpis(supabase: SupabaseClient, query: string) {
@@ -544,7 +717,26 @@ async function moduleTeamKanban(actor: BoardActor, access: ActorAccess, query: s
   const { data, error } = await q
   if (error) throw error
   const rows = ((data ?? []) as Array<Record<string, unknown>>).filter((row) => matchesQuery(String(row.titulo ?? ''), query))
+  const now = new Date()
+  const teamSummary = summarizeTeamActions(
+    rows.map((row) => ({
+      id: String(row.id ?? ''),
+      fecha_limite: typeof row.fecha_limite === 'string' ? row.fecha_limite : null,
+      bloqueada: row.bloqueada === true,
+      completed_at: typeof row.completed_at === 'string' ? row.completed_at : null,
+    })),
+    now
+  )
+  const overdue = rows.filter((row) =>
+    isTeamDeadlinePast(typeof row.fecha_limite === 'string' ? row.fecha_limite : null, now)
+  ).length
   return {
+    population: 'acciones_equipo',
+    timezone: CORPORATE_TIMEZONE,
+    open: teamSummary.open,
+    overdue,
+    blocked: teamSummary.blocked,
+    truncated: readWasTruncated((data ?? []).length, 40),
     items: clip(
       rows.map((row) => ({
         id: row.id,

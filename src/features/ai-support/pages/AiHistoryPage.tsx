@@ -5,15 +5,12 @@ import {
   ArrowRight,
   CheckCircle2,
   ClipboardList,
-  Compass,
   History,
-  Lightbulb,
   Loader2,
   MessageCircle,
   Mic,
   Play,
   Sparkles,
-  Target,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -25,6 +22,8 @@ import { cn } from '@/lib/utils'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { ActionDraftList } from '@/features/ai-support/components/ActionDraftList'
 import { groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
+import { GuideReportActions } from '@/features/guide/components/GuideReportActions'
+import { GuideReportBody } from '@/features/guide/components/GuideReportBody'
 import { pendingWorkItems, pendingWorkToAnalysis } from '@/features/guide/pendingWork'
 
 function createdWorkItems(entry: GuideJournalEntry | null | undefined): GuideCreatedWork[] {
@@ -64,69 +63,26 @@ function formatFriendlyDate(iso: string) {
   })
 }
 
-type ReportBlock = { title: string | null; body: string }
-
-function parseReportBlocks(raw: string): ReportBlock[] {
-  const lines = raw
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-
-  const blocks: ReportBlock[] = []
-  let current: ReportBlock | null = null
-
-  const isHeading = (line: string) => {
-    if (line.length > 48) return false
-    if (/^REPORTE\b/i.test(line)) return true
-    if (/^[A-ZÁÉÍÓÚÑ0-9][A-ZÁÉÍÓÚÑ0-9\s\-—–:]{2,}$/.test(line) && /[A-ZÁÉÍÓÚÑ]/.test(line)) {
-      return true
-    }
-    return false
-  }
-
-  const prettyHeading = (line: string) =>
-    line
-      .replace(/^REPORTE EJECUTIVO\s*[—–-]?\s*GUIA\s*/i, 'Reporte ejecutivo')
-      .replace(/\bSITUACION\b/i, 'Situacion')
-      .replace(/\bDIAGNOSTICO\b/i, 'Diagnostico')
-      .replace(/\bDECISIONES\b/i, 'Decisiones')
-      .replace(/\bPARA APROBAR\b/i, 'Para aprobar')
-      .replace(/\bTRABAJO CREADO\b/i, 'Trabajo creado')
-      .replace(/\bPRIORIDADES\b/i, 'Prioridades')
-      .replace(/\bACCIONES\b/i, 'Acciones')
-      .replace(/\bRIESGOS\b/i, 'Riesgos')
-      .replace(/\bPROXIMOS PASOS\b/i, 'Proximos pasos')
-      .replace(/\bCIERRE\b/i, 'Cierre')
-
-  for (const line of lines) {
-    if (isHeading(line)) {
-      if (current && current.body.trim()) blocks.push(current)
-      current = { title: prettyHeading(line), body: '' }
-      continue
-    }
-    if (!current) current = { title: null, body: '' }
-    current.body = current.body ? `${current.body}\n${line}` : line
-  }
-  if (current && (current.title || current.body.trim())) blocks.push(current)
-  return blocks.length > 0 ? blocks : [{ title: null, body: raw.trim() }]
-}
-
 function CreatedWorkList({ items }: { items: GuideCreatedWork[] }) {
   if (items.length === 0) return null
   return (
-    <div className="space-y-2.5">
-      <p className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
-        <CheckCircle2 className="h-4 w-4 text-primary" aria-hidden />
-        Quedo en tu tablero
-      </p>
+    <section className="space-y-3" aria-label="Trabajo en tablero">
+      <div className="space-y-1">
+        <p className="inline-flex items-center gap-1.5 text-base font-semibold tracking-tight text-foreground">
+          <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden />
+          Ya quedo en el tablero
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Elementos creados o confirmados a partir de esta sesion.
+        </p>
+      </div>
       <ul className="space-y-2">
         {items.map((item) => (
           <li
             key={`${item.kind}-${item.id || item.title}`}
-            className="flex items-start gap-2.5 rounded-2xl bg-muted/40 px-3 py-2.5"
+            className="flex items-start gap-2.5 rounded-2xl border border-border/60 bg-card px-3.5 py-3 shadow-sm"
           >
-            <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-background text-[10px] font-semibold uppercase tracking-wide text-primary ring-1 ring-border/60">
+            <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-500/20 dark:text-emerald-300">
               {item.kind === 'initiative' ? 'IN' : 'AC'}
             </span>
             <div className="min-w-0">
@@ -140,27 +96,7 @@ function CreatedWorkList({ items }: { items: GuideCreatedWork[] }) {
           </li>
         ))}
       </ul>
-    </div>
-  )
-}
-
-function InsightChip({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: typeof Lightbulb
-  label: string
-  children: string
-}) {
-  return (
-    <div className="rounded-2xl bg-muted/35 px-3.5 py-3">
-      <p className="mb-1 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <Icon className="h-3.5 w-3.5 text-primary" aria-hidden />
-        {label}
-      </p>
-      <p className="text-sm leading-5 text-foreground">{children}</p>
-    </div>
+    </section>
   )
 }
 
@@ -206,11 +142,6 @@ export function AiHistoryPage() {
     () => entries.find((entry) => entry.id === selectedId) ?? null,
     [entries, selectedId]
   )
-
-  const reportBlocks = useMemo(() => {
-    if (!selected?.executive_report?.trim()) return null
-    return parseReportBlocks(selected.executive_report)
-  }, [selected?.executive_report])
 
   const selectedWork = useMemo(() => createdWorkItems(selected), [selected])
   const selectedPending = useMemo(() => pendingWorkItems(selected?.created_work), [selected])
@@ -284,7 +215,7 @@ export function AiHistoryPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 pb-24 sm:pb-8">
+    <div className="mx-auto w-full max-w-3xl space-y-6 pb-28 sm:pb-8">
       {!selected ? (
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-1.5">
@@ -328,27 +259,36 @@ export function AiHistoryPage() {
             Todas las sesiones
           </button>
 
-          <section className="relative overflow-hidden rounded-[1.75rem] bg-[linear-gradient(160deg,hsl(var(--primary)/0.12)_0%,hsl(var(--muted)/0.45)_42%,hsl(var(--card))_100%)] p-5 sm:p-6">
-            <div className="pointer-events-none absolute -right-10 -top-10 h-36 w-36 rounded-full bg-primary/10 blur-2xl" aria-hidden />
-            <div className="relative space-y-5">
-              <div className="flex items-start gap-3">
-                <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
-                  <Sparkles className="h-5 w-5" aria-hidden />
-                </span>
-                <div className="min-w-0 flex-1 space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    {formatFriendlyDate(selected.created_at)}
-                  </p>
-                  <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+          <section className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-card shadow-sm">
+            <div className="space-y-5 border-b border-border/50 bg-[linear-gradient(165deg,hsl(var(--primary)/0.08)_0%,hsl(var(--card))_55%)] p-5 sm:p-6">
+              <div className="space-y-3">
+                <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                  {formatFriendlyDate(selected.created_at)}
+                </p>
+                <div className="space-y-2">
+                  <h1 className="text-balance text-2xl font-semibold tracking-tight text-foreground sm:text-[1.75rem] sm:leading-snug">
                     {selected.topic || 'Sesion con Guia'}
                   </h1>
-                  <p className="text-sm text-muted-foreground">
-                    {messages.length > 0
-                      ? `${messages.length} mensajes guardados`
-                      : 'Sesion por voz o sin chat de texto'}
-                    {selectedWork.length > 0 ? ` · ${selectedWork.length} en tablero` : ''}
-                    {selectedPending.length > 0 ? ` · ${selectedPending.length} por aprobar` : ''}
+                  <p className="max-w-xl text-sm leading-6 text-muted-foreground">
+                    Resumen para decidir: que paso, que falta aprobar y como continuar.
                   </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className="inline-flex items-center rounded-full bg-background/80 px-2.5 py-1 text-[11px] font-medium text-foreground ring-1 ring-border/70">
+                    {messages.length > 0
+                      ? `${messages.length} mensajes`
+                      : 'Sesion por voz'}
+                  </span>
+                  {selectedPending.length > 0 ? (
+                    <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-800 ring-1 ring-amber-500/25 dark:text-amber-200">
+                      {selectedPending.length} por aprobar
+                    </span>
+                  ) : null}
+                  {selectedWork.length > 0 ? (
+                    <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-500/25 dark:text-emerald-200">
+                      {selectedWork.length} en tablero
+                    </span>
+                  ) : null}
                 </div>
               </div>
 
@@ -367,88 +307,114 @@ export function AiHistoryPage() {
                   )}
                   Seguir conversando
                 </Button>
-                <p className="px-1 text-xs text-muted-foreground sm:px-0">
-                  Abre 15 minutos mas con este contexto.
+                <p className="px-1 text-xs leading-5 text-muted-foreground sm:max-w-[16rem] sm:px-0">
+                  Retoma 15 minutos con el mismo contexto de esta sesion.
                 </p>
               </div>
             </div>
+
+            {(selected.executive_report || selected.summary) && (
+              <div className="space-y-2 border-b border-border/50 px-5 py-4 sm:px-6">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-semibold tracking-tight text-foreground">
+                    Compartir informe
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    PDF para archivo; WhatsApp para un resumen corto al perfil vinculado.
+                  </p>
+                </div>
+                <GuideReportActions
+                  topic={selected.topic}
+                  dateLabel={formatFriendlyDate(selected.created_at)}
+                  executiveReport={selected.executive_report}
+                  summary={selected.summary}
+                  learning={selected.learning}
+                  intention={selected.intention}
+                  createdAt={selected.created_at}
+                  entryId={selected.id}
+                  sessionId={selected.session_id}
+                  onShare={async (confirm) => {
+                    const headers = await (async () => {
+                      const { data } = await import('@/lib/supabase/client').then((mod) =>
+                        mod.supabase.auth.getSession()
+                      )
+                      const token = data.session?.access_token
+                      if (!token) throw new Error('Debes iniciar sesion.')
+                      return {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                      }
+                    })()
+                    const response = await fetch('/api/guide-report-share', {
+                      method: 'POST',
+                      headers,
+                      body: JSON.stringify({ entry_id: selected.id, confirm }),
+                    })
+                    const payload = (await response.json().catch(() => ({}))) as {
+                      ok?: boolean
+                      code?: string
+                      preview?: string
+                      phone?: string | null
+                      sent?: boolean
+                      error?: string
+                    }
+                    if (!response.ok) {
+                      throw new Error(
+                        payload.error ||
+                          (response.status === 404
+                            ? 'El servicio de WhatsApp no esta disponible en este entorno.'
+                            : 'No se pudo preparar WhatsApp.')
+                      )
+                    }
+                    return {
+                      ok: Boolean(payload.ok),
+                      code: payload.code || '',
+                      preview: payload.preview || '',
+                      phone: payload.phone ?? null,
+                      sent: Boolean(payload.sent) || payload.code === 'sent',
+                    }
+                  }}
+                />
+              </div>
+            )}
           </section>
 
-          {(reportBlocks || selected.summary) && (
-            <section className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Compass className="h-4 w-4 text-primary" aria-hidden />
-                <h2 className="text-sm font-semibold tracking-tight">Lo que salio de la sesion</h2>
-              </div>
-
-              {reportBlocks ? (
-                <div className="space-y-4">
-                  {reportBlocks
-                    .filter((block) => !/para aprobar/i.test(block.title || ''))
-                    .map((block, index) => (
-                    <div key={`${block.title ?? 'body'}-${index}`} className="space-y-1.5">
-                      {block.title ? (
-                        <p className="text-xs font-semibold uppercase tracking-[0.06em] text-primary/80">
-                          {block.title}
-                        </p>
-                      ) : null}
-                      <p className="whitespace-pre-wrap text-[15px] leading-6 text-foreground/90">
-                        {block.body}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              ) : selected.summary ? (
-                <p className="text-[15px] leading-6 text-foreground/90">{selected.summary}</p>
-              ) : null}
-            </section>
-          )}
+          <GuideReportBody
+            executiveReport={selected.executive_report}
+            summary={selected.summary}
+            agentInferences={selected.agent_inferences}
+            learning={selected.learning}
+            intention={selected.intention}
+            reflectionQuestion={selected.reflection_question}
+          />
 
           {pendingAnalysis ? (
-            <ActionDraftList
-              result={pendingAnalysis}
-              createdBy={currentUser?.id ?? null}
-              onCreated={(draft, created) => markDraftCreated(draft.title, created.id)}
-            />
+            <section className="space-y-3" aria-label="Pendiente de aprobar">
+              <div className="space-y-1">
+                <h2 className="text-base font-semibold tracking-tight">Pendiente de aprobar</h2>
+                <p className="text-sm text-muted-foreground">
+                  Revisa y confirma antes de dejarlo en el tablero.
+                </p>
+              </div>
+              <ActionDraftList
+                result={pendingAnalysis}
+                createdBy={currentUser?.id ?? null}
+                onCreated={(draft, created) => markDraftCreated(draft.title, created.id)}
+              />
+            </section>
           ) : null}
 
           {selectedWork.length > 0 ? <CreatedWorkList items={selectedWork} /> : null}
 
-          {(selected.agent_inferences ||
-            selected.learning ||
-            selected.intention ||
-            selected.reflection_question) && (
-            <section className="space-y-3">
-              <h2 className="text-sm font-semibold tracking-tight">Notas de Guia</h2>
-              <div className="grid gap-2.5 sm:grid-cols-2">
-                {selected.agent_inferences ? (
-                  <InsightChip icon={Lightbulb} label="Interpretacion">
-                    {selected.agent_inferences}
-                  </InsightChip>
-                ) : null}
-                {selected.learning ? (
-                  <InsightChip icon={Sparkles} label="Aprendizaje">
-                    {selected.learning}
-                  </InsightChip>
-                ) : null}
-                {selected.intention ? (
-                  <InsightChip icon={Target} label="Intencion">
-                    {selected.intention}
-                  </InsightChip>
-                ) : null}
-                {selected.reflection_question ? (
-                  <InsightChip icon={MessageCircle} label="Para pensar">
-                    {selected.reflection_question}
-                  </InsightChip>
-                ) : null}
+          <section className="space-y-3" aria-label="Conversacion">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <MessageCircle className="h-4 w-4 text-primary" aria-hidden />
+                <h2 className="text-base font-semibold tracking-tight">Conversacion</h2>
               </div>
-            </section>
-          )}
-
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <MessageCircle className="h-4 w-4 text-primary" aria-hidden />
-              <h2 className="text-sm font-semibold tracking-tight">Conversacion</h2>
+              <p className="text-sm text-muted-foreground">
+                Detalle de la sesion; el informe de arriba es la lectura principal.
+              </p>
             </div>
 
             {loadingMessages ? (

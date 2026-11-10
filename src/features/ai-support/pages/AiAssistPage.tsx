@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
   Bot,
+  Check,
+  ChevronDown,
   LayoutGrid,
   ListChecks,
   Loader2,
@@ -11,23 +13,26 @@ import {
   Send,
   Target,
   Trash2,
-  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { UNIFIED_ASSISTANT_MODE, assistantProfile } from '@/lib/assistantModes'
 import type { AiChatMessage } from '@/features/ai-support/types'
 import type { BoardAssistantContextPayload } from '@/features/ai-support/buildBoardAssistantContext'
-import { buildOkrAssistantContext } from '@/features/ai-support/buildOkrAssistantContext'
+import {
+  buildOkrAssistantContext,
+  buildOkrAssistantContexts,
+} from '@/features/ai-support/buildOkrAssistantContext'
 import { serializeAssistantKanbanContext } from '@/features/ai-support/assistantKanbanContext'
 import {
   buildOperationalSnapshot,
@@ -103,10 +108,6 @@ const OKR_PROMPTS = [
   'Las iniciativas mueven el KR o solo documentan actividad?',
   'Que datos faltan para validar linea base y meta sin inventar X o Y?',
 ]
-const ALL_KRS_VALUE = '__all_krs__'
-const NO_INITIATIVE_VALUE = '__no_initiative__'
-const NO_ACTION_VALUE = '__no_action__'
-const NO_OBJECTIVE_VALUE = '__no_objective__'
 
 type ActionContext = {
   id: string
@@ -161,8 +162,10 @@ async function sendMessage({
 }: {
   mode: typeof UNIFIED_ASSISTANT_MODE
   messages: AiChatMessage[]
-  actionContext?: ActionContext
-  okrContext?: ReturnType<typeof buildOkrAssistantContext>
+  actionContext?: ActionContext | ActionContext[]
+  okrContext?:
+    | ReturnType<typeof buildOkrAssistantContext>
+    | NonNullable<ReturnType<typeof buildOkrAssistantContext>>[]
   boardContext?: BoardAssistantContextPayload
 }) {
   const headers = await getAssistantAuthHeaders()
@@ -260,6 +263,84 @@ function CompactToggle({
     >
       {active ? 'Usando' : 'Pausado'}
     </button>
+  )
+}
+
+function toggleId(list: string[], id: string) {
+  return list.includes(id) ? list.filter((item) => item !== id) : [...list, id]
+}
+
+function FilterMultiSelect({
+  label,
+  emptyLabel,
+  icon,
+  options,
+  values,
+  onChange,
+  disabled,
+  className,
+}: {
+  label: string
+  emptyLabel: string
+  icon?: ReactNode
+  options: Array<{ value: string; label: string }>
+  values: string[]
+  onChange: (next: string[]) => void
+  disabled?: boolean
+  className?: string
+}) {
+  const summary =
+    values.length === 0
+      ? emptyLabel
+      : values.length === 1
+        ? options.find((item) => item.value === values[0])?.label || label
+        : `${values.length} ${label.toLowerCase()}`
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild disabled={disabled || options.length === 0}>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={disabled || options.length === 0}
+          className={cn(
+            'h-8 w-full justify-between rounded-xl bg-background/80 px-2 text-[11px] font-normal',
+            className
+          )}
+        >
+          <span className="flex min-w-0 items-center gap-1">
+            {icon}
+            <span className="truncate">{summary}</span>
+          </span>
+          <ChevronDown className="h-3 w-3 shrink-0 opacity-60" aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-64 w-[min(20rem,var(--radix-dropdown-menu-trigger-width))] overflow-y-auto">
+        <DropdownMenuLabel className="text-[11px]">{label}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {options.length === 0 ? (
+          <p className="px-2 py-1.5 text-[11px] text-muted-foreground">Sin opciones</p>
+        ) : (
+          options.map((option) => {
+            const checked = values.includes(option.value)
+            return (
+              <DropdownMenuCheckboxItem
+                key={option.value}
+                checked={checked}
+                onSelect={(event) => event.preventDefault()}
+                onCheckedChange={() => onChange(toggleId(values, option.value))}
+                className="text-[11px]"
+              >
+                <span className="flex items-center gap-1.5">
+                  {checked ? <Check className="h-3 w-3 shrink-0" aria-hidden /> : null}
+                  <span className="truncate">{option.label}</span>
+                </span>
+              </DropdownMenuCheckboxItem>
+            )
+          })
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -409,7 +490,7 @@ function laneFromSearch(value: string | null): AssistantLane | null {
 
 export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
   const isPopup = variant === 'popup'
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [lane, setLane] = useState<AssistantLane | null>(() => laneFromSearch(searchParams.get('lane')))
 
   useEffect(() => {
@@ -417,11 +498,11 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     if (fromUrl) setLane(fromUrl)
   }, [searchParams])
   const [writeIntent, setWriteIntent] = useState<WriteIntent>('consult')
-  const [selectedActionId, setSelectedActionId] = useState<string | null>(null)
+  const [selectedActionIds, setSelectedActionIds] = useState<string[]>([])
   const [actionContextEnabled, setActionContextEnabled] = useState(true)
-  const [selectedObjectiveId, setSelectedObjectiveId] = useState<string | null>(null)
-  const [selectedKrId, setSelectedKrId] = useState<string | null>(null)
-  const [selectedInitiativeId, setSelectedInitiativeId] = useState<string | null>(null)
+  const [selectedObjectiveIds, setSelectedObjectiveIds] = useState<string[]>([])
+  const [selectedKrIds, setSelectedKrIds] = useState<string[]>([])
+  const [selectedInitiativeIds, setSelectedInitiativeIds] = useState<string[]>([])
   const [okrContextEnabled, setOkrContextEnabled] = useState(true)
   const [focusKind, setFocusKind] = useState<FocusKind>('portfolio')
   const [messages, setMessages] = useState<AiChatMessage[]>([])
@@ -486,51 +567,62 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     })
   }, [redOpenActions, userOpenActions])
 
-  const selectedAction = useMemo(
-    () => selectableActions.find((action) => action.id === selectedActionId) ?? null,
-    [selectableActions, selectedActionId]
+  const selectedActions = useMemo(
+    () => selectableActions.filter((action) => selectedActionIds.includes(action.id)),
+    [selectableActions, selectedActionIds]
   )
+  const primarySelectedAction = selectedActions[0] ?? null
   const { data: selectedCheckpoints = [], isLoading: checkpointsLoading } = useAccionCheckpoints(
-    selectedAction?.id
+    selectedActions.length === 1 ? primarySelectedAction?.id : undefined
   )
-  const { data: selectedComments = [] } = useAccionComentarios(selectedAction?.id)
-  const activeActionContext = Boolean(selectedAction && actionContextEnabled)
-  const selectedObjective = useMemo(
-    () => okrDashboard.data?.objectives.find((item) => item.id === selectedObjectiveId) ?? null,
-    [okrDashboard.data?.objectives, selectedObjectiveId]
+  const { data: selectedComments = [] } = useAccionComentarios(
+    selectedActions.length === 1 ? primarySelectedAction?.id : undefined
   )
-  const objectiveKeyResults = useMemo(
+  const activeActionContext = Boolean(selectedActions.length > 0 && actionContextEnabled)
+  const selectedObjectives = useMemo(
     () =>
-      selectedObjective
-        ? (okrDashboard.data?.keyResults ?? []).filter((item) => item.okr_id === selectedObjective.id)
-        : [],
-    [okrDashboard.data?.keyResults, selectedObjective]
+      (okrDashboard.data?.objectives ?? []).filter((item) =>
+        selectedObjectiveIds.includes(item.id)
+      ),
+    [okrDashboard.data?.objectives, selectedObjectiveIds]
   )
+  const objectiveKeyResults = useMemo(() => {
+    if (selectedObjectives.length === 0) return []
+    const objectiveIds = new Set(selectedObjectives.map((item) => item.id))
+    return (okrDashboard.data?.keyResults ?? []).filter((item) => objectiveIds.has(item.okr_id))
+  }, [okrDashboard.data?.keyResults, selectedObjectives])
   const objectiveInitiatives = useMemo(() => {
-    if (!selectedObjective) return []
+    if (selectedObjectives.length === 0) return []
     const krIds = new Set(
-      (selectedKrId
-        ? objectiveKeyResults.filter((item) => item.id === selectedKrId)
+      (selectedKrIds.length > 0
+        ? objectiveKeyResults.filter((item) => selectedKrIds.includes(item.id))
         : objectiveKeyResults
       ).map((item) => item.id)
     )
     return (okrDashboard.data?.initiatives ?? []).filter((item) => krIds.has(item.key_result_id))
-  }, [okrDashboard.data?.initiatives, objectiveKeyResults, selectedKrId, selectedObjective])
+  }, [
+    okrDashboard.data?.initiatives,
+    objectiveKeyResults,
+    selectedKrIds,
+    selectedObjectives,
+  ])
   const activeOkrContextPayload = useMemo(() => {
-    if (!selectedObjective || !okrDashboard.data || !okrContextEnabled) return null
-    return buildOkrAssistantContext(okrDashboard.data, okrActions.data ?? [], {
-      objectiveId: selectedObjective.id,
-      keyResultId: selectedKrId,
-      initiativeId: selectedInitiativeId,
+    if (selectedObjectives.length === 0 || !okrDashboard.data || !okrContextEnabled) return null
+    const items = buildOkrAssistantContexts(okrDashboard.data, okrActions.data ?? [], {
+      objectiveIds: selectedObjectives.map((item) => item.id),
+      keyResultIds: selectedKrIds,
+      initiativeIds: selectedInitiativeIds,
       today: todayWallClockCDMX(),
     })
+    if (items.length === 0) return null
+    return items.length === 1 ? items[0]! : items
   }, [
     okrActions.data,
     okrContextEnabled,
     okrDashboard.data,
-    selectedInitiativeId,
-    selectedKrId,
-    selectedObjective,
+    selectedInitiativeIds,
+    selectedKrIds,
+    selectedObjectives,
   ])
   const activeOkrContext = Boolean(activeOkrContextPayload)
   const operationalSnapshot = useMemo(() => {
@@ -597,17 +689,25 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
 
   const focusWelcome = useMemo(() => {
     if (focusKind === 'action') {
-      return selectedAction
-        ? `Analizando la accion "${selectedAction.titulo_accion}". Dime que quieres validar o cerrar.`
-        : 'Elige una accion abierta arriba. Puedo ayudarte a cerrarla, desbloquearla o priorizarla.'
+      if (selectedActions.length === 1) {
+        return `Analizando la accion "${selectedActions[0]!.titulo_accion}". Dime que quieres validar o cerrar.`
+      }
+      if (selectedActions.length > 1) {
+        return `Analizando ${selectedActions.length} acciones. Dime que quieres validar, priorizar o cerrar.`
+      }
+      return 'Elige una o varias acciones abiertas arriba. Puedo ayudarte a cerrarlas, desbloquearlas o priorizarlas.'
     }
     if (focusKind === 'okr') {
-      return selectedObjective
-        ? `Analizando el OKR "${selectedObjective.nombre_okr}". Dime que quieres diagnosticar.`
-        : 'Elige un OKR arriba. Puedo evaluar el objetivo, sus KRs y las iniciativas.'
+      if (selectedObjectives.length === 1) {
+        return `Analizando el OKR "${selectedObjectives[0]!.nombre_okr}". Dime que quieres diagnosticar.`
+      }
+      if (selectedObjectives.length > 1) {
+        return `Analizando ${selectedObjectives.length} OKRs. Dime que quieres diagnosticar o priorizar.`
+      }
+      return 'Elige uno o varios OKRs arriba. Puedo evaluar objetivos, KRs e iniciativas.'
     }
     return null
-  }, [focusKind, selectedAction, selectedObjective])
+  }, [focusKind, selectedActions, selectedObjectives])
 
   const showBriefing = messages.length === 0 && !focusWelcome
   const visibleMessages = useMemo(() => {
@@ -623,54 +723,77 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     setInput('')
   }
 
-  const clearOkrSelection = () => {
-    setSelectedObjectiveId(null)
-    setSelectedKrId(null)
-    setSelectedInitiativeId(null)
+  const clearFilters = () => {
+    setSelectedActionIds([])
+    setSelectedObjectiveIds([])
+    setSelectedKrIds([])
+    setSelectedInitiativeIds([])
+    setFocusKind('portfolio')
   }
 
-  const clearActionSelection = () => {
-    setSelectedActionId(null)
+  const hasActiveFilters =
+    selectedActionIds.length > 0 ||
+    selectedObjectiveIds.length > 0 ||
+    selectedKrIds.length > 0 ||
+    selectedInitiativeIds.length > 0
+
+  const clearFiltersOrChat = () => {
+    if (hasActiveFilters) {
+      clearFilters()
+      return
+    }
+    clearChat()
   }
 
-  /** Solo un foco a la vez: portafolio, accion u OKR. */
-  const selectActionFocus = (actionId: string | null) => {
-    setSelectedActionId(actionId)
-    if (actionId) {
-      clearOkrSelection()
+  const setActionSelection = (ids: string[]) => {
+    setSelectedActionIds(ids)
+    if (ids.length > 0) {
       setActionContextEnabled(true)
-      setFocusKind('action')
-    } else if (focusKind === 'action') {
+      if (focusKind === 'portfolio') setFocusKind('action')
+    } else if (focusKind === 'action' && selectedObjectiveIds.length === 0) {
       setFocusKind('portfolio')
     }
   }
 
-  const selectOkrFocus = (objectiveId: string | null) => {
-    setSelectedObjectiveId(objectiveId)
-    setSelectedKrId(null)
-    setSelectedInitiativeId(null)
-    if (objectiveId) {
-      clearActionSelection()
+  const setObjectiveSelection = (ids: string[]) => {
+    setSelectedObjectiveIds(ids)
+    setSelectedKrIds((prev) =>
+      prev.filter((id) =>
+        (okrDashboard.data?.keyResults ?? []).some(
+          (kr) => kr.id === id && ids.includes(kr.okr_id)
+        )
+      )
+    )
+    setSelectedInitiativeIds((prev) =>
+      prev.filter((id) => {
+        const initiative = (okrDashboard.data?.initiatives ?? []).find((item) => item.id === id)
+        if (!initiative) return false
+        const kr = (okrDashboard.data?.keyResults ?? []).find(
+          (item) => item.id === initiative.key_result_id
+        )
+        return Boolean(kr && ids.includes(kr.okr_id))
+      })
+    )
+    if (ids.length > 0) {
       setOkrContextEnabled(true)
-      setFocusKind('okr')
-    } else if (focusKind === 'okr') {
+      if (focusKind === 'portfolio') setFocusKind('okr')
+    } else if (focusKind === 'okr' && selectedActionIds.length === 0) {
       setFocusKind('portfolio')
+      setSelectedKrIds([])
+      setSelectedInitiativeIds([])
     }
   }
 
   const switchFocusKind = (kind: FocusKind) => {
     setFocusKind(kind)
     if (kind === 'portfolio') {
-      clearActionSelection()
-      clearOkrSelection()
+      clearFilters()
       return
     }
     if (kind === 'action') {
-      clearOkrSelection()
       setActionContextEnabled(true)
       return
     }
-    clearActionSelection()
     setOkrContextEnabled(true)
   }
 
@@ -762,9 +885,15 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
           messages: nextMessages,
           actionContext:
             activeActionContext || intent === 'selected_action'
-              ? selectedAction
-                ? toActionContext(selectedAction, selectedCheckpoints, selectedComments)
-                : undefined
+              ? selectedActions.length === 1
+                ? toActionContext(
+                    selectedActions[0]!,
+                    selectedCheckpoints,
+                    selectedComments
+                  )
+                : selectedActions.length > 1
+                  ? selectedActions.map((action) => toActionContext(action, [], []))
+                  : undefined
               : undefined,
           okrContext:
             activeOkrContext || intent === 'selected_okr' || (intent === 'okrs' && sliced?.includeOkrs)
@@ -837,6 +966,13 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
       usuarioId={currentUser?.id ?? null}
       compact={isPopup}
       className="min-h-0 flex-1"
+      autoStartVoice={!isPopup && searchParams.get('channel') === 'voice'}
+      onAutoStartVoice={() => {
+        if (searchParams.get('channel') !== 'voice') return
+        const next = new URLSearchParams(searchParams)
+        next.delete('channel')
+        setSearchParams(next, { replace: true })
+      }}
     />
   )
 
@@ -1184,9 +1320,10 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               variant="ghost"
               size="icon"
               className="h-8 w-8 shrink-0 rounded-xl"
-              onClick={clearChat}
-              disabled={loading || messages.length === 0}
-              aria-label="Limpiar chat"
+              onClick={clearFiltersOrChat}
+              disabled={loading || (!hasActiveFilters && messages.length === 0)}
+              aria-label={hasActiveFilters ? 'Limpiar filtros' : 'Limpiar chat'}
+              title={hasActiveFilters ? 'Limpiar filtros' : 'Limpiar chat'}
             >
               <Trash2 className="h-3.5 w-3.5" aria-hidden />
             </Button>
@@ -1194,60 +1331,32 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
 
           {focusKind === 'action' ? (
             <div className="space-y-1.5">
-              <Select
-                value={selectedActionId ?? NO_ACTION_VALUE}
-                onValueChange={(value) =>
-                  selectActionFocus(value === NO_ACTION_VALUE ? null : value)
+              <FilterMultiSelect
+                label="Acciones"
+                emptyLabel={
+                  actionsLoading
+                    ? 'Cargando...'
+                    : selectableActions.length > 0
+                      ? 'Elegir acciones'
+                      : 'Sin acciones'
                 }
+                values={selectedActionIds}
+                onChange={setActionSelection}
                 disabled={actionsLoading || selectableActions.length === 0}
-              >
-                <SelectTrigger className="h-8 rounded-xl bg-background text-[11px]">
-                  <SelectValue
-                    placeholder={
-                      actionsLoading
-                        ? 'Cargando...'
-                        : selectableActions.length > 0
-                          ? 'Elegir accion'
-                          : 'Sin acciones'
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_ACTION_VALUE}>Sin accion</SelectItem>
-                  {selectableActions.map((action) => (
-                    <SelectItem key={action.id} value={action.id}>
-                      {formatActionOption(action)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedAction ? (
-                <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/5 px-2.5 py-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1">
-                      <AccionPriorityBadge
-                        prioridad={selectedAction.prioridad}
-                        catalogColor={findPriorityForAccion(selectedAction, priorities)?.color}
-                        compact
-                      />
-                      <span className="text-[10px] text-muted-foreground">{selectedAction.estado}</span>
-                    </div>
-                    <p className="mt-0.5 line-clamp-1 text-[11px] font-medium leading-4">
-                      {selectedAction.titulo_accion}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="rounded-md p-1 text-muted-foreground hover:bg-background hover:text-foreground"
-                    aria-label="Quitar accion"
-                    onClick={() => selectActionFocus(null)}
-                  >
-                    <X className="h-3.5 w-3.5" aria-hidden />
-                  </button>
-                </div>
+                options={selectableActions.map((action) => ({
+                  value: action.id,
+                  label: formatActionOption(action),
+                }))}
+              />
+              {selectedActions.length > 0 ? (
+                <p className="px-0.5 text-[10px] text-muted-foreground">
+                  {selectedActions.length === 1
+                    ? selectedActions[0]!.titulo_accion
+                    : `${selectedActions.length} acciones seleccionadas`}
+                </p>
               ) : (
                 <p className="px-0.5 text-[10px] text-muted-foreground">
-                  Elige una accion abierta para analizarla.
+                  Elige una o varias acciones abiertas para analizarlas.
                 </p>
               )}
             </div>
@@ -1255,78 +1364,73 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
 
           {focusKind === 'okr' ? (
             <div className="space-y-1.5">
-              <Select
-                value={selectedObjectiveId ?? NO_OBJECTIVE_VALUE}
-                onValueChange={(value) =>
-                  selectOkrFocus(value === NO_OBJECTIVE_VALUE ? null : value)
+              <FilterMultiSelect
+                label="Objetivos"
+                emptyLabel={
+                  okrDashboard.isLoading
+                    ? 'Cargando...'
+                    : (okrDashboard.data?.objectives.length ?? 0) > 0
+                      ? 'Elegir OKRs'
+                      : 'Sin OKRs'
                 }
+                values={selectedObjectiveIds}
+                onChange={setObjectiveSelection}
                 disabled={
                   okrDashboard.isLoading || (okrDashboard.data?.objectives.length ?? 0) === 0
                 }
-              >
-                <SelectTrigger className="h-8 rounded-xl bg-background text-[11px]">
-                  <SelectValue
-                    placeholder={
-                      okrDashboard.isLoading
-                        ? 'Cargando...'
-                        : (okrDashboard.data?.objectives.length ?? 0) > 0
-                          ? 'Elegir OKR'
-                          : 'Sin OKRs'
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_OBJECTIVE_VALUE}>Sin objetivo</SelectItem>
-                  {(okrDashboard.data?.objectives ?? []).map((objective) => (
-                    <SelectItem key={objective.id} value={objective.id}>
-                      {objective.nombre_okr}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedObjective ? (
-                <div className="space-y-1.5">
-                  <div className="flex items-start gap-2 rounded-xl border border-primary/20 bg-primary/5 px-2.5 py-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="line-clamp-1 text-[11px] font-medium leading-4">
-                        {selectedObjective.nombre_okr}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {objectiveKeyResults.length} KR · {objectiveInitiatives.length} iniciativas
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="rounded-md p-1 text-muted-foreground hover:bg-background hover:text-foreground"
-                      aria-label="Quitar OKR"
-                      onClick={() => selectOkrFocus(null)}
-                    >
-                      <X className="h-3.5 w-3.5" aria-hidden />
-                    </button>
-                  </div>
-                  <Select
-                    value={selectedKrId ?? ALL_KRS_VALUE}
-                    onValueChange={(value) => {
-                      setSelectedKrId(value === ALL_KRS_VALUE ? null : value)
-                      setSelectedInitiativeId(null)
+                options={(okrDashboard.data?.objectives ?? []).map((objective) => ({
+                  value: objective.id,
+                  label: objective.nombre_okr,
+                }))}
+              />
+              {selectedObjectives.length > 0 ? (
+                <div className="grid grid-cols-2 gap-1.5">
+                  <FilterMultiSelect
+                    label="KRs"
+                    emptyLabel="Todos los KR"
+                    className="h-7 rounded-lg"
+                    values={selectedKrIds}
+                    onChange={(ids) => {
+                      setSelectedKrIds(ids)
+                      setSelectedInitiativeIds((prev) =>
+                        prev.filter((id) => {
+                          const initiative = objectiveInitiatives.find((item) => item.id === id)
+                          return Boolean(
+                            initiative &&
+                              (ids.length === 0 || ids.includes(initiative.key_result_id))
+                          )
+                        })
+                      )
                     }}
-                  >
-                    <SelectTrigger className="h-7 bg-background text-[11px]">
-                      <SelectValue placeholder="KR" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={ALL_KRS_VALUE}>Todos los KR</SelectItem>
-                      {objectiveKeyResults.map((kr) => (
-                        <SelectItem key={kr.id} value={kr.id}>
-                          {kr.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    options={objectiveKeyResults.map((kr) => ({
+                      value: kr.id,
+                      label: kr.title,
+                    }))}
+                  />
+                  <FilterMultiSelect
+                    label="Iniciativas"
+                    emptyLabel={
+                      objectiveInitiatives.length > 0 ? 'Iniciativas' : 'Sin iniciativas'
+                    }
+                    className="h-7 rounded-lg"
+                    values={selectedInitiativeIds}
+                    onChange={setSelectedInitiativeIds}
+                    disabled={objectiveInitiatives.length === 0}
+                    options={objectiveInitiatives.map((initiative) => {
+                      const actionId = initiative.action_id ?? initiative.team_action_id
+                      const option = (okrActions.data ?? []).find(
+                        (action) => action.id === actionId
+                      )
+                      return {
+                        value: initiative.id,
+                        label: option?.title || 'Iniciativa sin titulo',
+                      }
+                    })}
+                  />
                 </div>
               ) : (
                 <p className="px-0.5 text-[10px] text-muted-foreground">
-                  Elige un OKR para diagnosticarlo.
+                  Elige uno o varios OKRs para diagnosticarlos.
                 </p>
               )}
             </div>
@@ -1387,17 +1491,23 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                 <p className="truncate text-sm font-semibold tracking-tight">{assistantProfile.title}</p>
                 <p className="truncate text-[11px] text-muted-foreground">
                   {activeActionContext
-                    ? selectedAction?.titulo_accion || 'Enfocando accion'
+                    ? selectedActions.length === 1
+                      ? selectedActions[0]?.titulo_accion || 'Enfocando accion'
+                      : `${selectedActions.length} acciones`
                     : activeOkrContext
-                      ? selectedObjective?.nombre_okr || 'Enfocando OKR'
+                      ? selectedObjectives.length === 1
+                        ? selectedObjectives[0]?.nombre_okr || 'Enfocando OKR'
+                        : `${selectedObjectives.length} OKRs`
                       : `${userOpenActions.length} abiertas · tablero`}
                 </p>
               </div>
-              {(selectedAction || selectedObjective) && (
+              {(selectedActions.length > 0 || selectedObjectives.length > 0) && (
                 <CompactToggle
-                  active={selectedAction ? actionContextEnabled : okrContextEnabled}
+                  active={
+                    selectedActions.length > 0 ? actionContextEnabled : okrContextEnabled
+                  }
                   onToggle={() =>
-                    selectedAction
+                    selectedActions.length > 0
                       ? setActionContextEnabled((value) => !value)
                       : setOkrContextEnabled((value) => !value)
                   }
@@ -1407,10 +1517,11 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                 type="button"
                 variant="ghost"
                 size="icon"
-                onClick={clearChat}
-                disabled={loading || messages.length === 0}
+                onClick={clearFiltersOrChat}
+                disabled={loading || (!hasActiveFilters && messages.length === 0)}
                 className="h-8 w-8 shrink-0 rounded-full"
-                aria-label="Limpiar chat"
+                aria-label={hasActiveFilters ? 'Limpiar filtros' : 'Limpiar chat'}
+                title={hasActiveFilters ? 'Limpiar filtros' : 'Limpiar chat'}
               >
                 <Trash2 className="h-3.5 w-3.5" aria-hidden />
               </Button>
@@ -1418,149 +1529,118 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
 
             <div className={cn('grid gap-1.5', canSeeOkrs ? 'grid-cols-2' : 'grid-cols-1')}>
               <div className="min-w-0">
-                <Select
-                  value={selectedActionId ?? NO_ACTION_VALUE}
-                  onValueChange={(value) =>
-                    selectActionFocus(value === NO_ACTION_VALUE ? null : value)
+                <FilterMultiSelect
+                  label="Acciones"
+                  emptyLabel={
+                    actionsLoading
+                      ? 'Cargando...'
+                      : selectableActions.length > 0
+                        ? 'Accion'
+                        : 'Sin acciones'
                   }
-                  disabled={
-                    Boolean(selectedObjectiveId) ||
-                    actionsLoading ||
-                    selectableActions.length === 0
-                  }
-                >
-                  <SelectTrigger className="h-8 rounded-xl bg-background/80 text-[11px]">
-                    <span className="mr-1 inline-flex items-center gap-1 text-muted-foreground">
-                      <ListChecks className="h-3 w-3" aria-hidden />
-                    </span>
-                    <SelectValue
-                      placeholder={
-                        selectedObjectiveId
-                          ? 'Quita OKR'
-                          : actionsLoading
-                            ? 'Cargando...'
-                            : 'Accion'
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NO_ACTION_VALUE}>Sin accion</SelectItem>
-                    {selectableActions.map((action) => (
-                      <SelectItem key={action.id} value={action.id}>
-                        {formatActionOption(action)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  icon={<ListChecks className="h-3 w-3 text-muted-foreground" aria-hidden />}
+                  values={selectedActionIds}
+                  onChange={setActionSelection}
+                  disabled={actionsLoading || selectableActions.length === 0}
+                  options={selectableActions.map((action) => ({
+                    value: action.id,
+                    label: formatActionOption(action),
+                  }))}
+                />
               </div>
 
               {canSeeOkrs ? (
                 <div className="min-w-0">
-                  <Select
-                    value={selectedObjectiveId ?? NO_OBJECTIVE_VALUE}
-                    onValueChange={(value) =>
-                      selectOkrFocus(value === NO_OBJECTIVE_VALUE ? null : value)
+                  <FilterMultiSelect
+                    label="Objetivos"
+                    emptyLabel={
+                      okrDashboard.isLoading
+                        ? 'Cargando...'
+                        : (okrDashboard.data?.objectives.length ?? 0) > 0
+                          ? 'OKR'
+                          : 'Sin OKRs'
                     }
+                    icon={<Target className="h-3 w-3 text-muted-foreground" aria-hidden />}
+                    values={selectedObjectiveIds}
+                    onChange={setObjectiveSelection}
                     disabled={
-                      Boolean(selectedActionId) ||
                       okrDashboard.isLoading ||
                       (okrDashboard.data?.objectives.length ?? 0) === 0
                     }
-                  >
-                    <SelectTrigger className="h-8 rounded-xl bg-background/80 text-[11px]">
-                      <span className="mr-1 inline-flex items-center gap-1 text-muted-foreground">
-                        <Target className="h-3 w-3" aria-hidden />
-                      </span>
-                      <SelectValue
-                        placeholder={
-                          selectedActionId
-                            ? 'Quita accion'
-                            : okrDashboard.isLoading
-                              ? 'Cargando...'
-                              : 'OKR'
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NO_OBJECTIVE_VALUE}>Sin objetivo</SelectItem>
-                      {(okrDashboard.data?.objectives ?? []).map((objective) => (
-                        <SelectItem key={objective.id} value={objective.id}>
-                          {objective.nombre_okr}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    options={(okrDashboard.data?.objectives ?? []).map((objective) => ({
+                      value: objective.id,
+                      label: objective.nombre_okr,
+                    }))}
+                  />
                 </div>
               ) : null}
             </div>
 
-            {selectedObjective ? (
+            {selectedObjectives.length > 0 ? (
               <div className="grid grid-cols-2 gap-1.5">
-                <Select
-                  value={selectedKrId ?? ALL_KRS_VALUE}
-                  onValueChange={(value) => {
-                    setSelectedKrId(value === ALL_KRS_VALUE ? null : value)
-                    setSelectedInitiativeId(null)
+                <FilterMultiSelect
+                  label="KRs"
+                  emptyLabel="Todos los KR"
+                  className="h-7 rounded-lg bg-background/70"
+                  values={selectedKrIds}
+                  onChange={(ids) => {
+                    setSelectedKrIds(ids)
+                    setSelectedInitiativeIds((prev) =>
+                      prev.filter((id) => {
+                        const initiative = objectiveInitiatives.find((item) => item.id === id)
+                        return Boolean(
+                          initiative &&
+                            (ids.length === 0 || ids.includes(initiative.key_result_id))
+                        )
+                      })
+                    )
                   }}
-                >
-                  <SelectTrigger className="h-7 rounded-lg bg-background/70 text-[11px]">
-                    <SelectValue placeholder="KR" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL_KRS_VALUE}>Todos los KR</SelectItem>
-                    {objectiveKeyResults.map((kr) => (
-                      <SelectItem key={kr.id} value={kr.id}>
-                        {kr.title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={selectedInitiativeId ?? NO_INITIATIVE_VALUE}
-                  onValueChange={(value) =>
-                    setSelectedInitiativeId(value === NO_INITIATIVE_VALUE ? null : value)
+                  options={objectiveKeyResults.map((kr) => ({
+                    value: kr.id,
+                    label: kr.title,
+                  }))}
+                />
+                <FilterMultiSelect
+                  label="Iniciativas"
+                  emptyLabel={
+                    objectiveInitiatives.length > 0 ? 'Iniciativa' : 'Sin iniciativas'
                   }
+                  className="h-7 rounded-lg bg-background/70"
+                  values={selectedInitiativeIds}
+                  onChange={setSelectedInitiativeIds}
                   disabled={objectiveInitiatives.length === 0}
-                >
-                  <SelectTrigger className="h-7 rounded-lg bg-background/70 text-[11px]">
-                    <SelectValue
-                      placeholder={
-                        objectiveInitiatives.length > 0 ? 'Iniciativa' : 'Sin iniciativas'
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NO_INITIATIVE_VALUE}>Sin iniciativa</SelectItem>
-                    {objectiveInitiatives.map((initiative) => {
-                      const actionId = initiative.action_id ?? initiative.team_action_id
-                      const option = (okrActions.data ?? []).find(
-                        (action) => action.id === actionId
-                      )
-                      return (
-                        <SelectItem key={initiative.id} value={initiative.id}>
-                          {option?.title || 'Iniciativa sin titulo'}
-                        </SelectItem>
-                      )
-                    })}
-                  </SelectContent>
-                </Select>
+                  options={objectiveInitiatives.map((initiative) => {
+                    const actionId = initiative.action_id ?? initiative.team_action_id
+                    const option = (okrActions.data ?? []).find(
+                      (action) => action.id === actionId
+                    )
+                    return {
+                      value: initiative.id,
+                      label: option?.title || 'Iniciativa sin titulo',
+                    }
+                  })}
+                />
               </div>
             ) : null}
 
-            {selectedAction ? (
+            {selectedActions.length === 1 ? (
               <div className="flex min-w-0 items-center gap-1.5 truncate rounded-lg bg-background/60 px-2 py-1 text-[11px]">
                 <AccionPriorityBadge
-                  prioridad={selectedAction.prioridad}
-                  catalogColor={findPriorityForAccion(selectedAction, priorities)?.color}
+                  prioridad={selectedActions[0]!.prioridad}
+                  catalogColor={findPriorityForAccion(selectedActions[0]!, priorities)?.color}
                   compact
                 />
                 <span className="truncate text-muted-foreground">
-                  {selectedAction.estado}
+                  {selectedActions[0]!.estado}
                   {' · '}
                   Checklist{' '}
                   {checkpointsLoading ? '…' : `${checklistDone}/${selectedCheckpoints.length}`}
                 </span>
               </div>
+            ) : selectedActions.length > 1 ? (
+              <p className="truncate rounded-lg bg-background/60 px-2 py-1 text-[11px] text-muted-foreground">
+                {selectedActions.length} acciones en contexto
+              </p>
             ) : null}
           </div>
 

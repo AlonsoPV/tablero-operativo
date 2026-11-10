@@ -1,4 +1,9 @@
 import { buildBoardAssistantContext } from '@/features/ai-support/buildBoardAssistantContext'
+import {
+  isCorporateBlocked,
+  isCorporateOpen,
+  isCorporateOverdue,
+} from '@/features/metrics/corporateActionMetrics'
 import { findPriorityForAccion } from '@/features/operations/utils/resolveAccionPrioridad'
 import { priorityColorFor } from '@/features/operations/utils/priorityColors'
 import type { Priority } from '@/features/catalogs/types/catalogs.types'
@@ -28,12 +33,16 @@ function addDays(today: string, days: number): string {
   return `${y}-${m}-${d}`
 }
 
-function dueBucket(fecha: string, today: string): OperationalActionItem['dueBucket'] {
-  if (!fecha) return 'unknown'
-  if (fecha < today) return 'overdue'
-  if (fecha === today) return 'today'
+function dueBucket(
+  action: AccionDiaria,
+  today: string,
+  now: Date
+): OperationalActionItem['dueBucket'] {
+  if (isCorporateOverdue(action, now)) return 'overdue'
+  if (!action.fecha) return 'unknown'
+  if (action.fecha === today) return 'today'
   const weekEnd = addDays(today, 7)
-  if (fecha <= weekEnd) return 'week'
+  if (action.fecha <= weekEnd && action.fecha > today) return 'week'
   return 'later'
 }
 
@@ -61,8 +70,7 @@ function toItem(
     okrImpactado: action.okr_impactado?.trim() || '',
     area: action.area?.trim() || '',
     daysSinceUpdate: daysSinceIso(action.updated_at, nowMs),
-    dueBucket:
-      action.estado === 'Retraso' ? 'overdue' : dueBucket(action.fecha, today),
+    dueBucket: dueBucket(action, today, new Date(nowMs)),
     mine: action.responsable === usuarioId,
   }
 }
@@ -85,7 +93,7 @@ function sortHot(items: OperationalActionItem[]) {
 }
 
 function isOpen(action: AccionDiaria) {
-  return action.estado !== 'Hecho' && action.estado !== 'Verificado'
+  return isCorporateOpen(action)
 }
 
 function isPendingVerification(action: AccionDiaria, usuarioId: string) {
@@ -111,6 +119,7 @@ export function buildOperationalSnapshot(input: {
   canSeeOkrs: boolean
   openActions: AccionDiaria[]
   pendingVerificationActions?: AccionDiaria[]
+  listsTruncated?: boolean
   priorities: Priority[]
   okrData: OkrData | null | undefined
   today: string
@@ -118,6 +127,7 @@ export function buildOperationalSnapshot(input: {
   nowMs?: number
 }): OperationalSnapshot {
   const nowMs = input.nowMs ?? Date.now()
+  const now = new Date(nowMs)
   const fetchedAt = input.fetchedAt ?? new Date(nowMs).toISOString()
   const open = input.openActions.filter(isOpen)
   const mineOpen = input.seesAllBoard
@@ -126,19 +136,17 @@ export function buildOperationalSnapshot(input: {
   const scopeActions = input.seesAllBoard ? open : mineOpen
 
   const weekEnd = addDays(input.today, 7)
-  const overdue = scopeActions.filter(
-    (a) => a.estado === 'Retraso' || (a.fecha && a.fecha < input.today)
-  )
+  const overdue = scopeActions.filter((a) => isCorporateOverdue(a, now))
   const dueThisWeek = scopeActions.filter(
     (a) =>
-      a.estado !== 'Retraso' &&
+      !isCorporateOverdue(a, now) &&
       a.fecha &&
       a.fecha >= input.today &&
       a.fecha <= weekEnd
   )
-  const blocked = scopeActions.filter((a) => a.estado === 'Bloqueado')
+  const blocked = scopeActions.filter((a) => isCorporateBlocked(a))
   const red = scopeActions.filter(
-    (a) => a.estado === 'Retraso' || actionColor(a, input.priorities) === 'rojo'
+    (a) => isCorporateOverdue(a, now) || actionColor(a, input.priorities) === 'rojo'
   )
   const stale = scopeActions.filter((a) => isStale(a, nowMs))
   const taggedOkr = scopeActions.filter((a) => a.es_okr === true)
@@ -150,16 +158,14 @@ export function buildOperationalSnapshot(input: {
   const teamPool = input.seesAllBoard
     ? open.filter((a) => a.responsable !== input.usuarioId)
     : []
-  const teamOverdue = teamPool.filter(
-    (a) => a.estado === 'Retraso' || (a.fecha && a.fecha < input.today)
-  )
-  const teamBlocked = teamPool.filter((a) => a.estado === 'Bloqueado')
+  const teamOverdue = teamPool.filter((a) => isCorporateOverdue(a, now))
+  const teamBlocked = teamPool.filter((a) => isCorporateBlocked(a))
   const teamHot = sortHot(
     teamPool
       .filter(
         (a) =>
-          a.estado === 'Retraso' ||
-          a.estado === 'Bloqueado' ||
+          isCorporateOverdue(a, now) ||
+          isCorporateBlocked(a) ||
           actionColor(a, input.priorities) === 'rojo' ||
           isStale(a, nowMs)
       )
@@ -176,12 +182,19 @@ export function buildOperationalSnapshot(input: {
     scopeActions,
     input.priorities,
     input.canSeeOkrs ? input.okrData : null,
-    input.today
+    input.today,
+    now
   )
+
+  const truncated =
+    input.listsTruncated === true ||
+    input.openActions.length >= 1000 ||
+    (input.pendingVerificationActions?.length ?? 0) >= 40
 
   return {
     fetchedAt,
     today: input.today,
+    truncated,
     viewer: {
       usuarioId: input.usuarioId,
       rol: input.rol,

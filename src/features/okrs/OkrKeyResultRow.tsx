@@ -32,6 +32,7 @@ import {
 import { UserPersonBadge } from '@/features/users/components/UserPersonBadge'
 import { cn } from '@/lib/utils'
 import {
+  formatProgressPercent,
   krProgress,
   type ActionOption,
   type CheckIn,
@@ -213,7 +214,7 @@ export function OkrKeyResultRow({
               toneTextClass(tone)
             )}
           >
-            {Math.round(progress)}%
+            {formatProgressPercent(progress)}
           </span>
         </div>
 
@@ -293,7 +294,7 @@ export function OkrKeyResultRow({
               <div>
                 <p className="text-xs text-muted-foreground">Avance</p>
                 <p className="mt-0.5 text-base font-semibold tabular-nums">
-                  {Math.round(progress)}%
+                  {formatProgressPercent(progress)}
                 </p>
               </div>
             </div>

@@ -623,11 +623,107 @@ function interactiveChannelSelectorPayload(to: string) {
   }
 }
 
+const CHANNEL_SELECTOR_DEBOUNCE_MS = 60_000
+const VOICE_LINK_RESEND_COOLDOWN_MS = 120_000
+
+function channelSelectorFallbackText() {
+  return [
+    '¡Hola! Soy tu asistente operativo de Scrumban.',
+    '',
+    'Puedo ayudarte a consultar actividades, revisar prioridades, resolver bloqueos y dar seguimiento a tus objetivos.',
+    '',
+    '¿Cómo prefieres conversar?',
+    '',
+    'Responde: Por mensaje  o  Por voz',
+  ].join('\n')
+}
+
+function voiceLinkMessageBody(link: string) {
+  return [
+    'Perfecto. Puedes hablar conmigo por voz desde este enlace:',
+    '',
+    link,
+    '',
+    'Al abrirlo, podrás iniciar la conversación con tu asistente operativo.',
+  ].join('\n')
+}
+
+function isWithinCooldownMs(sentAtIso: string | null | undefined, windowMs: number) {
+  if (!sentAtIso) return false
+  const t = new Date(sentAtIso).getTime()
+  if (!Number.isFinite(t)) return false
+  const delta = Date.now() - t
+  return delta >= 0 && delta < windowMs
+}
+
+function extractVoiceLinkFromPayload(payload: Record<string, unknown> | null | undefined) {
+  if (!payload || typeof payload !== 'object') return null
+  const direct = payload.link
+  if (typeof direct === 'string' && /^https?:\/\//i.test(direct.trim())) return direct.trim()
+  const nested = payload.guide_link
+  if (typeof nested === 'string' && /^https?:\/\//i.test(nested.trim())) return nested.trim()
+  return null
+}
+
+async function findRecentOutboundByEvent(
+  supabase: ReturnType<typeof adminClient>,
+  waId: string,
+  eventName: string,
+  windowMs: number
+): Promise<{ created_at: string; payload: Record<string, unknown> } | null> {
+  const variants = phoneVariants(waId)
+  const since = new Date(Date.now() - windowMs).toISOString()
+  let query = supabase
+    .from('whatsapp_messages')
+    .select('payload,created_at')
+    .eq('direction', 'outbound')
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(20)
+  if (variants.length > 0) {
+    query = query.in('wa_id', variants)
+  } else {
+    query = query.eq('wa_id', waId)
+  }
+  const { data, error } = await query
+  if (error) {
+    console.error('whatsapp-webhook recent outbound lookup', error.message)
+    return null
+  }
+  for (const row of data ?? []) {
+    const payload =
+      row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
+        ? (row.payload as Record<string, unknown>)
+        : {}
+    if (payload.event === eventName && isWithinCooldownMs(String(row.created_at ?? ''), windowMs)) {
+      return { created_at: String(row.created_at), payload }
+    }
+  }
+  return null
+}
+
 async function replyChannelSelector(
   supabase: ReturnType<typeof adminClient>,
   to: string,
   usuarioId: string
 ) {
+  const recent = await findRecentOutboundByEvent(
+    supabase,
+    to,
+    'bot_start_selector_sent',
+    CHANNEL_SELECTOR_DEBOUNCE_MS
+  )
+  if (recent) {
+    await replyText(
+      supabase,
+      to,
+      'Usa las opciones de arriba: Por mensaje o Por voz. Si no las ves, responde con esas palabras.',
+      usuarioId,
+      { flow: 'agent', agent_consult: true, event: 'bot_start_selector_debounced' }
+    )
+    return
+  }
+
   try {
     const graphBody = interactiveChannelSelectorPayload(to)
     const result = await graphSendMessage(graphBody)
@@ -653,8 +749,34 @@ async function replyChannelSelector(
         event: 'bot_start_selector_sent',
       },
     })
+    if (!result.ok) {
+      await replyText(
+        supabase,
+        to,
+        channelSelectorFallbackText(),
+        usuarioId,
+        {
+          flow: 'agent',
+          agent_consult: true,
+          event: 'bot_start_selector_text_fallback',
+          interactive_failed: true,
+        }
+      )
+    }
   } catch (error) {
     console.error('whatsapp channel selector failed', error)
+    await replyText(
+      supabase,
+      to,
+      channelSelectorFallbackText(),
+      usuarioId,
+      {
+        flow: 'agent',
+        agent_consult: true,
+        event: 'bot_start_selector_text_fallback',
+        interactive_exception: true,
+      }
+    )
   }
 }
 
@@ -679,6 +801,31 @@ async function createAndSendVoiceLink(
   supabase: ReturnType<typeof adminClient>,
   params: { waId: string; usuarioId: string }
 ) {
+  const recent = await findRecentOutboundByEvent(
+    supabase,
+    params.waId,
+    'voice_link_sent',
+    VOICE_LINK_RESEND_COOLDOWN_MS
+  )
+  const recentLink = recent ? extractVoiceLinkFromPayload(recent.payload) : null
+  if (recentLink) {
+    await replyText(
+      supabase,
+      params.waId,
+      voiceLinkMessageBody(recentLink),
+      params.usuarioId,
+      {
+        flow: 'agent',
+        agent_consult: true,
+        event: 'voice_link_sent',
+        link: recentLink,
+        preview_url: true,
+        resent: true,
+      }
+    )
+    return
+  }
+
   const secret = Deno.env.get('WHATSAPP_ASSISTANT_SECRET')?.trim() || ''
   const base = (Deno.env.get('APP_URL') || Deno.env.get('VITE_APP_URL') || '').trim().replace(/\/$/, '')
   if (!secret || !base) {
@@ -723,18 +870,13 @@ async function createAndSendVoiceLink(
     await replyText(
       supabase,
       params.waId,
-      [
-        'Perfecto. Puedes hablar conmigo por voz desde este enlace:',
-        '',
-        json.link,
-        '',
-        'Al abrirlo, podrás iniciar la conversación con tu asistente operativo.',
-      ].join('\n'),
+      voiceLinkMessageBody(json.link),
       params.usuarioId,
       {
         flow: 'agent',
         agent_consult: true,
         event: 'voice_link_sent',
+        link: json.link,
         preview_url: true,
       }
     )

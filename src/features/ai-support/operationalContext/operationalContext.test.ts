@@ -191,12 +191,30 @@ describe('operational assistant context', () => {
     })
     expect(limited.viewer.scope).toBe('own')
     expect(limited.counts.teamOverdue).toBe(0)
+    expect(limited.truncated).toBe(false)
     const reply = tryFactualAssistantReply(
       'Que esta retrasando al equipo?',
       limited,
       'team_delay'
     )
     expect(reply?.structured.finding).toContain('no tiene vista de tablero completo')
+  })
+
+  it('marks a truncated operational list instead of treating it as complete', () => {
+    const marked = buildOperationalSnapshot({
+      usuarioId: 'u1',
+      rol: 'Operativo',
+      areas: ['Operaciones'],
+      seesAllBoard: false,
+      canSeeOkrs: false,
+      openActions: [],
+      listsTruncated: true,
+      priorities,
+      okrData: null,
+      today: '2026-11-03',
+      nowMs,
+    })
+    expect(marked.truncated).toBe(true)
   })
 
   it('reduces tokens when slicing focused intents vs full board payload', () => {

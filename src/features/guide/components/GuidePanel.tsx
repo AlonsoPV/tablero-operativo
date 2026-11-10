@@ -11,11 +11,11 @@ import {
   Send,
   Sparkles,
   Timer,
-  Volume2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ROUTES } from '@/constants'
+import { GuidePresence, type GuideMood } from '@/features/guide/components/GuidePresence'
 import { useRetellGuideCall } from '@/features/guide/hooks/useRetellGuideCall'
 import { GuidePersonalLinkButton } from '@/features/guide/components/GuidePersonalLinkButton'
 import { guideService } from '@/features/guide/services/guide.service'
@@ -41,6 +41,9 @@ type GuidePanelProps = {
   compact?: boolean
   className?: string
   composerLead?: ReactNode
+  /** Abre la llamada al entrar desde una liga de voz. Solo una vez. */
+  autoStartVoice?: boolean
+  onAutoStartVoice?: () => void
 }
 
 type GuideChannel = 'text' | 'voice'
@@ -97,12 +100,25 @@ function StartTrigger({
     >
       {(
         [
-          { id: 'text' as const, label: 'Texto', icon: MessageSquare, hint: 'Chat 15 min' },
-          { id: 'voice' as const, label: 'Voz', icon: Mic, hint: 'Llamada en vivo' },
+          {
+            id: 'text' as const,
+            label: 'Texto',
+            icon: MessageSquare,
+            hint: 'Escribes y Guía responde',
+            tone: 'quiet' as const,
+          },
+          {
+            id: 'voice' as const,
+            label: 'Voz',
+            icon: Mic,
+            hint: 'Llamada en vivo',
+            tone: 'primary' as const,
+          },
         ] as const
       ).map((option) => {
         const Icon = option.icon
         const busy = starting && startingChannel === option.id
+        const primary = option.tone === 'primary'
         return (
           <button
             key={option.id}
@@ -110,15 +126,16 @@ function StartTrigger({
             disabled={starting}
             onClick={() => onStart(option.id)}
             className={cn(
-              'flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-2xl px-2 py-2.5 transition duration-200',
-              'bg-primary text-primary-foreground shadow-[0_12px_28px_-14px_hsl(var(--primary)/0.55)]',
-              'hover:-translate-y-0.5 hover:bg-primary/90',
+              'flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-2xl px-2 py-2.5 transition duration-200',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               'disabled:pointer-events-none disabled:opacity-60',
-              compact && 'min-h-11'
+              primary
+                ? 'bg-primary text-primary-foreground shadow-[0_14px_28px_-16px_hsl(var(--primary)/0.7)] hover:-translate-y-0.5 hover:bg-primary/90'
+                : 'bg-background text-foreground ring-1 ring-border/70 hover:-translate-y-0.5 hover:ring-primary/35',
+              compact && 'min-h-12'
             )}
           >
-            <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold tracking-tight">
+            <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold tracking-tight">
               {busy ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
               ) : (
@@ -126,7 +143,9 @@ function StartTrigger({
               )}
               {option.label}
             </span>
-            <span className="text-[10px] text-primary-foreground/80">{option.hint}</span>
+            <span className={cn('text-[10px]', primary ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+              {option.hint}
+            </span>
           </button>
         )
       })}
@@ -139,6 +158,8 @@ export function GuidePanel({
   compact = false,
   className,
   composerLead,
+  autoStartVoice = false,
+  onAutoStartVoice,
 }: GuidePanelProps) {
   const [session, setSession] = useState<GuideSession | null>(null)
   const [messages, setMessages] = useState<GuideMessage[]>([])
@@ -377,6 +398,19 @@ export function GuidePanel({
     }
   }
 
+  const autoStartRef = useRef(false)
+  const onAutoStartVoiceRef = useRef(onAutoStartVoice)
+  const startConversationRef = useRef(startConversation)
+  onAutoStartVoiceRef.current = onAutoStartVoice
+  startConversationRef.current = startConversation
+  useEffect(() => {
+    if (!autoStartVoice || bootstrapping || !usuarioId || autoStartRef.current) return
+    autoStartRef.current = true
+    onAutoStartVoiceRef.current?.()
+    if (session && ['active', 'closing'].includes(session.status)) return
+    void startConversationRef.current('voice')
+  }, [autoStartVoice, bootstrapping, session, usuarioId])
+
   const active = Boolean(session && ['active', 'closing'].includes(session.status) && remaining > 0)
   const isRetell = Boolean(session?.provider === 'retell')
   const ephemeral = Boolean(session && guideService.isLocalSession(session.id))
@@ -412,6 +446,18 @@ export function GuidePanel({
   }
 
   const busy = starting || sending || closing
+  const presenceMood: GuideMood =
+    (starting && channel === 'voice') || (isRetell && retell.status === 'connecting')
+      ? 'connecting'
+      : isRetell && retell.agentTalking
+        ? 'speaking'
+        : isRetell && retell.muted
+          ? 'muted'
+          : isRetell && retell.status === 'connected'
+            ? 'listening'
+            : sending
+              ? 'thinking'
+              : 'idle'
   const voiceStatus = isRetell
     ? retell.status === 'connecting'
       ? 'Conectando con el agente…'
@@ -475,17 +521,9 @@ export function GuidePanel({
       <div className={cn('relative shrink-0', compact ? 'px-3 pb-2 pt-3' : 'px-5 pb-3 pt-5')}>
         <div className="flex items-start gap-3">
           <div className="relative shrink-0">
-            <span
-              className={cn(
-                'inline-flex items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-[0_14px_30px_-16px_hsl(var(--primary)/0.7)] transition duration-300',
-                compact ? 'h-10 w-10' : 'h-12 w-12',
-                livePulse && 'scale-[1.03]'
-              )}
-            >
-              <Sparkles className={cn(compact ? 'h-4 w-4' : 'h-5 w-5')} aria-hidden />
-            </span>
+            <GuidePresence mood={presenceMood} size={compact ? 40 : 46} announce={false} />
             {active ? (
-              <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-background" aria-hidden />
+              <span className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-background" aria-hidden />
             ) : null}
           </div>
           <div className="min-w-0 flex-1 space-y-0.5">
@@ -691,31 +729,33 @@ export function GuidePanel({
       ) : idle ? (
         <div
           className={cn(
-            'relative flex min-h-0 flex-1 flex-col items-center justify-center text-center',
-            compact ? 'gap-4 px-4 py-6' : 'gap-5 px-6 py-10'
+            'relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto text-center',
+            compact ? 'gap-2.5 px-4 py-3' : 'gap-3 px-6 py-4'
           )}
         >
-          <div className="relative">
-            <span className="absolute inset-0 rounded-[1.75rem] bg-primary/20 blur-2xl" aria-hidden />
-            <span
-              className={cn(
-                'relative inline-flex items-center justify-center rounded-[1.5rem] bg-primary text-primary-foreground shadow-[0_18px_40px_-18px_hsl(var(--primary)/0.75)]',
-                compact ? 'h-14 w-14' : 'h-16 w-16'
-              )}
-            >
-              <Sparkles className={cn(compact ? 'h-6 w-6' : 'h-7 w-7')} aria-hidden />
-            </span>
-          </div>
-          <div className={cn('max-w-md space-y-2', !compact && 'space-y-2.5')}>
-            <p className={cn('font-semibold tracking-tight', compact ? 'text-base' : 'text-xl')}>
-              Listo cuando tu lo estes
+          <GuidePresence mood={presenceMood} size={compact ? 112 : 136} />
+          <div className="max-w-md space-y-1.5">
+            <p className={cn('font-semibold tracking-tight', compact ? 'text-base' : 'text-lg')}>
+              Listo cuando tú lo estés
             </p>
-            <p className={cn('leading-6 text-muted-foreground', compact ? 'text-sm' : 'text-[15px]')}>
+            <p className={cn('line-clamp-3 leading-5 text-muted-foreground', compact ? 'text-xs' : 'text-sm')}>
               {welcome}
             </p>
           </div>
+          <div className="w-full max-w-sm">{startControl}</div>
         </div>
       ) : (
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {active && isRetell ? (
+            <div className={cn('flex shrink-0 flex-col items-center', compact ? 'pb-1' : 'pb-2')}>
+              <GuidePresence
+                mood={presenceMood}
+                size={compact ? 112 : 156}
+                showCaption
+                caption={voiceStatus ?? 'En llamada con Guía'}
+              />
+            </div>
+          ) : null}
         <div
           className={cn(
             'relative min-h-0 flex-1 space-y-3 overflow-y-auto',
@@ -756,18 +796,6 @@ export function GuidePanel({
             </div>
           ))}
 
-          {isRetell && retell.status === 'connecting' ? (
-            <div className="flex items-center gap-2 pl-9 text-[13px] text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-              Conectando con Guia…
-            </div>
-          ) : null}
-          {isRetell && retell.agentTalking ? (
-            <div className="flex items-center gap-2 pl-9 text-[13px] text-muted-foreground">
-              <Volume2 className="h-3.5 w-3.5 text-primary" aria-hidden />
-              Guia habla…
-            </div>
-          ) : null}
           {!isRetell && sending ? (
             <div className="flex items-center gap-2 pl-9 text-[13px] text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -781,18 +809,21 @@ export function GuidePanel({
           ) : null}
           <div ref={endRef} />
         </div>
+        </div>
       )}
 
       <div
         className={cn(
           'relative shrink-0 bg-gradient-to-t from-background via-background/95 to-transparent',
-          compact ? 'px-3 pb-3 pt-2' : 'px-5 pb-5 pt-3'
+          compact ? 'px-3 pb-3 pt-2' : 'px-5 pb-5 pt-3',
+          idle && view === 'chat' && !composerLead && !ephemeral && 'hidden'
         )}
       >
         <div
           className={cn(
             'space-y-2 rounded-[1.5rem] bg-background/90 p-2.5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)] ring-1 ring-border/50 backdrop-blur-sm',
-            !compact && 'p-3'
+            !compact && 'p-3',
+            idle && view === 'chat' && !composerLead && 'hidden'
           )}
         >
           {composerLead ? <div className="flex w-full min-w-0 items-center gap-1 px-1">{composerLead}</div> : null}
@@ -845,7 +876,7 @@ export function GuidePanel({
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
               </Button>
             </div>
-          ) : (
+          ) : idle ? null : (
             startControl
           )}
         </div>

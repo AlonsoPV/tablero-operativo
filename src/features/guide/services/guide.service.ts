@@ -336,6 +336,8 @@ export const guideService = {
         usuario_id: usuarioId,
         expires_in_days: expiresInDays,
         source: 'app',
+        // Evita ligas a prod cuando se generan desde localhost (o viceversa).
+        app_origin: typeof window !== 'undefined' ? window.location.origin : undefined,
       }),
     })
     const payload = (await response.json().catch(() => ({}))) as {

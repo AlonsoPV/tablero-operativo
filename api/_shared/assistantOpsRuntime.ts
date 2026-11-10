@@ -8,8 +8,14 @@ import {
   wrapUntrustedToolData,
   type NamedPerson,
 } from '../../src/features/ai-support/copilot/matching.js'
+import { draftFromRequest, evidenceOrPlaceholder, sanitizeCheckpoints } from '../../src/features/ai-support/creationDraft.js'
 import { parseDueDateHint } from '../../src/features/ai-support/parseWorkFacts.js'
 import { todayWallClockCDMX } from '../../src/lib/dateUtils.js'
+import {
+  isCorporateBlocked,
+  isCorporateOverdue,
+  readWasTruncated,
+} from '../../src/features/metrics/corporateActionMetrics.js'
 import { validateFutureDateTimeCDMX } from '../../src/lib/futureDateValidation.js'
 import type {
   CopilotClarification,
@@ -310,19 +316,25 @@ async function toolGetMyActions(actor: CopilotActor, args: Record<string, unknow
   }
   const rows = await loadOpenActions(actor, false)
   const filtered = rows.filter((row) => {
-    if (filter === 'overdue') return row.estado === 'Retraso' || Boolean(row.fecha && row.fecha < today)
-    if (filter === 'due_week') return Boolean(row.fecha && row.fecha >= today && row.fecha <= weekEnd)
-    if (filter === 'blocked') return row.estado === 'Bloqueado'
+    const action = row.id && row.estado && row.fecha
+      ? { id: row.id, estado: row.estado, fecha: row.fecha, hora_limite: row.hora_limite }
+      : null
+    if (filter === 'overdue') return action != null && isCorporateOverdue(action)
+    if (filter === 'due_week') return Boolean(row.fecha && row.fecha >= today && row.fecha <= weekEnd && !(action && isCorporateOverdue(action)))
+    if (filter === 'blocked') return action != null && isCorporateBlocked(action)
     if (filter === 'stale') {
       const t = row.updated_at ? Date.parse(row.updated_at) : NaN
       return Number.isFinite(t) && now - t >= STALE_DAYS * 86_400_000
     }
     return true
   })
+  const items = clipList(filtered.map(summarizeAction), asNumber(args.limit) ?? 10)
   return readOk('get_my_actions', {
     filter,
     today,
-    items: clipList(filtered.map(summarizeAction), asNumber(args.limit) ?? 10),
+    population: 'acciones_corporativas',
+    truncated: readWasTruncated(rows.length, 80) || filtered.length > items.length,
+    items,
   })
 }
 
@@ -365,11 +377,16 @@ async function toolGetTeamActions(actor: CopilotActor, args: Record<string, unkn
     )
   }
   const rows = (await loadOpenActions(actor, true)).filter((row) => row.responsable !== actor.usuarioId)
-  const hot = rows.filter(
-    (row) => row.estado === 'Retraso' || row.estado === 'Bloqueado' || Boolean(row.fecha && row.fecha < todayWallClockCDMX())
-  )
+  const hot = rows.filter((row) => {
+    if (!row.id || !row.estado || !row.fecha) return false
+    const action = { id: row.id, estado: row.estado, fecha: row.fecha, hora_limite: row.hora_limite }
+    return isCorporateOverdue(action) || isCorporateBlocked(action)
+  })
+  const items = clipList(hot.map(summarizeAction), asNumber(args.limit) ?? 10)
   return readOk('get_team_actions', {
-    items: clipList(hot.map(summarizeAction), asNumber(args.limit) ?? 10),
+    population: 'acciones_corporativas',
+    truncated: readWasTruncated(rows.length, 80) || hot.length > items.length,
+    items,
   })
 }
 
@@ -407,9 +424,20 @@ async function proposeCreate(actor: CopilotActor, args: Record<string, unknown>)
   if (isAnalystByRole(actor.rol)) {
     return denied('create_action', 'El rol Analista no puede crear acciones.')
   }
-  const title = asString(args.title, 70)
+  const request = asString(args.request, 500)
+  const draft = request ? draftFromRequest(request) : null
+  if (draft?.intent === 'recommend') {
+    return denied('create_action', 'Eso es una recomendación. Pregunta si quiere que prepare una acción.')
+  }
+  if (draft?.intent === 'batch') {
+    return denied(
+      'create_action',
+      'Son varias acciones. Prepara una propuesta por cada una; no creo el lote en silencio.'
+    )
+  }
+  const title = asString(args.title, 70) || draft?.title || ''
   if (title.length < 3) return denied('create_action', 'Indica un título de al menos 3 caracteres.')
-  const dueHint = asString(args.due_hint, 80) || asString(args.fecha, 20)
+  const dueHint = asString(args.due_hint, 80) || asString(args.fecha, 20) || request
   const parsed = parseDueDateHint(dueHint || title, todayWallClockCDMX())
   const fecha = parsed.dateYmd
   const hora = asString(args.due_time, 8) || parsed.timeHm || '17:00'
@@ -424,9 +452,13 @@ async function proposeCreate(actor: CopilotActor, args: Record<string, unknown>)
   const responsableNombre = assignee?.nombre ?? 'ti'
   const descriptionRaw = asString(args.description, 4000)
   const description =
-    descriptionRaw.length >= 10 ? descriptionRaw : `${title}. Creada desde el asistente IA.`
-  const evidence = asString(args.evidence_expected, 2000) || 'Evidencia de avance o cierre acordada'
+    descriptionRaw.length >= 10 ? descriptionRaw : draft?.description || title
+  const evidence = evidenceOrPlaceholder(asString(args.evidence_expected, 2000) || draft?.evidence)
+  const checkpoints = sanitizeCheckpoints(args.checkpoints).length
+    ? sanitizeCheckpoints(args.checkpoints)
+    : draft?.checkpoints ?? []
   const prioridad = asString(args.priority, 20) || 'P2_Media'
+  const asksNotification = args.notify_whatsapp === true || draft?.asksNotification === true
 
   const proposal = await createPendingOp(actor, {
     tool: 'create_action',
@@ -441,15 +473,24 @@ async function proposeCreate(actor: CopilotActor, args: Record<string, unknown>)
       prioridad,
       created_by: actor.usuarioId,
       tipo_accion: 'operativa',
+      checkpoints,
     },
     proposal: {
       title: 'Crear accion',
-      summary: `Se creará "${title}" asignada a ${responsableNombre}.`,
+      summary: `Propuesta, todavía no creada: "${title}" para ${responsableNombre}.`,
       fields: [
         { label: 'Titulo', to: title },
+        { label: 'Descripcion', to: description.slice(0, 180) },
         { label: 'Responsable', to: responsableNombre },
         { label: 'Fecha', to: `${fecha} ${hora}` },
         { label: 'Prioridad', to: prioridad },
+        { label: 'Checkpoints', to: checkpoints.length ? checkpoints.join(' · ') : 'Ninguno' },
+        {
+          label: 'Aviso WhatsApp',
+          to: asksNotification
+            ? 'No se envía con esta confirmación. Hay que pedirlo después de crearla.'
+            : 'No solicitado',
+        },
       ],
     },
   })
@@ -718,10 +759,35 @@ type PendingRow = {
 async function executePayload(actor: CopilotActor, tool: string, payload: Record<string, unknown>) {
   if (tool === 'create_action') {
     const actionId = crypto.randomUUID()
-    const insertPayload = { ...payload, id: actionId }
+    const checkpoints = sanitizeCheckpoints(payload.checkpoints)
+    const fields = { ...payload }
+    delete fields.checkpoints
+    const insertPayload = { ...fields, id: actionId }
     const { error } = await actor.supabase.from('acciones_diarias').insert(insertPayload)
     if (error) throw error
-    return { id: actionId, href: actionHref(actionId), title: String(payload.titulo_accion ?? 'Accion') }
+    if (checkpoints.length > 0) {
+      const { error: checkpointError } = await actor.supabase.from('accion_checkpoints').insert(
+        checkpoints.map((texto, index) => ({
+          accion_id: actionId,
+          texto,
+          orden: index + 1,
+          obligatorio: true,
+          activo: true,
+          completado: false,
+          created_by: actor.usuarioId,
+        }))
+      )
+      if (checkpointError) throw checkpointError
+    }
+    return {
+      id: actionId,
+      href: actionHref(actionId),
+      title: String(payload.titulo_accion ?? 'Accion'),
+      fecha: payload.fecha ?? null,
+      estado: 'Pendiente',
+      checkpoints: checkpoints.length,
+      created: true,
+    }
   }
   if (tool === 'update_action') {
     const id = String(payload.action_id)

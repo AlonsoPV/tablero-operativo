@@ -496,10 +496,7 @@ function readNumberLabel(value: unknown, missingLabel: string) {
   return missingLabel
 }
 
-export function sanitizeActionContext(actionContext: unknown) {
-  if (!actionContext || typeof actionContext !== 'object') return ''
-
-  const action = actionContext as ActionContext
+function sanitizeOneActionContext(action: ActionContext) {
   const checklist = Array.isArray(action.checklist)
     ? action.checklist
         .map((item, index) => {
@@ -553,12 +550,28 @@ export function sanitizeActionContext(actionContext: unknown) {
   return [
     'Accion seleccionada por el usuario para recibir asesoria:',
     ...rows.map(([label, value]) => `${label}: ${value}`),
-  ]
-    .join('\n')
-    .slice(0, MAX_ACTION_CONTEXT_CHARS)
+  ].join('\n')
 }
 
-export function sanitizeOkrContext(okrContext: unknown) {
+export function sanitizeActionContext(actionContext: unknown) {
+  if (Array.isArray(actionContext)) {
+    const blocks = actionContext
+      .map((item) =>
+        item && typeof item === 'object' ? sanitizeOneActionContext(item as ActionContext) : ''
+      )
+      .filter(Boolean)
+    if (blocks.length === 0) return ''
+    const header =
+      blocks.length > 1
+        ? `Acciones seleccionadas por el usuario (${blocks.length}):`
+        : ''
+    return [header, ...blocks].filter(Boolean).join('\n\n').slice(0, MAX_ACTION_CONTEXT_CHARS)
+  }
+  if (!actionContext || typeof actionContext !== 'object') return ''
+  return sanitizeOneActionContext(actionContext as ActionContext).slice(0, MAX_ACTION_CONTEXT_CHARS)
+}
+
+function sanitizeOneOkrContext(okrContext: unknown) {
   if (!okrContext || typeof okrContext !== 'object') return ''
   const ctx = okrContext as Record<string, unknown>
   const focus = readString(ctx.focus, 40) || 'objective'
@@ -646,7 +659,25 @@ export function sanitizeOkrContext(okrContext: unknown) {
     )
   }
 
-  return lines.join('\n').slice(0, MAX_OKR_CONTEXT_CHARS)
+  return lines.join('\n')
+}
+
+export function sanitizeOkrContext(okrContext: unknown) {
+  if (Array.isArray(okrContext)) {
+    const blocks = okrContext.map((item) => sanitizeOneOkrContext(item)).filter(Boolean)
+    if (blocks.length === 0) return ''
+    const header =
+      blocks.length > 1 ? `OKRs seleccionados por el usuario (${blocks.length}):` : ''
+    return [header, ...blocks].filter(Boolean).join('\n\n').slice(0, MAX_OKR_CONTEXT_CHARS)
+  }
+  if (
+    okrContext &&
+    typeof okrContext === 'object' &&
+    Array.isArray((okrContext as { items?: unknown }).items)
+  ) {
+    return sanitizeOkrContext((okrContext as { items: unknown[] }).items)
+  }
+  return sanitizeOneOkrContext(okrContext).slice(0, MAX_OKR_CONTEXT_CHARS)
 }
 
 export function sanitizeBoardContext(boardContext: unknown) {
