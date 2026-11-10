@@ -94,7 +94,11 @@ export function getAccionDeadlineMs(
 }
 
 function isAutoSyncEligible(accion: AccionDiaria): boolean {
-  return !ESTADOS_CERRADOS.includes(accion.estado) && accion.estado !== 'Bloqueado'
+  return (
+    !ESTADOS_CERRADOS.includes(accion.estado) &&
+    accion.estado !== 'Bloqueado' &&
+    accion.estado !== 'En_Ejecucion'
+  )
 }
 
 /**
@@ -136,6 +140,7 @@ export function getAutoEstadoPorFechaCompromiso(
 /** Columna Kanban efectiva según fecha compromiso (CDMX). */
 export function getAccionKanbanColumn(accion: AccionDiaria, now = getAppNow()): ActionStatus {
   if (accion.estado === 'Bloqueado') return 'Bloqueado'
+  if (accion.estado === 'En_Ejecucion') return 'En_Ejecucion'
   if (ESTADOS_CERRADOS.includes(accion.estado)) return accion.estado
   const target = getAutoEstadoPorFechaCompromiso(accion, now)
   if (target) return target

@@ -68,6 +68,7 @@ import { toast } from 'sonner'
 import { AccionPriorityBadge } from './AccionPriorityBadge'
 import { findPriorityForAccion } from '../utils/resolveAccionPrioridad'
 import {
+  columnsWithOccupiedStatuses,
   hexToRgba,
   orderedActionStatuses,
   statusCatalogByKey,
@@ -1177,7 +1178,6 @@ export function KanbanBoard({
   const { data: priorities = [] } = usePriorities()
   const statuses = statusesProp
   const statusByKey = useMemo(() => statusCatalogByKey(statuses), [statuses])
-  const columnOrder = useMemo(() => orderedActionStatuses(statuses, COLUMN_ORDER), [statuses])
   const estadoPermission = useActionEstadoPermissions(currentUser ?? undefined)
   const { data: commentCounts = {} } = useCommentCounts(acciones.map((a) => a.id))
 
@@ -1197,6 +1197,16 @@ export function KanbanBoard({
     }
     return map
   }, [acciones])
+
+  const columnOrder = useMemo(
+    () =>
+      columnsWithOccupiedStatuses(
+        orderedActionStatuses(statuses, COLUMN_ORDER),
+        COLUMN_ORDER,
+        byStatus
+      ),
+    [statuses, byStatus]
+  )
 
   const columnsToShow = useMemo(() => {
     if (filterEstado && columnOrder.includes(filterEstado)) return [filterEstado]

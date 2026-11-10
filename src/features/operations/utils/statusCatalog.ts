@@ -140,6 +140,32 @@ export function orderedActionStatuses(
   return ordered
 }
 
+/** Incluye columnas con tarjetas aunque el estatus esté desactivado en catálogo. */
+export function columnsWithOccupiedStatuses(
+  ordered: ActionStatus[],
+  fallbackOrder: readonly ActionStatus[],
+  occupied: Partial<Record<ActionStatus, { length: number } | undefined>>
+): ActionStatus[] {
+  const result = [...ordered]
+  const seen = new Set(ordered)
+  for (let index = 0; index < fallbackOrder.length; index += 1) {
+    const status = fallbackOrder[index]!
+    if (seen.has(status)) continue
+    if ((occupied[status]?.length ?? 0) === 0) continue
+    let insertAt = result.length
+    for (let next = index + 1; next < fallbackOrder.length; next += 1) {
+      const found = result.indexOf(fallbackOrder[next]!)
+      if (found >= 0) {
+        insertAt = found
+        break
+      }
+    }
+    result.splice(insertAt, 0, status)
+    seen.add(status)
+  }
+  return result
+}
+
 export function activeEstadoFilterOptions(
   statuses: Status[],
   fallbackOrder: readonly ActionStatus[],

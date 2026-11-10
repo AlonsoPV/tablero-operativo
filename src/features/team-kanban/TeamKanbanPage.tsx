@@ -192,6 +192,18 @@ function isTeamRetrasoStateName(value: string) {
   return key === 'retraso' || key === 'vencido' || key === 'vencida' || key === 'vencidas'
 }
 
+function isTeamInProgressStateName(value: string) {
+  const key = normalizeTeamStateName(value)
+  return (
+    key === 'en_ejecucion' ||
+    key === 'enejecucion' ||
+    key === 'en_proceso' ||
+    key === 'enproceso' ||
+    key === 'en_progreso' ||
+    key === 'enprogreso'
+  )
+}
+
 function findTeamRetrasoState(board: TeamBoard) {
   return board.states.find((state) => isTeamRetrasoStateName(state.nombre) && !state.es_final)
 }
@@ -244,10 +256,20 @@ function getTeamFallbackBeforeTodayStateId(board: TeamBoard) {
 }
 
 function getEffectiveTeamStateId(action: TeamAction, board: TeamBoard) {
-  if (!isOpenAction(action, board)) return action.estado_id
+  if (!isOpenAction(action, board)) {
+    return board.states.some((state) => state.id === action.estado_id)
+      ? action.estado_id
+      : board.states.find((state) => state.es_final)?.id ?? action.estado_id
+  }
   if (action.bloqueada) return action.estado_id
 
   const currentState = board.states.find((state) => state.id === action.estado_id)
+  if (!currentState) {
+    return getTeamFallbackBeforeTodayStateId(board) ?? board.states[0]?.id ?? action.estado_id
+  }
+  if (isTeamInProgressStateName(currentState.nombre)) {
+    return action.estado_id
+  }
   const retrasoState = findTeamRetrasoState(board)
   const pendingLikeState = board.states.find(
     (state) => isTeamPendingLikeStateName(state.nombre) && !state.es_final

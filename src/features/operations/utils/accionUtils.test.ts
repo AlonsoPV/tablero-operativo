@@ -52,7 +52,7 @@ describe('accionUtils fecha compromiso CDMX', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(FIXED_NOW)
-    vi.stubEnv('VITE_DEV_FIXED_NOW', '')
+    vi.stubEnv('VITE_DEV_FIXED_NOW', '2026-06-05T23:34:00-06:00')
   })
 
   afterEach(() => {
@@ -73,6 +73,7 @@ describe('accionUtils fecha compromiso CDMX', () => {
   })
 
   it('no muestra en Hoy antes de la hora limite del mismo dia', () => {
+    vi.stubEnv('VITE_DEV_FIXED_NOW', '2026-06-05T10:00:00-06:00')
     vi.setSystemTime(new Date('2026-06-05T10:00:00-06:00'))
     expect(isEnRetraso(baseAccion({ fecha: '2026-06-05', hora_limite: '17:00' }))).toBe(false)
     expect(getAutoEstadoPorFechaCompromiso(baseAccion({ estado: 'Pendiente' }))).toBeNull()
@@ -81,6 +82,7 @@ describe('accionUtils fecha compromiso CDMX', () => {
   })
 
   it('muestra en Hoy cuando llega la hora limite del mismo dia', () => {
+    vi.stubEnv('VITE_DEV_FIXED_NOW', '2026-06-05T17:00:00-06:00')
     vi.setSystemTime(new Date('2026-06-05T17:00:00-06:00'))
     expect(isEnRetraso(baseAccion({ fecha: '2026-06-05', hora_limite: '17:00' }))).toBe(false)
     expect(getAutoEstadoPorFechaCompromiso(baseAccion({ estado: 'Pendiente' }))).toBe('Hoy')
@@ -90,7 +92,8 @@ describe('accionUtils fecha compromiso CDMX', () => {
   it('promueve a Retraso el mismo dia cuando la hora limite ya paso', () => {
     expect(getAutoEstadoPorFechaCompromiso(baseAccion({ estado: 'Pendiente' }))).toBe('Retraso')
     expect(getAutoEstadoPorFechaCompromiso(baseAccion({ estado: 'Hoy' }))).toBe('Retraso')
-    expect(getAutoEstadoPorFechaCompromiso(baseAccion({ estado: 'En_Ejecucion' }))).toBe('Retraso')
+    expect(getAutoEstadoPorFechaCompromiso(baseAccion({ estado: 'En_Ejecucion' }))).toBeNull()
+    expect(getAccionKanbanColumn(baseAccion({ estado: 'En_Ejecucion' }))).toBe('En_Ejecucion')
   })
 
   it('promueve a Retraso si la fecha compromiso es anterior', () => {
@@ -112,12 +115,16 @@ describe('accionUtils fecha compromiso CDMX', () => {
   it('no mueve acciones cerradas ni bloqueadas', () => {
     expect(getAutoEstadoPorFechaCompromiso(baseAccion({ estado: 'Bloqueado' }))).toBeNull()
     expect(getAutoEstadoPorFechaCompromiso(baseAccion({ estado: 'Hecho' }))).toBeNull()
+    expect(getAutoEstadoPorFechaCompromiso(baseAccion({ estado: 'En_Ejecucion' }))).toBeNull()
   })
 
   it('ubica en kanban segun fecha compromiso y hora limite', () => {
     expect(getAccionKanbanColumn(baseAccion({ fecha: '2026-06-04' }))).toBe('Retraso')
     expect(getAccionKanbanColumn(baseAccion({ fecha: '2026-06-05', hora_limite: '17:00' }))).toBe('Retraso')
     expect(getAccionKanbanColumn(baseAccion({ estado: 'Bloqueado', fecha: '2026-06-04' }))).toBe('Bloqueado')
+    expect(getAccionKanbanColumn(baseAccion({ estado: 'En_Ejecucion', fecha: '2026-06-04' }))).toBe(
+      'En_Ejecucion'
+    )
   })
 
   it('detecta fecha UTC erronea (2026-06-06) como futura en CDMX', () => {

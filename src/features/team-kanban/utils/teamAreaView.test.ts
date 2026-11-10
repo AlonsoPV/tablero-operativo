@@ -97,6 +97,19 @@ describe('vista de areas del Kanban por Equipos', () => {
       },
     ]
     expect(mapCompanyEstadoToTeamStateId('Hoy', states)).toBe('st-hoy')
+    expect(
+      mapCompanyEstadoToTeamStateId('En_Ejecucion', [
+        ...states,
+        {
+          id: 'st-proceso',
+          area_id: 'okrs',
+          nombre: 'En proceso',
+          orden: 3,
+          color: '#09f',
+          es_final: false,
+        },
+      ])
+    ).toBe('st-proceso')
     const company = {
       id: 'corp-1',
       fecha: '2026-11-06',
