@@ -26,6 +26,8 @@ describe('composeSystemPrompt', () => {
     expect(prompt).toContain('PROMPT MAESTRO — CONSULTOR OPERATIVO IA')
     expect(prompt).toContain('Agile, Scrum, Kanban y Scrumban')
     expect(prompt).toContain('máxima utilidad con mínima fricción')
+    expect(prompt).toContain('gmail_search')
+    expect(prompt).toContain('/settings/profile')
     expect(prompt).toContain('No apruebes un OKR únicamente porque está bien redactado')
     expect(prompt).not.toContain('CALIDAD ORIENTATIVA')
   })

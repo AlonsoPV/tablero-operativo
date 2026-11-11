@@ -13,13 +13,15 @@ import { StatusToken, type StatusColor } from './StatusToken'
 export const demoHref = 'mailto:demo@scrumban.mx?subject=Quiero%20conocer%20SCRUMBAN'
 
 /** Variantes de fondo: nunca dos secciones consecutivas iguales. */
-export type LandingSurface = 'base' | 'muted' | 'depth' | 'inverse'
+export type LandingSurface = 'base' | 'muted' | 'depth' | 'inverse' | 'transparent'
 
 const SURFACE_CLASS: Record<LandingSurface, string> = {
   base: 'bg-background',
   muted: 'border-y border-border/50 bg-muted/40',
   depth: 'bg-gradient-to-b from-muted/50 via-muted/20 to-background',
   inverse: 'border-y border-border/50 bg-foreground text-background',
+  /** Campo compartido sticky (p. ej. /agente): sin fill de sección. */
+  transparent: 'bg-transparent',
 }
 
 /** Contenedor de página alineado al tablero (`max-w-7xl` + padding). */

@@ -14,7 +14,10 @@ export function parseAiOpButton(raw: string | null | undefined): {
   }
 }
 
-export function inferAiConfirmText(text: string): WhatsAppAiDecision | null {
+export function inferAiConfirmText(
+  text: string,
+  options: { rejectBareYes?: boolean } = {}
+): WhatsAppAiDecision | null {
   const t = text
     .trim()
     .toLowerCase()
@@ -23,7 +26,9 @@ export function inferAiConfirmText(text: string): WhatsAppAiDecision | null {
     .replace(/[.!?]+$/g, '')
     .trim()
   if (!t || t.length > 24) return null
-  if (/^(si|ok|okay|confirmar|confirmo|dale|de acuerdo|yes)$/.test(t)) return 'confirm'
+  if (/^(si|ok|okay|confirmar|confirmo|dale|de acuerdo|yes)$/.test(t)) {
+    return options.rejectBareYes ? null : 'confirm'
+  }
   if (/^(no|cancelar|cancelo|nop|nel)$/.test(t)) return 'cancel'
   return null
 }

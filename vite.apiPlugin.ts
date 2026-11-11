@@ -27,6 +27,12 @@ const API_ROUTES: Record<string, string> = {
   '/api/guide-link-report': 'api/guide-link-report.ts',
   '/api/create-guide-user-link': 'api/create-guide-user-link.ts',
   '/api/validate-guide-user-link': 'api/validate-guide-user-link.ts',
+  '/api/assistant-ops': 'api/assistant-ops.ts',
+  '/api/google-oauth-start': 'api/google-oauth-start.ts',
+  '/api/google-oauth-callback': 'api/google-oauth-callback.ts',
+  '/api/google-oauth-disconnect': 'api/google-oauth-disconnect.ts',
+  '/api/google-oauth-status': 'api/google-oauth-status.ts',
+  '/api/guide-queue-workspace-draft': 'api/guide-queue-workspace-draft.ts',
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown) {

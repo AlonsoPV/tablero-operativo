@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Mic, MicOff, Phone, PhoneOff } from 'lucide-react'
+import { AlertCircle, ArrowLeft, LayoutDashboard, Mic, MicOff, Phone, PhoneOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ROUTES } from '@/constants'
+import { APP_NAME, ROUTES } from '@/constants'
+import {
+  GuideInviteMetaChip,
+  GuideInviteShell,
+} from '@/features/guide/components/GuideInviteShell'
 import {
   GuidePresence,
   useStageOrbSize,
@@ -31,6 +35,14 @@ type LinkReport = {
   phone?: string | null
   sent?: boolean
   error?: string
+}
+
+function statusLabel(status: string, muted: boolean) {
+  if (status === 'connecting') return 'Conectando'
+  if (status === 'connected') return muted ? 'En silencio' : 'En llamada'
+  if (status === 'ended') return 'Terminada'
+  if (status === 'error') return 'Error'
+  return 'Lista'
 }
 
 export function GuideVoiceInvitePage() {
@@ -131,56 +143,89 @@ export function GuideVoiceInvitePage() {
           : undefined
 
   const recent = retell.messages.slice(-4)
+  const reportReady = report?.report_status === 'ready' || report?.report_status === 'insufficient'
+  const reportPending =
+    reportBusy || report?.report_status === 'pending' || report?.report_status === 'processing'
 
   return (
-    <main className="relative flex min-h-dvh flex-col bg-background text-foreground">
-      <div
-        className="pointer-events-none fixed inset-0 bg-[radial-gradient(80%_50%_at_50%_18%,hsl(var(--primary)/0.28),transparent_62%),radial-gradient(36%_30%_at_85%_90%,hsl(262_83%_58%/0.16),transparent_70%)]"
-        aria-hidden
-      />
-
-      <header className="relative z-10 flex items-center justify-between gap-3 px-4 pt-5 sm:px-6">
-        <Button
-          type="button"
-          variant="ghost"
-          className="h-9 rounded-full px-3 text-xs"
-          onClick={() => navigate(landingHref)}
-        >
-          <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-          Invitación
-        </Button>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-          Guía · voz
-        </p>
-      </header>
-
-      <section className="relative z-10 flex flex-1 flex-col items-center justify-center px-5 py-4">
-        <GuidePresence mood={mood} size={orbSize} showCaption caption={caption} />
+    <GuideInviteShell
+      intensity="stage"
+      leading={
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-9 rounded-xl px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => navigate(landingHref)}
+            aria-label="Volver a la invitación"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+          </Button>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/15">
+              <LayoutDashboard className="h-3.5 w-3.5" aria-hidden />
+            </span>
+            <div className="min-w-0 leading-tight">
+              <p className="truncate text-sm font-semibold tracking-tight">{APP_NAME}</p>
+              <p className="text-[11px] text-muted-foreground">
+                {live ? 'Guía · en llamada' : 'Guía · voz'}
+              </p>
+            </div>
+          </div>
+        </div>
+      }
+      meta={<GuideInviteMetaChip>{statusLabel(retell.status, retell.muted)}</GuideInviteMetaChip>}
+      contentClassName="pb-6"
+    >
+      <section
+        className={cn(
+          'flex flex-col items-center justify-center px-5 py-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-500',
+          reportReady ? 'flex-none py-5' : 'flex-1'
+        )}
+      >
+        <GuidePresence mood={mood} size={reportReady ? Math.round(orbSize * 0.72) : orbSize} showCaption caption={caption} />
         <p className="mt-2 max-w-xs text-center text-xs leading-5 text-muted-foreground">
           {retell.status === 'ended'
             ? 'Puedes iniciar otra llamada o volver a la invitación.'
-            : 'Máximo 15 minutos. Los ojos de Guía siguen tu cursor.'}
+            : 'Máximo 15 minutos. Habla con naturalidad; Guía te escucha.'}
         </p>
       </section>
 
       {error ? (
-        <p className="relative z-10 mx-auto mb-3 w-full max-w-md rounded-2xl border border-destructive/40 bg-destructive/10 px-3.5 py-2.5 text-sm text-destructive">
-          {error}
+        <div
+          className="relative z-10 mx-auto mb-3 flex w-full max-w-md gap-3 rounded-xl border border-destructive/30 bg-destructive/[0.07] px-3.5 py-3 text-sm text-destructive"
+          role="alert"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p className="leading-snug">{error}</p>
+        </div>
+      ) : null}
+
+      {reportPending ? (
+        <p className="relative z-10 px-5 pb-2 text-center text-sm text-muted-foreground motion-safe:animate-pulse">
+          Generando el informe…
         </p>
       ) : null}
 
-      {reportBusy || report?.report_status === 'pending' || report?.report_status === 'processing' ? (
-        <p className="relative z-10 px-5 text-center text-sm text-muted-foreground">Generando el informe…</p>
-      ) : null}
       {report?.report_status === 'failed' ? (
-        <div className="relative z-10 mx-auto w-full max-w-md px-5">
-          <Button type="button" variant="outline" className="rounded-full" onClick={() => void requestReport('retry').then(setReport).catch((err) => setError(err instanceof Error ? err.message : 'No se pudo reintentar.'))}>
+        <div className="relative z-10 mx-auto w-full max-w-md px-5 pb-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-xl"
+            onClick={() =>
+              void requestReport('retry')
+                .then(setReport)
+                .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo reintentar.'))
+            }
+          >
             Reintentar informe
           </Button>
         </div>
       ) : null}
-      {report && (report.report_status === 'ready' || report.report_status === 'insufficient') ? (
-        <section className="relative z-10 mx-auto w-full max-w-lg space-y-4 px-5 pb-2">
+
+      {report && reportReady ? (
+        <section className="relative z-10 mx-auto w-full max-w-lg space-y-4 px-5 pb-2 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500">
           <GuideReportBody
             executiveReport={report.executive_report}
             summary={report.summary}
@@ -210,7 +255,7 @@ export function GuideVoiceInvitePage() {
             }}
           />
           <p className="text-xs text-muted-foreground">
-            Tambien queda en el historial al{' '}
+            También queda en el historial al{' '}
             <Link className="underline underline-offset-4" to={ROUTES.LOGIN} state={guideVoiceLoginState}>
               iniciar sesión
             </Link>{' '}
@@ -219,16 +264,16 @@ export function GuideVoiceInvitePage() {
         </section>
       ) : null}
 
-      {recent.length > 0 && report?.report_status !== 'ready' ? (
+      {recent.length > 0 && !reportReady ? (
         <ul className="relative z-10 mx-auto flex max-h-[28vh] w-full max-w-md flex-col gap-2 overflow-y-auto px-5 pb-2">
           {recent.map((message) => (
             <li
               key={message.id}
               className={cn(
-                'max-w-[88%] rounded-2xl px-3.5 py-2 text-[13px] leading-5',
+                'max-w-[88%] px-3.5 py-2 text-[13px] leading-5',
                 message.role === 'user'
-                  ? 'self-end rounded-br-md bg-primary text-primary-foreground'
-                  : 'self-start rounded-bl-md bg-background/85 text-foreground shadow-sm ring-1 ring-border/50'
+                  ? 'self-end rounded-2xl rounded-br-md bg-primary text-primary-foreground'
+                  : 'self-start rounded-2xl rounded-bl-md bg-background/85 text-foreground ring-1 ring-border/50'
               )}
             >
               {message.content}
@@ -237,13 +282,13 @@ export function GuideVoiceInvitePage() {
         </ul>
       ) : null}
 
-      <footer className="relative z-10 mx-auto flex w-full max-w-md flex-col items-center gap-3 px-5 pb-6 pt-2">
+      <footer className="relative z-10 mx-auto mt-auto flex w-full max-w-md flex-col items-center gap-3 px-5 pt-3">
         {live ? (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             <Button
               type="button"
               variant={retell.muted ? 'secondary' : 'outline'}
-              className="h-14 w-14 rounded-full bg-background/80"
+              className="h-14 w-14 rounded-2xl bg-background/80"
               disabled={retell.status !== 'connected'}
               onClick={() => retell.toggleMute()}
               aria-label={retell.muted ? 'Activar micrófono' : 'Silenciar micrófono'}
@@ -253,7 +298,7 @@ export function GuideVoiceInvitePage() {
             <Button
               type="button"
               variant="destructive"
-              className="h-16 w-16 rounded-full shadow-[0_16px_30px_-16px_hsl(var(--destructive)/0.8)]"
+              className="h-16 w-16 rounded-2xl"
               onClick={() => retell.stop()}
               aria-label="Colgar"
             >
@@ -263,16 +308,19 @@ export function GuideVoiceInvitePage() {
         ) : (
           <Button
             type="button"
-            className="h-14 rounded-full px-8 text-base shadow-[0_18px_36px_-18px_hsl(var(--primary)/0.8)]"
+            className="h-12 rounded-xl px-8 text-base shadow-[0_16px_32px_-18px_hsl(var(--primary)/0.75)]"
             onClick={() => {
               setError(null)
               finalizedRef.current = false
               setReport(null)
-              void retell.start().then((started) => {
-                callIdRef.current = started.callId
-              }).catch((err) => {
-                setError(err instanceof Error ? err.message : 'No se pudo iniciar la voz.')
-              })
+              void retell
+                .start()
+                .then((started) => {
+                  callIdRef.current = started.callId
+                })
+                .catch((err) => {
+                  setError(err instanceof Error ? err.message : 'No se pudo iniciar la voz.')
+                })
             }}
           >
             <Phone className="h-4 w-4" aria-hidden />
@@ -287,6 +335,6 @@ export function GuideVoiceInvitePage() {
           Ir al inicio de sesión
         </Link>
       </footer>
-    </main>
+    </GuideInviteShell>
   )
 }

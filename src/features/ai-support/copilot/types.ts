@@ -1,3 +1,9 @@
+import {
+  GOOGLE_READ_TOOLS,
+  GOOGLE_WRITE_TOOLS,
+  type CopilotWorkspacePreview,
+} from './googleWorkspace'
+
 export const COPILOT_READ_TOOLS = [
   'get_my_actions',
   'get_action_details',
@@ -9,6 +15,7 @@ export const COPILOT_READ_TOOLS = [
   'get_org_chart',
   'get_module_data',
   'search_board',
+  ...GOOGLE_READ_TOOLS,
 ] as const
 
 export const COPILOT_WRITE_TOOLS = [
@@ -18,6 +25,7 @@ export const COPILOT_WRITE_TOOLS = [
   'update_checklist_item',
   'mark_action_done',
   'verify_action',
+  ...GOOGLE_WRITE_TOOLS,
 ] as const
 
 export type CopilotReadTool = (typeof COPILOT_READ_TOOLS)[number]
@@ -57,6 +65,7 @@ export type CopilotProposal = {
   fields: CopilotPreviewField[]
   record?: CopilotRecordRef
   expiresAt: string
+  workspace?: CopilotWorkspacePreview
 }
 
 export type CopilotToolResult = {

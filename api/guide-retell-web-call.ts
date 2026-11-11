@@ -17,6 +17,7 @@ import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
 import { loadGuideBoardContext } from './_shared/guideBoardContext.js'
 import { markGuideLinkUsed, resolveGuideLinkOwner } from './_shared/guideUserLinks.js'
 import { guideOpening, guideWorkInstructions } from './_shared/guideWork.js'
+import { guideAppBaseUrl } from './_shared/guideUserLinks.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
 
 const SESSION_MS = 15 * 60 * 1000 - 1000
@@ -236,6 +237,7 @@ export default defineApiHandler(async (req, res) => {
           guide_link_id: guideLinkId || '',
           product: 'guide',
           source: guideLinkId ? 'guide_link' : 'authenticated',
+          queue_workspace_url: `${guideAppBaseUrl()}/api/guide-queue-workspace-draft`,
         },
         retell_llm_dynamic_variables: {
           user_name: typeof usuario.nombre === 'string' && usuario.nombre.trim() ? usuario.nombre.trim() : 'Usuario',
@@ -250,6 +252,8 @@ export default defineApiHandler(async (req, res) => {
           relevant_memories: '',
           recent_journal: '',
           pillar_history: '',
+          queue_workspace_draft:
+            'Si piden correo o evento, llama queue_workspace_draft. No envies nada durante la llamada.',
         },
       }),
     })

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { clearChunkReloadFlag, registerChunkLoadRecovery } from './lib/importWithReload'
 import './styles/globals.css'
+import './styles/agent-journey.css'
 
 clearChunkReloadFlag()
 registerChunkLoadRecovery()

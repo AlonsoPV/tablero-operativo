@@ -71,6 +71,23 @@ Guía de producto: [voz.md](./voz.md).
 
 Producto: [guia.md](./guia.md).
 
+### Google Workspace por usuario (Shaman)
+
+OAuth **por usuario** en Vercel (`/api/google-oauth-*`). No sustituye el `GOOGLE_REFRESH_TOKEN` de organizacion en Edge (Calendario / notificaciones).
+
+Checklist de deploy (manual; no aplicar migraciones ni redesplegar desde el agente):
+
+| Paso | Detalle |
+|------|---------|
+| Secretos Vercel | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (mismo cliente OAuth que Edge), `GOOGLE_TOKEN_ENC_KEY` (32 bytes hex). |
+| Redirect URI | En Google Cloud Console: `https://scrumbanemx.vercel.app/api/google-oauth-callback` y `http://localhost:5173/api/google-oauth-callback`. |
+| Scopes | `gmail.readonly`, `gmail.compose`, `calendar.events` (consentimiento incremental). |
+| Migracion | `supabase/migrations/20261110140000_user_google_connections.sql` |
+| Retell | Custom function `queue_workspace_draft` → `POST {APP}/api/guide-queue-workspace-draft` (firma `x-retell-signature`). |
+| No tocar | `GOOGLE_REFRESH_TOKEN` de organizacion en Edge. |
+
+El perfil (`/settings/profile`) muestra la tarjeta **Google Workspace**. El copiloto lee Gmail/Calendar de esa cuenta; envios y eventos solo tras Confirmar.
+
 Valores recomendados para productivo:
 
 | Variable | Valor |

@@ -1,37 +1,50 @@
 import { DemoRequestProvider } from '@/pages/product/DemoRequestContext'
 import { LandingShell, Logo } from '@/pages/product/ProductUI'
-import { AgentChannelsDemo, AgentProposalsDemo, WhatsAppInAction } from './AgentDemos'
+import { EnviardianDemo, InstructionDemo, TeamWhatsAppDemo } from './AgentDemos'
 import { AgentHero } from './AgentHero'
 import {
-  AgentCapabilitiesSection,
   AgentCloseSection,
-  AgentCultureShiftSection,
-  AgentMidPageCTA,
-  AgentProblemSection,
+  AgentContinuitySection,
+  AgentControlSection,
 } from './AgentSections'
 import { AgentSeoHead } from './AgentSeoHead'
+import { AgentStoryRail } from './AgentStoryRail'
+import { HeroVideoBackdrop } from './HeroVideoBackdrop'
 
 export function AgentLandingPage() {
   return (
     <DemoRequestProvider>
       <AgentSeoHead />
-      <div className="min-h-screen bg-background font-sans text-foreground selection:bg-primary/20">
-        <AgentHero />
-        <main className="overflow-x-hidden">
-          <AgentProblemSection />
-          <AgentCultureShiftSection />
-          <WhatsAppInAction />
-          <AgentProposalsDemo />
-          <AgentMidPageCTA />
-          <AgentChannelsDemo />
-          <AgentCapabilitiesSection />
-          <AgentCloseSection />
-        </main>
-        <footer className="border-t border-border/60 bg-foreground py-8 text-background">
+      <div className="home-particle-page min-h-screen font-sans text-foreground selection:bg-primary/20">
+        <div className="agent-guide-line agent-guide-line--left hidden md:block" aria-hidden />
+        <div className="agent-guide-line agent-guide-line--right hidden md:block" aria-hidden />
+        <div className="home-particle-journey home-video-journey">
+          <div
+            className="home-particle-journey__field home-video-journey__field"
+            aria-hidden
+          >
+            <HeroVideoBackdrop />
+          </div>
+
+          <div className="home-particle-journey__content">
+            <AgentHero />
+            <AgentStoryRail />
+            <main className="home-post home-post--studio home-post--tight home-post--story overflow-x-hidden">
+              <EnviardianDemo />
+              <InstructionDemo />
+              <TeamWhatsAppDemo />
+              <AgentControlSection />
+              <AgentContinuitySection />
+              <AgentCloseSection />
+            </main>
+          </div>
+        </div>
+
+        <footer className="relative z-[1] border-t border-border/60 bg-foreground py-8 text-background">
           <LandingShell className="flex flex-col items-center justify-between gap-4 sm:flex-row">
             <Logo light />
             <p className="text-xs text-background/60">
-              Agente IA operativo · WhatsApp con confirmación humana.
+              Visibilidad, seguimiento y decisión. La empresa confirma antes de ejecutar.
             </p>
             <div className="flex items-center gap-4">
               <a

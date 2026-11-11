@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 1400" width="780" height="1400" preserveAspectRatio="xMidYMid slice" role="img" aria-hidden="true">
+  <!-- Mobile: 23 volúmenes, encuadre vertical limpio -->
+  <defs>
+    <linearGradient id="mField" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="55%" stop-color="#F8FAFB"/>
+      <stop offset="100%" stop-color="#F1F4F6"/>
+    </linearGradient>
+    <linearGradient id="mFront" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F5F7F9"/>
+    </linearGradient>
+    <linearGradient id="mSide" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#E9EDF1"/>
+      <stop offset="100%" stop-color="#DCE3E8"/>
+    </linearGradient>
+    <linearGradient id="mTop" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#F5F7F9"/>
+      <stop offset="100%" stop-color="#FFFFFF"/>
+    </linearGradient>
+  </defs>
+  <rect width="780" height="1400" fill="url(#mField)"/>
+
+  <g>
+    <path d="M-40 180 L520 120 L520 780 L-40 840 Z" fill="url(#mFront)"/>
+    <path d="M520 120 L700 200 L700 860 L520 780 Z" fill="url(#mSide)"/>
+    <path d="M-40 180 L140 100 L700 200 L520 120 Z" fill="url(#mTop)"/>
+  </g>
+
+  <g>
+    <path d="M220 720 L820 650 L820 1280 L220 1350 Z" fill="url(#mFront)"/>
+    <path d="M820 650 L900 710 L900 1340 L820 1280 Z" fill="url(#mSide)"/>
+    <path d="M220 720 L300 660 L900 710 L820 650 Z" fill="url(#mTop)"/>
+  </g>
+
+  <rect x="0" y="560" width="780" height="48" fill="#2581C4" opacity="0.05"/>
+</svg>
