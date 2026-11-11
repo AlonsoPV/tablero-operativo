@@ -82,7 +82,7 @@ export function AgentStoryRail({ className }: { className?: string }) {
 
           <motion.ol
             ref={listRef}
-            className="flex gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-6 sm:gap-3 sm:overflow-visible sm:pb-0"
+            className="flex gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-7 sm:gap-2 sm:overflow-visible sm:pb-0 lg:gap-3"
             initial="hidden"
             whileInView="show"
             viewport={{ once: true, amount: 0.4 }}

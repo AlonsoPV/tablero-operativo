@@ -19,43 +19,84 @@ export const AGENT_STORY = {
   blockerLabel: 'Requiere apoyo',
   evidenceFile: 'diferencias-inventario.pdf',
   instruction:
-    'Asigna a Carlos revisar las diferencias de inventario el viernes.',
+    'Asigna a Carlos revisar las diferencias de inventario el viernes a las 09:00, prioridad alta, con evidencia documentada.',
   proposal: {
     title: 'Revisar diferencias de inventario',
     description:
       'Identificar las diferencias detectadas y documentar los ajustes necesarios.',
-    ownerConfirmNote: 'Carlos Reyes · falta confirmar a la persona en el directorio.',
+    relatedNote: 'Relacionada con el cierre AC-1038.',
+    priority: 'Alta',
+    dueTime: '09:00',
+    evidenceExpected: 'Documento con diferencias y ajustes propuestos',
+  },
+  visibility: {
+    ask: '¿Qué objetivos están atrasados y qué compromisos requieren atención?',
+    findingTitle: 'Bloqueo en inventarios',
+    findingDetail:
+      'AC-1038 · Cierre de inventario. Carlos Reyes solicitó apoyo; la acción sigue abierta y la fecha ya venció.',
+    whyItMatters: 'Sin intervención, el cierre no avanza y el cumplimiento queda sin validar.',
+    dimensions: [
+      { label: 'OKR', value: 'Inventarios sin diferencias · en riesgo por el bloqueo' },
+      { label: 'BAU', value: 'Operación estable fuera de inventarios' },
+      { label: 'KPI', value: 'Exactitud de inventario · por debajo del umbral' },
+      { label: 'Vencidos', value: 'AC-1038 · Cierre de inventario' },
+      { label: 'Bloqueos', value: 'Carlos Reyes · Requiere apoyo' },
+      { label: 'Por verificar', value: 'Ninguna otra en este ejemplo' },
+    ],
+  },
+  whatsapp: {
+    secondaryNote:
+      'Roles habilitados también pueden consultar al bot por mensaje o pedir una liga de voz.',
+  },
+  verification: {
+    history: [
+      '09:02 · Aviso autorizado enviado a Carlos Reyes',
+      '09:03 · Carlos reportó Realizada',
+      '09:04 · Evidencia recibida · diferencias-inventario.pdf',
+      'Pendiente · Verificación por quien tiene permiso',
+    ],
+  },
+  assistant: {
+    chat: [
+      {
+        role: 'user' as const,
+        text: 'Resume qué pasó con el cierre de inventario y qué falta.',
+      },
+      {
+        role: 'assistant' as const,
+        text: 'AC-1038 quedó en Hecho con evidencia. Falta la verificación autorizada para cerrar el cumplimiento.',
+      },
+    ],
+    sessionSummary:
+      'Sesión de ejemplo: se revisó el bloqueo de inventarios, la evidencia de Carlos Reyes y el pendiente de verificación.',
+    shareNote: 'Resumen corto listo para WhatsApp · solo si el perfil tiene permiso.',
   },
   mailDraft: {
-    ask: 'Prepara un correo para Jorge con el resumen de lo que acordamos.',
-    reply: 'Te dejaré un borrador listo para revisar antes de enviarlo.',
+    ask: 'Prepara un correo con el resumen y los próximos pasos.',
+    reply: 'Borrador listo. Revísalo antes de enviar; no se envía solo.',
     to: 'Jorge Mendoza',
     subject: 'Seguimiento · diferencias de inventario (AC-1038)',
-    body:
-      'Jorge,\n\nQuedamos en revisar las diferencias de inventario con Carlos Reyes. La acción sigue abierta hasta verificación.\n\nSaludos.',
+    body: 'Jorge,\n\nResumen: el cierre de inventario (AC-1038) quedó documentado por Carlos Reyes. Pendiente: verificación autorizada.\n\nPróximos pasos: validar la evidencia y cerrar el cumplimiento.\n\nSaludos.',
+  },
+  calendarDraft: {
+    title: 'Revisión de verificación · AC-1038',
+    when: 'Viernes · 10:00–10:30 (CDMX)',
+    attendees: 'Tú · Carlos Reyes',
+    note: 'Propuesta de evento. No se crea hasta que confirmes.',
   },
   interviewLines: [
-    'Detecté un bloqueo en inventarios. Carlos solicitó apoyo y la acción sigue pendiente.',
-    'AC-1038, cierre de inventario, sigue abierto. Carlos Reyes es el responsable.',
-    'El reporte de Hecho aún no está verificado. Falta la revisión de quien tiene permiso.',
+    'Hay un bloqueo en inventarios: AC-1038. Carlos Reyes solicitó apoyo y requiere tu atención.',
   ],
-  heroAttention: {
-    id: 'AC-1038',
-    title: 'Cierre de inventario',
-    owner: 'Carlos Reyes',
-    meta: 'Solicitó apoyo',
-    state: 'Requiere apoyo',
-    tone: 'red' as const,
-  },
 } as const
 
 export const AGENT_STORY_RAIL = [
-  { step: '01', verb: 'Detecta', object: 'Un bloqueo', href: '#inicio' },
-  { step: '02', verb: 'Decide', object: 'Una acción', href: '#visibilidad' },
-  { step: '03', verb: 'Asigna', object: 'Un responsable', href: '#accion' },
-  { step: '04', verb: 'Responde', object: 'Por WhatsApp', href: '#whatsapp' },
+  { step: '01', verb: 'Consulta', object: 'Tu operación', href: '#inicio' },
+  { step: '02', verb: 'Atiende', object: 'Lo urgente', href: '#visibilidad' },
+  { step: '03', verb: 'Decide', object: 'Un compromiso', href: '#accion' },
+  { step: '04', verb: 'Sigue', object: 'Por WhatsApp', href: '#whatsapp' },
   { step: '05', verb: 'Verifica', object: 'El cumplimiento', href: '#verificacion' },
-  { step: '06', verb: 'Continúa', object: 'Con Enviardián', href: '#continuidad' },
+  { step: '06', verb: 'Conserva', object: 'Cada acuerdo', href: '#asistente' },
+  { step: '07', verb: 'Prepara', object: 'El siguiente paso', href: '#integraciones' },
 ] as const
 
 /** Viernes relativo a “hoy” en CDMX, como fecha absoluta de demostración. */
@@ -71,31 +112,3 @@ export function agentStoryFridayLabel() {
   ).padStart(2, '0')}`
   return formatWorkDateLong(ymd)
 }
-
-export const AGENT_STORY_VISIBILITY = {
-  attention: {
-    ask: '¿Qué necesita mi atención hoy?',
-    reply:
-      'Hay un compromiso que requiere atención: AC-1038, cierre de inventario. Carlos Reyes solicitó apoyo y la acción sigue abierta.',
-    points: [
-      'Vencido · AC-1038 · Cierre de inventario',
-      'Bloqueo · Carlos Reyes · Requiere apoyo',
-      'Por verificar · ninguna otra en este ejemplo',
-      'Objetivo · cerrar inventarios sin diferencias',
-    ],
-  },
-  vencidos: {
-    ask: '¿Qué compromisos están vencidos?',
-    reply:
-      'AC-1038 sigue abierto después de su fecha. Carlos Reyes es el responsable y el estado es en ejecución con bloqueo.',
-    points: ['AC-1038 · Carlos Reyes · inventario · vencido', 'Estado: abierto, no verificado'],
-  },
-  bloqueos: {
-    ask: '¿Dónde está el bloqueo?',
-    reply:
-      'Inventarios concentra el bloqueo. Carlos solicitó apoyo en AC-1038. Pedir apoyo lo deja visible; no lo da por cerrado.',
-    points: ['Equipo: Operaciones', 'Acción: AC-1038', 'Estado: Requiere apoyo'],
-  },
-} as const
-
-export type AgentStoryVisibilityId = keyof typeof AGENT_STORY_VISIBILITY

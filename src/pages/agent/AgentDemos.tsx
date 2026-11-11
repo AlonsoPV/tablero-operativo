@@ -1,6 +1,6 @@
 /**
  * Demos locales de la landing comercial.
- * Diagramas con tratamiento Aura (liquid-glass oscuro).
+ * Narrativa CEO · escenario AC-1038 · liquid-glass oscuro.
  */
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -27,19 +27,20 @@ const boardCopy: Record<
 > = {
   inicial: {
     label: 'Avisada',
-    detail: 'El aviso se envió porque alguien solicitó la notificación. Carlos aún no responde.',
+    detail:
+      'Aviso autorizado enviado. Carlos aún no responde; el tablero ya muestra la acción pendiente.',
   },
   proceso: {
     label: 'En ejecución',
-    detail: 'Carlos reportó avance. La acción sigue abierta y dirección ya ve ese estado.',
+    detail: 'Carlos reportó avance en WhatsApp. Scrumban refleja el mismo estado para dirección.',
   },
   apoyo: {
-    label: 'Retraso',
-    detail: 'Carlos pidió apoyo. El bloqueo queda visible. La acción no se da por cerrada.',
+    label: 'Requiere apoyo',
+    detail: 'Carlos pidió apoyo. El bloqueo queda visible; la acción no se da por cerrada.',
   },
   realizada: {
     label: 'Hecho',
-    detail: 'Quedó en Hecho. Todavía no está verificada: falta la evidencia.',
+    detail: 'Reportada como Hecho. Todavía no está verificada: falta la evidencia.',
   },
   evidencia: {
     label: 'Por verificar',
@@ -62,18 +63,16 @@ export function TeamWhatsAppDemo() {
       <LandingShell>
         <div className="max-w-3xl">
           <Eyebrow dark tokenColor="green">
-            04 · Responde
+            04 · Sigue
           </Eyebrow>
-          <SectionTitle dark>Tu equipo responde. La ejecución avanza.</SectionTitle>
+          <SectionTitle dark>El seguimiento sucede donde trabaja tu equipo.</SectionTitle>
           <SectionLead dark>
-            Tras la asignación y el aviso autorizado, el responsable reporta en WhatsApp. La misma
-            acción cambia de estado.
+            Aviso autorizado, reportes, apoyo y evidencia por WhatsApp. El tablero refleja el cambio.
           </SectionLead>
         </div>
 
         <div className="mt-10 grid items-start gap-6 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
           <div className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#0b141a] shadow-[0_24px_60px_-28px_rgba(0,0,0,0.75)]">
-            {/* WhatsApp header */}
             <div className="flex items-center gap-3 bg-[#075e54] px-3 py-2.5 text-white">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#128c7e] text-[11px] font-bold tracking-wide">
                 SB
@@ -89,7 +88,6 @@ export function TeamWhatsAppDemo() {
               </div>
             </div>
 
-            {/* Chat wallpaper */}
             <div
               className="relative space-y-2.5 px-3 py-4"
               style={{
@@ -104,7 +102,6 @@ export function TeamWhatsAppDemo() {
                 Hoy
               </div>
 
-              {/* Incoming (bot / SCRUMBAN) */}
               <div className="relative max-w-[88%] rounded-lg rounded-tl-sm bg-[#202c33] px-3 py-2 text-[13px] leading-relaxed text-[#e9edef] shadow-sm">
                 <p className="mb-1 text-[11px] font-semibold text-[#53bdeb]">SCRUMBAN</p>
                 <p>
@@ -117,7 +114,6 @@ export function TeamWhatsAppDemo() {
                 </span>
               </div>
 
-              {/* Interactive reply buttons (WhatsApp-style) */}
               {reply === 'inicial' ? (
                 <div className="ml-0 max-w-[88%] overflow-hidden rounded-lg border border-[#2a3942] bg-[#1f2c34]">
                   {(
@@ -142,7 +138,6 @@ export function TeamWhatsAppDemo() {
                 </div>
               ) : null}
 
-              {/* Outgoing reply */}
               {reply !== 'inicial' ? (
                 <div className="relative ml-auto max-w-[85%] rounded-lg rounded-tr-sm bg-[#005c4b] px-3 py-2 text-[13px] leading-relaxed text-[#e9edef] shadow-sm">
                   {reply === 'proceso'
@@ -218,7 +213,6 @@ export function TeamWhatsAppDemo() {
               ) : null}
             </div>
 
-            {/* Composer / quick actions */}
             <div className="border-t border-white/5 bg-[#1f2c34] px-2.5 py-2">
               <div className="flex items-center gap-2">
                 <div className="flex min-h-9 flex-1 items-center rounded-full bg-[#2a3942] px-3.5 text-[13px] text-[#8696a0]">
@@ -243,14 +237,14 @@ export function TeamWhatsAppDemo() {
           </div>
 
           <div className="liquid-glass rounded-2xl p-5 sm:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs text-white/50">La misma acción en el tablero</p>
-                <h3 className="mt-1 text-lg font-semibold text-white">
-                  {AGENT_STORY.actionId} · {AGENT_STORY.actionTitle}
-                </h3>
-              </div>
-              <span className="rounded-full border border-white/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/80">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/45">
+              En Scrumban
+            </p>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <h3 className="text-lg font-semibold text-white">
+                {AGENT_STORY.actionId} · {AGENT_STORY.proposal.title}
+              </h3>
+              <span className="shrink-0 rounded-full border border-white/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/80">
                 {board.label}
               </span>
             </div>
@@ -261,7 +255,10 @@ export function TeamWhatsAppDemo() {
               <li>Evidencia esperada: diferencias documentadas</li>
             </ul>
             <p className="mt-5 text-xs leading-relaxed text-white/45">
-              El aviso no sale solo al crear la acción. Hecho no significa verificado.
+              El aviso se envía solo cuando alguien lo solicita. Hecho no es verificado.
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-white/40">
+              {AGENT_STORY.whatsapp.secondaryNote}
             </p>
           </div>
         </div>
@@ -269,43 +266,6 @@ export function TeamWhatsAppDemo() {
     </LandingSection>
   )
 }
-
-const TRIAGE_CHIPS = [
-  'Vencidos',
-  'Bloqueos',
-  'Por verificar',
-  'Objetivos en seguimiento',
-] as const
-
-const TRIAGE_BUCKETS = [
-  {
-    label: 'Prioridad',
-    count: 1,
-    color: '#ffffff',
-    items: [`${AGENT_STORY.actionId} · ${AGENT_STORY.owner.fullName} — ${AGENT_STORY.blockerLabel}`],
-  },
-  {
-    label: 'Seguimiento',
-    count: 2,
-    color: '#e5e5e5',
-    items: [
-      `${AGENT_STORY.actionTitle} · sigue abierto`,
-      'Diferencias de inventario · sin verificar',
-    ],
-  },
-  {
-    label: 'Actualizaciones',
-    count: 3,
-    color: '#a3a3a3',
-    items: ['Operaciones reportó apoyo', 'Fecha vencida · ayer', 'Evidencia aún no cargada'],
-  },
-  {
-    label: 'En orden',
-    count: 4,
-    color: '#525252',
-    items: ['OKR de inventarios · en seguimiento · BAU estable · Sin otras alertas'],
-  },
-] as const
 
 export function EnviardianDemo() {
   return (
@@ -320,45 +280,56 @@ export function EnviardianDemo() {
         <div className="grid items-start gap-10 md:grid-cols-2 md:gap-16">
           <div className="max-w-md">
             <Eyebrow dark tokenColor="blue">
-              02 · Decide
+              02 · Atiende
             </Eyebrow>
-            <SectionTitle dark>Pregunta. Entiende. Decide.</SectionTitle>
+            <SectionTitle dark>Lo que necesitas saber, en una conversación.</SectionTitle>
             <SectionLead dark>
-              Enviardián lee la operación autorizada y separa lo urgente de lo que puede esperar.
+              Enviardián conecta OKRs, operación y compromisos, y prioriza lo que requiere
+              intervención.
             </SectionLead>
-            <div className="mt-6 flex flex-wrap gap-2">
-              {TRIAGE_CHIPS.map((chip) => (
-                <span key={chip} className="agent-chip rounded-full px-3 py-1.5 text-xs font-medium">
-                  {chip}
-                </span>
-              ))}
-            </div>
-            <p className="mt-4 text-[11px] text-white/45">
+            <p className="mt-6 text-[11px] text-white/45">
               {AGENT_STORY_DEMO_LABEL}. Consultar no crea ni cierra nada.
             </p>
           </div>
 
-          <div className="liquid-glass rounded-2xl p-5">
-            <p className="text-xs text-white/50">Hoy · atención priorizada por Enviardián</p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {TRIAGE_BUCKETS.map((bucket) => (
-                <div key={bucket.label} className="liquid-glass rounded-lg p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-white">{bucket.label}</p>
-                    <span className="text-xs font-semibold tabular-nums" style={{ color: bucket.color }}>
-                      {bucket.count}
-                    </span>
-                  </div>
-                  <ul className="mt-2 space-y-1.5">
-                    {bucket.items.map((item) => (
-                      <li key={item} className="text-xs leading-relaxed text-white/60">
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
+          <div className="liquid-glass rounded-2xl p-5 sm:p-6">
+            <p className="text-[11px] text-white/50">Consulta</p>
+            <p className="mt-1 text-sm font-medium text-white/85">
+              “{AGENT_STORY.visibility.ask}”
+            </p>
+
+            <div className="mt-5 rounded-xl border border-white/15 bg-white/[0.06] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/45">
+                    Hallazgo principal
+                  </p>
+                  <h3 className="mt-1 text-lg font-semibold text-white">
+                    {AGENT_STORY.visibility.findingTitle}
+                  </h3>
                 </div>
-              ))}
+                <span className="shrink-0 rounded-full border border-white/25 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-black">
+                  {AGENT_STORY.blockerLabel}
+                </span>
+              </div>
+              <p className="mt-3 text-sm leading-relaxed text-white/75">
+                {AGENT_STORY.visibility.findingDetail}
+              </p>
+              <p className="mt-2 text-xs leading-relaxed text-white/50">
+                {AGENT_STORY.visibility.whyItMatters}
+              </p>
             </div>
+
+            <ul className="mt-4 divide-y divide-white/10">
+              {AGENT_STORY.visibility.dimensions.map((row) => (
+                <li key={row.label} className="flex gap-3 py-2.5 text-sm">
+                  <span className="w-24 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-white/40">
+                    {row.label}
+                  </span>
+                  <span className="text-white/75">{row.value}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </LandingShell>
@@ -381,75 +352,44 @@ export function InstructionDemo() {
       <LandingShell>
         <div className="max-w-3xl">
           <Eyebrow dark tokenColor="green">
-            03 · Asigna
+            03 · Decide
           </Eyebrow>
-          <SectionTitle dark>De una conversación a una acción.</SectionTitle>
+          <SectionTitle dark>De una instrucción a un compromiso claro.</SectionTitle>
           <SectionLead dark>
-            Primero das la instrucción. Enviardián la convierte en una propuesta clara. Nada se
-            crea hasta que confirmas.
+            Lenguaje natural, propuesta editable y confirmación antes de crear. Sin llenar
+            formularios uno a uno.
           </SectionLead>
         </div>
 
         <div className="mt-8 grid items-stretch gap-3 lg:grid-cols-[minmax(0,0.9fr)_auto_minmax(0,1.2fr)] lg:gap-4">
-          {/* Proceso */}
           <div className="liquid-glass flex flex-col rounded-2xl p-5 sm:p-6">
-            <div className="flex items-center gap-2">
-              <span className="grid h-6 w-6 place-items-center rounded-full bg-white text-[11px] font-bold text-black">
-                1
-              </span>
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">
-                  Proceso
-                </p>
-                <p className="text-sm font-semibold text-white">Lo que dices</p>
-              </div>
-            </div>
-
-            <div className="mt-5 flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-4">
-              <p className="text-[11px] font-medium text-white/45">Instrucción a Enviardián</p>
-              <p className="mt-2 text-lg font-semibold leading-snug text-white sm:text-xl">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">
+              Instrucción
+            </p>
+            <div className="mt-4 flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-4">
+              <p className="text-lg font-semibold leading-snug text-white sm:text-xl">
                 “{AGENT_STORY.instruction}”
               </p>
             </div>
-
-            <ul className="mt-4 space-y-2 text-sm text-white/65">
-              <li className="flex gap-2">
-                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-white/50" aria-hidden />
-                Parte del escenario {AGENT_STORY.actionId}
-              </li>
-              <li className="flex gap-2">
-                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-white/50" aria-hidden />
-                Aún no crea la acción ni avisa por WhatsApp
-              </li>
-            </ul>
+            <p className="mt-4 text-sm text-white/55">{AGENT_STORY.proposal.relatedNote}</p>
           </div>
 
-          {/* Conector */}
-          <div
-            className="flex items-center justify-center py-1 lg:flex-col lg:px-1"
-            aria-hidden
-          >
+          <div className="flex items-center justify-center py-1 lg:flex-col lg:px-1" aria-hidden>
             <div className="hidden h-full w-px flex-1 bg-gradient-to-b from-transparent via-white/25 to-transparent lg:block" />
             <div className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/75 lg:my-3">
-              Interpreta
+              Propone
             </div>
             <div className="hidden h-full w-px flex-1 bg-gradient-to-b from-transparent via-white/25 to-transparent lg:block" />
             <div className="h-px w-full bg-gradient-to-r from-transparent via-white/25 to-transparent lg:hidden" />
           </div>
 
-          {/* Resultado */}
           <div className="liquid-glass flex flex-col rounded-2xl p-5 sm:p-6">
             <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <span className="grid h-6 w-6 place-items-center rounded-full bg-white text-[11px] font-bold text-black">
-                  2
-                </span>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">
-                    Resultado
-                  </p>
-                  <p className="text-sm font-semibold text-white">Propuesta lista</p>
-                </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">
+                  Propuesta
+                </p>
+                <p className="mt-0.5 text-sm font-semibold text-white">{AGENT_STORY_DEMO_LABEL}</p>
               </div>
               <span
                 className={cn(
@@ -459,35 +399,48 @@ export function InstructionDemo() {
                     : 'border-white/15 text-white/80'
                 )}
               >
-                {decision === 'confirmed' ? 'Confirmada' : 'Sin crear'}
+                {decision === 'confirmed' ? 'Confirmada' : 'Pendiente'}
               </span>
             </div>
 
-            <p className="mt-4 text-xs text-white/50">{AGENT_STORY_DEMO_LABEL}</p>
-
-            <dl className="mt-3 flex-1 space-y-3 text-sm">
-              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-3">
-                <dt className="text-[11px] text-white/45">Título de la acción</dt>
+            <dl className="mt-4 flex-1 space-y-2.5 text-sm">
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5">
+                <dt className="text-[11px] text-white/45">Título</dt>
                 <dd className="mt-1 font-semibold text-white">{AGENT_STORY.proposal.title}</dd>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-3">
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5">
                   <dt className="text-[11px] text-white/45">Responsable</dt>
                   <dd className="mt-1 font-semibold text-white">{AGENT_STORY.owner.fullName}</dd>
-                  <p className="mt-1 text-[11px] leading-relaxed text-white/45">
-                    {AGENT_STORY.proposal.ownerConfirmNote}
-                  </p>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-3">
-                  <dt className="text-[11px] text-white/45">Fecha compromiso</dt>
+                <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5">
+                  <dt className="text-[11px] text-white/45">Prioridad</dt>
+                  <dd className="mt-1 font-semibold text-white">{AGENT_STORY.proposal.priority}</dd>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5">
+                  <dt className="text-[11px] text-white/45">Fecha</dt>
                   <dd className="mt-1 font-semibold text-white">{friday}</dd>
                 </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5">
+                  <dt className="text-[11px] text-white/45">Hora</dt>
+                  <dd className="mt-1 font-semibold text-white">
+                    {AGENT_STORY.proposal.dueTime} · CDMX
+                  </dd>
+                </div>
               </div>
-              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-3">
-                <dt className="text-[11px] text-white/45">Qué debe quedar hecho</dt>
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5">
+                <dt className="text-[11px] text-white/45">Descripción</dt>
                 <dd className="mt-1 leading-relaxed text-white/85">
                   {AGENT_STORY.proposal.description}
                 </dd>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5">
+                <dt className="text-[11px] text-white/45">Evidencia esperada</dt>
+                <dd className="mt-1 text-white/85">{AGENT_STORY.proposal.evidenceExpected}</dd>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5">
+                <dt className="text-[11px] text-white/45">Checkpoints</dt>
+                <dd className="mt-1 text-white/55">No solicitados en esta instrucción</dd>
               </div>
             </dl>
 
@@ -498,7 +451,7 @@ export function InstructionDemo() {
                   className="h-10 rounded-full bg-white text-black hover:bg-white/90"
                   onClick={() => setDecision('confirmed')}
                 >
-                  Confirmar propuesta
+                  Confirmar
                 </Button>
                 <Button
                   type="button"
@@ -512,8 +465,8 @@ export function InstructionDemo() {
             ) : (
               <p className="mt-5 text-sm text-white/75">
                 {decision === 'confirmed'
-                  ? 'Confirmada en este ejemplo. En SCRUMBAN la acción no existe hasta ese sí, y el aviso de WhatsApp es un paso aparte.'
-                  : 'Edición cancelada aquí. No se creó nada y el tablero no cambió.'}{' '}
+                  ? 'Confirmada en este ejemplo. La acción no existe hasta ese sí; el aviso de WhatsApp es un paso aparte.'
+                  : 'Sin cambios. No se creó nada.'}{' '}
                 <button
                   type="button"
                   className="font-semibold text-white underline-offset-2 hover:underline"

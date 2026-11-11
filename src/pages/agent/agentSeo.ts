@@ -1,54 +1,60 @@
 /** Metadescripciones de la landing comercial del agente — fuente única para `<head>` y JSON-LD. */
 export const AGENT_LANDING_SEO = {
   siteName: 'SCRUMBAN',
-  title: 'SCRUMBAN | Tu operación, bajo control',
+  title: 'SCRUMBAN | Tu operación, bajo control.',
   description:
-    'Consulta avances, detecta bloqueos y da seguimiento a los compromisos de tu equipo. De la conversación a la acción verificada, con Enviardián.',
+    'Consulta tu empresa, asigna compromisos y da seguimiento a tu equipo por voz, chat y WhatsApp. Visibilidad, ejecución y verificación con Enviardián.',
   keywords:
-    'dirección general, seguimiento de compromisos, visibilidad ejecutiva, Enviardián, WhatsApp operativo, verificación de cumplimiento, ejecución empresarial',
+    'dirección general, seguimiento de compromisos, visibilidad ejecutiva, Enviardián, WhatsApp operativo, verificación de cumplimiento, Gmail, Calendar, ejecución empresarial',
   path: '/agente',
   sections: {
     inicio: {
       id: 'inicio',
-      name: 'Tu operación, bajo control',
+      name: 'Tu operación, bajo control.',
       description:
-        'Consulta avances, detecta bloqueos y da seguimiento a los compromisos desde una conversación.',
+        'Consulta tu empresa, asigna compromisos y da seguimiento a tu equipo por voz, chat y WhatsApp.',
     },
     visibilidad: {
       id: 'visibilidad',
-      name: 'Pregunta. Entiende. Decide.',
+      name: 'Lo que necesitas saber, en una conversación.',
       description:
-        'Una consulta a Enviardián revela vencidos, bloqueos y pendientes de verificación con datos de demostración.',
+        'Consulta OKRs, BAU, KPIs, vencidos, bloqueos y pendientes de verificación en una respuesta priorizada.',
     },
     accion: {
       id: 'accion',
-      name: 'De una conversación a una acción',
+      name: 'De una instrucción a un compromiso claro.',
       description:
-        'Una instrucción natural genera una propuesta con responsable, fecha y descripción. Nada se crea hasta confirmar.',
+        'Instrucción en lenguaje natural, propuesta con responsable, fecha, prioridad y evidencia. Confirmación antes de crear.',
     },
     whatsapp: {
       id: 'whatsapp',
-      name: 'Tu equipo responde. La ejecución avanza.',
+      name: 'El seguimiento sucede donde trabaja tu equipo.',
       description:
-        'WhatsApp permite reportar avances, solicitar apoyo y adjuntar evidencia sobre la misma acción.',
+        'Aviso autorizado, reportes, apoyo y evidencia por WhatsApp; el tablero refleja el cambio.',
     },
     verificacion: {
       id: 'verificacion',
-      name: 'Que se reporte no significa que esté resuelto',
+      name: 'No solo sabes qué se reportó. Sabes qué se cumplió.',
       description:
-        'Hecho no es Verificado. La evidencia queda en la acción y la validación la hace quien tiene permiso.',
+        'Evidencias, historial y verificación autorizada. Hecho no es Verificado.',
     },
-    continuidad: {
-      id: 'continuidad',
-      name: 'Habla de tu negocio. Prepara el siguiente paso.',
+    asistente: {
+      id: 'asistente',
+      name: 'Habla de tu empresa. Conserva cada acuerdo.',
       description:
-        'Voz, informe PDF e historial. Borradores de Gmail y propuestas de Calendar solo con cuenta conectada y tu aprobación.',
+        'Chat, resumen de sesión, informe PDF e historial. Compartir por WhatsApp cuando esté permitido.',
+    },
+    integraciones: {
+      id: 'integraciones',
+      name: 'De la conversación a tener el siguiente paso listo.',
+      description:
+        'Borradores de Gmail y propuestas de Calendar con cuenta Google conectada. Nada se envía ni se crea sin confirmar.',
     },
     demostracion: {
       id: 'demostracion',
       name: 'Más claridad para decidir. Más seguimiento para ejecutar.',
       description:
-        'Solicita una demostración con los retos de seguimiento de tu empresa o prueba a Enviardián en esta página.',
+        'Solicita una demostración o prueba Enviardián. Conecta dirección, responsables y seguimiento.',
     },
   },
 } as const

@@ -3,9 +3,10 @@ import { LandingShell, Logo } from '@/pages/product/ProductUI'
 import { EnviardianDemo, InstructionDemo, TeamWhatsAppDemo } from './AgentDemos'
 import { AgentHero } from './AgentHero'
 import {
+  AgentAssistantSection,
   AgentCloseSection,
-  AgentContinuitySection,
   AgentControlSection,
+  AgentIntegrationsSection,
 } from './AgentSections'
 import { AgentSeoHead } from './AgentSeoHead'
 import { AgentStoryRail } from './AgentStoryRail'
@@ -34,7 +35,8 @@ export function AgentLandingPage() {
               <InstructionDemo />
               <TeamWhatsAppDemo />
               <AgentControlSection />
-              <AgentContinuitySection />
+              <AgentAssistantSection />
+              <AgentIntegrationsSection />
               <AgentCloseSection />
             </main>
           </div>
@@ -44,7 +46,7 @@ export function AgentLandingPage() {
           <LandingShell className="flex flex-col items-center justify-between gap-4 sm:flex-row">
             <Logo light />
             <p className="text-xs text-background/60">
-              Visibilidad, seguimiento y decisión. La empresa confirma antes de ejecutar.
+              Visibilidad, seguimiento y verificación. La empresa confirma antes de ejecutar.
             </p>
             <div className="flex items-center gap-4">
               <a
