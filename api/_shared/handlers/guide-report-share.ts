@@ -2,9 +2,9 @@
  * Envia por WhatsApp el informe ya guardado. Requiere sesion del dueno.
  * confirm=false devuelve la vista previa; confirm=true envia.
  */
-import { createServiceRoleClient, requireAssistantAuth } from './_shared/assistantAuth.js'
-import { shareGuideReport } from './_shared/shareGuideReport.js'
-import { defineApiHandler, readRequestBody } from './_shared/http.js'
+import { createServiceRoleClient, requireAssistantAuth } from '../assistantAuth.js'
+import { shareGuideReport } from '../shareGuideReport.js'
+import { defineApiHandler, readRequestBody } from '../http.js'
 
 export default defineApiHandler(async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Metodo no permitido.' })

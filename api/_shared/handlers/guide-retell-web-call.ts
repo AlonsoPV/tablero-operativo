@@ -7,18 +7,18 @@ import {
   defineApiHandler,
   readRequestBody,
   readStringEnv,
-} from './_shared/http.js'
+} from '../http.js'
 import {
   checkAssistantRateLimit,
   createServiceRoleClient,
   requireAssistantAuth,
-} from './_shared/assistantAuth.js'
-import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
-import { loadGuideBoardContext } from './_shared/guideBoardContext.js'
-import { markGuideLinkUsed, resolveGuideLinkOwner } from './_shared/guideUserLinks.js'
-import { guideOpening, guideWorkInstructions } from './_shared/guideWork.js'
-import { guideAppBaseUrl } from './_shared/guideUserLinks.js'
-import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
+} from '../assistantAuth.js'
+import { enableSystemCaCertificates } from '../enableSystemCa.js'
+import { loadGuideBoardContext } from '../guideBoardContext.js'
+import { markGuideLinkUsed, resolveGuideLinkOwner } from '../guideUserLinks.js'
+import { guideOpening, guideWorkInstructions } from '../guideWork.js'
+import { guideAppBaseUrl } from '../guideUserLinks.js'
+import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from '../tlsError.js'
 
 const SESSION_MS = 15 * 60 * 1000 - 1000
 const SESSION_SELECT =

@@ -2,12 +2,12 @@
  * Estado, informe y WhatsApp de una entrevista abierta con liga personal.
  * Auth: el token de la liga (no se acepta un id de otra persona).
  */
-import { createServiceRoleClient } from './_shared/assistantAuth.js'
-import { finalizeGuideInterview } from './_shared/finalizeGuideInterview.js'
-import type { GuideTranscriptTurn } from './_shared/guideInterviewReport.js'
-import { resolveGuideLinkOwner } from './_shared/guideUserLinks.js'
-import { shareGuideReport } from './_shared/shareGuideReport.js'
-import { defineApiHandler, readRequestBody } from './_shared/http.js'
+import { createServiceRoleClient } from '../assistantAuth.js'
+import { finalizeGuideInterview } from '../finalizeGuideInterview.js'
+import type { GuideTranscriptTurn } from '../guideInterviewReport.js'
+import { resolveGuideLinkOwner } from '../guideUserLinks.js'
+import { shareGuideReport } from '../shareGuideReport.js'
+import { defineApiHandler, readRequestBody } from '../http.js'
 
 const PUBLIC_JOURNAL =
   'id,usuario_id,topic,summary,learning,intention,reflection_question,user_words,agent_inferences,executive_report,created_at'

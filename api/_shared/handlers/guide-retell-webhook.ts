@@ -3,10 +3,10 @@
  * Configurar en el agente: POST {APP}/api/guide-retell-webhook
  * Firma: HMAC-SHA256 del cuerpo con RETELL_API_KEY, header x-retell-signature.
  */
-import { createServiceRoleClient } from './_shared/assistantAuth.js'
-import { finalizeGuideInterview } from './_shared/finalizeGuideInterview.js'
-import { turnsFromRetellCall, verifyRetellSignature } from './_shared/guideInterviewReport.js'
-import { defineApiHandler, readHeader, readStringEnv } from './_shared/http.js'
+import { createServiceRoleClient } from '../assistantAuth.js'
+import { finalizeGuideInterview } from '../finalizeGuideInterview.js'
+import { turnsFromRetellCall, verifyRetellSignature } from '../guideInterviewReport.js'
+import { defineApiHandler, readHeader, readStringEnv } from '../http.js'
 
 export default defineApiHandler(async (req, res) => {
   if (req.method !== 'POST') {

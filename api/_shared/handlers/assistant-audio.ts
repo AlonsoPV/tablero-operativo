@@ -7,11 +7,11 @@ import {
   readNumberEnv,
   readRequestBody,
   readStringEnv,
-} from './_shared/http.js'
-import { requireAssistantAuth } from './_shared/assistantAuth.js'
-import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
-import { geminiModelCandidates, isGeminiCapacityStatus } from './_shared/geminiModel.js'
-import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
+} from '../http.js'
+import { requireAssistantAuth } from '../assistantAuth.js'
+import { enableSystemCaCertificates } from '../enableSystemCa.js'
+import { geminiModelCandidates, isGeminiCapacityStatus } from '../geminiModel.js'
+import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from '../tlsError.js'
 
 export type AssistantAudioIntent = 'plan_actions' | 'advisory'
 

@@ -2,10 +2,10 @@
  * Custom function de Retell: encola un borrador de correo/evento.
  * No envia nada. Al colgar, finalizeGuideInterview rellena el borrador.
  */
-import { createServiceRoleClient } from './_shared/assistantAuth.js'
-import { queueWorkspaceDraft } from './_shared/assistantGoogleTools.js'
-import { defineApiHandler, readHeader, readRequestBody, readStringEnv } from './_shared/http.js'
-import { verifyRetellSignature } from './_shared/guideInterviewReport.js'
+import { createServiceRoleClient } from '../assistantAuth.js'
+import { queueWorkspaceDraft } from '../assistantGoogleTools.js'
+import { defineApiHandler, readHeader, readRequestBody, readStringEnv } from '../http.js'
+import { verifyRetellSignature } from '../guideInterviewReport.js'
 
 type RetellCall = {
   call_id?: unknown
