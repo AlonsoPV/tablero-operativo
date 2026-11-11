@@ -3,15 +3,15 @@
  * Auth: Bearer JWT (usuario) o header x-whatsapp-assistant-secret (origen WhatsApp).
  */
 import { timingSafeEqual } from 'node:crypto'
-import { defineApiHandler, readRequestBody, readStringEnv } from './_shared/http.js'
-import { createServiceRoleClient, requireAssistantAuth } from './_shared/assistantAuth.js'
-import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
-import { clampGuideLinkDays, createGuideUserLink } from './_shared/guideUserLinks.js'
+import { defineApiHandler, readRequestBody, readStringEnv } from '../http.js'
+import { createServiceRoleClient, requireAssistantAuth } from '../assistantAuth.js'
+import { enableSystemCaCertificates } from '../enableSystemCa.js'
+import { clampGuideLinkDays, createGuideUserLink } from '../guideUserLinks.js'
 import {
   isAppSuperAdminByAppRole,
   isDirectionByRole,
   isSuperAdminByRole,
-} from '../src/features/auth/lib/permissions.js'
+} from '../../../src/features/auth/lib/permissions.js'
 
 function secretsMatch(provided: string, expected: string) {
   if (!expected || !provided) return false

@@ -7,8 +7,8 @@ import {
   defineApiHandler,
   readRequestBody,
   readStringEnv,
-} from './_shared/http.js'
-import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth.js'
+} from '../http.js'
+import { checkAssistantRateLimit, requireAssistantAuth } from '../assistantAuth.js'
 
 const MAX_TEXT_CHARS = 1200
 const DEFAULT_MODEL = 'eleven_multilingual_v2'

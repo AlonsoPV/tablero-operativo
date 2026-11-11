@@ -1,10 +1,10 @@
 /**
  * Valida una liga personal de Guía (público, sin JWT).
  */
-import { defineApiHandler, readRequestBody } from './_shared/http.js'
-import { createServiceRoleClient } from './_shared/assistantAuth.js'
-import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
-import { normalizeGuideLinkToken, validateGuideUserLink } from './_shared/guideUserLinks.js'
+import { defineApiHandler, readRequestBody } from '../http.js'
+import { createServiceRoleClient } from '../assistantAuth.js'
+import { enableSystemCaCertificates } from '../enableSystemCa.js'
+import { normalizeGuideLinkToken, validateGuideUserLink } from '../guideUserLinks.js'
 
 export default defineApiHandler(async (req, res) => {
   enableSystemCaCertificates()

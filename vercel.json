@@ -5,10 +5,10 @@
   "installCommand": "npm ci",
   "outputDirectory": "dist",
   "functions": {
-    "api/guide-retell-webhook.ts": {
+    "api/guide-retell.ts": {
       "maxDuration": 60
     },
-    "api/guide-link-report.ts": {
+    "api/guide-report.ts": {
       "maxDuration": 60
     },
     "api/*.ts": {
@@ -45,5 +45,27 @@
       "headers": [{ "key": "Cache-Control", "value": "no-store" }]
     }
   ],
-  "rewrites": [{ "source": "/((?!api/|assets/|docs/).*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/api/google-oauth-start", "destination": "/api/google-oauth?op=start" },
+    {
+      "source": "/api/google-oauth-callback",
+      "destination": "/api/google-oauth"
+    },
+    { "source": "/api/google-oauth-disconnect", "destination": "/api/google-oauth?op=disconnect" },
+    { "source": "/api/google-oauth-status", "destination": "/api/google-oauth?op=status" },
+    { "source": "/api/create-guide-user-link", "destination": "/api/guide-user-link?op=create" },
+    { "source": "/api/validate-guide-user-link", "destination": "/api/guide-user-link?op=validate" },
+    { "source": "/api/assistant-audio", "destination": "/api/assistant-media?op=audio" },
+    { "source": "/api/assistant-transcribe", "destination": "/api/assistant-media?op=transcribe" },
+    { "source": "/api/elevenlabs-tts", "destination": "/api/assistant-media?op=tts" },
+    { "source": "/api/guide-retell-webhook", "destination": "/api/guide-retell?op=webhook" },
+    { "source": "/api/guide-retell-web-call", "destination": "/api/guide-retell?op=web-call" },
+    {
+      "source": "/api/guide-queue-workspace-draft",
+      "destination": "/api/guide-retell?op=queue-workspace-draft"
+    },
+    { "source": "/api/guide-link-report", "destination": "/api/guide-report?op=link-report" },
+    { "source": "/api/guide-report-share", "destination": "/api/guide-report?op=share" },
+    { "source": "/((?!api/|assets/|docs/).*)", "destination": "/index.html" }
+  ]
 }

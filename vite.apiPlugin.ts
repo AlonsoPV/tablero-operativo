@@ -16,23 +16,33 @@ type ApiHandler = (
   res: ServerResponse
 ) => void | Promise<void>
 
-const API_ROUTES: Record<string, string> = {
-  '/api/gemini-chat': 'api/gemini-chat.ts',
-  '/api/assistant-audio': 'api/assistant-audio.ts',
-  '/api/assistant-transcribe': 'api/assistant-transcribe.ts',
-  '/api/elevenlabs-tts': 'api/elevenlabs-tts.ts',
-  '/api/guide-chat': 'api/guide-chat.ts',
-  '/api/guide-retell-web-call': 'api/guide-retell-web-call.ts',
-  '/api/guide-report-share': 'api/guide-report-share.ts',
-  '/api/guide-link-report': 'api/guide-link-report.ts',
-  '/api/create-guide-user-link': 'api/create-guide-user-link.ts',
-  '/api/validate-guide-user-link': 'api/validate-guide-user-link.ts',
-  '/api/assistant-ops': 'api/assistant-ops.ts',
-  '/api/google-oauth-start': 'api/google-oauth-start.ts',
-  '/api/google-oauth-callback': 'api/google-oauth-callback.ts',
-  '/api/google-oauth-disconnect': 'api/google-oauth-disconnect.ts',
-  '/api/google-oauth-status': 'api/google-oauth-status.ts',
-  '/api/guide-queue-workspace-draft': 'api/guide-queue-workspace-draft.ts',
+/** Rutas públicas → entry consolidado + op (Hobby ≤12 functions). */
+const API_ROUTES: Record<string, { file: string; op: string }> = {
+  '/api/gemini-chat': { file: 'api/gemini-chat.ts', op: '' },
+  '/api/assistant-ops': { file: 'api/assistant-ops.ts', op: '' },
+  '/api/guide-chat': { file: 'api/guide-chat.ts', op: '' },
+  '/api/demo-request': { file: 'api/demo-request.ts', op: '' },
+  '/api/whatsapp-assistant': { file: 'api/whatsapp-assistant.ts', op: '' },
+  '/api/whatsapp-webhook': { file: 'api/whatsapp-webhook.ts', op: '' },
+  '/api/google-oauth': { file: 'api/google-oauth.ts', op: '' },
+  '/api/google-oauth-start': { file: 'api/google-oauth.ts', op: 'start' },
+  '/api/google-oauth-callback': { file: 'api/google-oauth.ts', op: 'callback' },
+  '/api/google-oauth-disconnect': { file: 'api/google-oauth.ts', op: 'disconnect' },
+  '/api/google-oauth-status': { file: 'api/google-oauth.ts', op: 'status' },
+  '/api/guide-user-link': { file: 'api/guide-user-link.ts', op: '' },
+  '/api/create-guide-user-link': { file: 'api/guide-user-link.ts', op: 'create' },
+  '/api/validate-guide-user-link': { file: 'api/guide-user-link.ts', op: 'validate' },
+  '/api/assistant-media': { file: 'api/assistant-media.ts', op: '' },
+  '/api/assistant-audio': { file: 'api/assistant-media.ts', op: 'audio' },
+  '/api/assistant-transcribe': { file: 'api/assistant-media.ts', op: 'transcribe' },
+  '/api/elevenlabs-tts': { file: 'api/assistant-media.ts', op: 'tts' },
+  '/api/guide-retell': { file: 'api/guide-retell.ts', op: '' },
+  '/api/guide-retell-webhook': { file: 'api/guide-retell.ts', op: 'webhook' },
+  '/api/guide-retell-web-call': { file: 'api/guide-retell.ts', op: 'web-call' },
+  '/api/guide-queue-workspace-draft': { file: 'api/guide-retell.ts', op: 'queue-workspace-draft' },
+  '/api/guide-report': { file: 'api/guide-report.ts', op: '' },
+  '/api/guide-link-report': { file: 'api/guide-report.ts', op: 'link-report' },
+  '/api/guide-report-share': { file: 'api/guide-report.ts', op: 'share' },
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown) {
@@ -61,6 +71,14 @@ function injectServerEnv(root: string, mode: string) {
   }
 }
 
+function withOp(url: string, op: string) {
+  if (!op) return url
+  // Callback: no forzar ?op=; el handler detecta code/state. Aun así op=callback ayuda en local.
+  const u = new URL(url, 'http://local')
+  if (!u.searchParams.get('op')) u.searchParams.set('op', op)
+  return `${u.pathname}?${u.searchParams.toString()}`
+}
+
 export function localApiPlugin(): Plugin {
   const cache = new Map<string, ApiHandler>()
 
@@ -81,26 +99,29 @@ export function localApiPlugin(): Plugin {
       })
 
       server.middlewares.use(async (req, res, next) => {
-        const url = req.url?.split('?')[0] ?? ''
-        const relativeFile = API_ROUTES[url]
-        if (!relativeFile) {
+        const pathOnly = req.url?.split('?')[0] ?? ''
+        const route = API_ROUTES[pathOnly]
+        if (!route) {
           next()
           return
         }
 
         try {
-          let handler = cache.get(url)
+          const cacheKey = route.file
+          let handler = cache.get(cacheKey)
           if (!handler) {
-            handler = await loadHandler(server, relativeFile)
-            cache.set(url, handler)
+            handler = await loadHandler(server, route.file)
+            cache.set(cacheKey, handler)
           }
+          const originalUrl = req.url || pathOnly
+          req.url = withOp(originalUrl, route.op)
           await handler(req as Connect.IncomingMessage & { body?: unknown; method?: string }, res)
           if (!res.writableEnded) {
             sendJson(res, 500, { error: 'El handler no cerro la respuesta.' })
           }
         } catch (error) {
-          console.error(`[local-api] ${url}`, error)
-          cache.delete(url)
+          console.error(`[local-api] ${pathOnly}`, error)
+          cache.delete(route.file)
           if (!res.headersSent) {
             sendJson(res, 500, {
               error: error instanceof Error ? error.message : 'Error en API local',
