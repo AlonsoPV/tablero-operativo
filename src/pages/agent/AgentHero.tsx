@@ -16,7 +16,7 @@ const nav = [
   ['Visibilidad', '#visibilidad'],
   ['Acción', '#accion'],
   ['WhatsApp', '#whatsapp'],
-  ['Continuidad', '#continuidad'],
+  ['Asistente', '#asistente'],
 ] as const
 
 function formatCallTime(totalSeconds: number) {
@@ -201,14 +201,14 @@ export function AgentHero() {
               />
               <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/85">
                 <span className="h-1.5 w-1.5 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.65)]" aria-hidden />
-                Inteligencia para la ejecución
+                Visibilidad para dirigir
               </p>
               <h1 className="mt-4 text-balance text-3xl font-semibold tracking-tight text-white [text-shadow:0_2px_28px_rgba(0,0,0,0.45)] sm:text-4xl lg:text-[2.75rem] lg:leading-[1.1]">
                 Tu operación, bajo control.
               </h1>
               <p className="mt-4 max-w-sm text-base leading-relaxed text-white/80 [text-shadow:0_1px_18px_rgba(0,0,0,0.4)]">
-                Consulta avances, detecta bloqueos y da seguimiento a los compromisos de tu equipo.
-                Todo desde una conversación.
+                Consulta tu empresa, asigna compromisos y da seguimiento a tu equipo por voz, chat y
+                WhatsApp.
               </p>
               <div className="mt-8">
                 <PrimaryCTA dark className="bg-white text-black shadow-lg shadow-black/30 hover:bg-white/90">
