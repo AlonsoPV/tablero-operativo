@@ -26,6 +26,12 @@ describe('inferAiConfirmText', () => {
     expect(inferAiConfirmText('cancelar')).toBe('cancel')
   })
 
+  it('does not treat a bare yes as Google send confirmation', () => {
+    expect(inferAiConfirmText('sí', { rejectBareYes: true })).toBeNull()
+    expect(inferAiConfirmText('ok', { rejectBareYes: true })).toBeNull()
+    expect(inferAiConfirmText('no', { rejectBareYes: true })).toBe('cancel')
+  })
+
   it('ignores longer questions', () => {
     expect(inferAiConfirmText('si, que acciones tengo retrasadas')).toBeNull()
     expect(inferAiConfirmText('ayuda')).toBeNull()

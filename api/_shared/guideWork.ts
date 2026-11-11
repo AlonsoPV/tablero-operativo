@@ -544,6 +544,9 @@ Si ya lo dijeron, no lo vuelvas a pedir. Resume en dos frases y confirma: "si es
 Si corrigen, aplica el cambio al mismo borrador.
 No inventes clientes, fechas ni responsables. No digas que ya quedo en el tablero.
 Maximo 4 turnos para cerrar el borrador. Frases cortas. Espanol directo.
+
+Si piden enviar un correo o agendar en Calendar: llama queue_workspace_draft (type email|event, purpose, recipient o attendees si se conocen, uttered_at ISO, time_anchor como "manana").
+No envies el correo ni crees el evento en la llamada. Di que queda un borrador para revisar al colgar.
 `.trim()
 }
 

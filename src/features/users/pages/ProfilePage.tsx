@@ -65,6 +65,7 @@ import {
   type EditProfileSaveInput,
 } from '../components/EditProfileDialog'
 import { ProfileHierarchyEditor } from '../components/ProfileHierarchyEditor'
+import { UserGoogleCard } from '../components/UserGoogleCard'
 
 const CLOSED_STATES = new Set(['Hecho', 'Verificado'])
 
@@ -728,6 +729,8 @@ export function ProfilePage() {
               )}
             </SectionCardBody>
           </SectionCard>
+
+          <UserGoogleCard />
 
           {/* System meta (compact) */}
           <SectionCard>

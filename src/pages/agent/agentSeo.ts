@@ -1,66 +1,54 @@
-/** Metadescripciones de la landing Agente IA + WhatsApp — fuente única para `<head>` y JSON-LD. */
+/** Metadescripciones de la landing comercial del agente — fuente única para `<head>` y JSON-LD. */
 export const AGENT_LANDING_SEO = {
   siteName: 'SCRUMBAN',
-  title: 'SCRUMBAN Agente | IA operativa en web y WhatsApp',
+  title: 'SCRUMBAN | Tu operación, bajo control',
   description:
-    'Agente IA conectado al tablero y a WhatsApp: consulta, propone operaciones, pide confirmación y da seguimiento a compromisos sin perder trazabilidad.',
+    'Consulta avances, detecta bloqueos y da seguimiento a los compromisos de tu equipo. De la conversación a la acción verificada, con Enviardián.',
   keywords:
-    'agente IA, WhatsApp operativo, asistente SCRUMBAN, seguimiento WhatsApp, confirmación de operaciones, chatbot operacional, bandeja WhatsApp',
+    'dirección general, seguimiento de compromisos, visibilidad ejecutiva, Enviardián, WhatsApp operativo, verificación de cumplimiento, ejecución empresarial',
   path: '/agente',
   sections: {
     inicio: {
       id: 'inicio',
-      name: 'Agente operativo en WhatsApp',
+      name: 'Tu operación, bajo control',
       description:
-        'Opera desde WhatsApp o el chat web con un agente que entiende el tablero: consulta, propone y confirma antes de ejecutar.',
+        'Consulta avances, detecta bloqueos y da seguimiento a los compromisos desde una conversación.',
     },
-    problema: {
-      id: 'problema',
-      name: 'El costo de operar solo por chat',
+    visibilidad: {
+      id: 'visibilidad',
+      name: 'Pregunta. Entiende. Decide.',
       description:
-        'Seguimientos manuales, respuestas perdidas y decisiones fuera de contexto. El agente convierte WhatsApp en canal operativo con trazabilidad.',
+        'Una consulta a Enviardián revela vencidos, bloqueos y pendientes de verificación con datos de demostración.',
     },
-    cultura: {
-      id: 'cultura',
-      name: 'De chat informal a canal con confirmación',
+    accion: {
+      id: 'accion',
+      name: 'De una conversación a una acción',
       description:
-        'Pasa de mensajes sueltos a propuestas claras, botones de confirmación, evidencia y seguimiento programado en el mismo hilo.',
+        'Una instrucción natural genera una propuesta con responsable, fecha y descripción. Nada se crea hasta confirmar.',
     },
-    producto: {
-      id: 'como-funciona',
-      name: 'WhatsApp en acción',
+    whatsapp: {
+      id: 'whatsapp',
+      name: 'Tu equipo responde. La ejecución avanza.',
       description:
-        'Asignación, follow-ups con botones, evidencia y respuestas del agente IA en el flujo real de WhatsApp Cloud API.',
+        'WhatsApp permite reportar avances, solicitar apoyo y adjuntar evidencia sobre la misma acción.',
     },
-    indicadores: {
-      id: 'propuestas',
-      name: 'Propuestas con control humano',
+    verificacion: {
+      id: 'verificacion',
+      name: 'Que se reporte no significa que esté resuelto',
       description:
-        'El agente propone crear o actualizar acciones; tú confirmas o cancelas. Nada se escribe en el tablero sin tu visto bueno.',
+        'Hecho no es Verificado. La evidencia queda en la acción y la validación la hace quien tiene permiso.',
     },
-    diagnostico: {
-      id: 'diagnostico',
-      name: 'Demo del agente',
+    continuidad: {
+      id: 'continuidad',
+      name: 'Habla de tu negocio. Prepara el siguiente paso.',
       description:
-        'Agenda una demo personalizada del agente IA en web y WhatsApp aplicada a tu operación.',
+        'Voz, informe PDF e historial. Borradores de Gmail y propuestas de Calendar solo con cuenta conectada y tu aprobación.',
     },
-    canales: {
-      id: 'canales',
-      name: 'Dos canales, un mismo tablero',
+    demostracion: {
+      id: 'demostracion',
+      name: 'Más claridad para decidir. Más seguimiento para ejecutar.',
       description:
-        'Chat web en /asistente-ia y WhatsApp bidireccional con la misma lógica operativa y el mismo contexto del tablero.',
-    },
-    capacidades: {
-      id: 'capacidades',
-      name: 'Capacidades del agente',
-      description:
-        'Consulta del tablero, propuestas con confirmación, seguimientos WhatsApp, bandeja unificada y evidencia adjunta.',
-    },
-    cierre: {
-      id: 'cierre',
-      name: 'Resultado para operación y dirección',
-      description:
-        'Seguimiento continuo sin perseguir pendientes: el agente ayuda a ejecutar y WhatsApp mantiene el compromiso vivo.',
+        'Solicita una demostración con los retos de seguimiento de tu empresa o prueba a Enviardián en esta página.',
     },
   },
 } as const

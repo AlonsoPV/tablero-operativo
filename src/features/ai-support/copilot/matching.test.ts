@@ -83,5 +83,7 @@ describe('copilot matching and safety', () => {
     expect(prompt).toMatch(/organigrama/)
     expect(prompt).toMatch(/get_module_data/)
     expect(prompt).toMatch(/permiso/)
+    expect(prompt).toMatch(/gmail_search/)
+    expect(prompt).toMatch(/No inventes correos/)
   })
 })

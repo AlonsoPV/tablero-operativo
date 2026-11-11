@@ -17,6 +17,7 @@ import {
   withWorkInInterpretation,
 } from './guideWork.js'
 import { readNumberEnv } from './http.js'
+import { persistFilledWorkspaceDrafts } from './workspaceDraftFinalize.js'
 
 const JOURNAL_BASE =
   'id,session_id,usuario_id,topic,summary,learning,intention,reflection_question,user_words,agent_inferences,created_at,updated_at'
@@ -282,6 +283,16 @@ export async function finalizeGuideInterview(
       return { status: 'failed', journal: null, already: false }
     }
     await setReportStatus(supabase, session.id, 'ready', null, true)
+    try {
+      await persistFilledWorkspaceDrafts(
+        supabase,
+        session.id,
+        turns.map((turn) => `${turn.role}: ${turn.content}`).join('\n'),
+        executive
+      )
+    } catch (fillError) {
+      console.error('guide interview workspace drafts', fillError instanceof Error ? fillError.message : fillError)
+    }
     return { status: 'ready', journal: (saved.data as Record<string, unknown> | null) ?? payload, already: false }
   } catch (error) {
     console.error('guide interview generate', error instanceof Error ? error.message : error)

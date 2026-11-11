@@ -72,6 +72,16 @@
     --sidebar-foreground: 220 14% 96%;
     --sidebar-primary: 221 83% 53%;
     --sidebar-accent: 220 26% 18%;
+
+    /* Campo compartido landings (/agente) — blancos arquitectónicos */
+    --hero-bg: 200 33% 99%; /* #FAFCFD */
+    --color-hero-bg: hsl(var(--hero-bg));
+    --hero-block-front: #ffffff;
+    --hero-block-secondary: #fafcfd;
+    --hero-block-side: #f7f9fb;
+    --hero-block-deep: #f3f6f8;
+    --hero-block-gap: #f1f4f6;
+    --hero-block-accent: #2581c4;
   }
 
   .dark {

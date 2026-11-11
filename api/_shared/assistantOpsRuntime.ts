@@ -1,6 +1,9 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
 import { canManageActionsByRole, isAnalystByRole } from '../../src/features/auth/lib/permissions.js'
 import { isCopilotWriteTool } from '../../src/features/ai-support/copilot/catalog.js'
+import { isGoogleWriteTool } from '../../src/features/ai-support/copilot/googleWorkspace.js'
+import { dispatchGoogleTool, executeGoogleWrite } from './assistantGoogleTools.js'
+import { createPendingOp, insertAssistantOpLog, type CopilotActor } from './assistantPending.js'
+import { assertWorkspaceHash } from './workspaceHash.js'
 import {
   evaluatePendingTransition,
   matchActionsByQuery,
@@ -22,21 +25,14 @@ import type {
   CopilotProposal,
   CopilotToolName,
   CopilotToolResult,
-  CopilotWriteTool,
 } from '../../src/features/ai-support/copilot/types.js'
 import { dispatchBoardReadTool } from './assistantBoardReads.js'
 
-export type CopilotActor = {
-  supabase: SupabaseClient
-  usuarioId: string
-  authUserId: string
-  rol: string | null
-}
+export type { CopilotActor } from './assistantPending.js'
 
 const OPEN_STATES = ['Pendiente', 'Hoy', 'En_Ejecucion', 'Bloqueado', 'Retraso']
 const ACTION_COLS =
   'id,fecha,titulo_accion,descripcion_accion,responsable,created_by,hora_limite,evidencia_esperada,evidencia_cargada,estado,prioridad,area,updated_at,verificador_dato,verificador_gobierno'
-const PENDING_TTL_MS = 10 * 60 * 1000
 const STALE_DAYS = 3
 
 type ActionRow = {
@@ -206,81 +202,7 @@ async function resolveAssignee(
   return matches[0]
 }
 
-async function insertLog(
-  actor: CopilotActor,
-  input: {
-    tool: string
-    result: string
-    pendingOpId?: string | null
-    resourceId?: string | null
-    summary?: string
-  }
-) {
-  await actor.supabase.from('assistant_op_log').insert({
-    usuario_id: actor.usuarioId,
-    pending_op_id: input.pendingOpId ?? null,
-    tool: input.tool,
-    resource_id: input.resourceId ?? null,
-    result: input.result,
-    preview_summary: input.summary?.slice(0, 280) ?? null,
-  })
-}
-
-async function createPendingOp(
-  actor: CopilotActor,
-  input: {
-    tool: CopilotWriteTool
-    resourceId?: string | null
-    expectedUpdatedAt?: string | null
-    payload: Record<string, unknown>
-    proposal: Omit<CopilotProposal, 'id' | 'expiresAt' | 'tool'> & { tool?: CopilotWriteTool }
-  }
-): Promise<CopilotProposal> {
-  const expiresAt = new Date(Date.now() + PENDING_TTL_MS).toISOString()
-  const preview = {
-    title: input.proposal.title,
-    summary: input.proposal.summary,
-    fields: input.proposal.fields,
-    record: input.proposal.record ?? null,
-  }
-  const { data, error } = await actor.supabase
-    .from('assistant_pending_ops')
-    .insert({
-      usuario_id: actor.usuarioId,
-      tool: input.tool,
-      resource_id: input.resourceId ?? null,
-      expected_updated_at: input.expectedUpdatedAt ?? null,
-      payload: input.payload,
-      preview,
-      status: 'pending',
-      expires_at: expiresAt,
-    })
-    .select('id,expires_at')
-    .single()
-  if (error || !data) {
-    throw new Error(
-      error?.message?.includes('assistant_pending_ops')
-        ? 'Falta aplicar la migracion de operaciones del asistente.'
-        : error?.message || 'No se pudo guardar la propuesta.'
-    )
-  }
-  await insertLog(actor, {
-    tool: input.tool,
-    result: 'proposed',
-    pendingOpId: data.id as string,
-    resourceId: input.resourceId,
-    summary: input.proposal.title,
-  })
-  return {
-    id: data.id as string,
-    tool: input.tool,
-    title: input.proposal.title,
-    summary: input.proposal.summary,
-    fields: input.proposal.fields,
-    record: input.proposal.record,
-    expiresAt: (data.expires_at as string) || expiresAt,
-  }
-}
+const insertLog = insertAssistantOpLog
 
 function denied(tool: CopilotToolName, error: string): CopilotToolResult {
   return { ok: false, tool, kind: 'denied', error }
@@ -410,14 +332,21 @@ async function toolSearchPeople(actor: CopilotActor, args: Record<string, unknow
   if (!name) return denied('search_people', 'Indica un nombre.')
   const matches = await searchPeople(actor, name)
   if (matches.length > 1) return clarification('search_people', peopleClarification(matches))
-  return readOk('search_people', {
-    items: matches.map((person) => ({
-      id: person.id,
-      nombre: person.nombre,
-      area: person.area,
-      rol: person.rol,
-    })),
-  })
+  const items = await Promise.all(
+    matches.map(async (person) => {
+      const { data: email } = await actor.supabase.rpc('assistant_person_email', {
+        p_usuario_id: person.id,
+      })
+      return {
+        id: person.id,
+        nombre: person.nombre,
+        area: person.area,
+        rol: person.rol,
+        email: typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : null,
+      }
+    })
+  )
+  return readOk('search_people', { items })
 }
 
 async function proposeCreate(actor: CopilotActor, args: Record<string, unknown>): Promise<CopilotToolResult> {
@@ -695,6 +624,8 @@ export async function dispatchCopilotTool(
 ): Promise<CopilotToolResult> {
   const args = asArgs(rawArgs)
   try {
+    const google = await dispatchGoogleTool(actor, name, rawArgs)
+    if (google) return google
     const board = await dispatchBoardReadTool(actor, name, args)
     if (board) return board
     switch (name) {
@@ -833,6 +764,9 @@ async function executePayload(actor: CopilotActor, tool: string, payload: Record
     if (count === 0) throw new Error('No se pudo verificar. Revisa permisos.')
     return { id: payload.action_id, href: actionHref(String(payload.action_id)), estado: 'Verificado' }
   }
+  if (isGoogleWriteTool(tool)) {
+    return executeGoogleWrite(actor, tool, payload)
+  }
   throw new Error('Herramienta de escritura no soportada.')
 }
 
@@ -865,6 +799,10 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string) {
         ? 'Esta operación fue cancelada.'
         : 'Esta operación ya no se puede confirmar.'
     )
+  }
+
+  if (isGoogleWriteTool(row.tool)) {
+    assertWorkspaceHash(row.payload ?? {})
   }
 
   const { data: claimed } = await actor.supabase

@@ -93,6 +93,8 @@ describe('guideWork', () => {
     expect(guideOpening('create')).toMatch(/tablero/i)
     expect(guideWorkInstructions('create')).toMatch(/No pidas que elijan/i)
     expect(guideWorkInstructions('consult')).toMatch(/arma UNA accion/i)
+    expect(guideWorkInstructions()).toMatch(/queue_workspace_draft/)
+    expect(guideWorkInstructions()).toMatch(/No envies el correo/)
   })
 
   it('infiere crear desde habla natural y deja consultar las preguntas del tablero', () => {

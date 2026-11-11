@@ -12,7 +12,11 @@ export default {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
+      fontFamily: {
+        sans: ["Inter", "system-ui", "sans-serif"],
+      },
       colors: {
+        brand: "#3D81E3",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -93,12 +97,17 @@ export default {
           from: { transform: "scaleX(0)" },
           to: { transform: "scaleX(1)" },
         },
+        shiny: {
+          "0%": { backgroundPosition: "-200% center" },
+          "100%": { backgroundPosition: "200% center" },
+        },
       },
       animation: {
         "challenge-fade-up": "challenge-fade-up 0.45s ease-out both",
         "challenge-float": "challenge-float 9s ease-in-out infinite",
         "challenge-pulse-soft": "challenge-pulse-soft 4.5s ease-in-out infinite",
         "challenge-progress": "challenge-progress 0.7s ease-out both",
+        shiny: "shiny 6s linear infinite",
       },
     },
   },

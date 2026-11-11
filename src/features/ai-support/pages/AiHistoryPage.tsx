@@ -25,6 +25,9 @@ import { groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
 import { GuideReportActions } from '@/features/guide/components/GuideReportActions'
 import { GuideReportBody } from '@/features/guide/components/GuideReportBody'
 import { pendingWorkItems, pendingWorkToAnalysis } from '@/features/guide/pendingWork'
+import { AssistantProposalCard } from '@/features/ai-support/components/AssistantProposalCard'
+import { listSessionWorkspaceOps } from '@/features/ai-support/services/assistantOpsClient'
+import type { CopilotProposal } from '@/features/ai-support/copilot/types'
 
 function createdWorkItems(entry: GuideJournalEntry | null | undefined): GuideCreatedWork[] {
   return (entry?.created_work ?? []).filter((item) => item.title && !item.error && !item.pending && item.id)
@@ -111,6 +114,9 @@ export function AiHistoryPage() {
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [resuming, setResuming] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [workspaceOps, setWorkspaceOps] = useState<
+    Array<CopilotProposal & { status?: string; errorMessage?: string | null }>
+  >([])
 
   useEffect(() => {
     if (!currentUser?.id) {
@@ -186,6 +192,24 @@ export function AiHistoryPage() {
       })
       .finally(() => {
         if (!cancelled) setLoadingMessages(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selected?.session_id])
+
+  useEffect(() => {
+    if (!selected?.session_id) {
+      setWorkspaceOps([])
+      return
+    }
+    let cancelled = false
+    void listSessionWorkspaceOps(selected.session_id)
+      .then((items) => {
+        if (!cancelled) setWorkspaceOps(items)
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaceOps([])
       })
     return () => {
       cancelled = true
@@ -387,6 +411,52 @@ export function AiHistoryPage() {
             intention={selected.intention}
             reflectionQuestion={selected.reflection_question}
           />
+
+          {workspaceOps.length > 0 ? (
+            <section className="space-y-3" aria-label="Acciones preparadas por Shaman">
+              <div className="space-y-1">
+                <h2 className="text-base font-semibold tracking-tight">Acciones preparadas por Shaman</h2>
+                <p className="text-sm text-muted-foreground">
+                  Correos y eventos listos para revisar, editar, aprobar o descartar. No se envian solos.
+                </p>
+              </div>
+              <ul className="space-y-2">
+                {workspaceOps.map((item) => (
+                  <li key={item.id}>
+                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {item.status === 'confirmed'
+                        ? 'Enviado'
+                        : item.status === 'cancelled'
+                          ? 'Descartado'
+                          : item.status === 'expired'
+                            ? 'Expiro'
+                            : 'Pendiente'}
+                    </p>
+                    <AssistantProposalCard
+                      proposal={item}
+                      status={
+                        item.status === 'confirmed'
+                          ? 'confirmed'
+                          : item.status === 'cancelled'
+                            ? 'cancelled'
+                            : 'pending'
+                      }
+                      onUpdated={(next) =>
+                        setWorkspaceOps((prev) =>
+                          prev.map((row) => (row.id === next.id ? { ...row, ...next } : row))
+                        )
+                      }
+                      onResolved={(status) =>
+                        setWorkspaceOps((prev) =>
+                          prev.map((row) => (row.id === item.id ? { ...row, status } : row))
+                        )
+                      }
+                    />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
 
           {pendingAnalysis ? (
             <section className="space-y-3" aria-label="Pendiente de aprobar">

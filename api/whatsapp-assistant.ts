@@ -22,6 +22,9 @@ import {
 import { inferAiConfirmText } from './_shared/whatsappAiConfirm.js'
 import { composeSystemPrompt, sanitizeMessages } from '../src/lib/assistantPrompts.js'
 import type { CopilotProposal } from '../src/features/ai-support/copilot/types.js'
+import { isGoogleWriteTool } from '../src/features/ai-support/copilot/googleWorkspace.js'
+import { proposalFromPendingRow } from './_shared/assistantGoogleTools.js'
+import { guideAppBaseUrl } from './_shared/guideUserLinks.js'
 
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
 const DEFAULT_MAX_OUTPUT_TOKENS = 500
@@ -41,6 +44,8 @@ CANAL WHATSAPP:
 - Tienes un resumen inicial del tablero abajo. Usa herramientas para profundizar: dashboard, OKRs, organigrama, KPIs, gaps, tickets, calendario, kanban por equipos, acciones del equipo y el resto de modulos autorizados.
 - Si no tiene permiso para un modulo, dilo. No inventes cifras ni organigrama.
 - Las escrituras (crear/cambiar acciones) solo se proponen. El usuario confirma con boton o si/no.
+- Correos y eventos de Google: NUNCA se envian con un "si" suelto. El usuario debe pulsar el boton aiop o abrir /asistente-ia.
+- Si Google Workspace no esta conectado, pide que lo conecte en su perfil. No uses la cuenta de administracion.
 - Si ya hay una propuesta pendiente, pide confirmar o cancelar. No crees otra.
 `.trim()
 
@@ -65,7 +70,7 @@ async function loadBoardSeedForWhatsApp(actor: CopilotActor): Promise<string> {
 type PendingPreview = {
   id: string
   tool: string
-  preview: { title?: string; summary?: string } | null
+  preview: Record<string, unknown> | null
   expires_at: string
 }
 
@@ -101,25 +106,31 @@ function proposalToReply(text: string, proposal: CopilotProposal) {
   const fields = (proposal.fields ?? [])
     .filter((field) => field.to && field.to !== 'Ninguno' && field.to !== 'No solicitado')
     .map((field) => `${field.label}: ${field.to}`)
+  const google = isGoogleWriteTool(proposal.tool)
+  const body = proposal.workspace?.body || ''
+  const assistUrl = `${guideAppBaseUrl()}/asistente-ia`
+  const confirmLine = google
+    ? body.length > 400
+      ? `Un "si" no envia esto. Pulsa Confirmar o revisalo en ${assistUrl}`
+      : 'Un "si" no envia esto. Pulsa Confirmar en el boton. No para cancelar.'
+    : 'Escribe si para crearla o no para cancelar.'
   const parts = [
-    'Prepare esta propuesta. Todavia no esta creada.',
+    google ? 'Prepare este borrador de Google. Todavia no se envio.' : 'Prepare esta propuesta. Todavia no esta creada.',
     proposal.summary,
     ...fields,
     clipReply(text),
-    'Escribe si para crearla o no para cancelar.',
+    confirmLine,
   ].filter(Boolean)
   return clipReply(parts.join('\n'))
 }
 
 function pendingToProposal(row: PendingPreview): CopilotProposal {
-  return {
+  return proposalFromPendingRow({
     id: row.id,
-    tool: row.tool as CopilotProposal['tool'],
-    title: row.preview?.title || 'Propuesta pendiente',
-    summary: row.preview?.summary || 'Confirma o cancela esta operacion.',
-    fields: [],
-    expiresAt: row.expires_at,
-  }
+    tool: row.tool,
+    preview: (row.preview ?? {}) as Record<string, unknown>,
+    expires_at: row.expires_at,
+  })
 }
 
 async function loadLatestPending(supabase: SupabaseClient, usuarioId: string): Promise<PendingPreview | null> {
@@ -136,7 +147,7 @@ async function loadLatestPending(supabase: SupabaseClient, usuarioId: string): P
   return {
     id: data.id as string,
     tool: String(data.tool ?? ''),
-    preview: (data.preview as PendingPreview['preview']) ?? null,
+    preview: data.preview && typeof data.preview === 'object' ? (data.preview as Record<string, unknown>) : null,
     expires_at: String(data.expires_at),
   }
 }
@@ -306,8 +317,20 @@ export default defineApiHandler(async (req, res) => {
     rol: typeof usuario.rol === 'string' ? usuario.rol : null,
   }
 
-  const textDecision = action === 'chat' ? inferAiConfirmText(text) : null
+  const pendingForText = action === 'chat' ? await loadLatestPending(supabase, usuarioId) : null
+  const rejectBareYes = Boolean(pendingForText && isGoogleWriteTool(pendingForText.tool))
+  const textDecision = action === 'chat' ? inferAiConfirmText(text, { rejectBareYes }) : null
   if (textDecision) action = textDecision
+  else if (rejectBareYes && inferAiConfirmText(text) === 'confirm') {
+    const proposal = pendingToProposal(pendingForText as PendingPreview)
+    return res.status(200).json({
+      text: proposalToReply(
+        'Un "si" suelto no envia correo ni crea eventos. Pulsa Confirmar en el boton o abre el asistente.',
+        proposal
+      ),
+      proposals: [proposal],
+    })
+  }
 
   try {
     if (action === 'confirm' || action === 'cancel') {
@@ -323,7 +346,28 @@ export default defineApiHandler(async (req, res) => {
         return res.status(200).json({ text: 'Listo, cancele la propuesta. No se cambio nada en el tablero.', proposals: [] })
       }
       const result = await confirmPendingOp(actor, pending.id)
-      const created = result.result as { title?: string; fecha?: string; href?: string; checkpoints?: number } | null
+      const created = result.result as {
+        title?: string
+        fecha?: string
+        href?: string
+        checkpoints?: number
+        gmail_message_id?: string
+        event_id?: string
+      } | null
+      if (created?.gmail_message_id) {
+        return res.status(200).json({
+          text: `Correo enviado desde tu Gmail.${created.href ? ` ${created.href}` : ''}`,
+          proposals: [],
+          result: result.result ?? null,
+        })
+      }
+      if (created?.event_id) {
+        return res.status(200).json({
+          text: created.href ? `Evento actualizado en tu Calendar. ${created.href}` : 'Evento actualizado en tu Calendar.',
+          proposals: [],
+          result: result.result ?? null,
+        })
+      }
       const createdTitle = created?.title || 'La accion'
       const lines = [
         'Accion creada. Estado: Pendiente.',

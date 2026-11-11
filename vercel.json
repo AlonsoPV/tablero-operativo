@@ -5,14 +5,14 @@
   "installCommand": "npm ci",
   "outputDirectory": "dist",
   "functions": {
-    "api/*.ts": {
-      "maxDuration": 30
-    },
     "api/guide-retell-webhook.ts": {
       "maxDuration": 60
     },
     "api/guide-link-report.ts": {
       "maxDuration": 60
+    },
+    "api/*.ts": {
+      "maxDuration": 30
     }
   },
   "headers": [
