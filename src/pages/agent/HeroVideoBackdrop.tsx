@@ -56,7 +56,7 @@ export function HeroVideoBackdrop() {
           loop
           muted
           playsInline
-          preload="metadata"
+          preload="auto"
         />
       </div>
       <div className="hero-video-backdrop__dim" />
