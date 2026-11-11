@@ -1,9 +1,9 @@
 /**
- * Demos locales de la landing.
- * Todo el estado vive en memoria del componente: no llama servicios, no escribe
- * en Supabase, no toca el Kanban real ni guarda en localStorage/sessionStorage.
+ * Demos locales de la landing `/producto`.
+ * Estado en memoria · no llama servicios · no escribe en Supabase.
  */
 import { useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import {
   DndContext,
   DragOverlay,
@@ -17,28 +17,20 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import {
+  AlertCircle,
   AlertTriangle,
   BadgeCheck,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
-  CircleDot,
   Clock,
   FileCheck,
-  Filter,
   GripVertical,
-  ListChecks,
   MoreVertical,
   PlayCircle,
   Plus,
   Search,
-  Send,
-  ShieldCheck,
   Sparkles,
-  Target,
-  Timer,
-  TrendingDown,
-  TrendingUp,
   X,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -51,23 +43,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
+import { SectionCard, SectionCardBody } from '@/components/SectionCard'
 import { AccionFormBlock } from '@/features/operations/components/form/AccionFormBlock'
 import { AccionFormField } from '@/features/operations/components/AccionFormSection'
 import { AccionPriorityBadge } from '@/features/operations/components/AccionPriorityBadge'
 import { cn } from '@/lib/utils'
-import { useCountUp } from '@/hooks/useCountUp'
-import { CountUpDecimal, CountUpInteger } from './CountUpValue'
 import {
   Eyebrow,
-  LandingCard,
   LandingSection,
   LandingShell,
   SectionLead,
   SectionTitle,
 } from './ProductUI'
-import { ModuleMetaBadge, StatusPill } from './ProductVisual'
+import { ModuleMetaBadge } from './ProductVisual'
+import { StatusToken } from './StatusToken'
 import { LANDING_SEO } from './landingSeo'
+import { PRODUCT_STORY, PRODUCT_STORY_DEMO_LABEL } from './productStory'
 
 const owners = ['Ana Martínez', 'Juan Reyes', 'Laura Cruz'] as const
 const priorities = [
@@ -77,7 +68,7 @@ const priorities = [
 ] as const
 const validations = ['Correo de validación', 'Evidencia adjunta', 'Checklist completo'] as const
 
-type ColumnId = 'asignado' | 'seguimiento' | 'retraso' | 'hecho' | 'verificado'
+type ColumnId = 'pendiente' | 'ejecucion' | 'bloqueado' | 'retraso' | 'hecho' | 'verificado'
 
 type DemoCard = {
   id: string
@@ -92,100 +83,66 @@ type DemoCard = {
   validation: string
   checklist: { total: number; completed: number }
   ageLabel: string
+  note?: string
 }
 
-const initialCards: DemoCard[] = [
-  {
+const stateToColumn: Record<string, ColumnId> = {
+  Pendiente: 'pendiente',
+  'En ejecución': 'ejecucion',
+  Bloqueado: 'bloqueado',
+  Retraso: 'retraso',
+  Hecho: 'hecho',
+  Verificado: 'verificado',
+}
+
+const INITIAL_SPINE_COLUMN: ColumnId =
+  stateToColumn[PRODUCT_STORY.action.state] ?? 'pendiente'
+
+/** Tablero ligero: AC-1042 + 3 compromisos para no saturar columnas. */
+function buildInitialCards(): DemoCard[] {
+  const focusIds = new Set(['AC-1055', 'AC-1031', 'AC-1060'])
+  const spine: DemoCard = {
     id: '1',
-    publicId: 'AC-1042',
-    title: 'Validar propuesta con Finanzas',
-    description:
-      'Revisar condiciones comerciales y obtener validación formal de Finanzas antes de enviar al cliente.',
-    owner: 'AM',
-    ownerName: 'Ana Martínez',
-    date: 'Hoy',
-    priority: 'Alta',
-    column: 'asignado',
-    validation: 'Correo de validación',
-    checklist: { total: 3, completed: 1 },
-    ageLabel: 'Abierta hace 2 días',
-  },
-  {
-    id: '2',
-    publicId: 'AC-1048',
-    title: 'Actualizar política de devoluciones',
-    description:
-      'Alinear la política con operaciones y publicar la versión vigente para el equipo comercial.',
-    owner: 'JR',
-    ownerName: 'Juan Reyes',
-    date: '19 sep',
-    priority: 'Media',
-    column: 'asignado',
-    validation: 'Checklist completo',
-    checklist: { total: 2, completed: 0 },
-    ageLabel: 'Abierta hace 1 día',
-  },
-  {
-    id: '3',
-    publicId: 'AC-1051',
-    title: 'Revisar evidencia de entrega',
-    description:
-      'Confirmar que la evidencia adjunta cubre el criterio de cierre y deja trazabilidad del compromiso.',
-    owner: 'LC',
-    ownerName: 'Laura Cruz',
-    date: '20 sep',
-    priority: 'Baja',
-    column: 'seguimiento',
-    validation: 'Evidencia adjunta',
-    checklist: { total: 4, completed: 2 },
-    ageLabel: 'Abierta hace 3 días',
-  },
-  {
-    id: '4',
-    publicId: 'AC-1055',
-    title: 'Confirmar cierre con cliente',
-    description:
-      'Validar aceptación del cliente y dejar registro de la confirmación para mover a verificado.',
-    owner: 'MP',
-    ownerName: 'Mario Pérez',
-    date: '21 sep',
-    priority: 'Media',
-    column: 'hecho',
-    validation: 'Correo de validación',
-    checklist: { total: 2, completed: 2 },
-    ageLabel: 'Abierta hace 4 días',
-  },
-  {
-    id: '5',
-    publicId: 'AC-1038',
-    title: 'Renovar contrato con proveedor',
-    description:
-      'Fecha límite vencida; escalar con legal y obtener firma antes del cierre del mes.',
-    owner: 'JR',
-    ownerName: 'Juan Reyes',
-    date: 'Vencida',
-    priority: 'Alta',
-    column: 'retraso',
-    validation: 'Correo de validación',
-    checklist: { total: 3, completed: 1 },
-    ageLabel: 'Abierta hace 6 días',
-  },
-  {
-    id: '6',
-    publicId: 'AC-1031',
-    title: 'Publicar reporte mensual',
-    description:
-      'Reporte operativo cerrado y verificado con evidencia adjunta en el tablero.',
-    owner: 'LC',
-    ownerName: 'Laura Cruz',
-    date: '18 sep',
-    priority: 'Baja',
-    column: 'verificado',
-    validation: 'Evidencia adjunta',
-    checklist: { total: 2, completed: 2 },
-    ageLabel: 'Cerrada hace 2 días',
-  },
-]
+    publicId: PRODUCT_STORY.action.id,
+    title: PRODUCT_STORY.action.title,
+    description: PRODUCT_STORY.action.description,
+    owner: PRODUCT_STORY.owner.initials,
+    ownerName: PRODUCT_STORY.owner.fullName,
+    date: PRODUCT_STORY.action.dueShort,
+    priority: PRODUCT_STORY.action.priority,
+    column: INITIAL_SPINE_COLUMN,
+    validation: PRODUCT_STORY.action.evidenceExpected,
+    checklist: { ...PRODUCT_STORY.action.checklist },
+    ageLabel: PRODUCT_STORY.action.ageLabel,
+    note: INITIAL_SPINE_COLUMN === 'bloqueado' ? PRODUCT_STORY.blocker.detail : undefined,
+  }
+
+  const support = PRODUCT_STORY.supportingActions
+    .filter((item) => focusIds.has(item.id))
+    .map((item, index) => ({
+      id: String(index + 2),
+      publicId: item.id,
+      title: item.title,
+      description: 'note' in item && item.note ? item.note : `Compromiso de ejemplo · ${item.owner}`,
+      owner: item.initials,
+      ownerName: item.owner,
+      date: item.due,
+      priority: item.priority,
+      column: stateToColumn[item.state],
+      validation: 'Evidencia adjunta',
+      checklist: {
+        total: item.state === 'Verificado' || item.state === 'Hecho' ? 2 : 3,
+        completed: item.state === 'Verificado' ? 2 : item.state === 'Hecho' ? 2 : 1,
+      },
+      ageLabel: item.state === 'Verificado' ? 'Cerrada hace 2 días' : 'Abierta hace 3 días',
+      note: 'note' in item ? item.note : undefined,
+    }))
+
+  return [spine, ...support]
+}
+
+const SPINE_ADVANCE: ColumnId[] = ['pendiente', 'ejecucion', 'bloqueado', 'hecho']
+const INITIAL_ADVANCE_STEP = Math.max(0, SPINE_ADVANCE.indexOf(INITIAL_SPINE_COLUMN))
 
 const columns: Array<{
   id: ColumnId
@@ -197,7 +154,7 @@ const columns: Array<{
   iconClass: string
 }> = [
   {
-    id: 'asignado',
+    id: 'pendiente',
     title: 'Pendiente',
     estadoLabel: 'Pendiente',
     Icon: Clock,
@@ -206,13 +163,22 @@ const columns: Array<{
     iconClass: 'text-slate-500',
   },
   {
-    id: 'seguimiento',
+    id: 'ejecucion',
     title: 'En ejecución',
     estadoLabel: 'En ejecución',
     Icon: PlayCircle,
     border: 'border-l-blue-400',
     bg: 'bg-blue-500/5',
     iconClass: 'text-blue-600',
+  },
+  {
+    id: 'bloqueado',
+    title: 'Bloqueado',
+    estadoLabel: 'Bloqueado',
+    Icon: AlertCircle,
+    border: 'border-l-red-500',
+    bg: 'bg-red-500/5',
+    iconClass: 'text-red-600',
   },
   {
     id: 'retraso',
@@ -244,8 +210,9 @@ const columns: Array<{
 ]
 
 const estadoBadgeClass: Record<ColumnId, string> = {
-  asignado: 'bg-slate-500/15 text-slate-800 dark:text-slate-200',
-  seguimiento: 'bg-blue-500/15 text-blue-700 dark:text-blue-300',
+  pendiente: 'bg-slate-500/15 text-slate-800 dark:text-slate-200',
+  ejecucion: 'bg-blue-500/15 text-blue-700 dark:text-blue-300',
+  bloqueado: 'bg-red-500/15 text-red-800 dark:text-red-200',
   retraso: 'bg-orange-500/15 text-orange-800 dark:text-orange-200',
   hecho: 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200',
   verificado: 'bg-violet-500/15 text-violet-800 dark:text-violet-200',
@@ -287,21 +254,21 @@ function DemoCreateAccionForm({
     validation: string
   }) => void
 }) {
-  const [title, setTitle] = useState('Confirmar alcance y fecha de entrega con el cliente')
+  const [title, setTitle] = useState('Solicitar apoyo a Legal para cláusula de pago')
   const [description, setDescription] = useState(
-    'Definir alcance, fecha compromiso y evidencia de validación con el cliente para cerrar sin ambigüedad.'
+    'Confirmar cláusula de pago con Legal para desbloquear la validación AC-1042.'
   )
   const [owner, setOwner] = useState<string>(owners[0])
   const [priority, setPriority] = useState<DemoCard['priority']>('Alta')
   const [fecha, setFecha] = useState(() => {
     const d = new Date()
-    d.setDate(d.getDate() + 2)
+    d.setDate(d.getDate() + 1)
     return d.toISOString().slice(0, 10)
   })
-  const [hora, setHora] = useState('18:00')
+  const [hora, setHora] = useState('14:00')
   const [requiereEvidencia, setRequiereEvidencia] = useState(true)
   const [validation, setValidation] = useState<string>(validations[0])
-  const [blocksOpen, setBlocksOpen] = useState({ principal: false, validacion: false })
+  const [blocksOpen, setBlocksOpen] = useState({ principal: true, validacion: false })
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
@@ -346,37 +313,26 @@ function DemoCreateAccionForm({
                 value={title}
                 maxLength={70}
                 onChange={(event) => setTitle(event.target.value)}
-                placeholder="Ej: Revisar informe mensual"
                 className={cn(inputBase, 'h-10')}
               />
-              <p className="text-xs text-muted-foreground">{title.length}/70</p>
             </AccionFormField>
-
             <AccionFormField label="Descripción" htmlFor="demo-descripcion" required>
               <textarea
                 id="demo-descripcion"
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
                 rows={3}
-                placeholder="Describe la acción: qué implica, qué buscas lograr y para qué."
                 className={cn(
                   inputBase,
                   'flex min-h-[88px] w-full resize-y rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring'
                 )}
               />
             </AccionFormField>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-start">
-              <AccionFormField
-                label="Responsable de ejecutar"
-                htmlFor="demo-responsable"
-                hint="Persona que ejecuta y cierra la acción."
-                hintAsIcon
-                required
-              >
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <AccionFormField label="Responsable de ejecutar" htmlFor="demo-responsable" required>
                 <Select value={owner} onValueChange={setOwner}>
                   <SelectTrigger id="demo-responsable" className={cn(inputBase, 'h-10')}>
-                    <SelectValue placeholder="Seleccionar responsable" />
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {owners.map((name) => (
@@ -387,14 +343,7 @@ function DemoCreateAccionForm({
                   </SelectContent>
                 </Select>
               </AccionFormField>
-
-              <AccionFormField
-                label="Prioridad"
-                htmlFor="demo-prioridad"
-                hint="Urgencia según el catálogo O2C."
-                hintAsIcon
-                required
-              >
+              <AccionFormField label="Prioridad" htmlFor="demo-prioridad" required>
                 <div className="flex flex-wrap gap-2" id="demo-prioridad">
                   {priorities.map((item) => (
                     <button
@@ -406,16 +355,12 @@ function DemoCreateAccionForm({
                         priority === item.value && 'ring-2 ring-primary/25'
                       )}
                     >
-                      <AccionPriorityBadge
-                        prioridad={item.value}
-                        className={priority === item.value ? 'shadow-sm' : undefined}
-                      />
+                      <AccionPriorityBadge prioridad={item.value} />
                     </button>
                   ))}
                 </div>
               </AccionFormField>
             </div>
-
             <AccionFormField label="Fecha y hora límite" htmlFor="demo-fecha" required>
               <div className="grid gap-2 min-[380px]:grid-cols-[minmax(0,1fr)_8.5rem]">
                 <Input
@@ -456,25 +401,15 @@ function DemoCreateAccionForm({
               type="checkbox"
               checked={requiereEvidencia}
               onChange={(event) => setRequiereEvidencia(event.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 rounded border-input text-primary focus:ring-2 focus:ring-ring focus:ring-offset-1"
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-input text-primary"
             />
-            <span className="min-w-0 space-y-0.5">
-              <span className="block text-sm font-medium text-foreground">Requiere evidencia</span>
-              <span className="block text-xs text-muted-foreground">
-                Actívalo solo si el cierre debe comprobarse con un tipo de evidencia.
-              </span>
-            </span>
+            <span className="text-sm font-medium text-foreground">Requiere evidencia</span>
           </label>
-
           {requiereEvidencia ? (
-            <AccionFormField
-              label="¿Qué evidencia comprobará que se hizo?"
-              htmlFor="demo-evidencia"
-              required
-            >
+            <AccionFormField label="¿Qué evidencia comprobará que se hizo?" htmlFor="demo-evidencia" required>
               <Select value={validation} onValueChange={setValidation}>
                 <SelectTrigger id="demo-evidencia" className={cn(inputBase, 'h-10')}>
-                  <SelectValue placeholder="Seleccionar evidencia" />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {validations.map((item) => (
@@ -489,24 +424,18 @@ function DemoCreateAccionForm({
         </AccionFormBlock>
       </div>
 
-      <div className="flex shrink-0 flex-col gap-2 border-t border-border/70 bg-card/95 px-3 py-3 backdrop-blur-sm sm:px-5 sm:py-4">
-        <div className="flex w-full flex-wrap items-center justify-between gap-2">
-          <span
-            className={cn(
-              'text-xs font-semibold',
-              created ? 'text-emerald-700 dark:text-emerald-300' : 'text-muted-foreground'
-            )}
-          >
-            {created
-              ? '✓ Solo en esta demo · No se guardó nada'
-              : 'Interactiva · No crea acciones reales'}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button type="submit" className="h-10 rounded-lg px-4 font-semibold">
-              Crear acción
-            </Button>
-          </div>
-        </div>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border/70 bg-card/95 px-3 py-3 sm:px-5">
+        <span
+          className={cn(
+            'text-xs font-semibold',
+            created ? 'text-emerald-700 dark:text-emerald-300' : 'text-muted-foreground'
+          )}
+        >
+          {created ? '✓ Solo en esta demo' : 'Interactiva · No crea acciones reales'}
+        </span>
+        <Button type="submit" className="h-10 rounded-lg px-4 font-semibold">
+          Crear acción
+        </Button>
       </div>
     </form>
   )
@@ -514,23 +443,17 @@ function DemoCreateAccionForm({
 
 function KanbanCardFace({ card }: { card: DemoCard }) {
   return (
-    <div className="scale-[1.02] cursor-grabbing rounded-xl border border-border/60 bg-card p-3 text-left shadow-xl ring-2 ring-primary/15">
+    <div className="scale-[1.02] cursor-grabbing rounded-xl border border-white/20 bg-[#17171a] p-3 text-left shadow-xl ring-1 ring-white/20">
       <div className="flex items-start gap-2 pr-1">
         <AccionPriorityBadge prioridad={card.priority} compact className="mt-0.5 max-w-[6.5rem] shrink-0" />
-        <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground">{card.title}</p>
+        <p className="line-clamp-2 text-sm font-medium leading-snug text-white">{card.title}</p>
       </div>
-      <p className="mt-1 truncate pl-[18px] text-xs text-muted-foreground">{card.ownerName}</p>
+      <p className="mt-1 truncate pl-[18px] text-xs text-white/55">{card.ownerName}</p>
     </div>
   )
 }
 
-function DraggableCard({
-  card,
-  onOpen,
-}: {
-  card: DemoCard
-  onOpen: (id: string) => void
-}) {
+function DraggableCard({ card, onOpen }: { card: DemoCard; onOpen: (id: string) => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: card.id,
     data: { column: card.column },
@@ -543,10 +466,7 @@ function DraggableCard({
     <div
       ref={setNodeRef}
       style={style}
-      className={cn(
-        'group transition-all duration-200 ease-out',
-        isDragging ? 'z-20 opacity-30' : 'opacity-100'
-      )}
+      className={cn('group transition-all duration-200', isDragging ? 'z-20 opacity-30' : 'opacity-100')}
     >
       <div className="flex items-start gap-0.5">
         <button
@@ -559,50 +479,34 @@ function DraggableCard({
           <GripVertical className="h-4 w-4" />
         </button>
         <div className="min-w-0 flex-1">
-          <div
-            className={cn(
-              'rounded-xl border border-border/60 bg-card p-3 shadow-sm',
-              'transition-all duration-200 hover:border-border hover:shadow-md'
-            )}
-          >
-            <div className="flex items-start gap-1.5">
-              <button
-                type="button"
-                onClick={() => onOpen(card.id)}
-                className="min-w-0 flex-1 text-left"
-              >
-                <div className="flex items-start gap-2 pr-1">
+          <div className="rounded-lg border border-white/10 bg-white/[0.05] p-2 transition hover:bg-white/[0.08]">
+            <div className="flex items-start gap-1">
+              <button type="button" onClick={() => onOpen(card.id)} className="min-w-0 flex-1 text-left">
+                <div className="flex items-start gap-1.5 pr-0.5">
                   <AccionPriorityBadge
                     prioridad={card.priority}
                     compact
-                    className="mt-0.5 max-w-[6.5rem] shrink-0"
+                    className="mt-0.5 max-w-[5.5rem] shrink-0"
                   />
-                  <p
-                    className="line-clamp-2 text-sm font-medium leading-snug text-foreground"
-                    title={card.title}
-                  >
+                  <p className="line-clamp-2 text-xs font-medium leading-snug text-white" title={card.title}>
                     {card.title}
                   </p>
                 </div>
-                <p className="mt-1 truncate pl-[18px] text-xs text-muted-foreground">
+                <p className="mt-1 truncate pl-0 text-[10px] text-white/55">
                   <span>{card.ownerName}</span>
-                  <span className="text-muted-foreground/50"> • </span>
-                  <span className="font-medium tabular-nums text-foreground/80">
-                    {card.checklist.completed}/{card.checklist.total}
-                  </span>
-                  <span className="text-muted-foreground/50"> • </span>
-                  <span className="font-medium">{card.ageLabel.replace(/^Abierta\s+/i, '')}</span>
+                  <span className="text-white/30"> · </span>
+                  <span>{card.date}</span>
                 </p>
               </button>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:bg-muted/60"
+                className="h-7 w-7 shrink-0 rounded-md text-white/50 hover:bg-white/10 hover:text-white"
                 aria-label="Ver acción"
                 onClick={() => onOpen(card.id)}
               >
-                <MoreVertical className="h-4 w-4" />
+                <MoreVertical className="h-3.5 w-3.5" />
               </Button>
             </div>
           </div>
@@ -612,13 +516,7 @@ function DraggableCard({
   )
 }
 
-function DemoAccionDetailModal({
-  card,
-  onClose,
-}: {
-  card: DemoCard
-  onClose: () => void
-}) {
+function DemoAccionDetailModal({ card, onClose }: { card: DemoCard; onClose: () => void }) {
   const column = columns.find((item) => item.id === card.column)
   const estadoLabel = column?.estadoLabel ?? 'Pendiente'
 
@@ -640,142 +538,66 @@ function DemoAccionDetailModal({
       >
         <div className="relative shrink-0 border-b border-border/60 bg-card px-3 py-2.5 pr-11 sm:px-4 sm:py-3 sm:pr-12">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0 flex-1 pr-1">
-              <h2 className="text-sm font-semibold leading-tight tracking-tight sm:text-base">
-                Editar acción
-              </h2>
-              <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground sm:text-xs">
-                Demo local · No modifica el tablero real
-              </p>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-sm font-semibold sm:text-base">Detalle de acción</h2>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">Demo local · Hecho no es Verificado</p>
             </div>
-            <div
-              className="inline-flex w-fit max-w-full min-w-0 flex-wrap items-center gap-1.5 rounded-md border border-border/50 bg-muted/20 px-2 py-1 sm:max-w-[60%] sm:shrink-0"
-              aria-label={`Acción ${card.publicId}, estado ${estadoLabel}, prioridad ${card.priority}`}
-            >
-              <span className="truncate text-xs font-semibold tabular-nums text-foreground">
-                {card.publicId}
-              </span>
-              <span className="h-3 w-px shrink-0 bg-border/80" aria-hidden />
+            <div className="inline-flex flex-wrap items-center gap-1.5 rounded-md border border-border/50 bg-muted/20 px-2 py-1">
+              <span className="text-xs font-semibold tabular-nums">{card.publicId}</span>
               <span
                 className={cn(
-                  'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none',
+                  'rounded px-1.5 py-0.5 text-[10px] font-semibold',
                   estadoBadgeClass[card.column]
                 )}
               >
                 {estadoLabel}
               </span>
-              <span className="h-3 w-px shrink-0 bg-border/80" aria-hidden />
-              <AccionPriorityBadge prioridad={card.priority} compact className="max-w-[9rem]" />
+              <AccionPriorityBadge prioridad={card.priority} compact />
             </div>
           </div>
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="absolute right-3 top-3 h-10 w-10 text-muted-foreground sm:right-4 sm:top-4 sm:h-8 sm:w-8"
+            className="absolute right-3 top-3 h-10 w-10 sm:right-4 sm:top-4 sm:h-8 sm:w-8"
             onClick={onClose}
             aria-label="Cerrar"
           >
             <X className="h-4 w-4" />
           </Button>
         </div>
-
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-y-contain px-3 py-3 sm:space-y-5 sm:px-5 sm:py-4 md:px-6 md:py-5">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3 sm:px-5 sm:py-4">
           <SectionCard className="border-primary/25 shadow-sm ring-1 ring-primary/10">
-            <div className="flex items-start gap-2.5 border-b border-border/50 px-3 py-3 sm:gap-3 sm:px-4 sm:py-3.5">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary ring-1 ring-inset ring-primary/20 sm:h-10 sm:w-10">
-                <CalendarClock className="h-4 w-4 sm:h-[18px] sm:w-[18px]" aria-hidden />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-[11px]">
-                  Paso 1
-                </p>
-                <p className="mt-0.5 text-sm font-semibold leading-snug text-foreground sm:text-[15px]">
-                  Información principal
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  ¿Qué se hará, quién lo hará y para cuándo?
-                </p>
-              </div>
-            </div>
             <SectionCardBody className="space-y-3 p-3 sm:p-4">
               <div className="grid gap-3 sm:grid-cols-2">
-                <DemoReadonlyValue label="Título de la acción" value={card.title} />
-                <DemoReadonlyValue label="Responsable de ejecutar" value={card.ownerName} />
-                <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Prioridad
-                  </p>
-                  <div className="mt-1.5">
-                    <AccionPriorityBadge prioridad={card.priority} />
-                  </div>
-                </div>
-                <div>
-                  <DemoReadonlyValue label="Fecha y hora límite" value={`${card.date} · 18:00`} />
-                  <p className="mt-1 px-1 text-xs font-medium text-muted-foreground">{card.ageLabel}</p>
-                </div>
+                <DemoReadonlyValue label="Título" value={card.title} />
+                <DemoReadonlyValue label="Responsable" value={card.ownerName} />
+                <DemoReadonlyValue label="Fecha límite" value={card.date} />
+                <DemoReadonlyValue label="Evidencia esperada" value={card.validation} />
                 <div className="sm:col-span-2">
                   <DemoReadonlyValue label="Descripción" value={card.description} />
                 </div>
+                {card.note ? (
+                  <div className="sm:col-span-2">
+                    <DemoReadonlyValue label="Nota" value={card.note} />
+                  </div>
+                ) : null}
               </div>
-            </SectionCardBody>
-          </SectionCard>
-
-          <SectionCard>
-            <div className="flex items-start gap-2.5 border-b border-border/50 px-3 py-3 sm:gap-3 sm:px-4 sm:py-3.5">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary ring-1 ring-inset ring-primary/20 sm:h-10 sm:w-10">
-                <FileCheck className="h-4 w-4 sm:h-[18px] sm:w-[18px]" aria-hidden />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-[11px]">
-                  Paso 2
-                </p>
-                <p className="mt-0.5 text-sm font-semibold leading-snug text-foreground sm:text-[15px]">
-                  Evidencia y validación
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Criterio de cierre y avance del checklist.
-                </p>
-              </div>
-            </div>
-            <SectionCardBody className="space-y-3 p-3 sm:p-4">
-              <DemoReadonlyValue label="Evidencia esperada" value={card.validation} />
               <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
                 <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   Checklist
                 </p>
-                <div className="mt-2 flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium text-foreground">
-                    {card.checklist.completed}/{card.checklist.total} completados
-                  </p>
-                  <span className="text-xs tabular-nums text-muted-foreground">
-                    {Math.round((card.checklist.completed / Math.max(card.checklist.total, 1)) * 100)}%
-                  </span>
-                </div>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-primary"
-                    style={{
-                      width: `${Math.round(
-                        (card.checklist.completed / Math.max(card.checklist.total, 1)) * 100
-                      )}%`,
-                    }}
-                  />
-                </div>
+                <p className="mt-1 text-sm font-medium">
+                  {card.checklist.completed}/{card.checklist.total} completados
+                </p>
               </div>
             </SectionCardBody>
           </SectionCard>
         </div>
-
-        <div className="flex shrink-0 flex-col gap-2 border-t border-border/70 bg-card/95 px-3 py-3 backdrop-blur-sm sm:px-5 sm:py-4 md:px-6">
-          <div className="flex w-full items-center justify-end gap-2">
-            <Button type="button" variant="outline" className="h-10 rounded-lg px-4" onClick={onClose}>
-              Cerrar
-            </Button>
-            <Button type="button" className="h-10 rounded-lg px-4" disabled title="Solo demo">
-              Guardar
-            </Button>
-          </div>
+        <div className="flex justify-end gap-2 border-t border-border/70 px-3 py-3 sm:px-5">
+          <Button type="button" variant="outline" className="h-10 rounded-lg" onClick={onClose}>
+            Cerrar
+          </Button>
         </div>
       </div>
     </div>
@@ -786,42 +608,32 @@ function DropColumn({
   column,
   cards,
   onOpen,
-  highlighted = false,
-  dimmed = false,
 }: {
   column: (typeof columns)[number]
   cards: DemoCard[]
   onOpen: (id: string) => void
-  highlighted?: boolean
-  dimmed?: boolean
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id, data: { column: column.id } })
   const Icon = column.Icon
   return (
     <div
       className={cn(
-        'flex w-[min(240px,calc(100vw-2.5rem))] shrink-0 snap-start flex-col rounded-2xl border border-border/50 border-l-4 transition-all duration-300 sm:w-[240px]',
+        'flex w-[min(200px,calc(100vw-2.75rem))] shrink-0 snap-start flex-col rounded-xl border border-white/10 border-l-4 bg-white/[0.03] xl:min-w-[9.5rem] xl:w-auto xl:flex-1',
         column.border,
-        column.bg,
-        isOver && 'ring-2 ring-primary/25 ring-offset-2 ring-offset-background',
-        highlighted && 'z-10 scale-[1.02] shadow-lg ring-2 ring-primary/40',
-        dimmed && 'opacity-45 saturate-50'
+        isOver && 'ring-2 ring-white/30'
       )}
     >
-      <div className="flex items-center justify-between gap-2 px-3 py-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <Icon className={cn('h-4 w-4 shrink-0', column.iconClass)} />
-          <h3 className="truncate text-sm font-semibold text-foreground">{column.title}</h3>
-          <span className="rounded-md bg-background/80 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
-            {cards.length}
-          </span>
-        </div>
+      <div className="flex items-center gap-1.5 px-2 py-2 sm:px-2.5">
+        <Icon className={cn('h-3.5 w-3.5 shrink-0', column.iconClass)} />
+        <h3 className="truncate text-xs font-semibold text-white">{column.title}</h3>
+        <span className="rounded-md bg-white/10 px-1 py-0.5 text-[9px] font-semibold tabular-nums text-white/60">
+          {cards.length}
+        </span>
       </div>
-      <div ref={setNodeRef} className="min-h-[220px] flex-1 space-y-2 px-2.5 pb-3">
+      <div ref={setNodeRef} className="min-h-[180px] flex-1 space-y-1.5 px-2 pb-2.5 sm:px-2.5">
         {cards.length === 0 ? (
-          <div className="flex min-h-[180px] flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-background/40 px-3 py-6 text-center">
-            <Icon className={cn('mb-2 h-6 w-6 opacity-60', column.iconClass)} />
-            <p className="text-xs font-medium text-muted-foreground">Suelta aquí</p>
+          <div className="flex min-h-[140px] flex-col items-center justify-center rounded-lg border border-dashed border-white/15 bg-white/[0.02] px-2 text-center">
+            <p className="text-[10px] text-white/40">Suelta aquí</p>
           </div>
         ) : (
           cards.map((card) => <DraggableCard key={card.id} card={card} onOpen={onOpen} />)
@@ -832,11 +644,8 @@ function DropColumn({
 }
 
 function resolveDropColumn(overId: string, cards: DemoCard[]): ColumnId | null {
-  if (columns.some((column) => column.id === overId)) {
-    return overId as ColumnId
-  }
-  const overCard = cards.find((card) => card.id === overId)
-  return overCard?.column ?? null
+  if (columns.some((column) => column.id === overId)) return overId as ColumnId
+  return cards.find((card) => card.id === overId)?.column ?? null
 }
 
 function CollapsedCreateActionPanel({
@@ -854,1033 +663,822 @@ function CollapsedCreateActionPanel({
   }) => void
 }) {
   const [open, setOpen] = useState(false)
-
   return (
-    <LandingCard className="mt-4 overflow-hidden border-emerald-500/15 shadow-sm">
+    <div className="liquid-glass mt-3 overflow-hidden rounded-2xl">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-muted/25 sm:px-5"
+        className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-white/[0.04]"
         aria-expanded={open}
       >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
-          <Plus className="h-5 w-5" aria-hidden />
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-white/10 text-white">
+          <Plus className="h-4 w-4" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-foreground">Nueva acción</span>
+          <span className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-semibold text-white">Nueva acción</span>
             <ModuleMetaBadge code="FRM·002" className="hidden sm:inline-flex" />
             {created ? (
-              <Badge variant="outline" className="h-5 border-emerald-500/30 text-[10px] text-emerald-700">
+              <Badge variant="outline" className="h-5 border-white/25 text-[9px] text-white">
                 Demo creada
               </Badge>
             ) : null}
           </span>
-          <span className="mt-0.5 block text-xs text-muted-foreground">
-            Mismo flujo del tablero: información principal y evidencia de cierre
+          <span className="mt-0.5 block text-[11px] text-white/50">
+            Responsable, fecha y evidencia
           </span>
         </span>
-        <ChevronDown
-          className={cn('h-5 w-5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')}
-          aria-hidden
-        />
+        <ChevronDown className={cn('h-4 w-4 text-white/50 transition-transform', open && 'rotate-180')} />
       </button>
       {open ? (
-        <div className="border-t border-border/50 bg-card">
+        <div className="border-t border-white/10 bg-black/30">
           <DemoCreateAccionForm created={created} onCreate={onCreate} />
         </div>
       ) : null}
-    </LandingCard>
-  )
-}
-
-const SCROLL_STORY: Array<{
-  column: ColumnId
-  eyebrow: string
-  title: string
-  copy: string
-}> = [
-  {
-    column: 'asignado',
-    eyebrow: 'Entrada',
-    title: 'Una solicitud entra con responsable y fecha',
-    copy: 'Responsable, prioridad y evidencia desde el primer minuto — no en el chat del viernes.',
-  },
-  {
-    column: 'seguimiento',
-    eyebrow: 'Seguimiento',
-    title: 'El avance vive en un solo tablero',
-    copy: 'Cada movimiento de columna deja trazabilidad. Nadie persigue por WhatsApp.',
-  },
-  {
-    column: 'retraso',
-    eyebrow: 'Riesgo visible',
-    title: 'El retraso se ve antes de la junta',
-    copy: 'Las acciones vencidas saltan a Retraso. Dirección interviene con datos, no con sorpresas.',
-  },
-  {
-    column: 'verificado',
-    eyebrow: 'Cierre',
-    title: 'Compromiso cerrado con evidencia',
-    copy: 'Hecho con validación y verificado — el ciclo completo en el mismo lugar.',
-  },
-]
-
-function KanbanDemoPanel({
-  visibleCards,
-  highOnly,
-  onToggleHighOnly,
-  highlightColumn,
-  onOpen,
-  sensors,
-  draggingCard,
-  onDragStart,
-  onDragEnd,
-}: {
-  visibleCards: DemoCard[]
-  highOnly: boolean
-  onToggleHighOnly: () => void
-  highlightColumn?: ColumnId
-  onOpen: (id: string) => void
-  sensors: ReturnType<typeof useSensors>
-  draggingCard: DemoCard | null
-  onDragStart: (event: DragStartEvent) => void
-  onDragEnd: (event: DragEndEvent) => void
-}) {
-  return (
-    <LandingCard className="overflow-hidden shadow-lg ring-1 ring-border/40">
-      <div className="flex flex-col gap-3 border-b border-border/50 bg-gradient-to-r from-muted/30 via-background to-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-        <div className="flex min-w-0 items-center gap-3">
-          <ModuleMetaBadge code="KBN·001" />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-foreground">Kanban operativo</p>
-            <p className="text-xs text-muted-foreground">
-              {visibleCards.length} acciones · arrastra entre estados
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[10rem] flex-1 sm:flex-none sm:w-44">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              readOnly
-              placeholder="Buscar..."
-              className="h-9 rounded-lg border-border/60 bg-background pl-8 text-sm"
-              aria-label="Buscar (solo demo)"
-            />
-          </div>
-          <Button
-            type="button"
-            variant={highOnly ? 'secondary' : 'outline'}
-            size="sm"
-            onClick={onToggleHighOnly}
-            className={cn(
-              'h-9 gap-1.5 rounded-lg text-xs font-semibold',
-              highOnly && 'border-primary/25 bg-primary/10 text-primary'
-            )}
-          >
-            <Filter className="h-3.5 w-3.5" />
-            {highOnly ? 'Alta' : 'Filtros'}
-          </Button>
-          <span className="hidden text-[10px] font-medium text-muted-foreground lg:inline">
-            Solo demo
-          </span>
-        </div>
-      </div>
-
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-      >
-        <div className="flex gap-3 overflow-x-auto scroll-smooth bg-gradient-to-b from-muted/10 to-background p-4 sm:p-5">
-          {columns.map((column) => (
-            <DropColumn
-              key={column.id}
-              column={column}
-              cards={visibleCards.filter((card) => card.column === column.id)}
-              onOpen={onOpen}
-              highlighted={highlightColumn === column.id}
-              dimmed={highlightColumn != null && highlightColumn !== column.id}
-            />
-          ))}
-        </div>
-        <DragOverlay dropAnimation={{ duration: 180, easing: 'ease-out' }}>
-          {draggingCard ? <KanbanCardFace card={draggingCard} /> : null}
-        </DragOverlay>
-      </DndContext>
-    </LandingCard>
+    </div>
   )
 }
 
 export function ProductInAction() {
-  const [created, setCreated] = useState(false)
-  const [cards, setCards] = useState<DemoCard[]>(initialCards)
-  const [highOnly, setHighOnly] = useState(false)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [cards, setCards] = useState<DemoCard[]>(() => buildInitialCards())
+  const [advanceStep, setAdvanceStep] = useState(INITIAL_ADVANCE_STEP)
+  const [openId, setOpenId] = useState<string | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  const [created, setCreated] = useState(false)
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
-  const visibleCards = highOnly ? cards.filter((card) => card.priority === 'Alta') : cards
-  const selected = cards.find((card) => card.id === selectedId) ?? null
+  const spine = cards.find((card) => card.id === '1')
+  const openCard = cards.find((card) => card.id === openId) ?? null
   const draggingCard = cards.find((card) => card.id === draggingId) ?? null
+  const spineColumnLabel =
+    columns.find((column) => column.id === spine?.column)?.estadoLabel ?? 'Pendiente'
 
-  const handleCreate = (input: {
-    title: string
-    description: string
-    ownerName: string
-    priority: DemoCard['priority']
-    dateLabel: string
-    validation: string
-  }) => {
-    const initials = input.ownerName
-      .split(' ')
-      .map((part) => part[0])
-      .join('')
-      .slice(0, 2)
-      .toUpperCase()
-    const seq = 1100 + cards.length
-    setCards((current) => [
-      {
-        id: `demo-${Date.now()}`,
-        publicId: `AC-${seq}`,
-        title: input.title,
-        description: input.description,
-        owner: initials,
-        ownerName: input.ownerName,
-        date: input.dateLabel,
-        priority: input.priority,
-        column: 'asignado',
-        validation: input.validation,
-        checklist: { total: 2, completed: 0 },
-        ageLabel: 'Abierta hoy',
-      },
-      ...current,
-    ])
-    setCreated(true)
-  }
-
-  const handleDragStart = (event: DragStartEvent) => {
-    setDraggingId(String(event.active.id))
-  }
-
-  const handleDragEnd = (event: DragEndEvent) => {
+  const onDragStart = (event: DragStartEvent) => setDraggingId(String(event.active.id))
+  const onDragEnd = (event: DragEndEvent) => {
     setDraggingId(null)
-    const { active, over } = event
-    if (!over) return
-
-    const targetColumn = resolveDropColumn(String(over.id), cards)
-    if (!targetColumn) return
-
+    const overId = event.over?.id ? String(event.over.id) : null
+    if (!overId) return
+    const nextColumn = resolveDropColumn(overId, cards)
+    if (!nextColumn) return
     setCards((current) =>
       current.map((card) =>
-        card.id === String(active.id) ? { ...card, column: targetColumn } : card
+        card.id === String(event.active.id) ? { ...card, column: nextColumn } : card
+      )
+    )
+  }
+
+  const advanceSpine = () => {
+    const nextStep = Math.min(advanceStep + 1, SPINE_ADVANCE.length - 1)
+    const nextColumn = SPINE_ADVANCE[nextStep]
+    setAdvanceStep(nextStep)
+    setCards((current) =>
+      current.map((card) => {
+        if (card.id !== '1') return card
+        return {
+          ...card,
+          column: nextColumn,
+          checklist: {
+            total: 3,
+            completed: nextColumn === 'pendiente' ? 0 : nextColumn === 'ejecucion' ? 1 : nextColumn === 'bloqueado' ? 1 : 3,
+          },
+          note:
+            nextColumn === 'hecho'
+              ? 'Reportada como Hecho · aún no Verificado'
+              : nextColumn === 'bloqueado'
+                ? PRODUCT_STORY.blocker.detail
+                : undefined,
+        }
+      })
+    )
+  }
+
+  const resetSpine = () => {
+    setAdvanceStep(INITIAL_ADVANCE_STEP)
+    setCards((current) =>
+      current.map((card) =>
+        card.id === '1'
+          ? {
+              ...card,
+              column: INITIAL_SPINE_COLUMN,
+              checklist: { ...PRODUCT_STORY.action.checklist },
+              note:
+                INITIAL_SPINE_COLUMN === 'bloqueado' ? PRODUCT_STORY.blocker.detail : undefined,
+            }
+          : card
       )
     )
   }
 
   return (
     <LandingSection
-      id="como-funciona"
-      surface="depth"
+      id="ejecucion"
+      surface="transparent"
+      className="home-post__section"
       spacing="standard"
-      withGrid
-      seoDescription={LANDING_SEO.sections.producto.description}
+      seoDescription={LANDING_SEO.sections.ejecucion.description}
     >
-      <LandingShell>
-        <div className="mx-auto max-w-2xl text-center">
-          <Eyebrow tokenColor="blue">Producto en acción</Eyebrow>
-          <SectionTitle>
-            Cada solicitud se convierte en un compromiso gestionable.
-          </SectionTitle>
-          <SectionLead className="mx-auto">
-            Un mismo hábito operativo para comunicar, asignar, actualizar, desbloquear y verificar.
-          </SectionLead>
+      <LandingShell wide>
+        <div className="grid items-end gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-10">
+          <div className="max-w-xl">
+            <Eyebrow dark tokenColor="blue">
+              Ejecución operativa
+            </Eyebrow>
+            <SectionTitle dark>De los planes a compromisos con seguimiento.</SectionTitle>
+            <SectionLead dark>
+              Cada prioridad se traduce en acciones con responsables, fechas y criterios de cumplimiento.
+            </SectionLead>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            <div className="liquid-glass rounded-xl px-3 py-2">
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-white/45">
+                {PRODUCT_STORY.action.id} ahora
+              </p>
+              <p className="mt-0.5 text-xs font-semibold text-white">
+                {spineColumnLabel}
+                {spine?.column === 'hecho' ? ' · falta Verificado' : ''}
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 rounded-full bg-white px-3 text-xs text-black hover:bg-white/90"
+              onClick={advanceStep >= SPINE_ADVANCE.length - 1 ? resetSpine : advanceSpine}
+            >
+              {advanceStep >= SPINE_ADVANCE.length - 1 ? 'Reiniciar' : 'Avanzar'}
+            </Button>
+          </div>
         </div>
 
-        <div id="producto" className="mt-9 lg:mt-11">
-          <div className="mx-auto grid max-w-6xl gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {SCROLL_STORY.map((step, index) => (
-              <div key={step.column} className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
-                <div className="flex items-center gap-2">
-                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-primary/10 text-[10px] font-bold text-primary">
-                    0{index + 1}
-                  </span>
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">{step.eyebrow}</span>
+        <div className="mt-5 space-y-3">
+          <p className="text-[10px] font-semibold text-white/45">
+            {PRODUCT_STORY_DEMO_LABEL} · Avanza {PRODUCT_STORY.action.id} o arrastra · Hecho ≠ Verificado
+          </p>
+          <div className="liquid-glass overflow-hidden rounded-2xl">
+            <div className="flex flex-col gap-2 border-b border-white/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+              <div className="flex min-w-0 items-center gap-2">
+                <ModuleMetaBadge code="KBN·001" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-white">Kanban operativo</p>
+                  <p className="text-[11px] text-white/55">Responsable · fecha · prioridad · estado</p>
                 </div>
-                <h3 className="mt-3 text-sm font-semibold leading-snug text-foreground">{step.title}</h3>
-                <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{step.copy}</p>
               </div>
-            ))}
+              <div className="relative w-full sm:w-44">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/40" />
+                <Input
+                  readOnly
+                  placeholder="Buscar..."
+                  className="h-8 rounded-lg border-white/15 bg-white/5 pl-8 text-xs text-white placeholder:text-white/35"
+                  aria-label="Buscar (solo demo)"
+                />
+              </div>
+            </div>
+
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+            >
+              <div className="flex gap-2 overflow-x-auto scroll-smooth px-2.5 py-3 snap-x snap-mandatory sm:px-3 xl:overflow-visible">
+                {columns.map((column) => (
+                  <DropColumn
+                    key={column.id}
+                    column={column}
+                    cards={cards.filter((card) => card.column === column.id)}
+                    onOpen={setOpenId}
+                  />
+                ))}
+              </div>
+              <DragOverlay>{draggingCard ? <KanbanCardFace card={draggingCard} /> : null}</DragOverlay>
+            </DndContext>
           </div>
 
-          <div className="mx-auto mt-5 max-w-7xl">
-            <KanbanDemoPanel
-              visibleCards={visibleCards}
-              highOnly={highOnly}
-              onToggleHighOnly={() => setHighOnly((value) => !value)}
-              highlightColumn={undefined}
-              onOpen={setSelectedId}
-              sensors={sensors}
-              draggingCard={draggingCard}
-              onDragStart={handleDragStart}
-              onDragEnd={handleDragEnd}
-            />
-            <div className="mx-auto max-w-3xl">
-              <CollapsedCreateActionPanel created={created} onCreate={handleCreate} />
-            </div>
-          </div>
+          <CollapsedCreateActionPanel
+            created={created}
+            onCreate={(input) => {
+              const initials = input.ownerName
+                .split(' ')
+                .map((part) => part[0])
+                .join('')
+                .slice(0, 2)
+                .toUpperCase()
+              setCards((current) => [
+                {
+                  id: `new-${current.length + 1}`,
+                  publicId: `AC-${1100 + current.length}`,
+                  title: input.title,
+                  description: input.description,
+                  owner: initials || 'XX',
+                  ownerName: input.ownerName,
+                  date: input.dateLabel,
+                  priority: input.priority,
+                  column: 'pendiente',
+                  validation: input.validation,
+                  checklist: { total: 2, completed: 0 },
+                  ageLabel: 'Recién creada',
+                },
+                ...current,
+              ])
+              setCreated(true)
+            }}
+          />
         </div>
       </LandingShell>
-
-      {selected ? <DemoAccionDetailModal card={selected} onClose={() => setSelectedId(null)} /> : null}
+      {openCard ? <DemoAccionDetailModal card={openCard} onClose={() => setOpenId(null)} /> : null}
     </LandingSection>
   )
 }
 
+const toneSurface = {
+  green: 'border-emerald-300/30 bg-emerald-400/10',
+  yellow: 'border-amber-200/30 bg-amber-400/10',
+  red: 'border-red-300/30 bg-red-500/15',
+} as const
+
 export function DashboardDemo() {
-  const [activeModule, setActiveModule] = useState<'atencion' | 'ico' | 'tiempos' | 'okr'>('atencion')
-
-  const attention = {
-    total: 18,
-    segments: [
-      { label: 'Rojos', value: 5, pct: 28, dot: 'bg-red-500', text: 'text-red-700 dark:text-red-300', surface: 'border-red-500/20 bg-red-500/[0.06]', bar: 'bg-red-500' },
-      { label: 'Amarillos', value: 7, pct: 39, dot: 'bg-amber-500', text: 'text-amber-700 dark:text-amber-300', surface: 'border-amber-500/20 bg-amber-500/[0.06]', bar: 'bg-amber-500' },
-      { label: 'Verdes', value: 6, pct: 33, dot: 'bg-emerald-500', text: 'text-emerald-700 dark:text-emerald-300', surface: 'border-emerald-500/20 bg-emerald-500/[0.06]', bar: 'bg-emerald-500' },
-    ],
-  }
-  const attentionPie = `conic-gradient(#ef4444 0% ${attention.segments[0].pct}%, #f59e0b ${attention.segments[0].pct}% ${attention.segments[0].pct + attention.segments[1].pct}%, #10b981 ${attention.segments[0].pct + attention.segments[1].pct}% 100%)`
-
-  const icoTarget = 89
-  const { ref: icoGaugeRef, value: icoValue } = useCountUp(icoTarget)
-  const icoRing = `conic-gradient(#10b981 0% ${icoValue}%, hsl(var(--muted)) ${icoValue}% 100%)`
-
-  const avgAgeDays = 5.4
-  const avgAgeMarker = Math.min(100, (avgAgeDays / 10) * 100)
-  const timeMetrics = [
-    {
-      title: 'Tiempo prom. rojos',
-      value: 4.2,
-      description: 'Días hasta el cierre en acciones rojas.',
-      tone: 'yellow' as const,
-      trend: '-0.8 días vs periodo anterior',
-      trendGood: true,
-    },
-    {
-      title: 'Tiempo prom. demás',
-      value: 6.8,
-      description: 'Días hasta el cierre en amarillas y verdes.',
-      tone: 'green' as const,
-      trend: '-1.1 días vs periodo anterior',
-      trendGood: true,
-    },
-  ]
-  const agingBuckets = [
-    { range: '0–2 días', count: 9, pct: 30, bar: 'bg-emerald-500', surface: 'border-emerald-500/25 bg-emerald-500/[0.06]' },
-    { range: '3–5 días', count: 11, pct: 37, bar: 'bg-lime-500', surface: 'border-lime-500/25 bg-lime-500/[0.06]' },
-    { range: '6–10 días', count: 6, pct: 20, bar: 'bg-amber-500', surface: 'border-amber-500/25 bg-amber-500/[0.06]' },
-    { range: '+10 días', count: 4, pct: 13, bar: 'bg-red-500', surface: 'border-red-500/25 bg-red-500/[0.06]' },
-  ]
-
-  const okrKrs = [
-    { id: 'KR1', title: 'Cerrar rojos más rápido', value: '27 → 18 días', progress: 72, tone: 'yellow' as const },
-    { id: 'KR2', title: 'Reducir rojos abiertos >15d', value: '4 abiertas', progress: 61, tone: 'yellow' as const },
-    { id: 'KR3', title: 'Subir ICO del periodo', value: '89% / Meta 92%', progress: 84, tone: 'green' as const },
-    { id: 'KR4', title: 'Cumplir compromisos a tiempo', value: '31 / 35', progress: 88, tone: 'green' as const },
-  ]
-
-  const toneBar = {
-    green: 'bg-emerald-500',
-    yellow: 'bg-amber-500',
-    red: 'bg-red-500',
-  }
-  const toneSurface = {
-    green: 'border-emerald-500/25 bg-emerald-500/[0.06]',
-    yellow: 'border-amber-500/25 bg-amber-500/[0.06]',
-    red: 'border-red-500/25 bg-red-500/[0.06]',
-  }
-  const metricToneSurface = {
-    green: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-950 dark:text-emerald-100',
-    yellow: 'border-amber-500/35 bg-amber-500/10 text-amber-950 dark:text-amber-100',
-    red: 'border-red-500/35 bg-red-500/10 text-red-950 dark:text-red-100',
-  }
+  const [selected, setSelected] = useState(2)
+  const items = PRODUCT_STORY.attention.items
+  const primary = items[2]
+  const secondary = items.filter((_, index) => index !== 2)
+  const active = items[selected] ?? primary
 
   return (
     <LandingSection
-      id="indicadores"
-      surface="inverse"
+      id="visibilidad"
+      surface="transparent"
+      className="home-post__section"
       spacing="standard"
-      seoDescription={LANDING_SEO.sections.indicadores.description}
+      seoDescription={LANDING_SEO.sections.visibilidad.description}
     >
-      <LandingShell>
-        <div className="mx-auto max-w-3xl text-center">
-          <Eyebrow dark tokenColor="green">
-            Valor para Dirección
-          </Eyebrow>
-          <SectionTitle dark>
-            Ve los riesgos. Decide dónde actuar.
-          </SectionTitle>
-          <SectionLead dark className="mx-auto">
-            Compromisos, cumplimiento y tiempos convertidos en señales para decidir.
-          </SectionLead>
+      <LandingShell wide>
+        <div className="grid items-end gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          <div className="max-w-xl">
+            <Eyebrow dark tokenColor="green">
+              Visibilidad directiva
+            </Eyebrow>
+            <SectionTitle dark>Lo que no avanza también debe ser visible.</SectionTitle>
+            <SectionLead dark>
+              Consulta objetivos, indicadores, retrasos y bloqueos desde una misma visión de gestión.
+            </SectionLead>
+          </div>
+          <p className="text-sm text-white/45 lg:text-right">
+            {PRODUCT_STORY.attention.weekLabel} · {PRODUCT_STORY_DEMO_LABEL}
+          </p>
         </div>
 
-        <div className="mx-auto mt-7 flex max-w-4xl flex-wrap justify-center gap-2">
-          {[
-            ['Ver', 'Qué compromisos requieren atención ahora.'],
-            ['Decidir', 'Dónde destrabar, priorizar o escalar.'],
-            ['Mejorar', 'Dónde se deterioran cumplimiento y tiempos.'],
-          ].map(([title, copy], index) => (
-            <div
-              key={title}
-              className="flex items-center gap-2 rounded-full border border-background/15 bg-background/[0.06] px-3.5 py-2 backdrop-blur-sm"
-            >
-                <span className="grid h-5 w-5 place-items-center rounded-md bg-emerald-400/15 text-[9px] font-bold text-emerald-300">
-                  0{index + 1}
+        <div className="liquid-glass mt-5 overflow-hidden rounded-2xl">
+          <button
+            type="button"
+            onClick={() => setSelected(2)}
+            className={cn(
+              'grid w-full gap-3 border-b border-white/10 p-3.5 text-left transition sm:grid-cols-[1.2fr_0.8fr] sm:p-4',
+              selected === 2 ? 'bg-red-500/15' : 'hover:bg-white/[0.04]'
+            )}
+          >
+            <div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                  Intervención primero
                 </span>
-                <h3 className="text-xs font-semibold text-background">{title}</h3>
-                <span className="hidden text-[11px] text-background/55 md:inline">· {copy}</span>
+                <span className="text-[9px] font-semibold uppercase tracking-wider text-red-200">
+                  {primary.kind}
+                </span>
+              </div>
+              <p className="mt-1.5 text-base font-semibold leading-snug text-white sm:text-lg">
+                {primary.title}
+              </p>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-white/65">{primary.detail}</p>
             </div>
-          ))}
-        </div>
+            <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-white/40">
+                Responsable
+              </p>
+              <p className="mt-0.5 text-sm font-semibold text-white">{PRODUCT_STORY.owner.fullName}</p>
+              <p className="text-xs text-white/55">{PRODUCT_STORY.owner.area}</p>
+              <p className="mt-2 text-xs font-medium text-white">
+                Compromiso · {PRODUCT_STORY.action.dueLabel}
+              </p>
+            </div>
+          </button>
 
-        <div className="mt-8 flex items-center justify-between gap-4 border-y border-background/10 py-4">
-          <p className="text-sm font-semibold text-background">Del dato a la decisión, en el mismo tablero.</p>
-          <p className="hidden text-xs text-background/50 sm:block">Riesgo · Cumplimiento · Tiempos · Carga</p>
-        </div>
-
-        <div className="mt-5 flex flex-wrap justify-center gap-2">
-          {[
-            ['atencion', 'Atención hoy'],
-            ['ico', 'Cumplimiento'],
-            ['tiempos', 'Tiempos'],
-            ['okr', 'Mejora'],
-          ].map(([id, label]) => (
-            <Button
-              key={id}
-              type="button"
-              size="sm"
-              variant={activeModule === id ? 'default' : 'outline'}
-              className={cn(
-                'h-8 rounded-full px-4 text-xs',
-                activeModule !== id && 'border-white/20 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-950'
-              )}
-              onClick={() => setActiveModule(id as typeof activeModule)}
-            >
-              {label}
-            </Button>
-          ))}
-        </div>
-
-        <div className="mx-auto mt-4 grid max-w-4xl gap-4 [--background:0_0%_100%] [--border:220_13%_91%] [--card:0_0%_100%] [--foreground:222_47%_11%] [--muted:220_14%_96%] [--muted-foreground:220_9%_46%]">
-          {/* 1. Atención inmediata */}
-          <SectionCard
-            className={cn(
-              'transition',
-              activeModule !== 'atencion' && 'hidden',
-              activeModule === 'atencion' && 'border-primary/30 ring-1 ring-primary/15'
-            )}
-          >
-            <SectionCardHeader
-              eyebrow="Salud operativa"
-              title="Atención inmediata"
-              subtitle="Hoy y vencidas por prioridad."
-              icon={AlertTriangle}
-              action={
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={activeModule === 'atencion' ? 'default' : 'outline'}
-                  className="hidden"
-                  onClick={() => setActiveModule('atencion')}
-                >
-                  Ver módulo
-                </Button>
-              }
-            />
-            <SectionCardBody className="p-4 sm:p-5">
-              <div className="overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-background via-background to-muted/35 shadow-sm">
-                <div className="grid items-center gap-5 p-4 sm:grid-cols-[minmax(9rem,0.85fr)_minmax(0,1.15fr)] sm:p-5">
-                  <div className="relative mx-auto w-full max-w-40">
-                    <div
-                      className="relative aspect-square w-full rounded-full p-2"
-                      style={{ background: attentionPie }}
-                    >
-                      <span className="absolute inset-[20%] flex flex-col items-center justify-center rounded-full border-4 border-background bg-background shadow-sm">
-                        <span className="text-3xl font-bold tabular-nums tracking-tight text-slate-950">
-                          <CountUpInteger target={attention.total} />
-                        </span>
-                        <span className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                          acciones
-                        </span>
-                      </span>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    {attention.segments.map((segment) => (
-                      <div
-                        key={segment.label}
-                        className={cn('rounded-xl border px-3 py-2.5', segment.surface)}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <span className={cn('h-3 w-3 rounded-full', segment.dot)} />
-                          <span className={cn('min-w-0 flex-1 text-xs font-bold', segment.text)}>
-                            {segment.label}
-                          </span>
-                          <span className={cn('text-base font-bold tabular-nums', segment.text)}>
-                            {segment.value}
-                          </span>
-                          <span className="w-10 text-right text-[11px] font-semibold tabular-nums text-slate-600">
-                            {segment.pct}%
-                          </span>
-                        </div>
-                        <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-background/80">
-                          <span
-                            className={cn('block h-full rounded-full', segment.bar)}
-                            style={{ width: `${segment.pct}%` }}
-                          />
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </SectionCardBody>
-          </SectionCard>
-
-          {/* 2. ICO / Confiabilidad */}
-          <SectionCard
-            className={cn(
-              'transition',
-              activeModule !== 'ico' && 'hidden',
-              activeModule === 'ico' && 'border-primary/30 ring-1 ring-primary/15'
-            )}
-          >
-            <SectionCardHeader
-              eyebrow="Ejecución"
-              title="Confiabilidad de compromisos"
-              subtitle="ICO global del periodo."
-              icon={ShieldCheck}
-              action={
-                <Badge variant="secondary" className="h-7 gap-1.5 px-2.5 tabular-nums">
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  35 cierres
-                </Badge>
-              }
-            />
-            <SectionCardBody className="p-4 sm:p-5">
-              <div className="overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-background via-background to-emerald-500/[0.04] shadow-sm">
-                <div className="grid items-center gap-5 p-4 sm:grid-cols-[minmax(9rem,0.85fr)_minmax(0,1.15fr)] sm:p-5">
-                  <div
-                    ref={icoGaugeRef}
-                    className="relative mx-auto aspect-square w-full max-w-36 rounded-full"
-                    style={{ background: icoRing }}
-                  >
-                    <span className="absolute inset-[18%] flex flex-col items-center justify-center rounded-full border-4 border-background bg-background shadow-sm">
-                      <span className="text-3xl font-bold tabular-nums tracking-tight">
-                        {icoValue}
-                        <span className="text-base font-semibold text-muted-foreground">%</span>
-                      </span>
-                      <span className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        ICO
-                      </span>
-                    </span>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="rounded-xl border border-border/60 bg-background/70 px-3.5 py-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Acciones cerradas
-                      </p>
-                      <p className="mt-1 text-2xl font-bold tabular-nums">35</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Base del cálculo en el periodo.
-                      </p>
-                    </div>
-                    <div className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/25 bg-background/70 px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-200">
-                      <TrendingUp className="h-3.5 w-3.5" />
-                      +4 pp vs periodo anterior
-                    </div>
-                    <Button
+          <div className="grid lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+            <ul className="divide-y divide-white/10 border-b border-white/10 lg:border-b-0 lg:border-r">
+              {secondary.map((item) => {
+                const index = items.indexOf(item)
+                const isActive = index === selected
+                return (
+                  <li key={`${item.kind}-${item.title}`}>
+                    <button
                       type="button"
-                      size="sm"
-                      variant={activeModule === 'ico' ? 'default' : 'outline'}
-                      className="hidden"
-                      onClick={() => setActiveModule('ico')}
-                    >
-                      Ver módulo
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </SectionCardBody>
-          </SectionCard>
-
-          {/* 3. Tiempos y antigüedad */}
-          <SectionCard
-            className={cn(
-              'transition',
-              activeModule !== 'tiempos' && 'hidden',
-              activeModule === 'tiempos' && 'border-primary/30 ring-1 ring-primary/15'
-            )}
-          >
-            <SectionCardHeader
-              eyebrow="Carga operativa"
-              title="Tiempos y antigüedad"
-              subtitle="Velocidad de cierre y edad del backlog abierto."
-              icon={Timer}
-              action={
-                <Badge variant="secondary" className="h-7 gap-1.5 px-2.5 tabular-nums">
-                  <ListChecks className="h-3.5 w-3.5" />
-                  30 abiertas
-                </Badge>
-              }
-            />
-            <SectionCardBody className="space-y-4 p-4 sm:p-5">
-              <div className="grid gap-3 sm:grid-cols-2">
-                {timeMetrics.map((metric) => (
-                  <div
-                    key={metric.title}
-                    className={cn('flex flex-col rounded-xl border p-4 shadow-sm', metricToneSurface[metric.tone])}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-background/70">
-                        <Timer className="h-4 w-4" />
-                      </span>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        {metric.title}
-                      </p>
-                    </div>
-                    <p className="mt-3 flex items-end gap-1.5">
-                      <span className="text-3xl font-bold leading-none tracking-tight tabular-nums">
-                        <CountUpDecimal target={metric.value} />
-                      </span>
-                      <span className="pb-0.5 text-sm font-medium text-muted-foreground">días</span>
-                    </p>
-                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                      {metric.description}
-                    </p>
-                    <p
+                      onClick={() => setSelected(index)}
                       className={cn(
-                        'mt-3 inline-flex items-center gap-1.5 text-xs font-medium',
-                        metric.trendGood
-                          ? 'text-emerald-700 dark:text-emerald-200'
-                          : 'text-red-700 dark:text-red-200'
+                        'flex w-full gap-2.5 px-3.5 py-2.5 text-left transition sm:px-4',
+                        isActive ? 'bg-white/[0.08]' : 'hover:bg-white/[0.04]'
                       )}
                     >
-                      <TrendingDown className="h-3.5 w-3.5" />
-                      {metric.trend}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Edad promedio
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Backlog abierto · días desde la creación.
-                    </p>
-                  </div>
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-background/70">
-                    <Timer className="h-4 w-4" />
-                  </span>
-                </div>
-                <p className="mt-4 flex items-end gap-2">
-                  <span className="text-4xl font-bold leading-none tracking-tight tabular-nums">
-                    <CountUpDecimal target={avgAgeDays} />
-                  </span>
-                  <span className="pb-1 text-sm font-medium text-muted-foreground">días</span>
-                </p>
-                <div className="mt-4">
-                  <div className="relative h-3 rounded-full bg-background/75">
-                    <span className="absolute inset-y-0 left-0 w-[30%] rounded-l-full bg-emerald-500/75" />
-                    <span className="absolute inset-y-0 left-[30%] w-[40%] bg-amber-500/75" />
-                    <span className="absolute inset-y-0 right-0 w-[30%] rounded-r-full bg-red-500/75" />
-                    <span
-                      className="absolute top-1/2 h-5 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground shadow"
-                      style={{ left: `${avgAgeMarker}%` }}
-                    />
-                  </div>
-                  <div className="mt-1.5 flex justify-between text-[10px] tabular-nums text-muted-foreground">
-                    <span>0 días</span>
-                    <span>10 días</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="overflow-hidden rounded-xl border border-border/60 bg-background/60 shadow-sm">
-                <div className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2.5">
-                  <p className="text-xs font-semibold text-foreground">Antigüedad del backlog</p>
-                  <Badge variant="outline" className="h-6 text-[10px] tabular-nums">
-                    30 abiertas
-                  </Badge>
-                </div>
-                <div className="grid gap-2 p-3 sm:grid-cols-2">
-                  {agingBuckets.map((bucket) => (
-                    <div
-                      key={bucket.range}
-                      className={cn('rounded-lg border px-2.5 py-2', bucket.surface)}
-                    >
-                      <div className="flex items-center justify-between gap-2 text-[11px]">
-                        <span className="font-semibold">{bucket.range}</span>
-                        <span className="tabular-nums text-muted-foreground">
-                          {bucket.count} · {bucket.pct}%
-                        </span>
-                      </div>
-                      <span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-background/80">
-                        <span
-                          className={cn('block h-full rounded-full', bucket.bar)}
-                          style={{ width: `${bucket.pct}%` }}
-                        />
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <Button
-                type="button"
-                size="sm"
-                variant={activeModule === 'tiempos' ? 'default' : 'outline'}
-                className="hidden"
-                onClick={() => setActiveModule('tiempos')}
-              >
-                Ver módulo
-              </Button>
-            </SectionCardBody>
-          </SectionCard>
-
-          {/* 4. OKR operativo */}
-          <SectionCard
-            className={cn(
-              'transition',
-              activeModule !== 'okr' && 'hidden',
-              activeModule === 'okr' && 'border-primary/30 ring-1 ring-primary/15'
-            )}
-          >
-            <SectionCardHeader
-              eyebrow="OKR Operativo"
-              title="Avance del OKR activo"
-              subtitle="Key results con ritmo y riesgo visibles."
-              icon={Target}
-              action={
-                <Badge
-                  variant="outline"
-                  className="h-7 gap-1.5 border-amber-500/35 bg-amber-500/10 px-2.5 text-amber-700 dark:text-amber-200"
-                >
-                  <CircleDot className="h-3.5 w-3.5" />
-                  En curso
-                </Badge>
-              }
-            />
-            <SectionCardBody className="space-y-3 p-4 sm:p-5">
-              <div className="grid gap-2 sm:grid-cols-2">
-                {okrKrs.map((kr) => (
-                  <div
-                    key={kr.id}
-                    className={cn('rounded-xl border p-3', toneSurface[kr.tone])}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          {kr.id}
-                        </p>
-                        <p className="mt-0.5 text-xs font-semibold leading-snug text-foreground">
-                          {kr.title}
-                        </p>
-                      </div>
-                      <span className="text-xs font-bold tabular-nums text-foreground">
-                        {kr.progress}%
-                      </span>
-                    </div>
-                    <p className="mt-2 text-[11px] font-medium tabular-nums text-foreground">
-                      {kr.value}
-                    </p>
-                    <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-background/80">
                       <span
-                        className={cn('block h-full rounded-full', toneBar[kr.tone])}
-                        style={{ width: `${kr.progress}%` }}
+                        className={cn(
+                          'mt-1 h-2 w-2 shrink-0 rounded-full',
+                          item.tone === 'red' ? 'bg-red-500' : 'bg-amber-400'
+                        )}
                       />
-                    </span>
-                  </div>
-                ))}
+                      <span className="min-w-0">
+                        <span className="text-[9px] font-semibold uppercase tracking-wider text-white/40">
+                          {item.kind}
+                        </span>
+                        <span className="mt-0.5 block text-xs font-semibold text-white">{item.title}</span>
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+
+            <div className="space-y-2.5 p-3.5 sm:p-4">
+              <div className={cn('rounded-xl border p-3', toneSurface[active.tone])}>
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-white/45">
+                  Detalle consultado
+                </p>
+                <p className="mt-1 text-sm font-semibold text-white">{active.title}</p>
+                <p className="mt-1 text-xs leading-relaxed text-white/70">{active.detail}</p>
               </div>
-              <Button
-                type="button"
-                size="sm"
-                variant={activeModule === 'okr' ? 'default' : 'outline'}
-                className="hidden"
-                onClick={() => setActiveModule('okr')}
-              >
-                Ver módulo
-              </Button>
-            </SectionCardBody>
-          </SectionCard>
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+                <p className="text-xs font-semibold text-white">Continuidad del caso</p>
+                <ul className="mt-1.5 space-y-1 text-xs text-white/60">
+                  <li>
+                    Objetivo · {PRODUCT_STORY.objective.id} · {PRODUCT_STORY.objective.progressLabel}
+                  </li>
+                  <li>
+                    Compromiso · {PRODUCT_STORY.action.id} · {PRODUCT_STORY.action.state}
+                  </li>
+                  <li>Gap ejemplo · {PRODUCT_STORY.objective.gapLabel}</li>
+                </ul>
+              </div>
+            </div>
+          </div>
         </div>
       </LandingShell>
     </LandingSection>
   )
 }
 
-const aiAnswers: Record<string, string> = {
-  'Como puedo desbloquear esta accion y a quien debo involucrar?':
-    'Identifique una dependencia con Finanzas. Confirma al responsable, acuerda una hora limite hoy a las 14:00 y adjunta su validacion como evidencia.',
-  'Que evidencia seria suficiente para cerrar esta accion con calidad?':
-    'Para verificar el cierre, adjunta la validacion de Finanzas y la confirmacion de fecha enviada al cliente.',
-  'Dame un plan corto para cerrar esta accion hoy.':
-    '1. Confirma responsable en Finanzas.\n2. Acuerda limite a las 14:00.\n3. Adjunta evidencia.\n4. Mueve a Hecho y solicita verificacion.',
-}
-
-type ChatMessage = { role: 'assistant' | 'user'; content: string }
-
-const demoActionPrompts = Object.keys(aiAnswers)
-
-const demoRedActions = [
+const followStages = [
   {
-    id: '1',
-    initials: 'AM',
-    title: 'Confirmar condiciones de entrega',
-    preview: 'Dependencia con Finanzas · Bloqueado',
-    tone: 'red' as const,
-    badge: 'Rojo',
-    meta: 'Hoy · 14:00',
+    label: 'Compromiso próximo a vencer',
+    summary: `${PRODUCT_STORY.action.id} vence ${PRODUCT_STORY.action.dueLabel}`,
+    detail: 'La fecha de compromiso está en el horizonte de hoy. Aún puede cerrarse a tiempo.',
   },
   {
-    id: '2',
-    initials: 'JR',
-    title: 'Validar propuesta comercial',
-    preview: 'Falta evidencia de cierre',
-    tone: 'amber' as const,
-    badge: 'Retraso',
-    meta: 'Ayer',
+    label: 'Sin actualización reciente',
+    summary: `Última nota · ${PRODUCT_STORY.lastUpdate.at}`,
+    detail: PRODUCT_STORY.lastUpdate.text,
   },
   {
-    id: '3',
-    initials: 'LC',
-    title: 'Resolver bloqueo logístico',
-    preview: 'Esperando respuesta de proveedor',
-    tone: 'red' as const,
-    badge: 'Bloqueado',
-    meta: '2d',
+    label: 'Atención requerida',
+    summary: PRODUCT_STORY.blocker.label,
+    detail: PRODUCT_STORY.blocker.detail,
+  },
+  {
+    label: 'Responsable identificado',
+    summary: `${PRODUCT_STORY.owner.fullName} · ${PRODUCT_STORY.owner.area}`,
+    detail: PRODUCT_STORY.action.nextStep,
   },
 ] as const
 
-const aiSuggestionText =
-  'Perfecto: confirma con Finanzas antes de las 14:00, adjunta su validacion como evidencia y mueve la accion a Hecho cuando quede documentado.'
+export function FollowUpDemo() {
+  const { action, owner, blocker, timeline } = PRODUCT_STORY
+  const [stage, setStage] = useState(0)
+  const [openDetail, setOpenDetail] = useState(false)
+  const active = followStages[stage]
 
-export function AIDemo() {
-  const [selectedId, setSelectedId] = useState<string>(demoRedActions[0].id)
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: 'user',
-      content: '¿Ya validaron la propuesta con Finanzas?',
-    },
-    {
-      role: 'assistant',
-      content:
-        'Aun no. Identifique dependencia con Finanzas: confirma responsable, acuerda hora limite hoy 14:00 y adjunta validacion.',
-    },
-  ])
-  const [input, setInput] = useState('')
-  const [showSuggestion, setShowSuggestion] = useState(true)
+  return (
+    <LandingSection
+      id="seguimiento"
+      surface="transparent"
+      className="home-post__section"
+      spacing="standard"
+      seoDescription={LANDING_SEO.sections.seguimiento.description}
+    >
+      <LandingShell wide>
+        <div className="grid items-end gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+          <div className="max-w-xl">
+            <Eyebrow dark tokenColor="yellow">
+              Seguimiento
+            </Eyebrow>
+            <SectionTitle dark>Detecta retrasos antes de que escalen.</SectionTitle>
+            <SectionLead dark>
+              Identifica compromisos detenidos y facilita que los responsables reporten avances.
+            </SectionLead>
+          </div>
+        </div>
 
-  const selected = demoRedActions.find((a) => a.id === selectedId) ?? demoRedActions[0]
+        <div className="mt-5 grid gap-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+          <div className="liquid-glass overflow-hidden rounded-2xl">
+            <div className="border-b border-white/10 px-3.5 py-2.5">
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-white/40">
+                Situación · {PRODUCT_STORY_DEMO_LABEL}
+              </p>
+              <p className="mt-1 text-sm font-semibold text-white">{active.label}</p>
+              <p className="mt-0.5 text-xs text-white/55">{active.summary}</p>
+            </div>
+            <ol className="divide-y divide-white/10">
+              {followStages.map((item, index) => (
+                <li key={item.label}>
+                  <button
+                    type="button"
+                    onClick={() => setStage(index)}
+                    className={cn(
+                      'flex w-full items-center gap-2.5 px-3.5 py-2 text-left transition',
+                      index === stage ? 'bg-white/[0.08]' : 'hover:bg-white/[0.04]'
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'grid h-6 w-6 place-items-center rounded-full text-[10px] font-bold',
+                        index === stage
+                          ? 'bg-white text-black'
+                          : index < stage
+                            ? 'bg-white/25 text-white'
+                            : 'bg-white/10 text-white/60'
+                      )}
+                    >
+                      0{index + 1}
+                    </span>
+                    <span className="text-xs font-semibold text-white">{item.label}</span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+            <div className="flex flex-wrap gap-1.5 border-t border-white/10 px-3.5 py-2.5">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 rounded-full border-white/20 bg-transparent px-3 text-xs text-white hover:bg-white/10 hover:text-white"
+                disabled={stage === 0}
+                onClick={() => setStage((value) => Math.max(0, value - 1))}
+              >
+                Anterior
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 rounded-full bg-white px-3 text-xs text-black hover:bg-white/90"
+                disabled={stage === followStages.length - 1}
+                onClick={() => setStage((value) => Math.min(followStages.length - 1, value + 1))}
+              >
+                Siguiente
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 rounded-full border-white/20 bg-transparent px-3 text-xs text-white hover:bg-white/10 hover:text-white"
+                onClick={() => setOpenDetail(true)}
+              >
+                Consultar
+              </Button>
+            </div>
+          </div>
 
-  const ask = (prompt: string) => {
-    const answer =
-      aiAnswers[prompt] ??
-      'Con el contexto de la accion: confirma dependencia, evidencia y fecha limite antes de cerrar.'
-    setMessages((current) => [
-      ...current,
-      { role: 'user', content: prompt },
-      { role: 'assistant', content: answer },
-    ])
-    setShowSuggestion(true)
-    setInput('')
+          <div className="liquid-glass overflow-hidden rounded-2xl">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3.5 py-2.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-semibold tabular-nums text-white/45">{action.id}</span>
+                <StatusToken color="red" label={action.state} />
+                <AccionPriorityBadge prioridad={action.priority} compact />
+              </div>
+            </div>
+            <div className="space-y-3 p-3.5 sm:p-4">
+              <div>
+                <p className="text-base font-semibold text-white">{action.title}</p>
+                <p className="mt-1 text-xs leading-relaxed text-white/65">{active.detail}</p>
+              </div>
+              <dl className="grid gap-2 sm:grid-cols-2">
+                {[
+                  ['Fecha compromiso', action.dueLabel],
+                  ['Responsable', `${owner.fullName} · ${owner.area}`],
+                  ['Bloqueo', blocker.label],
+                  ['Próximo paso', action.nextStep],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2">
+                    <dt className="text-[9px] font-semibold uppercase tracking-wider text-white/40">
+                      {label}
+                    </dt>
+                    <dd className="mt-0.5 text-xs font-medium text-white">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+              {openDetail ? (
+                <ol className="space-y-2 rounded-xl border border-white/10 bg-white/[0.04] p-3">
+                  {timeline.map((item) => (
+                    <li key={`${item.at}-${item.title}`}>
+                      <p className="text-[9px] font-semibold tabular-nums text-white/40">{item.at}</p>
+                      <p className="text-xs font-semibold text-white">{item.title}</p>
+                      <p className="text-[11px] text-white/55">{item.detail}</p>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-xs text-white/55">
+                  Consulta el compromiso para ver el historial. Sin automatización inventada.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </LandingShell>
+    </LandingSection>
+  )
+}
+
+export function CollaborationDemo() {
+  const { action, collaboration, requester, owner, blocker } = PRODUCT_STORY
+  const [visibleCount, setVisibleCount] = useState(1)
+
+  return (
+    <LandingSection
+      id="colaboracion"
+      surface="transparent"
+      className="home-post__section"
+      spacing="standard"
+      seoDescription={LANDING_SEO.sections.colaboracion.description}
+    >
+      <LandingShell wide>
+        <div className="grid items-end gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+          <div className="max-w-xl">
+            <Eyebrow dark tokenColor="blue">
+              Comunicación y colaboración
+            </Eyebrow>
+            <SectionTitle dark>Cada solicitud tiene contexto, responsable y respuesta.</SectionTitle>
+            <SectionLead dark>
+              Menos información dispersa. Más claridad para coordinar el trabajo.
+            </SectionLead>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 xl:grid-cols-[minmax(16rem,0.78fr)_minmax(0,1.22fr)]">
+          <aside className="liquid-glass rounded-2xl p-3.5 sm:p-4">
+            <p className="text-[9px] font-semibold uppercase tracking-wider text-white/40">
+              Compromiso en el tablero
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-xs font-semibold tabular-nums text-white/45">{action.id}</span>
+              <StatusToken color="red" label={action.state} />
+            </div>
+            <p className="mt-1.5 text-sm font-semibold leading-snug text-white">{action.title}</p>
+            <dl className="mt-3 space-y-2 text-xs">
+              {[
+                ['Quién solicitó', `${requester.fullName} · ${requester.area}`],
+                ['Quién responde', `${owner.fullName} · ${owner.area}`],
+                ['Qué se necesita', action.evidenceExpected],
+                ['Acuerdo', `Validación formal · ${action.dueLabel}`],
+                ['Pendiente', blocker.label],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-[9px] font-semibold uppercase tracking-wider text-white/40">
+                    {label}
+                  </dt>
+                  <dd className="mt-0.5 font-medium text-white">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-3 text-[9px] font-semibold text-white/40">
+              {PRODUCT_STORY_DEMO_LABEL}
+            </p>
+          </aside>
+
+          <div className="liquid-glass overflow-hidden rounded-2xl">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3.5 py-2.5">
+              <p className="text-xs font-semibold text-white">Hilo del compromiso</p>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 rounded-full bg-white px-3 text-xs text-black hover:bg-white/90"
+                disabled={visibleCount >= collaboration.length}
+                onClick={() => setVisibleCount((value) => Math.min(collaboration.length, value + 1))}
+              >
+                Siguiente mensaje
+              </Button>
+            </div>
+            <ul className="divide-y divide-white/10">
+              {collaboration.slice(0, visibleCount).map((msg) => (
+                <li key={`${msg.at}-${msg.author}`} className="flex gap-2.5 px-3.5 py-3">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white text-[10px] font-bold text-black">
+                    {msg.author
+                      .split(' ')
+                      .map((p) => p[0])
+                      .join('')
+                      .slice(0, 2)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <p className="text-xs font-semibold text-white">{msg.author}</p>
+                      <p className="text-[10px] text-white/45">
+                        {msg.area} · {msg.at}
+                      </p>
+                    </div>
+                    <p className="mt-1 text-xs leading-relaxed text-white/80">{msg.text}</p>
+                    {msg.evidence ? (
+                      <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.05] px-2 py-1 text-[11px] font-medium text-white">
+                        <FileCheck className="h-3.5 w-3.5 text-white/70" />
+                        {msg.evidence}
+                      </div>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </LandingShell>
+    </LandingSection>
+  )
+}
+
+type EnviardianPhase = 'idle' | 'question' | 'lookup' | 'answer' | 'proposal'
+
+export function EnviardianBridgeDemo() {
+  const [phase, setPhase] = useState<EnviardianPhase>('idle')
+  const [question, setQuestion] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+
+  const runPrompt = (prompt: string) => {
+    setQuestion(prompt)
+    setConfirmed(false)
+    setPhase('question')
+    window.setTimeout(() => setPhase('lookup'), 450)
+    window.setTimeout(() => setPhase('answer'), 1100)
+    window.setTimeout(() => setPhase('proposal'), 1700)
   }
 
   return (
     <LandingSection
-      id="ia"
-      surface="depth"
+      id="enviardian"
+      surface="transparent"
+      className="home-post__section"
       spacing="standard"
-      withGrid
-      seoDescription={LANDING_SEO.sections.ia.description}
+      seoDescription={LANDING_SEO.sections.enviardian.description}
     >
-      <LandingShell>
-        <div className="mx-auto max-w-3xl text-center">
-          <Eyebrow tokenColor="yellow">Asistente IA</Eyebrow>
-          <SectionTitle>Cuando hay un bloqueo, también ayuda a decidir qué hacer.</SectionTitle>
-          <SectionLead className="mx-auto">
-            El mismo flujo del tablero: acción roja, contexto activo y validación de cierre.
-          </SectionLead>
+      <LandingShell wide>
+        <div className="grid items-end gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+          <div className="max-w-xl">
+            <Eyebrow dark tokenColor="yellow">
+              Enviardián
+            </Eyebrow>
+            <SectionTitle dark>Tu información también está disponible en una conversación.</SectionTitle>
+            <SectionLead dark>
+              Consulta objetivos, acciones y bloqueos; prepara nuevas acciones por voz o texto.
+            </SectionLead>
+          </div>
+          <div className="lg:justify-self-end">
+            <Button
+              asChild
+              size="lg"
+              className="h-11 rounded-full bg-white px-6 font-semibold text-black hover:bg-white/90"
+            >
+              <Link to="/agente">
+                Conocer Enviardián
+                <Sparkles className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
         </div>
 
-        <LandingCard className="mt-10 overflow-hidden shadow-lg ring-1 ring-border/40">
-          <div className="grid min-h-[420px] lg:grid-cols-[minmax(240px,300px)_minmax(0,1fr)]">
-            {/* Lista de acciones rojas */}
-            <aside className="border-b border-border/50 bg-muted/15 lg:border-b-0 lg:border-r">
-              <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Acciones rojas</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-                      {demoRedActions.length} abiertas
-                    </span>
-                  </p>
-                </div>
-                <Badge variant="outline" className="h-6 text-[10px] tabular-nums">
-                  Demo
-                </Badge>
-              </div>
-              <ul className="divide-y divide-border/40 p-2">
-                {demoRedActions.map((action) => {
-                  const active = action.id === selectedId
-                  return (
-                    <li key={action.id}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedId(action.id)}
-                        className={cn(
-                          'flex w-full gap-3 rounded-xl px-3 py-3 text-left transition',
-                          active
-                            ? 'border-l-[3px] border-l-emerald-600 bg-emerald-500/[0.08] pl-[calc(0.75rem-3px)]'
-                            : 'border-l-[3px] border-l-transparent hover:bg-muted/40'
-                        )}
-                      >
-                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-foreground text-xs font-bold text-background">
-                          {action.initials}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-start justify-between gap-2">
-                            <span className="truncate text-sm font-semibold text-foreground">
-                              {action.title}
-                            </span>
-                            <span className="shrink-0 text-[10px] text-muted-foreground">
-                              {action.meta}
-                            </span>
-                          </span>
-                          <span className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-                            {action.preview}
-                          </span>
-                          <span className="mt-2 inline-flex">
-                            <StatusPill tone={action.tone}>{action.badge}</StatusPill>
-                          </span>
-                        </span>
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-            </aside>
+        <div className="liquid-glass mt-5 overflow-hidden rounded-2xl">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3.5 py-2.5">
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-white/70" />
+              <p className="text-sm font-semibold text-white">Asistente integrado a Scrumban</p>
+            </div>
+            <Badge variant="outline" className="border-white/20 text-[9px] text-white/70">
+              {PRODUCT_STORY_DEMO_LABEL}
+            </Badge>
+          </div>
 
-            {/* Chat + sugerencia IA */}
-            <div className="flex min-w-0 flex-col bg-card">
-              <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border/50 px-4 py-3 sm:px-5">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-foreground">{selected.title}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    contexto operativo · {selected.badge.toLowerCase()} · checklist 1/3
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" size="sm" variant="outline" className="h-8 gap-1.5 rounded-lg text-xs">
-                    <Sparkles className="h-3.5 w-3.5 text-primary" />
-                    IA activa
-                  </Button>
-                  <Button type="button" size="sm" className="h-8 rounded-lg text-xs">
-                    Asignar
-                  </Button>
-                </div>
-              </header>
+          <div className="grid xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+            <div className="space-y-2 border-b border-white/10 p-3.5 sm:p-4 xl:border-b-0 xl:border-r">
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-white/40">Pregunta</p>
+              {PRODUCT_STORY.enviardian.prompts.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => runPrompt(prompt)}
+                  className={cn(
+                    'agent-chip block w-full rounded-xl px-3 py-2.5 text-left text-xs font-medium transition',
+                    question === prompt && 'agent-chip--active'
+                  )}
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
 
-              <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-5">
-                {messages.map((message, index) => (
-                  <div
-                    key={`${message.role}-${index}`}
-                    className={cn(
-                      'max-w-[88%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
-                      message.role === 'user'
-                        ? 'mr-auto rounded-bl-md bg-muted text-foreground'
-                        : 'ml-auto rounded-br-md bg-emerald-600 text-white shadow-sm'
-                    )}
-                  >
-                    {message.content}
-                  </div>
-                ))}
+            <div className="space-y-2.5 p-3.5 sm:p-4">
+              <div
+                className={cn(
+                  'rounded-xl border px-3 py-2.5 transition',
+                  phase === 'idle'
+                    ? 'border-dashed border-white/15 bg-white/[0.02]'
+                    : 'border-white/15 bg-white/[0.05]'
+                )}
+              >
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-white/40">
+                  1 · Pregunta
+                </p>
+                <p className="mt-1 text-xs text-white">
+                  {question || 'Elige una consulta para ver el flujo completo.'}
+                </p>
               </div>
 
-              {showSuggestion ? (
-                <div className="mx-4 mb-3 rounded-xl border border-dashed border-emerald-500/40 bg-emerald-500/[0.06] p-4 sm:mx-5">
-                  <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    Sugerencia IA · listo para enviar
-                  </p>
-                  <p className="mt-2 text-sm leading-relaxed text-foreground">{aiSuggestionText}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button type="button" size="sm" className="h-8 rounded-lg bg-foreground text-background hover:bg-foreground/90">
-                      Enviar
-                    </Button>
-                    <Button type="button" size="sm" variant="outline" className="h-8 rounded-lg">
-                      Editar
+              <div
+                className={cn(
+                  'rounded-xl border px-3 py-2.5 transition',
+                  phase === 'lookup' || phase === 'answer' || phase === 'proposal'
+                    ? 'border-sky-300/30 bg-sky-400/10'
+                    : 'border-dashed border-white/15 bg-white/[0.02] opacity-60'
+                )}
+              >
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-white/40">
+                  2 · Consulta
+                </p>
+                <p className="mt-1 text-xs text-white">
+                  {phase === 'lookup' || phase === 'answer' || phase === 'proposal'
+                    ? `Lee ${PRODUCT_STORY.objective.id}, ${PRODUCT_STORY.action.id} y bloqueos autorizados.`
+                    : 'Esperando consulta…'}
+                </p>
+              </div>
+
+              <div
+                className={cn(
+                  'rounded-xl border px-3 py-2.5 transition',
+                  phase === 'answer' || phase === 'proposal'
+                    ? 'border-white/15 bg-white/[0.05]'
+                    : 'border-dashed border-white/15 bg-white/[0.02] opacity-60'
+                )}
+              >
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-white/40">
+                  3 · Respuesta
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-white/85">
+                  {phase === 'answer' || phase === 'proposal'
+                    ? PRODUCT_STORY.enviardian.reply
+                    : 'La respuesta aparece con el contexto del caso.'}
+                </p>
+              </div>
+
+              <div
+                className={cn(
+                  'rounded-xl border px-3 py-2.5 transition',
+                  phase === 'proposal'
+                    ? 'border-white/30 bg-white/[0.08] ring-1 ring-white/20'
+                    : 'border-dashed border-white/15 bg-white/[0.02] opacity-60'
+                )}
+              >
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-white/40">
+                  4 · Propuesta
+                </p>
+                <p className="mt-1 text-sm font-semibold text-white">
+                  Solicitar apoyo a Legal para cláusula de pago
+                </p>
+                <p className="mt-0.5 text-[11px] text-white/55">
+                  Relacionada con {PRODUCT_STORY.action.id} · confirmar antes de crear
+                </p>
+                {phase === 'proposal' ? (
+                  <div className="mt-2.5 flex flex-wrap gap-1.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 rounded-full bg-white px-3 text-xs text-black hover:bg-white/90"
+                      disabled={confirmed}
+                      onClick={() => setConfirmed(true)}
+                    >
+                      {confirmed ? 'Confirmada' : 'Confirmar'}
                     </Button>
                     <Button
                       type="button"
                       size="sm"
-                      variant="ghost"
-                      className="h-8 rounded-lg text-xs text-muted-foreground"
-                      onClick={() => setShowSuggestion(false)}
+                      variant="outline"
+                      className="h-8 rounded-full border-white/20 bg-transparent px-3 text-xs text-white hover:bg-white/10 hover:text-white"
+                      onClick={() => {
+                        setPhase('idle')
+                        setQuestion('')
+                        setConfirmed(false)
+                      }}
                     >
-                      Otra opción
+                      Limpiar
                     </Button>
                   </div>
-                </div>
-              ) : null}
-
-              <div className="border-t border-border/50 bg-muted/10 px-4 py-3 sm:px-5">
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {demoActionPrompts.map((prompt) => (
-                    <button
-                      key={prompt}
-                      type="button"
-                      onClick={() => ask(prompt)}
-                      className="rounded-full border border-red-500/25 bg-background px-2.5 py-1 text-[10px] font-medium text-red-800 transition hover:bg-red-500/10 dark:text-red-200"
-                    >
-                      {prompt.length > 42 ? `${prompt.slice(0, 40)}…` : prompt}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder="Pregunta sobre esta acción…"
-                    className="h-10 rounded-xl border-border/60 bg-background text-sm"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && input.trim()) ask(input.trim())
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    size="icon"
-                    className="h-10 w-10 shrink-0 rounded-xl"
-                    disabled={!input.trim()}
-                    onClick={() => input.trim() && ask(input.trim())}
-                    aria-label="Enviar"
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
-                </div>
-                <p className="mt-2 text-[10px] text-muted-foreground">Solo demo · No llama al asistente real</p>
+                ) : null}
+                {confirmed ? (
+                  <p className="mt-2 text-[11px] font-medium text-emerald-300">
+                    Demo local · no crea la acción real.
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>
-        </LandingCard>
+        </div>
       </LandingShell>
     </LandingSection>
   )

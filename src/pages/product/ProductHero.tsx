@@ -1,206 +1,204 @@
-import { Bell, CheckCircle2, Menu, Timer, UserRound, X } from 'lucide-react'
+import { ArrowDown, ChevronRight, Menu, X } from 'lucide-react'
 import { useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { SECTION_SPACING } from '@/lib/spacing'
-import {
-  CtaTrustRow,
-  DemoWindow,
-  Eyebrow,
-  LandingShell,
-  Logo,
-  PrimaryCTA,
-  SecondaryCTA,
-  SectionLead,
-} from './ProductUI'
-import { LandingGridPattern, LandingOrbitRings } from './ProductVisual'
-import { StatusToken, StatusTokenMark } from './StatusToken'
+import { AccionPriorityBadge } from '@/features/operations/components/AccionPriorityBadge'
+import { LandingShell, Logo, PrimaryCTA } from './ProductUI'
 import { LANDING_SEO } from './landingSeo'
 import { LandingSectionSeo } from './LandingSeoHead'
+import { PRODUCT_STORY, PRODUCT_STORY_DEMO_LABEL } from './productStory'
+import { useDemoRequest } from './DemoRequestContext'
 
 const nav = [
-  ['Producto', '#producto'],
-  ['Cómo funciona', '#como-funciona'],
-  ['Indicadores', '#indicadores'],
-  ['IA', '#ia'],
+  ['Coordinación', '#coordinacion'],
+  ['Ejecución', '#ejecucion'],
+  ['Visibilidad', '#visibilidad'],
+  ['Enviardián', '#enviardian'],
 ] as const
+
+function DemoPillButton({
+  full = false,
+  onNavigate,
+}: {
+  full?: boolean
+  onNavigate?: () => void
+}) {
+  const { openDemoRequest } = useDemoRequest()
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        onNavigate?.()
+        openDemoRequest()
+      }}
+      className={cn(
+        'group inline-flex items-center justify-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-medium text-black transition-all hover:bg-white/90 active:scale-[0.98]',
+        full && 'w-full'
+      )}
+    >
+      <span>Solicitar demostración</span>
+      <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-px" aria-hidden />
+    </button>
+  )
+}
 
 export function ProductNav() {
   const [open, setOpen] = useState(false)
+
   return (
-    <header className="fixed inset-x-0 top-0 z-50 border-b border-border/60 bg-background/90 backdrop-blur-xl">
-      <LandingShell className="flex h-14 items-center justify-between sm:h-16">
-        <div className="flex items-center gap-3">
-          <Logo />
-          <StatusTokenMark className="hidden opacity-50 sm:inline-flex" />
-        </div>
-        <nav className="hidden items-center gap-6 md:flex" aria-label="Navegación principal">
+    <header className="fixed inset-x-0 top-0 z-50">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-5 sm:px-6 lg:px-8">
+        <Logo light />
+        <nav className="hidden items-center gap-8 md:flex" aria-label="Navegación principal">
           {nav.map(([label, href]) => (
             <a
               key={href}
               href={href}
-              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              className="text-sm font-medium text-white/70 transition-colors hover:text-white"
             >
               {label}
             </a>
           ))}
+          <a
+            href="/agente"
+            className="text-sm font-medium text-white/70 transition-colors hover:text-white"
+          >
+            Enviardián
+          </a>
         </nav>
         <div className="hidden md:block">
-          <PrimaryCTA className="h-10 min-h-10" glow />
+          <DemoPillButton />
         </div>
-        <Button
+        <button
           type="button"
-          variant="outline"
-          size="icon"
-          className="rounded-xl border-border/70 md:hidden"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white md:hidden"
           onClick={() => setOpen(!open)}
-          aria-label="Abrir menú"
+          aria-label={open ? 'Cerrar menú' : 'Abrir menú'}
           aria-expanded={open}
         >
           {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </Button>
-      </LandingShell>
+        </button>
+      </div>
       {open ? (
-        <nav className="border-t border-border/50 bg-card p-4 md:hidden">
+        <div className="mx-auto max-w-7xl space-y-2 px-3 pb-4 sm:px-6 md:hidden lg:px-8">
           {nav.map(([label, href]) => (
             <a
               key={href}
               href={href}
               onClick={() => setOpen(false)}
-              className="block border-b border-border/40 py-3 text-sm font-semibold text-foreground"
+              className="block rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/80"
             >
               {label}
             </a>
           ))}
-          <div className="mt-4">
-            <PrimaryCTA className="w-full" />
-          </div>
-        </nav>
+          <a
+            href="/agente"
+            onClick={() => setOpen(false)}
+            className="block rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/80"
+          >
+            Enviardián
+          </a>
+          <DemoPillButton full onNavigate={() => setOpen(false)} />
+        </div>
       ) : null}
     </header>
   )
 }
 
-function HeroProduct() {
-  const columns = [
+function HeroExecutiveComposition() {
+  const { objective, initiative, action, owner } = PRODUCT_STORY
+
+  const steps = [
     {
-      name: 'HOY',
-      dot: 'bg-primary',
-      cards: [
-        ['Validar propuesta comercial', 'AM', 'Alta'],
-        ['Confirmar alcance con cliente', 'JR', 'Media'],
-      ],
+      key: 'objetivo',
+      label: 'Objetivo',
+      id: objective.id,
+      title: objective.title,
+      meta: objective.progressLabel,
     },
     {
-      name: 'EN SEGUIMIENTO',
-      dot: 'bg-violet-500',
-      cards: [
-        ['Resolver bloqueo de entrega', 'LC', 'Crítica'],
-        ['Actualizar indicadores', 'MP', 'Media'],
-      ],
+      key: 'iniciativa',
+      label: 'Iniciativa',
+      id: initiative.id,
+      title: initiative.title,
+      meta: initiative.status,
     },
     {
-      name: 'POR VERIFICAR',
-      dot: 'bg-emerald-500',
-      cards: [['Evidencia de cierre Q3', 'AR', 'Alta']],
+      key: 'accion',
+      label: 'Acción',
+      id: action.id,
+      title: action.title,
+      meta: `${action.dueLabel} · ${action.state}`,
+      priority: action.priority,
+      accent: true,
+    },
+    {
+      key: 'responsable',
+      label: 'Responsable',
+      id: owner.area,
+      title: owner.fullName,
+      meta: `Checklist ${action.checklist.completed}/${action.checklist.total}`,
+      initials: owner.initials,
     },
   ]
 
   return (
-    <div className="relative mx-auto w-full max-w-3xl lg:translate-x-4">
-      <LandingOrbitRings className="-z-10 opacity-60" />
-      <DemoWindow className="relative z-10 shadow-xl shadow-primary/5 ring-1 ring-border/50" title="Tablero operativo">
-        <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
-          <div>
-            <p className="text-[9px] font-semibold uppercase tracking-wider text-primary">
-              Operación comercial
-            </p>
-            <p className="text-sm font-semibold text-foreground">Compromisos del equipo</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="relative">
-              <Bell className="h-4 w-4 text-muted-foreground" />
-              <i className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 animate-pulse rounded-full bg-destructive" />
-            </span>
-            <Button type="button" size="sm" className="h-7 rounded-lg px-2.5 text-[10px] font-semibold">
-              + Acción
-            </Button>
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-2 bg-muted/25 p-3 sm:gap-3 sm:p-4">
-          {columns.map((col) => (
-            <div key={col.name}>
-              <div className="mb-2 flex items-center gap-1.5">
-                <i className={cn('h-1.5 w-1.5 rounded-full', col.dot)} />
-                <span className="text-[7px] font-semibold tracking-wider text-muted-foreground sm:text-[9px]">
-                  {col.name}
-                </span>
-              </div>
-              <div className="space-y-2">
-                {col.cards.map(([title, owner, priority], i) => (
-                  <div
-                    key={title}
-                    className={cn(
-                      'rounded-xl border bg-card p-2 shadow-sm sm:p-3',
-                      priority === 'Crítica'
-                        ? 'border-l-2 border-border/60 border-l-destructive'
-                        : 'border-border/60'
-                    )}
-                  >
-                    <p className="line-clamp-2 text-[8px] font-semibold leading-snug text-foreground sm:text-[11px]">
-                      {title}
-                    </p>
-                    <div className="mt-2 flex items-center justify-between">
-                      <span className="grid h-5 w-5 place-items-center rounded-full bg-foreground text-[7px] font-bold text-background">
-                        {owner}
-                      </span>
-                      <span className="text-[7px] text-muted-foreground">{i + 12} Sep</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </DemoWindow>
-
-      {/* Mini métricas flotantes — 2 KPIs del dashboard */}
-      <div className="absolute -bottom-10 -left-2 z-20 hidden w-[13.5rem] space-y-2 sm:block">
-        <div className="rounded-xl border border-border/60 bg-card p-3 shadow-lg">
-          <div className="flex items-center gap-2">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-emerald-500/12 text-emerald-700 dark:text-emerald-300">
-              <CheckCircle2 className="h-4 w-4" />
-            </span>
-            <div>
-              <p className="text-[9px] text-muted-foreground">Confiabilidad (ICO)</p>
-              <p className="text-lg font-semibold tabular-nums text-foreground">89%</p>
-            </div>
-          </div>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-            <div className="h-full w-[89%] rounded-full bg-emerald-500" />
-          </div>
-        </div>
-        <div className="rounded-xl border border-border/60 bg-card p-3 shadow-lg">
-          <div className="flex items-center gap-2">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-amber-500/12 text-amber-700 dark:text-amber-300">
-              <Timer className="h-4 w-4" />
-            </span>
-            <div>
-              <p className="text-[9px] text-muted-foreground">Tiempo prom. rojos</p>
-              <p className="text-lg font-semibold tabular-nums text-foreground">
-                4.2 <span className="text-xs font-medium text-muted-foreground">días</span>
-              </p>
-            </div>
-          </div>
-        </div>
+    <div className="liquid-glass w-full max-w-md rounded-2xl p-3.5 sm:p-4 lg:max-w-lg">
+      <div className="mb-2.5 flex items-center justify-between gap-2">
+        <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-white/45">
+          Sistema de ejecución
+        </p>
+        <p className="text-[9px] font-semibold text-white/40">{PRODUCT_STORY_DEMO_LABEL}</p>
       </div>
-
-      <div className="absolute -bottom-5 right-6 z-20 hidden items-center gap-2 rounded-full border border-border/60 bg-foreground px-3 py-2 text-background shadow-lg sm:flex">
-        <UserRound className="h-3.5 w-3.5" />
-        <span className="text-[9px] font-semibold">Ana actualizó una acción</span>
-        <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-      </div>
+      <ol className="space-y-0">
+        {steps.map((step, index) => (
+          <li key={step.key} className="relative">
+            {index < steps.length - 1 ? (
+              <div
+                className="absolute left-[0.95rem] top-9 flex h-[calc(100%-0.75rem)] flex-col items-center"
+                aria-hidden
+              >
+                <span className="w-px flex-1 bg-white/15" />
+                <ArrowDown className="my-0.5 h-3 w-3 text-white/40" />
+                <span className="w-px flex-1 bg-white/15" />
+              </div>
+            ) : null}
+            <div
+              className={cn(
+                'relative flex gap-3 rounded-xl border p-2.5 sm:p-3',
+                step.accent
+                  ? 'border-white/25 bg-white/[0.08]'
+                  : 'border-white/10 bg-white/[0.03]'
+              )}
+            >
+              <span
+                className={cn(
+                  'grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold',
+                  step.accent || step.initials
+                    ? 'bg-white text-black'
+                    : 'bg-white/10 text-white'
+                )}
+              >
+                {step.initials ?? String(index + 1).padStart(2, '0')}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-white/45">
+                    {step.label}
+                  </p>
+                  <span className="text-[9px] font-semibold tabular-nums text-white/40">
+                    {step.id}
+                  </span>
+                  {step.priority ? <AccionPriorityBadge prioridad={step.priority} compact /> : null}
+                </div>
+                <p className="mt-0.5 text-sm font-semibold leading-snug text-white">{step.title}</p>
+                <p className="mt-0.5 text-xs text-white/60">{step.meta}</p>
+              </div>
+            </div>
+            {index < steps.length - 1 ? <div className="h-1.5" aria-hidden /> : null}
+          </li>
+        ))}
+      </ol>
     </div>
   )
 }
@@ -212,66 +210,42 @@ export function ProductHero() {
       <section
         id="inicio"
         className={cn(
-          'relative overflow-hidden bg-gradient-to-b from-background via-background to-muted/30',
-          SECTION_SPACING.hero
+          'home-hero-stage relative overflow-hidden bg-transparent',
+          'pt-24 pb-16',
+          'lg:flex lg:min-h-screen lg:items-center lg:pb-10 lg:pt-20'
         )}
       >
         <LandingSectionSeo description={LANDING_SEO.sections.inicio.description} />
-        <LandingGridPattern className="opacity-50" />
-        <div
-          className="pointer-events-none absolute right-6 top-24 hidden opacity-[0.12] lg:block"
-          aria-hidden
-        >
-          <div className="flex flex-col gap-3">
-            <StatusToken color="red" size="md" pulse={false} />
-            <StatusToken color="yellow" size="md" pulse={false} />
-            <StatusToken color="green" size="md" pulse={false} />
-          </div>
-        </div>
-        <LandingShell>
-          <div className="grid items-center gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:gap-14">
-            <div className="relative overflow-hidden rounded-[1.75rem] border border-border/60 bg-gradient-to-br from-card via-card to-emerald-500/[0.04] p-5 shadow-lg sm:p-7">
+        <LandingShell wide className="w-full">
+          <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)] lg:gap-16 xl:gap-20">
+            <div className="relative max-w-md lg:max-w-lg">
               <div
-                className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-emerald-500/10 blur-3xl"
+                className="pointer-events-none absolute -inset-x-6 -inset-y-8 -z-10 rounded-[2rem] bg-gradient-to-r from-black/55 via-black/35 to-transparent blur-2xl"
                 aria-hidden
               />
-              <div
-                className="pointer-events-none absolute -bottom-20 left-1/3 h-40 w-40 rounded-full bg-primary/10 blur-3xl"
-                aria-hidden
-              />
-              <div className="relative">
-                <Eyebrow tokenColor="blue">Sistema de gestión operativa</Eyebrow>
-                <h1 className="text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-4xl lg:text-5xl">
-                  Construye una cultura de ejecución{' '}
-                  <span className="bg-gradient-to-r from-emerald-600 to-primary bg-clip-text text-transparent">
-                    visible, medible y responsable.
-                  </span>
-                </h1>
-                <SectionLead>
-                  SCRUMBAN ayuda a equipos operativos a mejorar su comunicación, dar seguimiento
-                  con trazabilidad, medir KPIs y convertir pendientes dispersos en compromisos claros.
-                </SectionLead>
-                <div className="mt-7">
-                  <div className="flex flex-col gap-3 sm:flex-row">
-                    <PrimaryCTA glow />
-                    <SecondaryCTA href="#como-funciona">Ver cómo funciona</SecondaryCTA>
-                  </div>
-                  <CtaTrustRow />
-                </div>
-                <div className="mt-5 flex flex-wrap gap-1.5">
-                  {['Responsables claros', 'Seguimiento trazable', 'KPIs visibles', 'Menos chats dispersos', 'Decisiones con datos'].map((chip) => (
-                    <Badge
-                      key={chip}
-                      variant="outline"
-                      className="rounded-full border-border/60 bg-background/80 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
-                    >
-                      {chip}
-                    </Badge>
-                  ))}
-                </div>
+              <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/85">
+                <span
+                  className="h-1.5 w-1.5 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.65)]"
+                  aria-hidden
+                />
+                Plataforma de ejecución empresarial
+              </p>
+              <h1 className="mt-4 text-balance text-3xl font-semibold tracking-tight text-white [text-shadow:0_2px_28px_rgba(0,0,0,0.45)] sm:text-4xl lg:text-[2.75rem] lg:leading-[1.1]">
+                Convierte la estrategia en resultados.
+              </h1>
+              <p className="mt-4 max-w-md text-base leading-relaxed text-white/80 [text-shadow:0_1px_18px_rgba(0,0,0,0.4)]">
+                Conecta objetivos, equipos y compromisos en un sistema que permite ejecutar, dar
+                seguimiento y medir avances.
+              </p>
+              <div className="mt-8">
+                <PrimaryCTA dark className="bg-white text-black shadow-lg shadow-black/30 hover:bg-white/90">
+                  Solicitar demostración
+                </PrimaryCTA>
               </div>
             </div>
-            <HeroProduct />
+            <div className="flex items-center justify-center lg:justify-end">
+              <HeroExecutiveComposition />
+            </div>
           </div>
         </LandingShell>
       </section>
