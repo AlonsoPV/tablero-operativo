@@ -190,7 +190,7 @@ function rfc3339Range(args: Record<string, unknown>, fallbackHours = 24) {
 }
 
 function proposalFromPreview(
-  tool: GoogleWriteTool,
+  _tool: GoogleWriteTool,
   workspace: CopilotWorkspacePreview,
   title: string,
   summary: string
@@ -405,7 +405,11 @@ async function toolPrepareReply(actor: CopilotActor, args: Record<string, unknow
   )
 }
 
-function resolveEventTimes(args: Record<string, unknown>) {
+function resolveEventTimes(
+  args: Record<string, unknown>
+):
+  | { error: string }
+  | { ymd: string; startHm: string; endHm: string; startIso: string; endIso: string } {
   const dateHint = asString(args.date, 40) || asString(args.start, 40)
   const today = cdmxYmdFromInstant(new Date())
   const parsed = parseDueDateHint(dateHint, today)
