@@ -8,7 +8,7 @@ const SECTION_IDS = AGENT_STORY_RAIL.map((item) => item.href.replace('#', ''))
 
 export function AgentStoryRail({ className }: { className?: string }) {
   const reduceMotion = useReducedMotion()
-  const [activeHref, setActiveHref] = useState(AGENT_STORY_RAIL[0].href)
+  const [activeHref, setActiveHref] = useState<string>(AGENT_STORY_RAIL[0].href)
   const listRef = useRef<HTMLOListElement>(null)
   const activeIndex = Math.max(
     0,
