@@ -1,457 +1,391 @@
-import {
-  BarChart3,
-  CheckCircle2,
-  Columns3,
-  Mail,
-  MessageCircle,
-  Target,
-  Users,
-} from 'lucide-react'
+import { useState } from 'react'
+import { ArrowRight, CheckCircle2 } from 'lucide-react'
 import { AccionPriorityBadge } from '@/features/operations/components/AccionPriorityBadge'
-import { useInView } from '@/hooks/useInView'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   CtaTrustRow,
-  DemoAdvisorCTA,
   Eyebrow,
-  LandingCard,
   LandingSection,
   LandingShell,
   PrimaryCTA,
+  SecondaryCTA,
   SectionLead,
   SectionTitle,
 } from './ProductUI'
-import { CountUpInteger } from './CountUpValue'
-import { PremiumCtaPanel } from './ProductVisual'
-import { StatusToken } from './StatusToken'
 import { LANDING_SEO } from './landingSeo'
-import { LandingSectionSeo } from './LandingSeoHead'
+import { PRODUCT_STORY, PRODUCT_STORY_DEMO_LABEL } from './productStory'
 
-function ChaosToOrderVisual() {
-  const { ref, inView } = useInView(0.35)
+function CoordinationFlowDemo() {
+  const { action, requester, owner, coordination } = PRODUCT_STORY
+  const [active, setActive] = useState(0)
 
-  const chaosMessages = [
+  const nodes = [
     {
-      channel: 'WhatsApp',
-      Icon: MessageCircle,
-      tint: 'border-emerald-500/30 bg-emerald-500/[0.07]',
-      rotate: '-rotate-2',
-      offset: 'translate-x-1 -translate-y-1',
-      text: '¿Ya validaron la propuesta con Finanzas?',
-      meta: 'Hoy · 09:14',
+      role: 'Área solicitante',
+      name: requester.fullName,
+      area: requester.area,
+      initials: requester.initials,
+      detail: 'Necesitamos validación formal antes de enviar la propuesta al cliente.',
     },
     {
-      channel: 'Correo',
-      Icon: Mail,
-      tint: 'border-sky-500/30 bg-sky-500/[0.07]',
-      rotate: 'rotate-1',
-      offset: 'translate-x-3 translate-y-2',
-      text: 'Fwd: pendiente de evidencia de cierre Q3…',
-      meta: 'Ayer · 18:42',
+      role: 'Área responsable',
+      name: owner.fullName,
+      area: owner.area,
+      initials: owner.initials,
+      detail: `Compromiso aceptado · ${action.dueLabel}`,
     },
     {
-      channel: 'Slack',
-      Icon: MessageCircle,
-      tint: 'border-violet-500/30 bg-violet-500/[0.07]',
-      rotate: 'rotate-2',
-      offset: '-translate-x-1 translate-y-4',
-      text: '@ana ¿quién tiene el bloqueo de entrega?',
-      meta: 'Hoy · 10:02',
+      role: 'Compromiso',
+      name: action.title,
+      area: action.id,
+      initials: 'AC',
+      detail: `Prioridad ${action.priority} · evidencia: ${action.evidenceExpected}`,
     },
-  ] as const
+    {
+      role: 'Estado actual',
+      name: action.state,
+      area: PRODUCT_STORY.blocker.label,
+      initials: '!',
+      detail: PRODUCT_STORY.blocker.detail,
+    },
+  ]
 
   return (
-    <div ref={ref} className="relative mx-auto w-full max-w-md lg:mx-0">
-      <div
-        className={cn(
-          'relative min-h-[280px] transition-all duration-700 ease-out',
-          inView ? 'pointer-events-none scale-95 opacity-0' : 'scale-100 opacity-100'
-        )}
-        aria-hidden={inView}
-      >
-        {chaosMessages.map((msg, index) => (
-          <div
-            key={msg.channel}
-            className={cn(
-              'absolute left-0 right-0 rounded-xl border p-3 shadow-sm backdrop-blur-sm transition-all duration-500',
-              msg.tint,
-              msg.rotate,
-              msg.offset,
-              !inView && 'opacity-100'
-            )}
-            style={{ top: `${index * 4.25}rem`, zIndex: index + 1 }}
-          >
-            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              <msg.Icon className="h-3.5 w-3.5" />
-              {msg.channel}
-              <span className="ml-auto font-medium normal-case tracking-normal">{msg.meta}</span>
-            </div>
-            <p className="mt-2 text-sm font-medium leading-snug text-foreground">{msg.text}</p>
-          </div>
-        ))}
+    <div className="liquid-glass overflow-hidden rounded-2xl">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3.5 py-2 sm:px-4">
+        <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-white/45">
+          Flujo entre áreas
+        </p>
+        <span className="text-[9px] font-semibold text-white/40">{PRODUCT_STORY_DEMO_LABEL}</span>
       </div>
 
-      <div
-        className={cn(
-          'absolute inset-0 flex items-center transition-all duration-700 ease-out',
-          inView ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
-        )}
-      >
-        <LandingCard className="w-full border-primary/25 p-0 shadow-md ring-1 ring-primary/10">
-          <div className="flex items-center justify-between border-b border-border/50 bg-muted/20 px-4 py-2.5">
-            <StatusToken color="green" label="Acción visible" />
-            <span className="text-[10px] font-semibold tabular-nums text-muted-foreground">AC-1042</span>
+      <div className="grid gap-0 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+        <div className="border-b border-white/10 p-3.5 sm:p-4 xl:border-b-0 xl:border-r">
+          <ol className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {nodes.map((node, index) => {
+              const isActive = index === active
+              return (
+                <li key={node.role} className="relative">
+                  {index < nodes.length - 1 ? (
+                    <ArrowRight
+                      className="absolute -right-1.5 top-1/2 z-10 hidden h-3.5 w-3.5 -translate-y-1/2 text-white/35 xl:block"
+                      aria-hidden
+                    />
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setActive(index)}
+                    className={cn(
+                      'agent-chip flex h-full w-full flex-col rounded-xl p-2.5 text-left transition',
+                      isActive && 'agent-chip--active'
+                    )}
+                  >
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-white/45">
+                      {node.role}
+                    </p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <span
+                        className={cn(
+                          'grid h-8 w-8 place-items-center rounded-full text-[10px] font-bold',
+                          isActive ? 'bg-white text-black' : 'bg-white/10 text-white'
+                        )}
+                      >
+                        {node.initials}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-semibold text-white">{node.name}</p>
+                        <p className="truncate text-[11px] text-white/50">{node.area}</p>
+                      </div>
+                    </div>
+                  </button>
+                </li>
+              )
+            })}
+          </ol>
+
+          <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.04] p-3">
+            <p className="text-[9px] font-semibold uppercase tracking-wider text-white/40">
+              {nodes[active]?.role}
+            </p>
+            <p className="mt-1 text-sm font-semibold text-white">{nodes[active]?.name}</p>
+            <p className="mt-1 text-xs leading-relaxed text-white/65">{nodes[active]?.detail}</p>
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 rounded-full border-white/20 bg-transparent px-3 text-xs text-white hover:bg-white/10 hover:text-white"
+                disabled={active === 0}
+                onClick={() => setActive((value) => Math.max(0, value - 1))}
+              >
+                Anterior
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 rounded-full bg-white px-3 text-xs text-black hover:bg-white/90"
+                disabled={active === nodes.length - 1}
+                onClick={() => setActive((value) => Math.min(nodes.length - 1, value + 1))}
+              >
+                Siguiente
+              </Button>
+            </div>
           </div>
-          <div className="space-y-3 p-4">
-            <div className="flex items-start gap-2">
-              <AccionPriorityBadge prioridad="Alta" compact className="mt-0.5" />
-              <div className="min-w-0">
-                <p className="text-sm font-semibold leading-snug text-foreground">
-                  Validar propuesta con Finanzas
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Ana Martínez · Hoy 18:00 · Evidencia requerida
-                </p>
-              </div>
+        </div>
+
+        <div className="flex flex-col justify-between gap-3 p-3.5 sm:p-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-semibold tabular-nums text-white/45">{action.id}</span>
+              <AccionPriorityBadge prioridad={action.priority} compact />
+              <span className="rounded-full border border-amber-200/40 bg-amber-400/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-100">
+                {action.state}
+              </span>
             </div>
-            <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
-              <div className="rounded-lg border border-border/60 bg-muted/20 px-2 py-2">
-                <p className="font-semibold text-foreground">Responsable</p>
-                <p className="mt-0.5 text-muted-foreground">Asignado</p>
-              </div>
-              <div className="rounded-lg border border-border/60 bg-muted/20 px-2 py-2">
-                <p className="font-semibold text-foreground">Fecha</p>
-                <p className="mt-0.5 text-muted-foreground">Compromiso</p>
-              </div>
-              <div className="rounded-lg border border-border/60 bg-muted/20 px-2 py-2">
-                <p className="font-semibold text-foreground">Estado</p>
-                <p className="mt-0.5 text-muted-foreground">En seguimiento</p>
-              </div>
-            </div>
-            <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
-              De chat disperso → compromiso trazable
+            <p className="mt-1.5 text-sm font-semibold leading-snug text-white">{action.title}</p>
+            <p className="mt-1 text-xs text-white/55">
+              {requester.area} → {owner.area} · {action.dueLabel}
             </p>
           </div>
-        </LandingCard>
+          <ol className="space-y-1.5">
+            {coordination.flow.map((item, index) => (
+              <li
+                key={item.step}
+                className={cn(
+                  'flex gap-2 rounded-lg px-2 py-1.5 transition',
+                  index === active ? 'bg-white/[0.08]' : 'bg-transparent'
+                )}
+              >
+                <span className="text-[10px] font-bold tabular-nums text-white/50">0{index + 1}</span>
+                <div>
+                  <p className="text-xs font-semibold text-white">{item.step}</p>
+                  <p className="text-[11px] text-white/55">{item.detail}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
       </div>
     </div>
   )
 }
 
-export function ProblemSection() {
-  const items = [
-    ['Información dispersa', 'Cada área trabaja con una versión distinta de lo que ocurre.', 'Se pierde contexto'],
-    ['Compromisos ambiguos', 'Responsables, fechas y siguientes pasos no quedan claros.', 'Se retrasa la ejecución'],
-    ['Decisiones tardías', 'Bloqueos y KPIs llegan cuando el problema ya escaló.', 'Aumenta el costo de reaccionar'],
-  ]
-
+export function CoordinationSection() {
   return (
     <LandingSection
-      id="problema"
-      surface="muted"
+      id="coordinacion"
+      surface="transparent"
+      className="home-post__section"
       spacing="standard"
-      withGrid
-      seoDescription={LANDING_SEO.sections.problema.description}
+      seoDescription={LANDING_SEO.sections.coordinacion.description}
     >
-      <LandingShell>
-        <div className="mx-auto max-w-3xl text-center">
-            <Eyebrow tokenColor="red">El costo de operar a ciegas</Eyebrow>
-            <SectionTitle>Cuando cada área trabaja de forma distinta, la operación pierde coordinación.</SectionTitle>
-            <SectionLead className="mx-auto">
-              Cuando el seguimiento vive en chats, juntas y memoria, el equipo invierte más tiempo
-              buscando información que resolviendo problemas.
+      <LandingShell wide>
+        <div className="grid items-end gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-12">
+          <div className="max-w-xl">
+            <Eyebrow dark tokenColor="red">
+              Coordinación entre áreas
+            </Eyebrow>
+            <SectionTitle dark>Todos saben qué hacer, quién responde y qué sigue.</SectionTitle>
+            <SectionLead dark>
+              Conecta áreas, responsables y solicitudes en un mismo flujo de trabajo.
             </SectionLead>
-        </div>
-
-        <LandingCard className="mx-auto mt-9 max-w-6xl p-5 shadow-md ring-1 ring-border/30 sm:p-7">
-          <div className="grid items-center gap-8 lg:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)] lg:gap-12">
-            <div className="order-2 lg:order-1">
-              <ChaosToOrderVisual />
-            </div>
-            <div className="order-1 lg:order-2">
-              <p className="mb-4 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                Lo que parece falta de seguimiento termina afectando la ejecución
-              </p>
-              <ul className="grid gap-2.5 lg:grid-cols-1">
-              {items.map(([title, copy, impact], index) => (
-                <li key={title} className="flex gap-3 rounded-xl border border-border/50 bg-muted/20 p-3.5">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-red-500/10 text-[10px] font-bold tabular-nums text-red-600">
-                    0{index + 1}
-                  </span>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">{title}</p>
-                    <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">{copy}</p>
-                    <p className="mt-1.5 text-[11px] font-semibold text-red-600">Impacto: {impact}</p>
-                  </div>
-                </li>
-              ))}
-              </ul>
-              <div className="mt-5 rounded-xl border border-primary/20 bg-primary/[0.06] p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">
-                  Lo que cambia con SCRUMBAN
-                </p>
-                <p className="mt-2 text-sm font-semibold leading-relaxed text-foreground sm:text-base">
-                  Una sola forma de comunicar, asignar, actualizar, desbloquear y medir convierte
-                  el seguimiento en una capacidad de toda la organización.
-                </p>
-              </div>
-            </div>
           </div>
-        </LandingCard>
-      </LandingShell>
-    </LandingSection>
-  )
-}
-
-const cultureBefore = [
-  'Chats y solicitudes dispersas',
-  'Juntas sin acuerdos trazables',
-  'Responsables ambiguos',
-  'KPIs manuales o tardíos',
-]
-
-const cultureAfter = [
-  'Solicitudes centralizadas',
-  'Compromisos visibles',
-  'Responsables y fechas claras',
-  'KPIs conectados a la ejecución',
-]
-
-export function CultureShiftSection() {
-  return (
-    <LandingSection
-      id="cultura"
-      surface="base"
-      spacing="tight"
-      seoDescription={LANDING_SEO.sections.cultura.description}
-    >
-      <LandingShell className="max-w-6xl">
-        <div className="mx-auto max-w-3xl text-center">
-          <Eyebrow tokenColor="green">Cambio cultural</Eyebrow>
-          <SectionTitle>De seguimiento informal a ejecución medible.</SectionTitle>
-          <SectionLead className="mx-auto">
-            SCRUMBAN instala una forma compartida de comunicar, comprometer, actualizar y medir.
-          </SectionLead>
-        </div>
-        <div className="mt-9 grid overflow-hidden rounded-2xl border border-border/60 shadow-md md:grid-cols-2">
-          <div className="bg-muted/35 p-6 sm:p-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Antes</p>
-            <div className="mt-5 space-y-3">
-              {cultureBefore.map((item) => (
-                <div key={item} className="flex items-center gap-3 text-sm text-muted-foreground">
-                  <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="bg-foreground p-6 text-background sm:p-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">Con SCRUMBAN</p>
-            <div className="mt-5 space-y-3">
-              {cultureAfter.map((item) => (
-                <div key={item} className="flex items-center gap-3 text-sm font-medium">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-        <p className="mt-6 text-center text-base font-semibold text-foreground">
-          Cuando todos ven lo mismo, el equipo comunica mejor y la operación aprende.
-        </p>
-      </LandingShell>
-    </LandingSection>
-  )
-}
-
-const comparisonRows = [
-  ['Tarea', 'Solicitud con responsable'],
-  ['Estado', 'Seguimiento y evidencia'],
-  ['Vencimiento', 'Causa y trazabilidad'],
-  ['Problema', 'Bloqueo y escalamiento'],
-  ['Cierre', 'Verificación'],
-  ['Actividad', 'Métricas de cumplimiento'],
-]
-
-export function ComparisonSection() {
-  return (
-    <LandingSection surface="base" spacing="tight">
-      <LandingShell className="max-w-5xl">
-        <div className="mx-auto max-w-3xl text-center">
-          <Eyebrow tokenColor="blue">Por qué no es otro Kanban</Eyebrow>
-          <SectionTitle>Un Kanban organiza tareas. SCRUMBAN gestiona compromisos.</SectionTitle>
-        </div>
-        <LandingCard className="mt-10 overflow-hidden shadow-md ring-1 ring-border/40">
-          <div className="grid grid-cols-2 border-b border-border/50 bg-muted/30 px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-xs">
-            <span>Kanban tradicional</span>
-            <span className="text-primary">SCRUMBAN</span>
-          </div>
-          {comparisonRows.map(([left, right]) => (
-            <div
-              key={left}
-              className="grid grid-cols-2 border-t border-border/40 px-5 py-3.5 text-sm transition-colors hover:bg-muted/40"
-            >
-              <span className="pr-4 text-muted-foreground">{left}</span>
-              <span className="flex items-center gap-2 font-semibold text-foreground">
-                <CheckCircle2 className="hidden h-4 w-4 shrink-0 text-emerald-600 sm:block" />
-                {right}
-              </span>
-            </div>
-          ))}
-        </LandingCard>
-      </LandingShell>
-    </LandingSection>
-  )
-}
-
-export function MidPageCTA() {
-  return (
-    <section id="diagnostico" className="border-b border-border/60 bg-foreground py-8 text-background">
-      <LandingSectionSeo description={LANDING_SEO.sections.diagnostico.description} />
-      <LandingShell className="flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-center">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
-            Visibilidad aplicada a tu operación
+          <p className="text-sm text-white/45 lg:text-right">
+            Recorre el flujo · {PRODUCT_STORY.action.id} permanece visible en toda la landing
           </p>
-          <h2 className="mt-2 text-balance text-xl font-semibold sm:text-2xl">
-            Descubre dónde estás perdiendo seguimiento hoy.
-          </h2>
         </div>
-        <PrimaryCTA dark className="shrink-0">
-          Agendar diagnóstico
-        </PrimaryCTA>
-      </LandingShell>
-    </section>
-  )
-}
-
-const extraCapabilities = [
-  { icon: MessageCircle, code: 'COM·001', title: 'Comunicación operativa', copy: 'Menos mensajes sueltos. Más contexto compartido.' },
-  { icon: Users, code: 'MGT·002', title: 'Gestión de compromisos', copy: 'Cada pendiente tiene dueño, fecha y siguiente paso.' },
-  { icon: Columns3, code: 'TRZ·003', title: 'Trazabilidad y evidencia', copy: 'Qué pasó, cuándo pasó y quién participó.' },
-  { icon: BarChart3, code: 'KPI·004', title: 'KPIs operativos', copy: 'Mide cómo opera el equipo, no solo cuántas tareas mueve.' },
-  { icon: Target, code: 'DIR·005', title: 'Dirección y decisiones', copy: 'Riesgos y prioridades visibles antes de que escalen.' },
-] as const
-
-export function MoreCapabilitiesSection() {
-  return (
-    <LandingSection
-      id="capacidades"
-      surface="muted"
-      spacing="tight"
-      withGrid
-      seoDescription={LANDING_SEO.sections.capacidades.description}
-    >
-      <LandingShell className="max-w-6xl">
-        <div className="mx-auto max-w-3xl text-center">
-          <Eyebrow tokenColor="green">Capacidades conectadas</Eyebrow>
-          <SectionTitle>
-            Un sistema operativo para comunicar, ejecutar, medir y mejorar.
-          </SectionTitle>
-          <SectionLead className="mx-auto">
-            No son módulos aislados. Cada capacidad alimenta el mismo ciclo de ejecución.
-          </SectionLead>
-        </div>
-
-        <div className="relative mt-9 -mx-3 sm:mx-0">
-          <div
-            className="flex gap-3 overflow-x-auto scroll-smooth px-3 pb-2 snap-x snap-mandatory md:grid md:grid-cols-2 md:overflow-visible md:snap-none md:px-0 lg:grid-cols-5"
-            aria-label="Módulos del sistema"
-          >
-            {extraCapabilities.map((cap) => {
-              const Icon = cap.icon
-              return (
-                <div
-                  key={cap.code}
-                  className="w-[260px] shrink-0 snap-start rounded-2xl border border-border/60 bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md md:w-auto"
-                >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                    <Icon className="h-4 w-4" />
-                  </span>
-                  <div className="mt-4 min-w-0">
-                    <p className="text-sm font-semibold leading-snug text-foreground">{cap.title}</p>
-                    <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{cap.copy}</p>
-                    <p className="mt-3 text-[9px] font-semibold tabular-nums tracking-wide text-muted-foreground">
-                      {cap.code}
-                    </p>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+        <div className="mt-5">
+          <CoordinationFlowDemo />
         </div>
       </LandingShell>
     </LandingSection>
   )
 }
 
-const closeStats = [
-  { value: 89, prefix: '', suffix: '%', label: 'ICO del periodo' },
-  { value: 1, prefix: '< ', suffix: ' día', label: 'Para detectar un retraso crítico' },
-  { value: 18, prefix: '', suffix: '', label: 'Acciones que requieren atención hoy' },
+const improvementSteps = [
+  {
+    label: 'Indicador',
+    value: PRODUCT_STORY.objective.gapLabel,
+    detail: 'Cumplimiento operativo del periodo (ejemplo de demo).',
+  },
+  {
+    label: 'Brecha',
+    value: PRODUCT_STORY.improvement.chain[3].value,
+    detail: 'Los bloqueos en validación Comercial-Finanzas frenan el avance.',
+  },
+  {
+    label: 'Acción correctiva',
+    value: PRODUCT_STORY.action.id + ' · ' + PRODUCT_STORY.action.title,
+    detail: PRODUCT_STORY.blocker.supportAsk,
+  },
+  {
+    label: 'Seguimiento',
+    value: PRODUCT_STORY.action.nextStep,
+    detail: 'El mismo compromiso alimenta la revisión de dirección.',
+  },
 ] as const
+
+function ImprovementChainDemo() {
+  const [step, setStep] = useState(0)
+  const active = improvementSteps[step]
+
+  return (
+    <div className="liquid-glass overflow-hidden rounded-2xl">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3.5 py-2 sm:px-4">
+        <p className="text-xs font-semibold text-white">De indicador a decisión</p>
+        <span className="text-[9px] font-semibold text-white/40">{PRODUCT_STORY_DEMO_LABEL}</span>
+      </div>
+
+      <div className="grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <ol className="divide-y divide-white/10 border-b border-white/10 lg:border-b-0 lg:border-r">
+          {improvementSteps.map((item, index) => (
+            <li key={item.label}>
+              <button
+                type="button"
+                onClick={() => setStep(index)}
+                className={cn(
+                  'flex w-full items-start gap-2.5 px-3.5 py-2.5 text-left transition sm:px-4',
+                  index === step ? 'bg-white/[0.08]' : 'hover:bg-white/[0.04]'
+                )}
+              >
+                <span
+                  className={cn(
+                    'mt-0.5 grid h-6 w-6 place-items-center rounded-full text-[10px] font-bold',
+                    index === step
+                      ? 'bg-white text-black'
+                      : index < step
+                        ? 'bg-white/25 text-white'
+                        : 'bg-white/10 text-white/60'
+                  )}
+                >
+                  {index < step ? <CheckCircle2 className="h-3.5 w-3.5" /> : `0${index + 1}`}
+                </span>
+                <span>
+                  <span className="block text-[9px] font-semibold uppercase tracking-wider text-white/40">
+                    {item.label}
+                  </span>
+                  <span className="mt-0.5 block text-xs font-semibold text-white">{item.value}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ol>
+
+        <div className="flex flex-col justify-between gap-3 p-3.5 sm:p-4">
+          <div>
+            <p className="text-[9px] font-semibold uppercase tracking-wider text-white/40">
+              {active.label}
+            </p>
+            <p className="mt-1 text-base font-semibold leading-snug text-white sm:text-lg">
+              {active.value}
+            </p>
+            <p className="mt-1.5 text-xs leading-relaxed text-white/65">{active.detail}</p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 rounded-full border-white/20 bg-transparent px-3 text-xs text-white hover:bg-white/10 hover:text-white"
+              disabled={step === 0}
+              onClick={() => setStep((value) => Math.max(0, value - 1))}
+            >
+              Anterior
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 rounded-full bg-white px-3 text-xs text-black hover:bg-white/90"
+              disabled={step === improvementSteps.length - 1}
+              onClick={() => setStep((value) => Math.min(improvementSteps.length - 1, value + 1))}
+            >
+              Siguiente
+            </Button>
+          </div>
+          <ul className="grid gap-1.5 sm:grid-cols-2">
+            {PRODUCT_STORY.improvement.capabilities.map((cap) => (
+              <li key={cap} className="flex items-start gap-1.5 text-xs text-white/80">
+                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-white/70" />
+                {cap}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function ContinuousImprovementSection() {
+  return (
+    <LandingSection
+      id="mejora"
+      surface="transparent"
+      className="home-post__section"
+      spacing="tight"
+      seoDescription={LANDING_SEO.sections.mejora.description}
+    >
+      <LandingShell wide>
+        <div className="max-w-xl">
+          <Eyebrow dark tokenColor="green">
+            Gestión y mejora continua
+          </Eyebrow>
+          <SectionTitle dark>No solo gestiones actividades. Mejora cómo opera tu empresa.</SectionTitle>
+          <SectionLead dark>
+            Convierte la información de ejecución en seguimiento, aprendizaje y mejores decisiones.
+          </SectionLead>
+        </div>
+        <div className="mt-5">
+          <ImprovementChainDemo />
+        </div>
+      </LandingShell>
+    </LandingSection>
+  )
+}
 
 export function CloseSection() {
   return (
-    <>
-      <LandingSection
-        id="cierre"
-        surface="inverse"
-        spacing="standard"
-        reveal
-        seoDescription={LANDING_SEO.sections.cierre.description}
-      >
-        <LandingShell className="max-w-6xl text-center">
-          <div className="flex justify-center">
-            <Eyebrow dark tokenColor="green">
-              El resultado para Dirección
-            </Eyebrow>
-          </div>
-          <h2 className="text-balance text-3xl font-semibold tracking-tight text-background sm:text-4xl lg:text-5xl">
-            Una organización que comunica mejor,
+    <LandingSection
+      id="cierre"
+      surface="transparent"
+      className="home-post__section"
+      spacing="tight"
+      reveal
+      seoDescription={LANDING_SEO.sections.cierre.description}
+    >
+      <LandingShell className="max-w-4xl">
+        <div className="liquid-glass relative overflow-hidden rounded-3xl px-8 py-16 text-center md:py-24">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/50">Cierre</p>
+          <h2 className="mt-4 text-balance text-3xl font-semibold tracking-tight text-white sm:text-4xl md:text-5xl">
+            Tu estrategia necesita ejecución.
             <br />
-            <span className="text-primary">cumple, aprende y mejora.</span>
+            Tu ejecución necesita seguimiento.
           </h2>
-          <div className="mt-12 grid gap-10 border-t border-background/15 pt-10 sm:grid-cols-3 sm:gap-6">
-            {closeStats.map((stat) => (
-              <div key={stat.label} className="text-center">
-                <p className="text-4xl font-bold tabular-nums tracking-tight text-background sm:text-5xl">
-                  {stat.prefix}
-                  <CountUpInteger target={stat.value} suffix={stat.suffix} />
-                </p>
-                <p className="mt-3 text-sm leading-relaxed text-background/65">{stat.label}</p>
-              </div>
-            ))}
+          <SectionLead dark className="mx-auto mt-4 max-w-2xl text-white/60">
+            Conecta objetivos, responsables y resultados en una misma plataforma.
+          </SectionLead>
+          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <PrimaryCTA dark glow className="bg-white text-black hover:bg-white/90">
+              Solicitar demostración
+            </PrimaryCTA>
+            <SecondaryCTA
+              href="#ejecucion"
+              className="border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white"
+            >
+              Explorar Scrumban
+            </SecondaryCTA>
           </div>
-        </LandingShell>
-      </LandingSection>
-
-      <LandingSection surface="base" spacing="tight" reveal withGrid>
-        <LandingShell className="max-w-4xl">
-          <PremiumCtaPanel>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300/90">
-              Disponible · Demo personalizada
-            </p>
-            <h2 className="mt-4 text-balance text-3xl font-semibold tracking-tight text-white sm:text-4xl lg:text-5xl">
-              Tu operación ya genera información. Conviértela en cultura de ejecución.
-            </h2>
-            <SectionLead dark className="mx-auto mt-4 max-w-2xl text-emerald-50/75">
-              Ayuda a tu equipo a comunicarse mejor, dar seguimiento con claridad y tomar
-              decisiones con KPIs visibles.
-            </SectionLead>
-            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <PrimaryCTA dark glow className="bg-foreground text-background hover:bg-foreground/90" />
-              <DemoAdvisorCTA className="border-white/20 bg-white text-foreground hover:bg-white/90" />
-            </div>
-            <CtaTrustRow
-              dark
-              className="mt-5 justify-center text-emerald-200/70"
-              items={['Demo personalizada', 'Sin compromiso', 'Onboarding acompañado']}
-            />
-          </PremiumCtaPanel>
-        </LandingShell>
-      </LandingSection>
-    </>
+          <CtaTrustRow
+            dark
+            className="mt-5 justify-center text-white/45"
+            items={['Demo personalizada', 'Sin compromiso', 'Onboarding acompañado']}
+          />
+          <p className="mt-4 text-[11px] text-white/40">
+            Los indicadores de las demos son ejemplos, no resultados de clientes.
+          </p>
+        </div>
+      </LandingShell>
+    </LandingSection>
   )
 }

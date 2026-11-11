@@ -1,66 +1,66 @@
 /** Metadescripciones de la landing SCRUMBAN — fuente única para `<head>` y JSON-LD. */
 export const LANDING_SEO = {
   siteName: 'SCRUMBAN',
-  title: 'SCRUMBAN | Gestión operativa visible y medible',
+  title: 'SCRUMBAN | Plataforma de ejecución empresarial',
   description:
-    'SCRUMBAN centraliza compromisos operativos con responsables, KPIs y trazabilidad. Visibilidad para dirección sin perseguir pendientes por chat.',
+    'Conecta objetivos, equipos y compromisos. Ejecuta, da seguimiento y mide avances con visibilidad para dirección.',
   keywords:
-    'gestión operativa, kanban, compromisos, KPIs, OKR, tablero operativo, scrumban, visibilidad dirección',
+    'ejecución empresarial, gestión operativa, kanban, OKR, compromisos, KPIs, scrumban, visibilidad dirección',
   path: '/producto',
   sections: {
     inicio: {
       id: 'inicio',
-      name: 'Cultura de ejecución visible',
+      name: 'Plataforma de ejecución empresarial',
       description:
-        'Construye una cultura de ejecución visible, medible y responsable. Convierte pendientes dispersos en compromisos con dueño, fecha y KPIs conectados.',
+        'Convierte la estrategia en resultados. Conecta objetivos, equipos y compromisos en un sistema para ejecutar, dar seguimiento y medir avances.',
     },
-    problema: {
-      id: 'problema',
-      name: 'El costo de operar a ciegas',
+    coordinacion: {
+      id: 'coordinacion',
+      name: 'Coordinación entre áreas',
       description:
-        'Información dispersa, compromisos ambiguos y decisiones tardías erosionan la coordinación. SCRUMBAN unifica comunicación, asignación y seguimiento.',
+        'Todos saben qué hacer, quién responde y qué sigue. Solicitudes, responsables, áreas y estados en un mismo flujo.',
     },
-    cultura: {
-      id: 'cultura',
-      name: 'De seguimiento informal a ejecución medible',
+    ejecucion: {
+      id: 'ejecucion',
+      name: 'Ejecución operativa',
       description:
-        'Pasa de chats y juntas sin trazabilidad a solicitudes centralizadas, responsables claros y KPIs ligados a la operación diaria.',
+        'De los planes a compromisos con seguimiento: Kanban, prioridades, fechas, checkpoints, evidencias y verificación.',
     },
-    producto: {
-      id: 'como-funciona',
-      name: 'Producto en acción',
+    visibilidad: {
+      id: 'visibilidad',
+      name: 'Visibilidad directiva',
       description:
-        'Cada solicitud se convierte en compromiso gestionable: kanban con estados, responsable, evidencia y trazabilidad hasta verificación.',
+        'Consulta objetivos, indicadores, retrasos y bloqueos. Una vista de atención semanal con profundidad progresiva.',
     },
-    indicadores: {
-      id: 'indicadores',
-      name: 'Valor para Dirección',
+    seguimiento: {
+      id: 'seguimiento',
+      name: 'Seguimiento de compromisos',
       description:
-        'Atención inmediata, ICO, tiempos de cierre y OKRs en un tablero ejecutivo. Detecta retrasos y riesgos antes de la junta de crisis.',
+        'Detecta retrasos antes de que escalen: vencimientos, bloqueos, actualizaciones y reportes de avance.',
     },
-    diagnostico: {
-      id: 'diagnostico',
-      name: 'Diagnóstico operativo',
+    colaboracion: {
+      id: 'colaboracion',
+      name: 'Comunicación y colaboración',
       description:
-        'Identifica dónde pierde seguimiento tu operación hoy. Agenda un diagnóstico personalizado con el equipo SCRUMBAN.',
+        'Cada solicitud tiene contexto, responsable y respuesta. Comentarios y evidencias ligados al compromiso.',
     },
-    ia: {
-      id: 'ia',
-      name: 'Asistente IA operativo',
+    mejora: {
+      id: 'mejora',
+      name: 'Gestión y mejora continua',
       description:
-        'Ante un bloqueo, el asistente valida contexto, evidencia de cierre y próximos pasos con el mismo flujo del tablero real.',
+        'Convierte la ejecución en seguimiento, aprendizaje y mejores decisiones: objetivos, indicadores, gaps y próximas prioridades.',
     },
-    capacidades: {
-      id: 'capacidades',
-      name: 'Capacidades conectadas',
+    enviardian: {
+      id: 'enviardian',
+      name: 'Enviardián integrado',
       description:
-        'Comunicación operativa, gestión de compromisos, trazabilidad, KPIs y visibilidad para dirección en un solo sistema integrado.',
+        'Consulta objetivos, acciones y bloqueos en conversación. La IA complementa Scrumban sin desconectarse del tablero.',
     },
     cierre: {
       id: 'cierre',
-      name: 'Resultado para Dirección',
+      name: 'Estrategia con seguimiento',
       description:
-        'Saber qué ocurre en la operación sin preguntarlo: visibilidad en tiempo real, intervención oportuna y confiabilidad en los compromisos.',
+        'Tu estrategia necesita ejecución. Tu ejecución necesita seguimiento. Solicita una demostración de Scrumban.',
     },
   },
 } as const

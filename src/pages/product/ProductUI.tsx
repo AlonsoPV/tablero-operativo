@@ -24,16 +24,24 @@ const SURFACE_CLASS: Record<LandingSurface, string> = {
   transparent: 'bg-transparent',
 }
 
-/** Contenedor de página alineado al tablero (`max-w-7xl` + padding). */
+/** Contenedor de página. `wide` da más protagonismo a demos en desktop. */
 export function LandingShell({
   children,
   className,
+  wide = false,
 }: {
   children: ReactNode
   className?: string
+  wide?: boolean
 }) {
   return (
-    <div className={cn('mx-auto w-full max-w-7xl px-3 sm:px-6 lg:px-8', className)}>
+    <div
+      className={cn(
+        'mx-auto w-full px-3 sm:px-6 lg:px-8',
+        wide ? 'max-w-[90rem]' : 'max-w-7xl',
+        className
+      )}
+    >
       {children}
     </div>
   )
@@ -126,13 +134,13 @@ export function Eyebrow({
       <StatusToken
         color={tokenColor}
         label={label}
-        className={cn(dark && '[&>span:last-child]:text-background/75')}
+        className={cn(dark && '[&>span:last-child]:text-white/75')}
       />
       {!label ? (
         <span
           className={cn(
             'ml-2 text-[11px] font-semibold uppercase tracking-wider',
-            dark ? 'text-background/75' : 'text-primary'
+            dark ? 'text-white/75' : 'text-primary'
           )}
         >
           {children}
@@ -155,7 +163,7 @@ export function SectionTitle({
     <h2
       className={cn(
         'text-balance text-2xl font-semibold tracking-tight sm:text-3xl lg:text-4xl',
-        dark ? 'text-background' : 'text-foreground',
+        dark ? 'text-white' : 'text-foreground',
         className
       )}
     >
@@ -177,7 +185,7 @@ export function SectionLead({
     <p
       className={cn(
         'mt-4 max-w-2xl text-sm leading-relaxed sm:text-base',
-        dark ? 'text-background/70' : 'text-muted-foreground',
+        dark ? 'text-white/70' : 'text-muted-foreground',
         className
       )}
     >
@@ -235,7 +243,7 @@ export function LandingPanel({
 }
 
 export function PrimaryCTA({
-  children = 'Solicitar demo',
+  children = 'Solicitar demostración',
   dark = false,
   glow = false,
   className,
@@ -309,7 +317,7 @@ export function CtaTrustRow({
     <div
       className={cn(
         'mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs',
-        dark ? 'text-background/65' : 'text-muted-foreground',
+        dark ? 'text-white/65' : 'text-muted-foreground',
         className
       )}
     >
@@ -350,22 +358,27 @@ export function SecondaryCTA({
 export function DemoWindow({
   children,
   title = 'Operación · Hoy',
+  subtitle,
   className = '',
 }: {
   children: ReactNode
   title?: string
+  subtitle?: string
   className?: string
 }) {
   return (
     <LandingCard className={cn('min-w-0', className)}>
-      <div className="flex h-11 items-center justify-between border-b border-border/50 bg-muted/20 px-4">
+      <div className="flex h-11 items-center justify-between gap-2 border-b border-border/50 bg-muted/20 px-4">
         <div className="flex gap-1.5">
           <i className="h-2.5 w-2.5 rounded-full bg-red-400/80" />
           <i className="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
           <i className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
         </div>
-        <span className="text-[10px] font-semibold text-muted-foreground">{title}</span>
-        <span className="h-5 w-5 rounded-full bg-muted" />
+        <span className="truncate text-center text-[10px] font-semibold text-muted-foreground">
+          {title}
+          {subtitle ? <span className="font-medium text-muted-foreground/70"> · {subtitle}</span> : null}
+        </span>
+        <span className="h-5 w-5 shrink-0 rounded-full bg-muted" />
       </div>
       {children}
     </LandingCard>
