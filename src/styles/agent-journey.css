@@ -1,7 +1,8 @@
 /* Campo compartido /agente — video de fondo (fondoAgente.md) + liquid-glass */
 
 .home-particle-page {
-  background-color: var(--color-hero-bg);
+  /* Oscuro de base: el video CloudFront puede tardar o fallar; no mostrar cream del tema. */
+  background-color: #0c0c0c;
 }
 
 .home-particle-journey,
