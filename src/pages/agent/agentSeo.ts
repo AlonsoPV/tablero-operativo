@@ -1,58 +1,64 @@
 /** Metadescripciones de la landing comercial del agente — fuente única para `<head>` y JSON-LD. */
+
 export const AGENT_LANDING_SEO = {
-  siteName: 'SCRUMBAN',
-  title: 'SCRUMBAN | Tu operación, bajo control.',
+  siteName: 'Scrumban',
+  productName: 'Enviardián',
+  title: 'Enviardián | Asistente de IA para Empresas',
   description:
-    'Consulta tu empresa, asigna compromisos y da seguimiento a tu equipo por voz, chat y WhatsApp. Visibilidad, ejecución y verificación con Enviardián.',
+    'Consulta tu operación por voz o chat, identifica bloqueos, prepara acciones y da seguimiento a tu equipo con inteligencia artificial.',
   keywords:
-    'dirección general, seguimiento de compromisos, visibilidad ejecutiva, Enviardián, WhatsApp operativo, verificación de cumplimiento, Gmail, Calendar, ejecución empresarial',
+    'asistente de IA para empresas, asistente empresarial con inteligencia artificial, asistente de voz para empresas, IA para gestión de tareas, IA para seguimiento de compromisos, asistente IA para operaciones, asistente IA con WhatsApp, consultas empresariales con IA, inteligencia artificial para gestión empresarial, Enviardián',
   path: '/agente',
+  ogImagePath: '/og/enviardian.svg',
+  ogImageAlt: 'Enviardián — asistente de IA para empresas',
+  relatedPath: '/producto',
+  relatedName: 'Scrumban',
   sections: {
     inicio: {
       id: 'inicio',
-      name: 'Tu operación, bajo control.',
+      name: 'Asistente de IA empresarial',
       description:
         'Consulta tu empresa, asigna compromisos y da seguimiento a tu equipo por voz, chat y WhatsApp.',
     },
     visibilidad: {
       id: 'visibilidad',
-      name: 'Lo que necesitas saber, en una conversación.',
+      name: 'Consultas de información operativa',
       description:
         'Consulta OKRs, BAU, KPIs, vencidos, bloqueos y pendientes de verificación en una respuesta priorizada.',
     },
     accion: {
       id: 'accion',
-      name: 'De una instrucción a un compromiso claro.',
+      name: 'Propuestas de acciones',
       description:
-        'Instrucción en lenguaje natural, propuesta con responsable, fecha, prioridad y evidencia. Confirmación antes de crear.',
+        'Instrucción en lenguaje natural, propuesta con responsable, fecha, prioridad y evidencia. Confirmación humana antes de crear.',
     },
     whatsapp: {
       id: 'whatsapp',
-      name: 'El seguimiento sucede donde trabaja tu equipo.',
+      name: 'Seguimiento por WhatsApp',
       description:
         'Aviso autorizado, reportes, apoyo y evidencia por WhatsApp; el tablero refleja el cambio.',
     },
     verificacion: {
       id: 'verificacion',
-      name: 'No solo sabes qué se reportó. Sabes qué se cumplió.',
+      name: 'Verificación de cumplimiento',
       description:
-        'Evidencias, historial y verificación autorizada. Hecho no es Verificado.',
+        'Evidencias, historial e informes ejecutivos. Hecho no es Verificado.',
     },
     asistente: {
       id: 'asistente',
-      name: 'Habla de tu empresa. Conserva cada acuerdo.',
+      name: 'Asistente por voz e historial',
       description:
         'Chat, resumen de sesión, informe PDF e historial. Compartir por WhatsApp cuando esté permitido.',
     },
     integraciones: {
       id: 'integraciones',
-      name: 'De la conversación a tener el siguiente paso listo.',
+      name: 'Integraciones condicionadas',
       description:
         'Borradores de Gmail y propuestas de Calendar con cuenta Google conectada. Nada se envía ni se crea sin confirmar.',
     },
     demostracion: {
       id: 'demostracion',
-      name: 'Más claridad para decidir. Más seguimiento para ejecutar.',
+      name: 'Demostración Enviardián',
       description:
         'Solicita una demostración o prueba Enviardián. Conecta dirección, responsables y seguimiento.',
     },
@@ -61,11 +67,15 @@ export const AGENT_LANDING_SEO = {
 
 export type AgentLandingSectionSeoKey = keyof typeof AGENT_LANDING_SEO.sections
 
-export function getAgentLandingCanonicalUrl(path = AGENT_LANDING_SEO.path) {
+export function getAgentLandingCanonicalUrl(path: string = AGENT_LANDING_SEO.path) {
   const base = import.meta.env.VITE_APP_URL?.replace(/\/$/, '') ?? 'https://scrumbanemx.vercel.app'
   return `${base}${path}`
 }
 
 export function getAgentLandingSectionUrl(sectionId: string) {
   return `${getAgentLandingCanonicalUrl()}#${sectionId}`
+}
+
+export function getAgentLandingOgImageUrl() {
+  return `${getAgentLandingCanonicalUrl('').replace(/\/$/, '')}${AGENT_LANDING_SEO.ogImagePath}`
 }

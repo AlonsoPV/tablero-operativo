@@ -66,6 +66,9 @@
     },
     { "source": "/api/guide-link-report", "destination": "/api/guide-report?op=link-report" },
     { "source": "/api/guide-report-share", "destination": "/api/guide-report?op=share" },
-    { "source": "/((?!api/|assets/|docs/).*)", "destination": "/index.html" }
+    {
+      "source": "/((?!api/|assets/|docs/|og/|robots\\.txt$|sitemap\\.xml$).*)",
+      "destination": "/index.html"
+    }
   ]
 }

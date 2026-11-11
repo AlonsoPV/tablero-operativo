@@ -781,11 +781,12 @@ export function ProductInAction() {
         <div className="grid items-end gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-10">
           <div className="max-w-xl">
             <Eyebrow dark tokenColor="blue">
-              Ejecución operativa
+              Gestión de acciones y Kanban
             </Eyebrow>
             <SectionTitle dark>De los planes a compromisos con seguimiento.</SectionTitle>
             <SectionLead dark>
-              Cada prioridad se traduce en acciones con responsables, fechas y criterios de cumplimiento.
+              Cada prioridad se traduce en acciones con responsables, fechas y verificación de
+              cumplimiento.
             </SectionLead>
           </div>
           <div className="flex flex-wrap items-center gap-2 lg:justify-end">
@@ -1324,12 +1325,18 @@ export function EnviardianBridgeDemo() {
         <div className="grid items-end gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
           <div className="max-w-xl">
             <Eyebrow dark tokenColor="yellow">
-              Enviardián
+              Asistente de IA integrado
             </Eyebrow>
             <SectionTitle dark>Tu información también está disponible en una conversación.</SectionTitle>
             <SectionLead dark>
-              Consulta objetivos, acciones y bloqueos; prepara nuevas acciones por voz o texto.
+              Consulta objetivos, acciones y bloqueos; prepara nuevas acciones por voz o texto con
+              confirmación humana.
             </SectionLead>
+            <p className="mt-3 text-sm text-white/70">
+              <Link to="/agente" className="font-medium text-white underline-offset-4 hover:underline">
+                Conoce Enviardián, el asistente de IA conectado con tu operación.
+              </Link>
+            </p>
           </div>
           <div className="lg:justify-self-end">
             <Button

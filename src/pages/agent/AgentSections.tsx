@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -260,8 +261,8 @@ export function AgentIntegrationsSection() {
           </Eyebrow>
           <SectionTitle dark>De la conversación a tener el siguiente paso listo.</SectionTitle>
           <SectionLead dark>
-            Gmail y Calendar con cuenta conectada. Borradores y propuestas; nada se envía ni se crea
-            solo.
+            Integraciones condicionadas con Gmail y Calendar. Borradores y propuestas; nada se envía ni
+            se crea sin confirmación humana.
           </SectionLead>
         </div>
 
@@ -395,7 +396,8 @@ export function AgentCloseSection() {
             Más claridad para decidir. Más seguimiento para ejecutar.
           </h2>
           <SectionLead dark className="mx-auto mt-4 max-w-2xl text-white/60">
-            Descubre cómo conectar dirección, responsables y seguimiento en tu empresa.
+            Descubre cómo conectar dirección, responsables y seguimiento con un asistente de IA para
+            empresas.
           </SectionLead>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <PrimaryCTA dark glow className="bg-white text-black hover:bg-white/90">
@@ -410,6 +412,14 @@ export function AgentCloseSection() {
               <a href="#visibilidad">Probar Enviardián</a>
             </Button>
           </div>
+          <p className="mt-4 text-sm text-white/55">
+            <Link
+              to="/producto"
+              className="font-medium text-white/80 underline-offset-4 hover:underline"
+            >
+              Descubre Scrumban, la plataforma que organiza y da seguimiento al trabajo.
+            </Link>
+          </p>
           <CtaTrustRow
             dark
             className="mt-5 justify-center text-white/45"

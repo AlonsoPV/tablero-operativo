@@ -1,16 +1,22 @@
 /** Metadescripciones de la landing SCRUMBAN — fuente única para `<head>` y JSON-LD. */
+
 export const LANDING_SEO = {
-  siteName: 'SCRUMBAN',
-  title: 'SCRUMBAN | Plataforma de ejecución empresarial',
+  siteName: 'Scrumban',
+  productName: 'Scrumban',
+  title: 'Scrumban | Software de Gestión y Ejecución Empresarial',
   description:
-    'Conecta objetivos, equipos y compromisos. Ejecuta, da seguimiento y mide avances con visibilidad para dirección.',
+    'Conecta objetivos, equipos y compromisos. Gestiona acciones, OKRs y operaciones con seguimiento, indicadores y responsables.',
   keywords:
-    'ejecución empresarial, gestión operativa, kanban, OKR, compromisos, KPIs, scrumban, visibilidad dirección',
+    'software de gestión empresarial, software de gestión de operaciones, plataforma de ejecución empresarial, seguimiento de compromisos, gestión de equipos de trabajo, software OKR, gestión de tareas empresariales, control de actividades empresariales, seguimiento de objetivos estratégicos, tableros de gestión empresarial, Scrumban',
   path: '/producto',
+  ogImagePath: '/og/scrumban.svg',
+  ogImageAlt: 'Scrumban — software de gestión y ejecución empresarial',
+  relatedPath: '/agente',
+  relatedName: 'Enviardián',
   sections: {
     inicio: {
       id: 'inicio',
-      name: 'Plataforma de ejecución empresarial',
+      name: 'Software de gestión y ejecución empresarial',
       description:
         'Convierte la estrategia en resultados. Conecta objetivos, equipos y compromisos en un sistema para ejecutar, dar seguimiento y medir avances.',
     },
@@ -18,23 +24,23 @@ export const LANDING_SEO = {
       id: 'coordinacion',
       name: 'Coordinación entre áreas',
       description:
-        'Todos saben qué hacer, quién responde y qué sigue. Solicitudes, responsables, áreas y estados en un mismo flujo.',
+        'Gestión empresarial con visibilidad entre áreas: solicitudes, responsables, compromisos y estados en un mismo flujo.',
     },
     ejecucion: {
       id: 'ejecucion',
-      name: 'Ejecución operativa',
+      name: 'Gestión de acciones y Kanban',
       description:
-        'De los planes a compromisos con seguimiento: Kanban, prioridades, fechas, checkpoints, evidencias y verificación.',
+        'De los planes a compromisos con seguimiento: Kanban, prioridades, fechas, checkpoints, evidencias y verificación de cumplimiento.',
     },
     visibilidad: {
       id: 'visibilidad',
-      name: 'Visibilidad directiva',
+      name: 'OKRs e indicadores BAU',
       description:
-        'Consulta objetivos, indicadores, retrasos y bloqueos. Una vista de atención semanal con profundidad progresiva.',
+        'Consulta objetivos estratégicos, indicadores BAU, retrasos y bloqueos. Una vista de atención semanal con profundidad progresiva.',
     },
     seguimiento: {
       id: 'seguimiento',
-      name: 'Seguimiento de compromisos',
+      name: 'Seguimiento operativo',
       description:
         'Detecta retrasos antes de que escalen: vencimientos, bloqueos, actualizaciones y reportes de avance.',
     },
@@ -46,7 +52,7 @@ export const LANDING_SEO = {
     },
     mejora: {
       id: 'mejora',
-      name: 'Gestión y mejora continua',
+      name: 'Mejora continua',
       description:
         'Convierte la ejecución en seguimiento, aprendizaje y mejores decisiones: objetivos, indicadores, gaps y próximas prioridades.',
     },
@@ -54,7 +60,7 @@ export const LANDING_SEO = {
       id: 'enviardian',
       name: 'Enviardián integrado',
       description:
-        'Consulta objetivos, acciones y bloqueos en conversación. La IA complementa Scrumban sin desconectarse del tablero.',
+        'Consulta objetivos, acciones y bloqueos en conversación. El asistente de IA complementa Scrumban sin desconectarse del tablero.',
     },
     cierre: {
       id: 'cierre',
@@ -67,11 +73,15 @@ export const LANDING_SEO = {
 
 export type LandingSectionSeoKey = keyof typeof LANDING_SEO.sections
 
-export function getLandingCanonicalUrl(path = LANDING_SEO.path) {
+export function getLandingCanonicalUrl(path: string = LANDING_SEO.path) {
   const base = import.meta.env.VITE_APP_URL?.replace(/\/$/, '') ?? 'https://scrumbanemx.vercel.app'
   return `${base}${path}`
 }
 
 export function getLandingSectionUrl(sectionId: string) {
   return `${getLandingCanonicalUrl()}#${sectionId}`
+}
+
+export function getLandingOgImageUrl() {
+  return `${getLandingCanonicalUrl('').replace(/\/$/, '')}${LANDING_SEO.ogImagePath}`
 }

@@ -11,7 +11,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ROUTES, getRuntimeAppBaseUrl } from '@/constants'
+import { APP_NAME, ROUTES, getRuntimeAppBaseUrl } from '@/constants'
+import { NoIndexHead } from '@/components/seo/NoIndexHead'
 import { supabase } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
@@ -152,6 +153,7 @@ export function ResetPasswordPage() {
   if (phase === 'checking') {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-gradient-to-b from-muted/50 to-muted/30 p-4">
+        <NoIndexHead title={`${APP_NAME} | Nueva contraseña`} />
         <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
         <div className="max-w-sm space-y-1 text-center">
           <p className="text-sm font-medium text-foreground">Validando tu enlace…</p>
@@ -166,6 +168,7 @@ export function ResetPasswordPage() {
   if (phase === 'invalid') {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-muted/30 p-4">
+        <NoIndexHead title={`${APP_NAME} | Nueva contraseña`} />
         <Card className="w-full max-w-md border-border/60 shadow-sm">
           <CardHeader className="space-y-2 text-center">
             <CardTitle className="text-2xl font-semibold">Enlace caducado o ya usado</CardTitle>
@@ -193,6 +196,7 @@ export function ResetPasswordPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-muted/50 to-muted/30 p-4">
+      <NoIndexHead title={`${APP_NAME} | Nueva contraseña`} />
       <Card className="w-full max-w-md border-border/60 shadow-sm">
         <CardHeader className="space-y-2 text-center">
           <CardTitle className="text-2xl font-semibold">Nueva contraseña</CardTitle>

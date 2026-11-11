@@ -8,6 +8,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { AlertCircle, LayoutDashboard } from 'lucide-react'
 import { APP_NAME, ROUTES } from '@/constants'
+import { NoIndexHead } from '@/components/seo/NoIndexHead'
 import { authService } from '@/services/auth.service'
 import { useAuth } from '../hooks/useAuth'
 import { LoginForm } from '../components/LoginForm'
@@ -100,15 +101,26 @@ export function LoginPage() {
   }
 
   if (authLoading) {
-    return <AuthLoader message="Comprobando tu sesión…" />
+    return (
+      <>
+        <NoIndexHead title={`${APP_NAME} | Acceso`} />
+        <AuthLoader message="Comprobando tu sesión…" />
+      </>
+    )
   }
 
   if (sessionStatus === 'authenticated' && (profileStatus === 'loading' || (isReady && profile?.activo))) {
-    return <AuthLoader message={profileStatus === 'loading' ? 'Cargando tu perfil…' : 'Redirigiendo…'} />
+    return (
+      <>
+        <NoIndexHead title={`${APP_NAME} | Acceso`} />
+        <AuthLoader message={profileStatus === 'loading' ? 'Cargando tu perfil…' : 'Redirigiendo…'} />
+      </>
+    )
   }
 
   return (
     <div className="login-page relative min-h-screen overflow-hidden bg-muted/40">
+      <NoIndexHead title={`${APP_NAME} | Acceso`} />
       <div
         className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/[0.12] via-transparent to-primary/[0.06]"
         aria-hidden
