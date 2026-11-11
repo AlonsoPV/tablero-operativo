@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ArrowRight, CheckCircle2 } from 'lucide-react'
 import { AccionPriorityBadge } from '@/features/operations/components/AccionPriorityBadge'
 import { Button } from '@/components/ui/button'
@@ -188,7 +189,8 @@ export function CoordinationSection() {
             </Eyebrow>
             <SectionTitle dark>Todos saben qué hacer, quién responde y qué sigue.</SectionTitle>
             <SectionLead dark>
-              Conecta áreas, responsables y solicitudes en un mismo flujo de trabajo.
+              Coordinación entre áreas con responsables, solicitudes y seguimiento de compromisos en un
+              mismo flujo.
             </SectionLead>
           </div>
           <p className="text-sm text-white/45 lg:text-right">
@@ -329,11 +331,11 @@ export function ContinuousImprovementSection() {
       <LandingShell wide>
         <div className="max-w-xl">
           <Eyebrow dark tokenColor="green">
-            Gestión y mejora continua
+            Gestión empresarial y mejora continua
           </Eyebrow>
           <SectionTitle dark>No solo gestiones actividades. Mejora cómo opera tu empresa.</SectionTitle>
           <SectionLead dark>
-            Convierte la información de ejecución en seguimiento, aprendizaje y mejores decisiones.
+            Convierte OKRs, indicadores y ejecución en seguimiento, aprendizaje y mejores decisiones.
           </SectionLead>
         </div>
         <div className="mt-5">
@@ -363,7 +365,7 @@ export function CloseSection() {
             Tu ejecución necesita seguimiento.
           </h2>
           <SectionLead dark className="mx-auto mt-4 max-w-2xl text-white/60">
-            Conecta objetivos, responsables y resultados en una misma plataforma.
+            Conecta objetivos, responsables y resultados en una misma plataforma de gestión empresarial.
           </SectionLead>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <PrimaryCTA dark glow className="bg-white text-black hover:bg-white/90">
@@ -376,6 +378,11 @@ export function CloseSection() {
               Explorar Scrumban
             </SecondaryCTA>
           </div>
+          <p className="mt-4 text-sm text-white/55">
+            <Link to="/agente" className="font-medium text-white/80 underline-offset-4 hover:underline">
+              Conoce Enviardián, el asistente de IA conectado con tu operación.
+            </Link>
+          </p>
           <CtaTrustRow
             dark
             className="mt-5 justify-center text-white/45"

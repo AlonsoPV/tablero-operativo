@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { APP_NAME, ROUTES, getPasswordResetRedirectUrl } from '@/constants'
+import { NoIndexHead } from '@/components/seo/NoIndexHead'
 import { authService } from '@/services/auth.service'
 import { toast } from 'sonner'
 import {
@@ -51,6 +52,7 @@ export function ForgotPasswordPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-muted/50 to-muted/30 p-4">
+      <NoIndexHead title={`${APP_NAME} | Recuperar acceso`} />
       <Card className="w-full max-w-md border-border/60 shadow-sm">
         <CardHeader className="space-y-2 text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">

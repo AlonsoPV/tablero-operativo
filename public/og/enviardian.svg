@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Enviardián  asistente de IA para empresas">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#070A12"/>
+      <stop offset="55%" stop-color="#0E1628"/>
+      <stop offset="100%" stop-color="#18243A"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#A78BFA" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#5B8CFF" stop-opacity="0.28"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="1000" cy="140" r="240" fill="url(#glow)"/>
+  <circle cx="160" cy="500" r="160" fill="#7EE0C8" fill-opacity="0.12"/>
+  <text x="80" y="200" fill="#FFFFFF" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="64" font-weight="700">Enviardián</text>
+  <text x="80" y="280" fill="#D7E0F2" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="36" font-weight="500">Asistente de IA para Empresas</text>
+  <text x="80" y="360" fill="#9AABC8" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="26">Voz · chat · WhatsApp · confirmación humana · Scrumban</text>
+  <rect x="80" y="420" width="260" height="48" rx="24" fill="#FFFFFF"/>
+  <text x="210" y="451" text-anchor="middle" fill="#0B1220" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="20" font-weight="600">conectado a Scrumban</text>
+</svg>

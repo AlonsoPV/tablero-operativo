@@ -1,0 +1,36 @@
+# Scrumban / Enviardián — indexar solo landings comerciales públicas.
+User-agent: *
+Allow: /producto
+Allow: /agente
+Allow: /og/
+Allow: /robots.txt
+Allow: /sitemap.xml
+
+Disallow: /login
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /kanban
+Disallow: /kanban-equipos
+Disallow: /dashboard
+Disallow: /okrs
+Disallow: /estrategia
+Disallow: /asistente-ia
+Disallow: /settings
+Disallow: /tickets
+Disallow: /challenges
+Disallow: /admin
+Disallow: /sprints
+Disallow: /disciplina
+Disallow: /areas
+Disallow: /calendario
+Disallow: /reportes
+Disallow: /notificaciones
+Disallow: /distancias
+Disallow: /academia
+Disallow: /manual
+Disallow: /organigrama
+Disallow: /plan-accion
+Disallow: /guia/
+Disallow: /api/
+
+Sitemap: https://scrumbanemx.vercel.app/sitemap.xml
