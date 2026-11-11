@@ -1279,7 +1279,7 @@ export function CollaborationDemo() {
                       </p>
                     </div>
                     <p className="mt-1 text-xs leading-relaxed text-white/80">{msg.text}</p>
-                    {msg.evidence ? (
+                    {'evidence' in msg && msg.evidence ? (
                       <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.05] px-2 py-1 text-[11px] font-medium text-white">
                         <FileCheck className="h-3.5 w-3.5 text-white/70" />
                         {msg.evidence}
