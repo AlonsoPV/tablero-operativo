@@ -29,6 +29,8 @@ export interface KanbanHeaderProps {
   mineActive?: boolean
   onToggleMine?: () => void
   mineDisabled?: boolean
+  okrActive?: boolean
+  onToggleOkr?: () => void
   viewMode?: KanbanViewMode
   onViewModeChange?: (mode: KanbanViewMode) => void
   rightOfTitle?: React.ReactNode
@@ -61,6 +63,8 @@ export function KanbanHeader({
   mineActive = false,
   onToggleMine,
   mineDisabled = false,
+  okrActive = false,
+  onToggleOkr,
   viewMode = 'kanban',
   onViewModeChange,
   rightOfTitle,
@@ -211,6 +215,24 @@ export function KanbanHeader({
                 </span>
               ) : null}
             </Button>
+          ) : null}
+
+          {onToggleOkr ? (
+            <button
+              id="kanban-btn-okr"
+              type="button"
+              aria-pressed={okrActive}
+              title={okrActive ? 'Ver todas las acciones' : 'Ver solo iniciativas OKR'}
+              onClick={onToggleOkr}
+              className={cn(
+                'inline-flex h-11 min-h-11 w-full min-w-0 items-center justify-center gap-1.5 rounded-full border-2 px-3 text-[11px] font-bold shadow-sm sm:h-10 sm:min-h-10 sm:w-auto sm:text-sm',
+                okrActive
+                  ? 'border-sky-500 bg-sky-500 text-white shadow-md ring-2 ring-sky-500/30'
+                  : 'border-border/80 bg-muted/35 text-muted-foreground hover:border-border hover:bg-muted/55 hover:text-foreground'
+              )}
+            >
+              Iniciativas
+            </button>
           ) : null}
 
           {onToggleMine ? (

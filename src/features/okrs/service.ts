@@ -26,7 +26,7 @@ function normalizeActionOptions(raw: unknown): ActionOption[] {
     const row = item as Record<string, unknown>
     const id = typeof row.id === 'string' ? row.id : null
     const title = typeof row.title === 'string' ? row.title : null
-    const kind = row.kind === 'team' || row.kind === 'company' ? row.kind : null
+    const kind = row.kind === 'company' ? 'company' : null
     if (!id || !title || !kind) return []
     return [
       {
@@ -42,14 +42,10 @@ function normalizeActionOptions(raw: unknown): ActionOption[] {
 }
 
 async function loadTaggedActions(): Promise<ActionOption[]> {
-  const [company, team, areas] = await Promise.all([
+  const [company, areas] = await Promise.all([
     supabase
       .from('acciones_diarias')
       .select('id, titulo_accion, area')
-      .eq('es_okr', true),
-    supabase
-      .from('acciones_equipo')
-      .select('id, titulo, area_id')
       .eq('es_okr', true),
     supabase.from('areas').select('id, nombre'),
   ])
@@ -68,18 +64,6 @@ async function loadTaggedActions(): Promise<ActionOption[]> {
         title: row.titulo_accion ?? '',
         kind: 'company',
         area_id: areaName ? (areaIdByName.get(areaName) ?? null) : null,
-        closed: false,
-        es_okr: true,
-      })
-    }
-  }
-  if (!team.error) {
-    for (const row of team.data ?? []) {
-      tagged.push({
-        id: row.id,
-        title: row.titulo ?? '',
-        kind: 'team',
-        area_id: row.area_id ?? null,
         closed: false,
         es_okr: true,
       })
@@ -193,10 +177,13 @@ export const okrService = {
   deleteKeyResult: (id: string) =>
     rpc<void>('okr_delete_key_result', { p_id: id }),
   async link(krId: string, action: ActionOption) {
+    if (action.kind !== 'company') {
+      throw new Error('Las iniciativas se alojan en el Kanban corporativo.')
+    }
     const { error } = await supabase.from('okr_initiatives').insert({
       key_result_id: krId,
-      action_id: action.kind === 'company' ? action.id : null,
-      team_action_id: action.kind === 'team' ? action.id : null,
+      action_id: action.id,
+      team_action_id: null,
     })
     if (error)
       throw new Error(
@@ -204,7 +191,9 @@ export const okrService = {
           ? 'Esta acción ya está vinculada al KR.'
           : error.message.includes('OKRs de equipo')
             ? 'Las iniciativas solo se vinculan a OKRs de equipo.'
-            : error.message
+            : error.message.includes('Kanban corporativo')
+              ? 'Las iniciativas se alojan en el Kanban corporativo.'
+              : error.message
       )
   },
   async unlink(id: string) {
@@ -219,6 +208,4 @@ export const okrService = {
         'No se pudo desvincular la iniciativa. Verifica tus permisos.'
       )
   },
-  tagTeamAction: (id: string, esOkr: boolean) =>
-    rpc<void>('okr_tag_team_action', { p_id: id, p_es_okr: esOkr }),
 }

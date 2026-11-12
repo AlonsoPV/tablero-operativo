@@ -1,5 +1,4 @@
 import { supabase } from '@/lib/supabase/client'
-import type { AccionDiaria } from '@/types'
 import type { TeamAction, TeamArea, TeamBoard } from './types'
 
 function unwrap<T>(data: T | null, error: { message: string } | null): T {
@@ -26,22 +25,6 @@ export const teamKanbanService = {
     const { data, error } = await supabase.rpc('team_kanban_board', { p_area_id: areaId })
     return unwrap(data, error) as unknown as TeamBoard
   },
-  /**
-   * Acciones diarias corporativas marcadas OKR para mostrarlas en el tablero
-   * del área OKRS (kanban por equipos).
-   */
-  async listCompanyOkrActions(): Promise<AccionDiaria[]> {
-    const { data, error } = await supabase
-      .from('acciones_diarias')
-      .select(
-        'id,fecha,titulo_accion,descripcion_accion,responsable,created_by,hora_limite,evidencia_esperada,estado,prioridad,escalado,completed_at,created_at,updated_at,es_okr,area'
-      )
-      .eq('es_okr', true)
-      .order('fecha', { ascending: true })
-      .limit(200)
-    if (error) throw new Error(error.message)
-    return (data ?? []) as AccionDiaria[]
-  },
   async create(input: {
     areaId: string
     title: string
@@ -56,7 +39,6 @@ export const teamKanbanService = {
     actionType?: string
     gapIds?: string[]
     catalogKpiIds?: string[]
-    esOkr?: boolean
     isFrequent?: boolean
     recurrenceType?: 'diaria' | 'semanal' | 'quincenal' | 'mensual' | null
     recurrenceWeekday?: number | null
@@ -80,16 +62,7 @@ export const teamKanbanService = {
       p_frecuencia_inicio: input.recurrenceStart ?? null,
     })
     if (error) throw new Error(error.message)
-    const created = unwrap(data, null) as TeamAction
-    if (input.esOkr) {
-      const tagged = await supabase.rpc('okr_tag_team_action', {
-        p_id: created.id,
-        p_es_okr: true,
-      })
-      if (tagged.error) throw new Error(tagged.error.message)
-      created.es_okr = true
-    }
-    return created
+    return unwrap(data, null) as TeamAction
   },
   async update(
     actionId: string,

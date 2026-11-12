@@ -369,6 +369,7 @@ export function countKanbanActiveFilters(filter: AccionesFilter): number {
   if (filter.responsable != null) count++
   if (filter.created_by != null) count++
   if (filter.involved_user_id != null) count++
+  if (filter.es_okr === true) count++
   return count
 }
 

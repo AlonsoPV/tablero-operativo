@@ -923,11 +923,12 @@ function LinkInitiativeForm({
   const available = actions.filter((action) => {
     if (!isTaggedOkrAction(action)) return false
     if (!actionMatchesObjectiveArea(action, objective)) return false
+    if (action.kind !== 'company') return false
     if (
       initiatives.some(
         (item) =>
           item.key_result_id === kr.id &&
-          (item.action_id ?? item.team_action_id) === action.id
+          item.action_id === action.id
       )
     )
       return false
@@ -939,7 +940,7 @@ function LinkInitiativeForm({
   return (
     <EditorFrame
       title="Vincular iniciativa"
-      description="Solo se listan acciones marcadas con la tag OKR."
+      description="Solo se listan acciones del Kanban corporativo marcadas con la tag OKR."
       saving={saving}
       footer={
         <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-2">

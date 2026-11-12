@@ -35,7 +35,7 @@ export type TeamAction = {
   serie_id?: string | null; ocurrencia_fecha?: string | null
   bloqueada: boolean; escalada: boolean; completed_at: string | null; created_at: string
   es_okr?: boolean
-  /** Origen: team = acciones_equipo; company = acciones_diarias marcadas OKR (área OKRS). */
+  /** Origen residual. Las iniciativas OKR viven en Kanban corporativo. */
   source?: TeamActionSource
 }
 /** Plantilla de una accion frecuente: no vive en el tablero, genera ocurrencias. */

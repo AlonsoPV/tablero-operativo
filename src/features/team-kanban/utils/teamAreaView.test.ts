@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { AccionDiaria } from '@/types'
-import type { TeamAction, TeamArea, TeamBoard, TeamMember, TeamState } from '../types'
+import type { TeamAction, TeamArea, TeamBoard, TeamMember } from '../types'
 import {
   boardForTeamAction,
   filterAssignedTeamAreas,
   isOkrsAreaName,
-  mapCompanyEstadoToTeamStateId,
-  mergeCompanyOkrActionsIntoBoard,
   mergeTeamBoards,
   pickDefaultTeamAreaId,
   resolveTeamAssigneeName,
@@ -66,77 +63,15 @@ describe('vista de areas del Kanban por Equipos', () => {
     expect(boardForTeamAction(merged, actionTwo).members.map((item) => item.id)).toEqual(['member-2'])
   })
 
-  it('prioriza OKRS como area por defecto cuando esta asignada', () => {
+  it('no prioriza OKRS como area por defecto; las iniciativas viven en Kanban corporativo', () => {
     const withOkrs: TeamArea[] = [
       { id: 'ops', nombre: 'Operaciones', is_leader: false, member_count: 1, open_count: 0 },
       { id: 'okrs', nombre: 'OKRS', is_leader: true, member_count: 2, open_count: 1 },
     ]
     expect(isOkrsAreaName('OKRS')).toBe(true)
     expect(isOkrsAreaName('okrs')).toBe(true)
-    expect(pickDefaultTeamAreaId(withOkrs)).toBe('okrs')
+    expect(pickDefaultTeamAreaId(withOkrs)).toBe('ops')
     expect(pickDefaultTeamAreaId(areas)).toBe('area-1')
-  })
-
-  it('mezcla acciones corporativas es_okr en el tablero OKRS', () => {
-    const states: TeamState[] = [
-      {
-        id: 'st-pendiente',
-        area_id: 'okrs',
-        nombre: 'Pendiente',
-        orden: 1,
-        color: '#ccc',
-        es_final: false,
-      },
-      {
-        id: 'st-hoy',
-        area_id: 'okrs',
-        nombre: 'Hoy',
-        orden: 2,
-        color: '#0af',
-        es_final: false,
-      },
-    ]
-    expect(mapCompanyEstadoToTeamStateId('Hoy', states)).toBe('st-hoy')
-    expect(
-      mapCompanyEstadoToTeamStateId('En_Ejecucion', [
-        ...states,
-        {
-          id: 'st-proceso',
-          area_id: 'okrs',
-          nombre: 'En proceso',
-          orden: 3,
-          color: '#09f',
-          es_final: false,
-        },
-      ])
-    ).toBe('st-proceso')
-    const company = {
-      id: 'corp-1',
-      fecha: '2026-11-06',
-      titulo_accion: 'Iniciativa OKR',
-      descripcion_accion: 'Desc',
-      responsable: 'user-1',
-      hora_limite: '17:00',
-      evidencia_esperada: 'PDF',
-      estado: 'Hoy',
-      prioridad: 'P1_Critica',
-      escalado: false,
-      completed_at: null,
-      created_at: '2026-11-06T10:00:00Z',
-      updated_at: '2026-11-06T10:00:00Z',
-      es_okr: true,
-    } as AccionDiaria
-    const merged = mergeCompanyOkrActionsIntoBoard(
-      { ...board([member('user-1', 'Ana')], []), states },
-      'okrs',
-      [company],
-      { 'user-1': 'Ana' }
-    )
-    expect(merged.actions).toHaveLength(1)
-    expect(merged.actions[0].source).toBe('company')
-    expect(merged.actions[0].es_okr).toBe(true)
-    expect(merged.actions[0].estado_id).toBe('st-hoy')
-    expect(merged.actions[0].asignado_nombre).toBe('Ana')
   })
 
   it('incluye al responsable actual aunque no este en el listado del area', () => {
