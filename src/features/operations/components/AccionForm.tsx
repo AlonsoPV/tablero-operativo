@@ -115,6 +115,8 @@ export interface AccionFormProps {
   }) => ReactNode
   /** Área fija aplicada al formulario (p. ej. Kanban por Equipos). */
   lockedAreaName?: string
+  /** Forzar visibilidad del tag OKR. En Kanban por equipos las iniciativas no se alojan. */
+  showOkrToggle?: boolean
   /** Quién asigna la acción; por defecto el usuario actual. */
   asignadorNombre?: string | null
   /** Fecha/hora de creación para calcular antigüedad de acción abierta. */
@@ -137,6 +139,7 @@ export function AccionForm({
   userOptions,
   renderResponsibleSelector,
   lockedAreaName,
+  showOkrToggle,
   asignadorNombre,
   openedAt,
 }: AccionFormProps) {
@@ -438,7 +441,7 @@ export function AccionForm({
         <AccionFormMetaRow
           assignerName={assignerName}
           showAssigner={showAsignadorNote}
-          showOkr={canSeeOkrTags}
+          showOkr={showOkrToggle ?? canSeeOkrTags}
           okrChecked={Boolean(form.watch('es_okr'))}
           okrDisabled={isEditProtectedReadonly}
           onOkrChange={(next) => form.setValue('es_okr', next, { shouldDirty: true })}

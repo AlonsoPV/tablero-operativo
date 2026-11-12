@@ -4,16 +4,13 @@ import {
   Check,
   Link2,
   Unlink,
-  Users,
 } from 'lucide-react'
 import { ROUTES } from '@/constants'
 import { cn } from '@/lib/utils'
 import type { ActionOption } from './model'
 
 export function actionHref(action: ActionOption) {
-  return action.kind === 'company'
-    ? `${ROUTES.KANBAN}?accion=${action.id}`
-    : `${ROUTES.TEAM_KANBAN_BOARD}?area=${action.area_id}&accion=${action.id}`
+  return `${ROUTES.KANBAN}?accion=${action.id}&okr=1`
 }
 
 export function ActionMetaBadges({
@@ -25,12 +22,7 @@ export function ActionMetaBadges({
   areaName?: string | null
   showStatus?: boolean
 }) {
-  const scope =
-    action.kind === 'team'
-      ? areaName
-        ? `Equipo · ${areaName}`
-        : 'Equipo'
-      : 'Empresa'
+  const scope = areaName ? `Kanban · ${areaName}` : 'Kanban corporativo'
   const status = action.closed ? 'Completada' : 'En curso'
 
   return (
@@ -62,7 +54,7 @@ export function LinkedInitiativeRow({
   onUnlink?: () => void
 }) {
   const closed = Boolean(action?.closed)
-  const ScopeIcon = action?.kind === 'team' ? Users : Building2
+  const ScopeIcon = Building2
 
   return (
     <div

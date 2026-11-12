@@ -105,8 +105,8 @@ export function OkrKeyResultRow({
     link,
     action: actions.find(
       (action) =>
-        action.id === (link.action_id ?? link.team_action_id) &&
-        action.kind === (link.action_id ? 'company' : 'team')
+        action.kind === 'company' &&
+        action.id === (link.action_id ?? link.team_action_id)
     ),
   }))
   const unknown = linked.some((item) => !item.action)

@@ -70,12 +70,8 @@ import {
   isTeamActionOverdue,
   isTeamDeadlinePast,
 } from './utils/teamDashboardMetrics'
-import { AccionFormDialog } from '@/features/operations/components/AccionFormDialog'
-import type { AccionDiaria } from '@/types'
 import {
   boardForTeamAction,
-  isOkrsAreaName,
-  mergeCompanyOkrActionsIntoBoard,
   mergeTeamBoards,
   resolveTeamAssigneeName,
 } from './utils/teamAreaView'
@@ -394,8 +390,6 @@ export function TeamKanbanPage() {
     [areaId]
   )
 
-  const isOkrsBoard = isOkrsAreaName(selectedArea?.nombre)
-
   const board = useQuery({
     queryKey: qk.board(areaId ?? ''),
     queryFn: async () => {
@@ -410,34 +404,7 @@ export function TeamKanbanPage() {
     enabled: selectedAreaIds.length > 0,
   })
 
-  const companyOkrActions = useQuery({
-    queryKey: qk.companyOkrActions,
-    queryFn: () => teamKanbanService.listCompanyOkrActions(),
-    enabled: isOkrsBoard && selectedAreaIds.length > 0,
-  })
-
-  const boardView = useMemo(() => {
-    if (!board.data || !areaId) return board.data
-    if (!isOkrsBoard) return board.data
-    const names: Record<string, string> = {}
-    for (const member of board.data.members) {
-      names[member.id] = member.nombre
-    }
-    return mergeCompanyOkrActionsIntoBoard(
-      board.data,
-      areaId,
-      companyOkrActions.data ?? [],
-      names
-    )
-  }, [board.data, areaId, isOkrsBoard, companyOkrActions.data])
-
-  const companyAccionById = useMemo(() => {
-    const map = new Map<string, AccionDiaria>()
-    for (const accion of companyOkrActions.data ?? []) {
-      map.set(accion.id, accion)
-    }
-    return map
-  }, [companyOkrActions.data])
+  const boardView = board.data
 
   useEffect(() => {
     const actionId = searchParams.get('accion')
@@ -512,7 +479,6 @@ export function TeamKanbanPage() {
     if (areaId) {
       await qc.invalidateQueries({ queryKey: qk.board(areaId), refetchType: 'active' })
     }
-    await qc.invalidateQueries({ queryKey: qk.companyOkrActions, refetchType: 'active' })
     await qc.invalidateQueries({ queryKey: qk.areas, refetchType: 'active' })
   }
 
@@ -520,18 +486,6 @@ export function TeamKanbanPage() {
     if (!editingActionId || !boardView) return null
     return boardView.actions.find((action) => action.id === editingActionId) ?? null
   }, [editingActionId, boardView])
-
-  const editingCompanyAccion =
-    editingAction?.source === 'company'
-      ? (companyAccionById.get(editingAction.id) ??
-        ({
-          id: editingAction.id,
-          titulo_accion: editingAction.titulo,
-          descripcion_accion: editingAction.descripcion ?? '',
-          responsable: editingAction.asignado_a,
-          es_okr: true,
-        } as AccionDiaria))
-      : null
 
   const memberName = (id: string | null | undefined) =>
     id ? board.data?.members.find((member) => member.id === id)?.nombre : undefined
@@ -974,42 +928,18 @@ export function TeamKanbanPage() {
                     <div className="kanban-column-cards flex min-h-[200px] flex-1 flex-col gap-3 overflow-y-auto px-3 py-3 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-border">
                       {stateActions.map((action) => {
                         const actionBoard = boardForTeamAction(boardView, action)
-                        const isCompany = action.source === 'company'
                         return (
                           <ActionCard
-                            key={`${action.source ?? 'team'}:${action.id}`}
+                            key={action.id}
                             action={action}
                             board={actionBoard}
-                            areaName={isCompany ? 'OKR empresa' : undefined}
                             priorities={priorityOptions}
-                            commentCount={isCompany ? 0 : (commentCounts[action.id] ?? 0)}
+                            commentCount={commentCounts[action.id] ?? 0}
                             onOpenDetail={() => setEditingActionId(action.id)}
-                            onMove={(stateId) => {
-                              if (isCompany) {
-                                setEditingActionId(action.id)
-                                return
-                              }
-                              update.mutate({ id: action.id, stateId })
-                            }}
-                            onAssign={(assignee) => {
-                              if (isCompany) {
-                                setEditingActionId(action.id)
-                                return
-                              }
-                              update.mutate({ id: action.id, assignee })
-                            }}
-                            onPriority={(priority) => {
-                              if (isCompany) {
-                                setEditingActionId(action.id)
-                                return
-                              }
-                              update.mutate({ id: action.id, priority })
-                            }}
+                            onMove={(stateId) => update.mutate({ id: action.id, stateId })}
+                            onAssign={(assignee) => update.mutate({ id: action.id, assignee })}
+                            onPriority={(priority) => update.mutate({ id: action.id, priority })}
                             onDueDateChange={({ dueAt, reasonKey, previousDate, nextDate }) => {
-                              if (isCompany) {
-                                setEditingActionId(action.id)
-                                return
-                              }
                               update.mutate({
                                 id: action.id,
                                 dueAt,
@@ -1021,17 +951,10 @@ export function TeamKanbanPage() {
                                 },
                               })
                             }}
-                            onEscalate={() => {
-                              if (isCompany) {
-                                setEditingActionId(action.id)
-                                return
-                              }
-                              setEscalating(action)
-                            }}
-                            onCloseSeries={() => {
-                              if (isCompany) return
+                            onEscalate={() => setEscalating(action)}
+                            onCloseSeries={() =>
                               setClosingSeries({ id: action.id, titulo: action.titulo })
-                            }}
+                            }
                           />
                         )
                       })}
@@ -1071,24 +994,10 @@ export function TeamKanbanPage() {
           areaName={selectedArea?.nombre ?? 'Equipo'}
           board={boardView}
           priorities={priorityOptions}
-          defaultEsOkr={isOkrsBoard}
           onDone={refresh}
         />
       ) : null}
-      {editingCompanyAccion ? (
-        <AccionFormDialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setEditingActionId(null)
-          }}
-          accion={editingCompanyAccion}
-          dialogId="team-kanban-company-okr-dialog"
-          onSuccess={() => {
-            void refresh()
-          }}
-        />
-      ) : null}
-      {boardView && editingAction?.source !== 'company' ? (
+      {boardView && editingAction ? (
         <TeamActionEditDialog
           action={editingAction}
           board={editingAction ? boardForTeamAction(boardView, editingAction) : boardView}

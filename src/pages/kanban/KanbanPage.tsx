@@ -41,6 +41,7 @@ import { useGap } from '@/features/kpi/hooks/useGaps'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { useAppRole } from '@/features/auth/hooks/useAppRole'
 import { canViewAllBoardData, isAnalystByRole } from '@/features/auth/lib/permissions'
+import { useCanSeeOkrTags } from '@/features/okrs/useCanSeeOkrTags'
 import { exportKanbanToExcel } from '@/features/operations/utils/exportKanbanExcel'
 import { toast } from 'sonner'
 
@@ -63,6 +64,7 @@ function normalizeKanbanFilter(filter: AccionesFilter): AccionesFilter {
   if (filter.involved_user_id != null && filter.involved_user_id !== '') normalized.involved_user_id = filter.involved_user_id
   if (filter.tipo_accion != null) normalized.tipo_accion = filter.tipo_accion
   if (filter.sprint_id != null && filter.sprint_id !== '') normalized.sprint_id = filter.sprint_id
+  if (filter.es_okr === true) normalized.es_okr = true
 
   return normalized
 }
@@ -82,6 +84,7 @@ export function KanbanPage() {
   const { data: appRole } = useAppRole()
   const isAnalyst = isAnalystByRole(currentUser?.rol)
   const seesAllBoard = canViewAllBoardData(currentUser?.rol, appRole)
+  const canSeeOkrTags = useCanSeeOkrTags()
 
   const [filter, setFilter] = useState<AccionesFilter>(() => ({}))
   const [defaultResponsibleApplied, setDefaultResponsibleApplied] = useState(false)
@@ -125,6 +128,7 @@ export function KanbanPage() {
   const [isExportingExcel, setIsExportingExcel] = useState(false)
   const accionIdFromUrl = searchParams.get('accion')
   const fechaFromUrl = searchParams.get('fecha')
+  const okrFromUrl = searchParams.get('okr')
   const { data: accionFromUrl } = useAccion(accionIdFromUrl)
 
   useEffect(() => {
@@ -136,6 +140,17 @@ export function KanbanPage() {
     setFilter((prev) => normalizeKanbanFilter({ ...createKanbanDefaultFilter(currentUser.id), ...prev }))
     setDefaultResponsibleApplied(true)
   }, [currentUser?.id, defaultResponsibleApplied, seesAllBoard])
+
+  useEffect(() => {
+    if (okrFromUrl === '1') {
+      setFilter((f) => normalizeKanbanFilter({ ...f, es_okr: true }))
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('okr')
+        return next
+      }, { replace: true })
+    }
+  }, [okrFromUrl, setSearchParams])
 
   useEffect(() => {
     if (fechaFromUrl && /^\d{4}-\d{2}-\d{2}$/.test(fechaFromUrl)) {
@@ -169,6 +184,14 @@ export function KanbanPage() {
       return merged
     })
   }, [currentUser?.id, isAnalyst])
+
+  const handleToggleOkr = useCallback(() => {
+    setFilter((prev) =>
+      normalizeKanbanFilter(
+        prev.es_okr ? { ...prev, es_okr: undefined } : { ...prev, es_okr: true }
+      )
+    )
+  }, [])
 
   const handleClearFilters = useCallback(() => {
     // Vacía todos los filtros, incluido el responsable por defecto.
@@ -308,6 +331,8 @@ export function KanbanPage() {
         mineActive={mineActive}
         onToggleMine={currentUser?.id ? handleToggleMine : undefined}
         mineDisabled={!currentUser?.id}
+        okrActive={filter.es_okr === true}
+        onToggleOkr={canSeeOkrTags ? handleToggleOkr : undefined}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         rightOfTitle={

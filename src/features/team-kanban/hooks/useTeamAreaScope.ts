@@ -40,7 +40,7 @@ export function useTeamAreaScope() {
       return
     }
     if (areaId && visibleAreas.some((area) => area.id === areaId)) return
-    // Equipo con área OKRS: entrar al tablero OKRS por defecto para ver acciones marcadas OKR.
+    // Primera área operativa; las iniciativas OKR se ven en Kanban corporativo.
     setAreaId(pickDefaultTeamAreaId(visibleAreas))
   }, [visibleAreas, areaId, areaParam])
 

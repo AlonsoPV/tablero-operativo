@@ -11,11 +11,12 @@ No introduce empresas independientes ni aislamiento multitenant.
    definir inicio y fin. Todo objetivo, sin importar su ámbito, tiene responsable.
 2. Agregar KRs con línea base, meta, unidad y un usuario activo como dueño.
 3. Registrar mediciones y notas. Cada registro conserva valor, autor y fecha.
-4. Vincular acciones existentes del kanban corporativo o del equipo como iniciativas.
-   También se puede abrir el formulario existente para crear una acción y luego
-   seleccionarla al regresar al selector. Desvincular no elimina la acción.
-5. Abrir una iniciativa para trabajar en su kanban. La ficha de la acción incluye
-   un enlace de regreso al objetivo y KR correspondiente.
+4. Vincular acciones existentes del **Kanban corporativo** (`/kanban`) marcadas
+   con tag OKR como iniciativas. También se puede abrir el formulario corporativo
+   para crear una acción y luego seleccionarla al regresar al selector.
+   Desvincular no elimina la acción. Las iniciativas no se alojan en Kanban por equipos.
+5. Abrir una iniciativa para trabajarla en el Kanban corporativo. La ficha de la
+   acción incluye un enlace de regreso al objetivo y KR correspondiente.
 
 Los objetivos se distinguen por ámbito, equipo y fechas. Hay filtros de búsqueda,
 equipo, estado y solapamiento de periodos. Inicio y fin son inclusivos, con la fecha
@@ -57,7 +58,9 @@ indicaban el objetivo. No se asignan automáticamente a un KR arbitrario.
 
 Aplicar `supabase/migrations/20260924120000_okr_management.sql` y después
 `supabase/migrations/20260925120000_okr_objective_owner.sql` al entorno elegido
-antes de publicar el frontend. Los objetivos existentes quedan sin responsable
+antes de publicar el frontend. Para alojar iniciativas en Kanban corporativo,
+aplicar también `supabase/migrations/20261112120000_okr_initiatives_corporate_kanban.sql`
+(copia vínculos `team_action_id` a `acciones_diarias` y deja de aceptar iniciativas de equipos). Los objetivos existentes quedan sin responsable
 hasta que se editen; al guardarlos se exige uno. La migración es transaccional y no elimina datos.
 Añade campos de ámbito, responsables, relaciones de iniciativas, historial, RPCs,
 políticas RLS y el módulo configurable `okrs` en el catálogo de permisos.

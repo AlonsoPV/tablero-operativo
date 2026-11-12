@@ -35,7 +35,7 @@ describe('OKR initiative linking filters', () => {
     ).toBe(true)
   })
 
-  it('keeps team actions in the same area', () => {
+  it('keeps leftover team actions in the same area until they migrate', () => {
     expect(
       actionMatchesObjectiveArea(
         action({ kind: 'team', area_id: 'area-ops' }),

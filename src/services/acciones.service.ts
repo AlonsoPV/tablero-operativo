@@ -238,6 +238,8 @@ export interface AccionesFilter {
   tipo_accion?: TipoAccion | TipoAccion[]
   sprint_id?: string
   search?: string
+  /** Solo acciones marcadas como iniciativa OKR. */
+  es_okr?: boolean
 }
 
 export interface CalendarActionCountsInput {
@@ -323,6 +325,7 @@ function buildAccionesListQuery(filter: AccionesFilter = {}) {
     q = q.in('tipo_accion', tipos)
   }
   if (filter.sprint_id) q = q.eq('sprint_id', filter.sprint_id)
+  if (filter.es_okr === true) q = q.eq('es_okr', true)
   if (filter.search?.trim()) {
     const term = escapePostgrestLikeTerm(filter.search.trim())
     q = q.or(
