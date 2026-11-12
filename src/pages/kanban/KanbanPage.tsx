@@ -64,7 +64,8 @@ function normalizeKanbanFilter(filter: AccionesFilter): AccionesFilter {
   if (filter.involved_user_id != null && filter.involved_user_id !== '') normalized.involved_user_id = filter.involved_user_id
   if (filter.tipo_accion != null) normalized.tipo_accion = filter.tipo_accion
   if (filter.sprint_id != null && filter.sprint_id !== '') normalized.sprint_id = filter.sprint_id
-  if (filter.es_okr === true) normalized.es_okr = true
+  // Vista operativa por defecto: nunca dejar es_okr en undefined (mostraría iniciativas).
+  normalized.es_okr = filter.es_okr === true
 
   return normalized
 }
@@ -86,7 +87,7 @@ export function KanbanPage() {
   const seesAllBoard = canViewAllBoardData(currentUser?.rol, appRole)
   const canSeeOkrTags = useCanSeeOkrTags()
 
-  const [filter, setFilter] = useState<AccionesFilter>(() => ({}))
+  const [filter, setFilter] = useState<AccionesFilter>(() => ({ es_okr: false }))
   const [defaultResponsibleApplied, setDefaultResponsibleApplied] = useState(false)
   const [filtersExpanded, setFiltersExpanded] = useState(false)
   const [viewMode, setViewMode] = useState<KanbanViewMode>('kanban')
@@ -109,11 +110,15 @@ export function KanbanPage() {
   const { data: gapFromUrl } = useGap(gapIdFromUrl)
 
   const accionesDisplay = useMemo(() => {
-    if (!gapIdFromUrl) return acciones
+    const byOkr =
+      filter.es_okr === true
+        ? acciones.filter((a) => a.es_okr === true)
+        : acciones.filter((a) => a.es_okr !== true)
+    if (!gapIdFromUrl) return byOkr
     if (gapAccionesLoading || !gapAccionesBundle) return []
     const ids = new Set(gapAccionesBundle.acciones.map((a) => a.id))
-    return acciones.filter((a) => ids.has(a.id))
-  }, [acciones, gapIdFromUrl, gapAccionesBundle, gapAccionesLoading])
+    return byOkr.filter((a) => ids.has(a.id))
+  }, [acciones, filter.es_okr, gapIdFromUrl, gapAccionesBundle, gapAccionesLoading])
 
   const listLoading = isLoading || Boolean(gapIdFromUrl && gapAccionesLoading)
 
@@ -187,17 +192,20 @@ export function KanbanPage() {
 
   const handleToggleOkr = useCallback(() => {
     setFilter((prev) =>
-      normalizeKanbanFilter(
-        prev.es_okr ? { ...prev, es_okr: undefined } : { ...prev, es_okr: true }
-      )
+      normalizeKanbanFilter({
+        ...prev,
+        es_okr: prev.es_okr === true ? false : true,
+      })
     )
   }, [])
 
   const handleClearFilters = useCallback(() => {
-    // Vacía todos los filtros, incluido el responsable por defecto.
+    // Vacía filtros y vuelve a ocultar iniciativas (vista operativa).
     // Analistas mantienen el propio responsable (solo ven sus acciones).
     setFilter(
-      isAnalyst && currentUser?.id ? createKanbanDefaultFilter(currentUser.id) : {}
+      isAnalyst && currentUser?.id
+        ? { ...createKanbanDefaultFilter(currentUser.id), es_okr: false }
+        : { es_okr: false }
     )
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)

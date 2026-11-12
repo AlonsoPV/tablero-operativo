@@ -106,7 +106,8 @@ export function OkrKeyResultRow({
     action: actions.find(
       (action) =>
         action.kind === 'company' &&
-        action.id === (link.action_id ?? link.team_action_id)
+        Boolean(link.action_id) &&
+        action.id === link.action_id
     ),
   }))
   const unknown = linked.some((item) => !item.action)
@@ -456,8 +457,8 @@ export function OkrKeyResultRow({
                         Vincular una acción
                       </span>
                       <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
-                        Solo acciones marcadas con la tag OKR. La acción sigue
-                        en el tablero; aquí solo se asocia al KR.
+                        Solo acciones del Kanban corporativo con tag OKR. Siguen
+                        en el tablero; aquí solo se asocian al KR.
                       </span>
                     </span>
                   </button>

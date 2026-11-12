@@ -9,9 +9,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Plus, LayoutGrid, SlidersHorizontal, List, Check, Download } from 'lucide-react'
+import { Plus, LayoutGrid, SlidersHorizontal, List, Check, Download, Target } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { KanbanMineToggle } from './KanbanMineToggle'
+import { KanbanScopeToggle } from './KanbanScopeToggle'
 
 export type KanbanViewMode = 'kanban' | 'lista'
 
@@ -165,84 +166,92 @@ export function KanbanHeader({
 
         <div
           className={cn(
-            'kanban-header-actions grid w-full min-w-0 grid-cols-2 gap-2 rounded-xl border border-border/70 bg-muted/25 p-2 shadow-sm ring-1 ring-border/30 sm:flex sm:items-center sm:justify-between sm:gap-3 sm:p-3'
+            'kanban-header-actions flex w-full min-w-0 flex-col gap-2 rounded-xl border border-border/70 bg-muted/25 p-2 shadow-sm ring-1 ring-border/30 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:p-2.5'
           )}
         >
-          {onNewAction ? (
-            <Button
-              id="kanban-btn-new-action"
-              variant="default"
-              className={cn('kanban-btn-new-action', ACTION_BTN, PRIMARY_ACTION_BTN)}
-              onClick={onNewAction}
-              size="sm"
-            >
-              <Plus className="h-4 w-4 shrink-0 stroke-[2.5] sm:h-4 sm:w-4" />
-              <span className="truncate sm:hidden">Nueva</span>
-              <span className="hidden truncate sm:inline">Nueva acción</span>
-            </Button>
-          ) : null}
+          <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2">
+            {onNewAction ? (
+              <Button
+                id="kanban-btn-new-action"
+                variant="default"
+                className={cn('kanban-btn-new-action', ACTION_BTN, PRIMARY_ACTION_BTN)}
+                onClick={onNewAction}
+                size="sm"
+              >
+                <Plus className="h-4 w-4 shrink-0 stroke-[2.5] sm:h-4 sm:w-4" />
+                <span className="truncate sm:hidden">Nueva</span>
+                <span className="hidden truncate sm:inline">Nueva acción</span>
+              </Button>
+            ) : null}
 
-          {onToggleFilters ? (
-            <Button
-              id="kanban-btn-filters"
-              className={cn(
-                'kanban-btn-filters gap-2',
-                ACTION_BTN,
-                SECONDARY_ACTION_BTN,
-                filtersExpanded && 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20',
-                filtersActive &&
-                  !filtersExpanded &&
-                  'border-primary/50 bg-primary/5 text-primary ring-2 ring-primary/15'
-              )}
-              variant={filtersExpanded ? 'secondary' : 'outline'}
-              size="sm"
-              onClick={onToggleFilters}
-              aria-expanded={filtersExpanded}
-              aria-label={
-                filtersActive
-                  ? `Filtros, ${filterCount} activo${filterCount === 1 ? '' : 's'}`
-                  : 'Filtros'
-              }
+            {onToggleFilters ? (
+              <Button
+                id="kanban-btn-filters"
+                className={cn(
+                  'kanban-btn-filters gap-2',
+                  ACTION_BTN,
+                  SECONDARY_ACTION_BTN,
+                  filtersExpanded && 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20',
+                  filtersActive &&
+                    !filtersExpanded &&
+                    'border-primary/50 bg-primary/5 text-primary ring-2 ring-primary/15'
+                )}
+                variant={filtersExpanded ? 'secondary' : 'outline'}
+                size="sm"
+                onClick={onToggleFilters}
+                aria-expanded={filtersExpanded}
+                aria-label={
+                  filtersActive
+                    ? `Filtros, ${filterCount} activo${filterCount === 1 ? '' : 's'}`
+                    : 'Filtros'
+                }
+              >
+                <SlidersHorizontal className="h-4 w-4 shrink-0 stroke-[2.25]" aria-hidden />
+                <span className="truncate">Filtros</span>
+                {filtersActive ? (
+                  <span
+                    className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold tabular-nums leading-none text-primary-foreground"
+                    aria-hidden
+                  >
+                    {filterCount}
+                  </span>
+                ) : null}
+              </Button>
+            ) : null}
+          </div>
+
+          {onToggleOkr || onToggleMine ? (
+            <div
+              className="flex min-w-0 items-center gap-0.5 rounded-full border border-border/60 bg-background/80 p-1 shadow-sm"
+              role="group"
+              aria-label="Alcance de vista del tablero"
             >
-              <SlidersHorizontal className="h-4 w-4 shrink-0 stroke-[2.25]" aria-hidden />
-              <span className="truncate">Filtros</span>
-              {filtersActive ? (
-                <span
-                  className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold tabular-nums leading-none text-primary-foreground"
-                  aria-hidden
-                >
-                  {filterCount}
-                </span>
+              {onToggleOkr ? (
+                <KanbanScopeToggle
+                  id="kanban-btn-okr"
+                  active={okrActive}
+                  onClick={onToggleOkr}
+                  icon={Target}
+                  label="Iniciativas"
+                  title={
+                    okrActive
+                      ? 'Mostrando iniciativas OKR. Clic para volver a la vista operativa'
+                      : 'Iniciativas OKR ocultas. Clic para ver solo iniciativas'
+                  }
+                  tone="sky"
+                  variant="group"
+                />
               ) : null}
-            </Button>
+              {onToggleMine ? (
+                <KanbanMineToggle
+                  active={mineActive}
+                  disabled={mineDisabled}
+                  onClick={onToggleMine}
+                  variant="group"
+                />
+              ) : null}
+            </div>
           ) : null}
-
-          {onToggleOkr ? (
-            <button
-              id="kanban-btn-okr"
-              type="button"
-              aria-pressed={okrActive}
-              title={okrActive ? 'Ver todas las acciones' : 'Ver solo iniciativas OKR'}
-              onClick={onToggleOkr}
-              className={cn(
-                'inline-flex h-11 min-h-11 w-full min-w-0 items-center justify-center gap-1.5 rounded-full border-2 px-3 text-[11px] font-bold shadow-sm sm:h-10 sm:min-h-10 sm:w-auto sm:text-sm',
-                okrActive
-                  ? 'border-sky-500 bg-sky-500 text-white shadow-md ring-2 ring-sky-500/30'
-                  : 'border-border/80 bg-muted/35 text-muted-foreground hover:border-border hover:bg-muted/55 hover:text-foreground'
-              )}
-            >
-              Iniciativas
-            </button>
-          ) : null}
-
-          {onToggleMine ? (
-            <KanbanMineToggle
-              active={mineActive}
-              disabled={mineDisabled}
-              onClick={onToggleMine}
-            />
-          ) : null}
-
         </div>
       </div>
     </header>

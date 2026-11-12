@@ -238,7 +238,11 @@ export interface AccionesFilter {
   tipo_accion?: TipoAccion | TipoAccion[]
   sprint_id?: string
   search?: string
-  /** Solo acciones marcadas como iniciativa OKR. */
+  /**
+   * true = solo iniciativas OKR.
+   * false = ocultar iniciativas (vista operativa por defecto).
+   * undefined = sin filtro por tag OKR.
+   */
   es_okr?: boolean
 }
 
@@ -325,7 +329,13 @@ function buildAccionesListQuery(filter: AccionesFilter = {}) {
     q = q.in('tipo_accion', tipos)
   }
   if (filter.sprint_id) q = q.eq('sprint_id', filter.sprint_id)
-  if (filter.es_okr === true) q = q.eq('es_okr', true)
+  if (filter.es_okr === true) {
+    q = q.eq('es_okr', true)
+  } else if (filter.es_okr === false) {
+    // eq (no .or) para no pisar otros .or del query (propias / búsqueda).
+    // Columna NOT NULL DEFAULT false: false = vista operativa sin iniciativas.
+    q = q.eq('es_okr', false)
+  }
   if (filter.search?.trim()) {
     const term = escapePostgrestLikeTerm(filter.search.trim())
     q = q.or(
