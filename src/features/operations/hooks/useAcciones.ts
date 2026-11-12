@@ -51,6 +51,7 @@ function filterQueryKey(filter: AccionesFilter): unknown[] {
     tipoAccion,
     filter.sprint_id ?? '',
     filter.search ?? '',
+    filter.es_okr === true ? '1' : filter.es_okr === false ? '0' : '',
   ]
 }
 

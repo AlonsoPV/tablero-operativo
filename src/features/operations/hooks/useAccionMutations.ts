@@ -79,6 +79,9 @@ export function useCreateAccion() {
       }
       qc.invalidateQueries({ queryKey: KEY, refetchType: 'active' })
       qc.invalidateQueries({ queryKey: kpiQueryKeys.catalogKpiAccionImpact, refetchType: 'active' })
+      if (data?.es_okr) {
+        qc.invalidateQueries({ queryKey: ['okr-actions'], refetchType: 'active' })
+      }
     },
   })
 }

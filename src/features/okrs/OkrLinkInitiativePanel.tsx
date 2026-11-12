@@ -39,8 +39,8 @@ export function OkrLinkInitiativePanel({
           </p>
           <p className="mt-0.5 text-sm font-medium leading-snug">{krTitle}</p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            La acción sigue en Kanban. Aquí solo queda como iniciativa de este
-            resultado.
+            Solo acciones del Kanban corporativo con tag OKR. La acción sigue en
+            el tablero; aquí solo se asocia a este resultado.
           </p>
         </div>
       </div>
@@ -70,7 +70,8 @@ export function OkrLinkInitiativePanel({
         <span>
           <span className="block text-sm font-medium">Crear acción nueva</span>
           <span className="mt-0.5 block text-xs text-muted-foreground">
-            Márcala como OKR al crearla. Después vuelve a vincularla aquí.
+            Formulario del Kanban corporativo, con tag OKR. Al guardar vuelve
+            aquí lista para vincular.
           </span>
         </span>
       </button>

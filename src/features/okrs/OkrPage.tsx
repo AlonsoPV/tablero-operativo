@@ -1,6 +1,6 @@
 import { OkrReportHistory } from './OkrReportHistory'
 import { measurementsFor, reportingSummary } from './reporting'
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -134,6 +134,9 @@ export function OkrPage() {
   const [modal, setModal] = useState<Modal | null>(null)
   const [createAction, setCreateAction] = useState(false)
   const [resumeLink, setResumeLink] = useState<Modal | null>(null)
+  const pendingCreatedActionRef = useRef<{ id: string; es_okr?: boolean } | null>(
+    null
+  )
   const [busy, setBusy] = useState(false)
   const [linkSearch, setLinkSearch] = useState('')
   const [selectedAction, setSelectedAction] = useState('')
@@ -177,12 +180,16 @@ export function OkrPage() {
     ])
   }
 
-  async function closeActionCreator() {
+  async function closeActionCreator(created?: { id: string; es_okr?: boolean } | null) {
     const resume = resumeLink
     setCreateAction(false)
     setResumeLink(null)
     await refresh()
     if (resume?.type === 'link' && resume.objective.scope === 'team') {
+      if (created?.id && created.es_okr !== false) {
+        setSelectedAction(`company:${created.id}`)
+        setLinkSearch('')
+      }
       setModal(resume)
     }
   }
@@ -835,9 +842,15 @@ export function OkrPage() {
           open={createAction}
           defaultEsOkr
           onOpenChange={(open) => {
-            if (!open) void closeActionCreator()
+            if (!open) {
+              const created = pendingCreatedActionRef.current
+              pendingCreatedActionRef.current = null
+              void closeActionCreator(created)
+            }
           }}
-          onSuccess={() => void closeActionCreator()}
+          onSuccess={(created) => {
+            pendingCreatedActionRef.current = created ?? null
+          }}
         />
       ) : null}
       {historySelection && (

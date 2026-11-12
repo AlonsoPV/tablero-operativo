@@ -109,7 +109,7 @@ export interface AccionFormDialogProps {
   onOpenChange: (open: boolean) => void
   accion?: AccionDiaria | null
   defaultFecha?: string
-  onSuccess?: () => void
+  onSuccess?: (accion?: AccionDiaria) => void
   /** Nombres de responsables para comentarios */
   responsableNames?: Record<string, string>
   /** Id opcional del contenedor del diálogo (ej. kanban-accion-dialog, dashboard-accion-dialog) */
@@ -630,7 +630,14 @@ export function AccionFormDialog({
             story_points: values.story_points ?? 0,
             sprint_id: values.sprint_id ?? null,
             responsable_bloqueo: values.responsable_bloqueo ?? null,
-            ...(canSeeOkrTags ? { es_okr: Boolean(values.es_okr) } : {}),
+            // Desde OKRs (defaultEsOkr) siempre persistimos el tag aunque el toggle esté oculto.
+            ...(canSeeOkrTags || (!isEdit && defaultEsOkr)
+              ? {
+                  es_okr: Boolean(
+                    values.es_okr ?? (!isEdit && defaultEsOkr)
+                  ),
+                }
+              : {}),
             // Los vínculos con brechas/KPIs se administran fuera de este formulario:
             // no se envían para no borrar los que ya tiene la acción.
             ...(isEdit
@@ -790,13 +797,19 @@ export function AccionFormDialog({
           toast.success(
             filesToUpload.length > 0
               ? 'Acción creada. Procesando checklist/evidencias…'
-              : 'Acción creada correctamente'
+              : defaultEsOkr
+                ? 'Acción creada en Kanban corporativo con tag OKR'
+                : 'Acción creada correctamente'
           )
+          // onSuccess antes de cerrar: el padre (OKRs) puede capturar el id al reabrir vincular.
+          onSuccess?.(created)
           onOpenChange(false)
-          onSuccess?.()
 
           if (deferredOps.length === 0) {
             refreshActionViews()
+            if (created.es_okr) {
+              void qc.invalidateQueries({ queryKey: ['okr-actions'] })
+            }
             return
           }
 
@@ -810,6 +823,9 @@ export function AccionFormDialog({
               toast.success('Checklist y evidencias sincronizados')
             }
             refreshActionViews()
+            if (created.es_okr) {
+              void qc.invalidateQueries({ queryKey: ['okr-actions'] })
+            }
           })
         },
         onError: (e) =>
@@ -873,7 +889,9 @@ export function AccionFormDialog({
               </h2>
               {!isEdit ? (
                 <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground sm:text-xs">
-                  Completa los datos para crear la acción
+                  {defaultEsOkr
+                    ? 'Se crea en Kanban corporativo con tag OKR para vincularla al KR'
+                    : 'Completa los datos para crear la acción'}
                 </p>
               ) : null}
             </div>
@@ -900,6 +918,7 @@ export function AccionFormDialog({
             isSubmitting={isMutating}
             isEdit={isEdit}
             readonlyStrategicFields={isEditProtectedReadonly}
+            showOkrToggle={canSeeOkrTags || (!isEdit && defaultEsOkr)}
             onPrioridadChange={setLivePrioridad}
             accionPrioridadId={
               accionLive
