@@ -4,6 +4,8 @@ import {
   buildWhatsappReportMessage,
   decideReportAction,
   insufficientExecutiveReport,
+  interviewClosedAt,
+  retellCallEndedAt,
   transcriptDepth,
   turnsFromRetellCall,
   verifyRetellSignature,
@@ -79,6 +81,29 @@ describe('retell interview report', () => {
     expect(
       decideReportAction({ event: 'call_analyzed', current: 'pending', depth: 'ready', hasJournal: false })
     ).toBe('generate')
+  })
+
+  it('lets the browser wait so the official transcript writes the report', () => {
+    expect(
+      decideReportAction({ event: 'client', current: 'pending', depth: 'ready', hasJournal: false })
+    ).toBe('wait')
+    expect(
+      decideReportAction({ event: 'client', current: 'ready', depth: 'ready', hasJournal: true })
+    ).toBe('return_existing')
+    expect(
+      decideReportAction({ event: 'call_ended', current: 'pending', depth: 'ready', hasJournal: false })
+    ).toBe('generate')
+  })
+
+  it('uses the Retell end timestamp when it is after the interview start', () => {
+    const endMs = Date.parse('2026-11-13T18:12:00.000Z')
+    expect(retellCallEndedAt({ end_timestamp: endMs })).toBe('2026-11-13T18:12:00.000Z')
+    expect(retellCallEndedAt({ end_timestamp: Math.floor(endMs / 1000) })).toBe('2026-11-13T18:12:00.000Z')
+    expect(interviewClosedAt('2026-11-13T18:00:00.000Z', '2026-11-13T18:12:00.000Z')).toBe(
+      '2026-11-13T18:12:00.000Z'
+    )
+    expect(interviewClosedAt('2026-11-13T18:00:00.000Z', '2026-11-13T17:00:00.000Z')).toBeNull()
+    expect(interviewClosedAt('2026-11-13T18:00:00.000Z', null)).toBeNull()
   })
 
   it('retries a failed report without treating it as a new interview', () => {

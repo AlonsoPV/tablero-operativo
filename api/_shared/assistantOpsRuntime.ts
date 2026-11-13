@@ -81,6 +81,16 @@ function actionTitle(row: ActionRow) {
   return row.titulo_accion?.trim() || row.descripcion_accion?.trim() || 'Accion'
 }
 
+/** Un analista solo ve acciones de las que es responsable. El resto conserva la vista de tablero. */
+export function analystCanSeeAction(
+  rol: string | null | undefined,
+  actorUsuarioId: string,
+  row: { responsable?: string | null }
+) {
+  if (!isAnalystByRole(rol)) return true
+  return Boolean(actorUsuarioId) && row.responsable === actorUsuarioId
+}
+
 function clipList<T>(rows: T[], limit: number) {
   return rows.slice(0, Math.min(12, Math.max(1, limit)))
 }
@@ -158,17 +168,21 @@ async function resolveAction(
   actor: CopilotActor,
   args: Record<string, unknown>
 ): Promise<ActionRow | CopilotClarification | { missing: string }> {
+  const analyst = isAnalystByRole(actor.rol)
   const id = asString(args.action_id, 80)
   if (id) {
     const row = await loadAction(actor, id)
-    if (!row) return { missing: 'No encontré esa acción o no tienes permiso para verla.' }
+    if (!row || !analystCanSeeAction(actor.rol, actor.usuarioId, row)) {
+      return { missing: 'No encontré esa acción o no tienes permiso para verla.' }
+    }
     return row
   }
   const query = asString(args.query, 160)
   if (!query) return { missing: 'Indica la acción (título o selección en el panel).' }
-  const open = await loadOpenActions(actor, true)
+  const open = await loadOpenActions(actor, !analyst)
   const matches = matchActionsByQuery(open, query) as ActionRow[]
   if (matches.length === 0) {
+    if (analyst) return { missing: `No encontré una acción visible que coincida con "${query}".` }
     const mine = await loadOpenActions(actor, false)
     const mineMatches = matchActionsByQuery(mine, query) as ActionRow[]
     if (mineMatches.length === 1) return mineMatches[0]

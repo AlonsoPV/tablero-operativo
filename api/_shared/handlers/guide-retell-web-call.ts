@@ -14,10 +14,8 @@ import {
   requireAssistantAuth,
 } from '../assistantAuth.js'
 import { enableSystemCaCertificates } from '../enableSystemCa.js'
-import { loadGuideBoardContext } from '../guideBoardContext.js'
-import { markGuideLinkUsed, resolveGuideLinkOwner } from '../guideUserLinks.js'
-import { guideOpening, guideWorkInstructions } from '../guideWork.js'
-import { guideAppBaseUrl } from '../guideUserLinks.js'
+import { ENVIARDIAN_PROMPT_VERSION, ENVIARDIAN_VOICE_CONSULT_INSTRUCTION } from '../enviardianPrompt.js'
+import { guideAppBaseUrl, markGuideLinkUsed, resolveGuideLinkOwner } from '../guideUserLinks.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from '../tlsError.js'
 
 const SESSION_MS = 15 * 60 * 1000 - 1000
@@ -69,6 +67,7 @@ export default defineApiHandler(async (req, res) => {
 
     let usuarioId = ''
     let guideLinkId = ''
+    let channel: 'authenticated' | 'guide_link' | 'whatsapp' = 'authenticated'
     let supabase: ReturnType<typeof createServiceRoleClient>
 
     if (guideToken) {
@@ -84,6 +83,7 @@ export default defineApiHandler(async (req, res) => {
         const owner = await resolveGuideLinkOwner(supabase, guideToken)
         usuarioId = owner.usuario_id
         guideLinkId = owner.link_id
+        channel = owner.source === 'whatsapp' ? 'whatsapp' : 'guide_link'
         // Ligas creadas desde WhatsApp: mismo gate OKRS/Super Admin que el bot.
         if (owner.source === 'whatsapp') {
           const { data: allowed, error: accessError } = await supabase.rpc(
@@ -216,13 +216,6 @@ export default defineApiHandler(async (req, res) => {
         .in('status', ['active', 'closing'])
     }
 
-    let boardContext = ''
-    try {
-      boardContext = await loadGuideBoardContext(supabase, 2400)
-    } catch (error) {
-      console.error('guide-retell-web-call board', error)
-    }
-
     const retellResponse = await fetch('https://api.retellai.com/v3/create-web-call', {
       method: 'POST',
       headers: {
@@ -236,24 +229,16 @@ export default defineApiHandler(async (req, res) => {
           usuario_id: usuario.id,
           guide_link_id: guideLinkId || '',
           product: 'guide',
-          source: guideLinkId ? 'guide_link' : 'authenticated',
+          source: channel,
           queue_workspace_url: `${guideAppBaseUrl()}/api/guide-queue-workspace-draft`,
+          scrumban_tool_url: `${guideAppBaseUrl()}/api/guide-retell-tool`,
         },
         retell_llm_dynamic_variables: {
           user_name: typeof usuario.nombre === 'string' && usuario.nombre.trim() ? usuario.nombre.trim() : 'Usuario',
           session_id: session.id,
-          expires_at: session.expires_at,
-          board_context: boardContext,
-          understanding_context: boardContext,
-          guide_intent: 'auto',
-          guide_opening: guideOpening(),
-          guide_work_instructions: guideWorkInstructions(),
-          guide_preferences: '',
-          relevant_memories: '',
-          recent_journal: '',
-          pillar_history: '',
-          queue_workspace_draft:
-            'Si piden correo o evento, llama queue_workspace_draft. No envies nada durante la llamada.',
+          prompt_version: ENVIARDIAN_PROMPT_VERSION,
+          channel,
+          consult_instruction: ENVIARDIAN_VOICE_CONSULT_INSTRUCTION,
         },
       }),
     })

@@ -40,27 +40,35 @@ function previewText(entry: GuideJournalEntry) {
   return entry.summary?.trim() || entry.agent_inferences?.trim() || 'Sesion con Guia lista para revisar.'
 }
 
+function cdmxDateKey(iso: string) {
+  const date = new Date(iso)
+  if (!Number.isFinite(date.getTime())) return ''
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
+}
+
 function formatFriendlyDate(iso: string) {
   const date = new Date(iso)
   if (!Number.isFinite(date.getTime())) return ''
-  const now = new Date()
-  const sameDay =
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  const time = date.toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' })
-  if (sameDay) return `Hoy · ${time}`
-  const yesterday = new Date(now)
-  yesterday.setDate(now.getDate() - 1)
-  const isYesterday =
-    date.getFullYear() === yesterday.getFullYear() &&
-    date.getMonth() === yesterday.getMonth() &&
-    date.getDate() === yesterday.getDate()
-  if (isYesterday) return `Ayer · ${time}`
+  const key = cdmxDateKey(iso)
+  const todayKey = cdmxDateKey(new Date().toISOString())
+  const yesterdayKey = cdmxDateKey(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+  const time = date.toLocaleTimeString('es-MX', {
+    timeZone: 'America/Mexico_City',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+  if (key && key === todayKey) return `Hoy · ${time}`
+  if (key && key === yesterdayKey) return `Ayer · ${time}`
   return date.toLocaleString('es-MX', {
+    timeZone: 'America/Mexico_City',
     day: 'numeric',
     month: 'short',
-    year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+    year: key.slice(0, 4) === todayKey.slice(0, 4) ? undefined : 'numeric',
     hour: 'numeric',
     minute: '2-digit',
   })

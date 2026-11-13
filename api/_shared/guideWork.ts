@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { parseDueDateHint } from '../../src/features/ai-support/parseWorkFacts.js'
+import { ENVIARDIAN_REPORT_VERSION } from './enviardianPrompt.js'
 
 export type GuideWorkKind = 'action' | 'initiative'
 
@@ -39,6 +41,20 @@ export type GuideExecutiveReport = {
   priorities: string[]
   decisions: string[]
   nextSteps: string[]
+  said?: string[]
+  verified?: string[]
+  agreed?: string[]
+  recommendations?: string[]
+  labeled?: boolean
+  interviewOnly?: boolean
+  consultFailed?: boolean
+}
+
+export type ReportClock = {
+  startedAt?: string | null
+  closedAt?: string | null
+  anchorYmd?: string | null
+  version?: string
 }
 
 type KrCatalogEntry = {
@@ -110,13 +126,72 @@ export function parseExecutiveReport(raw: unknown): GuideExecutiveReport | null 
   }
   if (typeof raw !== 'object') return null
   const row = raw as Record<string, unknown>
+  const said = asStringList(row.said || row.loDicho || row.lo_dicho)
+  const verified = asStringList(row.verified || row.loVerificado || row.lo_verificado)
+  const agreed = asStringList(row.agreed || row.loAcordado || row.lo_acordado)
+  const recommendations = asStringList(row.recommendations || row.recomendaciones)
+  const labeled = ['said', 'verified', 'agreed', 'recommendations', 'loDicho', 'lo_dicho'].some((key) => key in row)
   return {
-    situation: asString(row.situation || row.situacion),
+    situation: asString(row.situation || row.situacion) || said.join(' '),
     diagnosis: asString(row.diagnosis || row.diagnostico),
     priorities: asStringList(row.priorities || row.prioridades),
     decisions: asStringList(row.decisions || row.decisiones),
     nextSteps: asStringList(row.nextSteps || row.next_steps || row.proximosPasos || row.proximos_pasos),
+    said,
+    verified,
+    agreed,
+    recommendations,
+    labeled,
   }
+}
+
+export function cdmxDateTimeLabel(iso: string | null | undefined) {
+  if (!iso) return null
+  const date = new Date(iso)
+  if (!Number.isFinite(date.getTime())) return null
+  return date.toLocaleString('es-MX', {
+    timeZone: 'America/Mexico_City',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+export function cdmxYmd(iso: string | null | undefined) {
+  if (!iso) return null
+  const date = new Date(iso)
+  if (!Number.isFinite(date.getTime())) return null
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
+}
+
+export function commitmentDateLabel(hint: string | null | undefined, anchorYmd: string) {
+  const raw = hint?.trim() ?? ''
+  if (!raw) return 'Por definir'
+  const facts = parseDueDateHint(raw, anchorYmd)
+  if (facts.dateYmd) return facts.timeHm ? `${facts.dateYmd} ${facts.timeHm}` : facts.dateYmd
+  const folded = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  if (/\d|hoy|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo/.test(folded)) {
+    return 'Pendiente de confirmacion'
+  }
+  return 'Por definir'
+}
+
+function sessionDurationLabel(startedAt?: string | null, closedAt?: string | null) {
+  if (!startedAt || !closedAt) return null
+  const ms = new Date(closedAt).getTime() - new Date(startedAt).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return null
+  const minutes = Math.max(1, Math.round(ms / 60000))
+  return `${minutes} min`
 }
 
 export function serializePendingWork(drafts: GuideWorkDraft[]): GuideCreatedWork[] {
@@ -144,11 +219,28 @@ export function recordedWorkFromCreated(items: GuideCreatedWork[] | null | undef
   return (items ?? []).filter((item) => item.title && !item.error && !item.pending && Boolean(item.id))
 }
 
+function actionPlanLines(created: GuideCreatedWork[], pending: GuideWorkDraft[], anchorYmd: string) {
+  const lines = ['Accion | Responsable | Fecha | Estado']
+  for (const item of pending) {
+    const owner = item.ownerHint?.trim() || 'Por definir'
+    const date = commitmentDateLabel(item.dueDateHint, anchorYmd)
+    lines.push(`- ${item.title} | ${owner} | ${date} | Propuesta pendiente`)
+  }
+  for (const item of recordedWorkFromCreated(created)) {
+    const date = commitmentDateLabel(item.dueDateHint, anchorYmd)
+    const note = item.alreadyExisted ? 'Ya estaba en el tablero' : 'Registrada en Scrumban'
+    lines.push(`- ${item.title} | Por definir | ${date} | ${note}`)
+  }
+  if (lines.length === 1) lines.push('- Sin acciones en esta entrevista | Por definir | Por definir | Sin propuesta')
+  return lines
+}
+
 export function formatExecutiveReport(
   report: GuideExecutiveReport | null,
   fallback: { summary?: string | null; learning?: string | null; intention?: string | null },
   created: GuideCreatedWork[],
-  pending: GuideWorkDraft[] = []
+  pending: GuideWorkDraft[] = [],
+  clock?: ReportClock
 ): string {
   const situation = report?.situation || fallback.summary || 'Conversacion breve; se conserva lo esencial.'
   const diagnosis = report?.diagnosis || fallback.learning || ''
@@ -161,6 +253,48 @@ export function formatExecutiveReport(
         ? [fallback.intention]
         : []
   const ok = created.filter((item) => !item.error)
+
+  if (report?.labeled) {
+    const anchor = clock?.anchorYmd || cdmxYmd(clock?.startedAt) || cdmxYmd(new Date().toISOString()) || '2000-01-01'
+    const said = report.said?.length ? report.said : [situation]
+    const agreed = report.agreed ?? []
+    const recommendations = (report.recommendations?.length ? report.recommendations : priorities).slice(0, 3)
+    const lines = [
+      'REPORTE EJECUTIVO — ENVIARDIAN',
+      `Generador: ${clock?.version || ENVIARDIAN_REPORT_VERSION}`,
+      'Modalidad: entrevista por voz',
+      `Inicio: ${cdmxDateTimeLabel(clock?.startedAt) || 'No disponible'}`,
+      `Cierre: ${cdmxDateTimeLabel(clock?.closedAt) || 'No disponible'}`,
+      `Duracion: ${sessionDurationLabel(clock?.startedAt, clock?.closedAt) || 'No disponible'}`,
+      '',
+      'LO DICHO',
+      ...said.map((item) => `- ${item}`),
+      '',
+      'LO VERIFICADO',
+    ]
+    if (report.interviewOnly || !report.verified?.length) {
+      lines.push(
+        report.consultFailed
+          ? 'No pude consultar el tablero durante la entrevista. Este informe se basa solo en lo conversado.'
+          : 'Este informe se basa solo en la entrevista. No hubo una consulta exitosa al tablero.'
+      )
+    } else {
+      report.verified.forEach((item) => lines.push(`- ${item}`))
+    }
+    lines.push('', 'LO ACORDADO')
+    if (agreed.length === 0) lines.push('No hubo acuerdos en la entrevista.')
+    else agreed.forEach((item) => lines.push(`- ${item}`))
+    if (recommendations.length) {
+      lines.push('', 'RECOMENDACIONES')
+      recommendations.forEach((item, index) => lines.push(`${index + 1}. ${item}`))
+    }
+    lines.push('', 'PLAN DE ACCION', ...actionPlanLines(ok, pending, anchor))
+    if (nextSteps.length) {
+      lines.push('', 'PROXIMOS PASOS')
+      nextSteps.forEach((item) => lines.push(`- ${item}`))
+    }
+    return lines.join('\n').trim().slice(0, 6000)
+  }
 
   const lines = ['REPORTE EJECUTIVO — GUIA', '', 'SITUACION', situation]
   if (diagnosis) lines.push('', 'DIAGNOSTICO', diagnosis)

@@ -5,7 +5,7 @@
  */
 import { createServiceRoleClient } from '../assistantAuth.js'
 import { finalizeGuideInterview } from '../finalizeGuideInterview.js'
-import { turnsFromRetellCall, verifyRetellSignature } from '../guideInterviewReport.js'
+import { retellCallEndedAt, turnsFromRetellCall, verifyRetellSignature } from '../guideInterviewReport.js'
 import { defineApiHandler, readHeader, readStringEnv } from '../http.js'
 
 export default defineApiHandler(async (req, res) => {
@@ -47,6 +47,7 @@ export default defineApiHandler(async (req, res) => {
       callId,
       turns: turnsFromRetellCall(call),
       event: eventName,
+      endedAt: retellCallEndedAt(call),
     })
     return res.status(200).json({ ok: true, status: result.status, already: result.already })
   } catch (error) {

@@ -39,6 +39,7 @@ const API_ROUTES: Record<string, { file: string; op: string }> = {
   '/api/guide-retell': { file: 'api/guide-retell.ts', op: '' },
   '/api/guide-retell-webhook': { file: 'api/guide-retell.ts', op: 'webhook' },
   '/api/guide-retell-web-call': { file: 'api/guide-retell.ts', op: 'web-call' },
+  '/api/guide-retell-tool': { file: 'api/guide-retell.ts', op: 'tool' },
   '/api/guide-queue-workspace-draft': { file: 'api/guide-retell.ts', op: 'queue-workspace-draft' },
   '/api/guide-report': { file: 'api/guide-report.ts', op: '' },
   '/api/guide-link-report': { file: 'api/guide-report.ts', op: 'link-report' },
