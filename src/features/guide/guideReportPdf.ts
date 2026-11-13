@@ -393,7 +393,7 @@ function pageChrome(pageNumber: number, pageCount: number, isFirst: boolean) {
   commands.push('/F1 8 Tf')
   commands.push(`${COLOR.soft} rg`)
   commands.push(`1 0 0 1 ${MARGIN_X.toFixed(2)} ${FOOTER_Y.toFixed(2)} Tm`)
-  commands.push(`(${escapePdf('Scrumban · Shaman · Uso interno')}) Tj`)
+  commands.push(`(${escapePdf('Scrumban · Enviardian · Uso interno')}) Tj`)
   const pageLabel = `${pageNumber} / ${pageCount}`
   const pageX = MARGIN_X + CONTENT_WIDTH - approxCharWidth(8) * pageLabel.length
   commands.push(`1 0 0 1 ${pageX.toFixed(2)} ${FOOTER_Y.toFixed(2)} Tm`)
@@ -622,7 +622,7 @@ export function presentationToPreviewHtml(presentation: GuideReportPresentation)
       ${sections}
       ${limitations}
       <div style="position:absolute;left:58px;right:58px;bottom:28px;padding-top:10px;border-top:1px solid #c8ced8;display:flex;justify-content:space-between;font-size:10px;color:#8a93a3">
-        <span>Scrumban · Shaman · Uso interno</span>
+        <span>Scrumban · Enviardian · Uso interno</span>
         <span>1 / 1</span>
       </div>
     </article>

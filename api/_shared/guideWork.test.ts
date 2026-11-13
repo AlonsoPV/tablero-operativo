@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  commitmentDateLabel,
   formatCreatedWorkReply,
   formatExecutiveReport,
   guideOpening,
@@ -95,6 +96,47 @@ describe('guideWork', () => {
     expect(guideWorkInstructions('consult')).toMatch(/arma UNA accion/i)
     expect(guideWorkInstructions()).toMatch(/queue_workspace_draft/)
     expect(guideWorkInstructions()).toMatch(/No envies el correo/)
+  })
+
+  it('separa lo dicho de lo acordado y no inventa un compromiso', () => {
+    const text = formatExecutiveReport(
+      {
+        situation: 'Hablaron de inventarios.',
+        diagnosis: '',
+        priorities: [],
+        decisions: [],
+        nextSteps: [],
+        said: ['El conteo de inventario se atrasa.'],
+        verified: [],
+        agreed: [],
+        recommendations: ['Revisar el corte el lunes.'],
+        labeled: true,
+        interviewOnly: true,
+      },
+      {},
+      [],
+      [],
+      {
+        startedAt: '2026-11-12T18:00:00.000Z',
+        closedAt: '2026-11-12T18:12:00.000Z',
+        anchorYmd: '2026-11-12',
+        version: 'enviardian-informe-v1',
+      }
+    )
+    expect(text).toContain('LO DICHO')
+    expect(text).toContain('El conteo de inventario se atrasa.')
+    expect(text).toContain('No hubo acuerdos')
+    expect(text).toContain('se basa solo en la entrevista')
+    expect(text).toContain('Sin propuesta')
+    expect(text).toContain('Generador: enviardian-informe-v1')
+    expect(text).not.toContain('TRABAJO CREADO')
+  })
+
+  it('resuelve el viernes contra el dia de la entrevista, no contra otro dia', () => {
+    expect(commitmentDateLabel('el viernes', '2026-11-12')).toBe('2026-11-13')
+    expect(commitmentDateLabel('el viernes', '2026-11-20')).toBe('2026-11-20')
+    expect(commitmentDateLabel('algun dia', '2026-11-12')).toBe('Por definir')
+    expect(commitmentDateLabel('el 32 de noviembre', '2026-11-12')).toBe('Pendiente de confirmacion')
   })
 
   it('infiere crear desde habla natural y deja consultar las preguntas del tablero', () => {

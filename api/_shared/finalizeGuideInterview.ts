@@ -1,14 +1,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { extractJsonObject, generateGuideText, GUIDE_REFLECTION_PROMPT } from '../guide-chat.js'
-import { loadGuideBoardContext } from './guideBoardContext.js'
+import { extractJsonObject, generateGuideText } from '../guide-chat.js'
+import { ENVIARDIAN_INTERVIEW_REPORT_PROMPT, ENVIARDIAN_REPORT_VERSION } from './enviardianPrompt.js'
 import {
   decideReportAction,
   insufficientExecutiveReport,
+  interviewClosedAt,
   transcriptDepth,
   type GuideReportStatus,
   type GuideTranscriptTurn,
 } from './guideInterviewReport.js'
 import {
+  cdmxYmd,
   formatExecutiveReport,
   inferGuideWorkIntent,
   parseExecutiveReport,
@@ -16,6 +18,7 @@ import {
   serializePendingWork,
   withWorkInInterpretation,
 } from './guideWork.js'
+import { groundVerifiedLines, verifiedFactsFromLog } from './guideRetellTool.js'
 import { readNumberEnv } from './http.js'
 import { persistFilledWorkspaceDrafts } from './workspaceDraftFinalize.js'
 
@@ -30,6 +33,7 @@ type SessionRow = {
   provider_session_id: string | null
   status: string
   guide_link_id?: string | null
+  consult_log?: unknown
   report_status?: GuideReportStatus | null
   report_error?: string | null
   updated_at?: string
@@ -86,15 +90,17 @@ async function setReportStatus(
   sessionId: string,
   status: GuideReportStatus,
   errorText: string | null,
-  close: boolean
+  close: boolean,
+  closedAt?: string
 ) {
+  const stamp = closedAt || new Date().toISOString()
   const patch: Record<string, unknown> = {
     report_status: status,
     report_error: errorText,
   }
   if (close) {
     patch.status = 'completed'
-    patch.closed_at = new Date().toISOString()
+    patch.closed_at = stamp
     patch.close_reason = 'user_requested'
   }
   const updated = await supabase.from('guide_sessions').update(patch).eq('id', sessionId)
@@ -104,7 +110,7 @@ async function setReportStatus(
       .from('guide_sessions')
       .update({
         status: 'completed',
-        closed_at: new Date().toISOString(),
+        closed_at: stamp,
         close_reason: 'user_requested',
       })
       .eq('id', sessionId)
@@ -128,16 +134,17 @@ export async function finalizeGuideInterview(
     callId?: string | null
     turns?: GuideTranscriptTurn[]
     event: 'call_ended' | 'call_analyzed' | 'client' | 'retry'
+    endedAt?: string | null
   }
 ): Promise<FinalizeGuideInterviewResult> {
   const loadSession = async (column: 'id' | 'provider_session_id', value: string) => {
     const full = await supabase
       .from('guide_sessions')
-      .select('id,usuario_id,provider,provider_session_id,status,guide_link_id,report_status,report_error,updated_at,started_at,closed_at')
+      .select('id,usuario_id,provider,provider_session_id,status,guide_link_id,consult_log,report_status,report_error,updated_at,started_at,closed_at')
       .eq(column, value)
       .maybeSingle()
     if (!full.error) return (full.data as SessionRow | null) ?? null
-    if (!missingColumn(full.error, 'guide_link_id|report_status|report_error')) return null
+    if (!missingColumn(full.error, 'guide_link_id|report_status|report_error|consult_log')) return null
     const base = await supabase
       .from('guide_sessions')
       .select('id,usuario_id,provider,provider_session_id,status,updated_at,started_at,closed_at')
@@ -158,6 +165,7 @@ export async function finalizeGuideInterview(
   const current = (session.report_status ?? (hasReport ? 'ready' : null)) as GuideReportStatus | null
   const turns = input.turns ?? []
   if (turns.length > 0 && current !== 'ready') await saveMessages(supabase, session.id, turns)
+  const closedAt = interviewClosedAt(session.started_at, input.endedAt) ?? new Date().toISOString()
 
   const decision = decideReportAction({
     event: input.event,
@@ -172,7 +180,7 @@ export async function finalizeGuideInterview(
   }
   if (decision === 'busy' || decision === 'wait') {
     if (input.event === 'call_ended') {
-      await setReportStatus(supabase, session.id, 'pending', null, true)
+      await setReportStatus(supabase, session.id, 'pending', null, true, closedAt)
     }
     return { status: 'pending', journal, already: false }
   }
@@ -199,38 +207,45 @@ export async function finalizeGuideInterview(
       .upsert(payload, { onConflict: 'session_id' })
       .select(JOURNAL_FULL)
       .maybeSingle()
-    await setReportStatus(supabase, session.id, 'insufficient', null, true)
+    await setReportStatus(supabase, session.id, 'insufficient', null, true, closedAt)
     return { status: 'insufficient', journal: (saved.data as Record<string, unknown> | null) ?? payload, already: false }
   }
 
-  await setReportStatus(supabase, session.id, 'processing', null, true)
+  await setReportStatus(supabase, session.id, 'processing', null, true, closedAt)
 
-  const transcript = turns.map((turn) => `${turn.role === 'user' ? 'Usuario' : 'Guia'}: ${turn.content}`).join('\n')
-  let boardContext = ''
-  try {
-    boardContext = await loadGuideBoardContext(supabase, 2400)
-  } catch (error) {
-    console.error('guide interview board', error)
-  }
+  const transcript = turns.map((turn) => `${turn.role === 'user' ? 'Usuario' : 'Enviardian'}: ${turn.content}`).join('\n')
+  const facts = verifiedFactsFromLog(session.consult_log)
+  const startedAt = session.started_at || null
+  const anchorYmd = cdmxYmd(startedAt) || cdmxYmd(closedAt) || ''
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 28000)
   try {
-    const now = new Date()
-    const today = now.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' })
+    const consultBlock = facts.hadSuccess
+      ? facts.lines.join('\n')
+      : 'Ninguna consulta exitosa. El informe se basa solo en la entrevista.'
     const raw = await generateGuideText(
-      GUIDE_REFLECTION_PROMPT,
+      ENVIARDIAN_INTERVIEW_REPORT_PROMPT,
       [
-        `Hoy es ${today} (America/Mexico_City).`,
-        boardContext || 'Contexto del tablero: no disponible.',
+        `Fecha de la entrevista (America/Mexico_City): ${anchorYmd || 'no disponible'}.`,
+        `Inicio: ${startedAt || 'no disponible'}.`,
+        `Cierre: ${closedAt}.`,
+        'Resuelve fechas relativas contra la fecha de la entrevista.',
+        '',
+        'Consultas registradas:',
+        consultBlock,
+        facts.hadError && !facts.hadSuccess
+          ? 'Una consulta al tablero fallo. No completes ese hueco con cifras.'
+          : '',
         '',
         transcript,
         '',
         inferGuideWorkIntent(transcript) === 'create'
-          ? 'Hubo un pendiente explicito. Genera actionDrafts solo con lo dicho.'
-          : 'Genera el reporte ejecutivo solo con lo dicho. Si falta base para una conclusion, dilo.',
-        'Separa lo que dijo la persona de lo que infieres. No inventes cifras, responsables ni acuerdos.',
-      ].join('\n'),
+          ? 'Hubo un pendiente explicito. Genera actionDrafts solo con lo dicho. No los marques como creados.'
+          : 'Si no hubo un compromiso explicito, actionDrafts queda vacio y agreed queda vacio.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
       readNumberEnv('GUIDE_CLOSE_MAX_TOKENS', 1600),
       controller.signal
     )
@@ -245,15 +260,35 @@ export async function finalizeGuideInterview(
     }
     const drafts = parseGuideWorkDrafts(reflection.actionDrafts)
     const pending = serializePendingWork(drafts)
+    const parsed = parseExecutiveReport(reflection.executiveReport ?? reflection.executive_report)
     const executive = formatExecutiveReport(
-      parseExecutiveReport(reflection.executiveReport ?? reflection.executive_report),
+      {
+        situation: parsed?.situation || '',
+        diagnosis: '',
+        priorities: [],
+        decisions: [],
+        nextSteps: parsed?.nextSteps ?? [],
+        said: parsed?.said ?? [],
+        verified: facts.hadSuccess ? groundVerifiedLines(facts.lines, parsed?.verified ?? []) : [],
+        agreed: parsed?.agreed ?? [],
+        recommendations: parsed?.recommendations ?? [],
+        labeled: true,
+        interviewOnly: !facts.hadSuccess,
+        consultFailed: facts.hadError && !facts.hadSuccess,
+      },
       {
         summary: typeof reflection.summary === 'string' ? reflection.summary : null,
-        learning: typeof reflection.learning === 'string' ? reflection.learning : null,
-        intention: typeof reflection.intention === 'string' ? reflection.intention : null,
+        learning: null,
+        intention: null,
       },
       [],
-      drafts
+      drafts,
+      {
+        startedAt,
+        closedAt,
+        anchorYmd,
+        version: ENVIARDIAN_REPORT_VERSION,
+      }
     )
     const payload = {
       session_id: session.id,
@@ -282,7 +317,7 @@ export async function finalizeGuideInterview(
       console.error('guide interview journal', saved.error.message)
       return { status: 'failed', journal: null, already: false }
     }
-    await setReportStatus(supabase, session.id, 'ready', null, true)
+    await setReportStatus(supabase, session.id, 'ready', null, true, closedAt)
     try {
       await persistFilledWorkspaceDrafts(
         supabase,

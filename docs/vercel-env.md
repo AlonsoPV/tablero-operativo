@@ -83,7 +83,7 @@ Checklist de deploy (manual; no aplicar migraciones ni redesplegar desde el agen
 | Redirect URI | En Google Cloud Console: `https://scrumbanemx.vercel.app/api/google-oauth-callback` y `http://localhost:5173/api/google-oauth-callback`. |
 | Scopes | `gmail.readonly`, `gmail.compose`, `calendar.events` (consentimiento incremental). |
 | Migracion | `supabase/migrations/20261110140000_user_google_connections.sql` |
-| Retell | Custom function `queue_workspace_draft` → `POST {APP}/api/guide-queue-workspace-draft` (firma `x-retell-signature`). |
+| Retell | `scrumban` → `POST {APP}/api/guide-retell-tool`. `queue_workspace_draft` → `POST {APP}/api/guide-queue-workspace-draft`. Firma `x-retell-signature`. Checklist: [retell-enviardian-checklist.md](./retell-enviardian-checklist.md). |
 | No tocar | `GOOGLE_REFRESH_TOKEN` de organizacion en Edge. |
 
 El perfil (`/settings/profile`) muestra la tarjeta **Google Workspace**. El copiloto lee Gmail/Calendar de esa cuenta; envios y eventos solo tras Confirmar.

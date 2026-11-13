@@ -48,7 +48,7 @@ describe('guide report presentation', () => {
       entryId: '187ac948-a935-4ccd-91a4-48919f076b9e',
       topic: 'Seguimiento de Acciones y OKRs',
     })
-    expect(name).toBe('Shaman_Informe_2026-11-10_Seguimiento_de_Acciones_187ac948.pdf')
+    expect(name).toBe('Enviardian_Informe_2026-11-10_Seguimiento_de_Acciones_187ac948.pdf')
   })
 
   it('uses the stored report and omits approval drafts', () => {
@@ -118,7 +118,49 @@ describe('guide report pdf', () => {
     expect(built.pdf).toContain('Seguimiento')
     expect(built.pdf).toContain('Revisar el viernes')
     expect(built.pdf).not.toContain('No debe aparecer')
-    expect(built.filename).toMatch(/^Shaman_Informe_2026-11-10_/)
+    expect(built.filename).toMatch(/^Enviardian_Informe_2026-11-10_/)
+  })
+
+  it('prints the same sections the historial presentation parsed', () => {
+    const source = {
+      id: '187ac948-a935-4ccd-91a4-48919f076b9e',
+      topic: 'Inventarios',
+      created_at: '2026-11-12T18:00:00.000Z',
+      executive_report: [
+        'REPORTE EJECUTIVO — ENVIARDIAN',
+        'Generador: enviardian-informe-v1',
+        'Modalidad: entrevista por voz',
+        '',
+        'LO DICHO',
+        '- El conteo se atrasa.',
+        '',
+        'LO VERIFICADO',
+        'Este informe se basa solo en la entrevista. No hubo una consulta exitosa al tablero.',
+        '',
+        'LO ACORDADO',
+        'No hubo acuerdos en la entrevista.',
+        '',
+        'RECOMENDACIONES',
+        '1. Revisar el corte.',
+        '',
+        'PLAN DE ACCION',
+        '- Sin acciones en esta entrevista | Por definir | Por definir | Sin propuesta',
+      ].join('\n'),
+    }
+    const presentation = buildGuideReportPresentation(source, '2026-11-12T18:20:00.000Z')
+    const pdfText = presentationToPdfLines(presentation)
+      .map((line) => line.text)
+      .join('\n')
+    expect(presentation.brand).toBe('Scrumban · Enviardian')
+    expect(presentation.sections.map((section) => section.title)).toEqual(
+      expect.arrayContaining(['Lo dicho', 'Lo verificado', 'Lo acordado', 'Recomendaciones', 'Plan de accion'])
+    )
+    for (const section of presentation.sections) {
+      expect(pdfText).toContain(section.title.toUpperCase())
+      expect(pdfText).toContain(section.body.split('\n')[0] ?? '')
+    }
+    expect(pdfText).toContain('se basa solo en la entrevista')
+    expect(pdfText).not.toContain('responsable inventado')
   })
 
   it('legacy reportToPdfLines stays deterministic and content-bound', () => {

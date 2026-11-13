@@ -21,7 +21,12 @@ export function parseReportBlocks(raw: string): ReportBlock[] {
 
   const prettyHeading = (line: string) =>
     line
-      .replace(/^REPORTE EJECUTIVO\s*[—–-]?\s*GUIA\s*/i, 'Reporte ejecutivo')
+      .replace(/^REPORTE EJECUTIVO\b.*$/i, 'Reporte ejecutivo')
+      .replace(/\bLO DICHO\b/i, 'Lo dicho')
+      .replace(/\bLO VERIFICADO\b/i, 'Lo verificado')
+      .replace(/\bLO ACORDADO\b/i, 'Lo acordado')
+      .replace(/\bPLAN DE ACCION\b/i, 'Plan de accion')
+      .replace(/\bRECOMENDACIONES\b/i, 'Recomendaciones')
       .replace(/\bSITUACION\b/i, 'Situacion')
       .replace(/\bDIAGNOSTICO\b/i, 'Diagnostico')
       .replace(/\bDECISIONES\b/i, 'Decisiones')

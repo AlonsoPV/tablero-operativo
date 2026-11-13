@@ -45,8 +45,8 @@ const SKIP_SECTION = /para aprobar|trabajo creado/i
 const BANNER_TITLE = /^reporte ejecutivo$/i
 
 function sectionKind(title: string): GuideReportSection['kind'] {
-  if (/situacion|diagnostico|hallazgo/i.test(title)) return 'finding'
-  if (/prioridad|recomend|accion|decision|oportun/i.test(title)) return 'action'
+  if (/lo dicho|lo verificado|situacion|diagnostico|hallazgo/i.test(title)) return 'finding'
+  if (/lo acordado|plan de accion|prioridad|recomend|accion|decision|oportun|pendiente/i.test(title)) return 'action'
   if (/proximo|cierre|siguiente/i.test(title)) return 'closing'
   if (/aprendizaje|intencion|interpret|pensar|nota/i.test(title)) return 'note'
   return 'lead'
@@ -95,7 +95,7 @@ export function buildGuideReportFilename(input: {
   const idPart = (input.entryId || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)
   const topicPart = sanitizePdfFilenamePart(input.topic || '', 24)
   const tail = [topicPart, idPart].filter(Boolean).join('_') || 'informe'
-  return `Shaman_Informe_${dateKey}_${tail}.pdf`
+  return `Enviardian_Informe_${dateKey}_${tail}.pdf`
 }
 
 function normalizeBlocks(source: GuideReportSource): ReportBlock[] {
@@ -108,7 +108,7 @@ function normalizeBlocks(source: GuideReportSource): ReportBlock[] {
   const blocks = fromReport
     .map((block) => ({
       title:
-        block.title && BANNER_TITLE.test(block.title.trim())
+        block.title && BANNER_TITLE.test(block.title.trim()) && block.body.length === 0
           ? null
           : block.title,
       body: block.body.trim(),
@@ -167,7 +167,7 @@ export function buildGuideReportPresentation(
   const sessionShort = sessionClean ? sessionClean.slice(-8) : null
 
   return {
-    brand: 'Scrumban · Shaman',
+    brand: 'Scrumban · Enviardian',
     title: 'Informe ejecutivo',
     topic,
     interviewAtLabel,

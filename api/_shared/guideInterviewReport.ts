@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { ENVIARDIAN_REPORT_VERSION } from './enviardianPrompt.js'
 
 export type GuideReportStatus = 'pending' | 'processing' | 'ready' | 'failed' | 'insufficient'
 
@@ -65,9 +66,38 @@ export function decideReportAction(input: {
   ) {
     return 'busy'
   }
+  if (input.event === 'client') return 'wait'
   if (input.depth === 'ready') return 'generate'
-  if (input.event === 'call_ended' || input.event === 'client') return 'wait'
+  if (input.event === 'call_ended') return 'wait'
   return 'insufficient'
+}
+
+/** Marca de fin de Retell (`end_timestamp`, ms o s) como ISO. Null si no viene. */
+export function retellCallEndedAt(call: unknown): string | null {
+  if (!call || typeof call !== 'object') return null
+  const raw = (call as { end_timestamp?: unknown }).end_timestamp
+  let ms = Number.NaN
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    ms = raw >= 1e12 ? raw : raw >= 1e9 ? raw * 1000 : Number.NaN
+  } else if (typeof raw === 'string' && raw.trim()) {
+    const numeric = Number(raw)
+    if (Number.isFinite(numeric) && numeric >= 1e9) ms = numeric >= 1e12 ? numeric : numeric * 1000
+    else ms = Date.parse(raw)
+  }
+  if (!Number.isFinite(ms) || ms <= 0) return null
+  return new Date(ms).toISOString()
+}
+
+/** Cierre del informe. Null si no hay fin de llamada o si es anterior al inicio. */
+export function interviewClosedAt(startedAt: string | null | undefined, endedAt: string | null | undefined): string | null {
+  if (!endedAt) return null
+  const end = Date.parse(endedAt)
+  if (!Number.isFinite(end)) return null
+  if (startedAt) {
+    const start = Date.parse(startedAt)
+    if (Number.isFinite(start) && end < start) return null
+  }
+  return new Date(end).toISOString()
 }
 
 export function turnsFromRetellCall(call: unknown): GuideTranscriptTurn[] {
@@ -128,7 +158,12 @@ export function parseReportBlocks(raw: string): ReportSection[] {
   }
   const prettyHeading = (line: string) =>
     line
-      .replace(/^REPORTE EJECUTIVO\s*[—–-]?\s*GUIA\s*/i, 'Reporte ejecutivo')
+      .replace(/^REPORTE EJECUTIVO\b.*$/i, 'Reporte ejecutivo')
+      .replace(/\bLO DICHO\b/i, 'Lo dicho')
+      .replace(/\bLO VERIFICADO\b/i, 'Lo verificado')
+      .replace(/\bLO ACORDADO\b/i, 'Lo acordado')
+      .replace(/\bPLAN DE ACCION\b/i, 'Plan de accion')
+      .replace(/\bRECOMENDACIONES\b/i, 'Recomendaciones')
       .replace(/\bSITUACION\b/i, 'Situacion')
       .replace(/\bDIAGNOSTICO\b/i, 'Diagnostico')
       .replace(/\bDECISIONES\b/i, 'Decisiones')
@@ -174,18 +209,25 @@ export function buildWhatsappReportMessage(input: {
   const report = input.executiveReport?.trim() ?? ''
   const blocks = report ? parseReportBlocks(report) : []
   const topic = input.topic?.trim() || ''
-  const situation = sectionBody(blocks, /situacion/i) || input.summary?.trim() || ''
-  const diagnosis = sectionBody(blocks, /diagnostico/i)
-  const priorities = bulletLines(sectionBody(blocks, /prioridad/i), 3)
+  const situation =
+    sectionBody(blocks, /lo dicho|situacion/i) || input.summary?.trim() || ''
+  const diagnosis = sectionBody(blocks, /lo verificado|diagnostico/i)
+  const agreements = bulletLines(sectionBody(blocks, /lo acordado|decision/i), 3)
+  const priorities = bulletLines(sectionBody(blocks, /recomend|prioridad/i), 3)
   const steps = bulletLines(sectionBody(blocks, /proximos pasos/i), 3)
-  const findings = bulletLines(diagnosis, 3)
+  const findings = bulletLines(diagnosis, 3).filter((line) => !/se basa solo en la entrevista/i.test(line))
 
-  const lines = ['Resumen de tu sesion con Guia', '']
+  const lines = ['Resumen de tu sesion con Enviardian', '']
   if (topic) lines.push(`Tema principal:\n${topic}`, '')
   if (situation) lines.push(`Lo que se dijo:\n${situation}`, '')
   if (findings.length) {
-    lines.push('Hallazgos:')
+    lines.push('Hallazgo principal:')
     findings.forEach((item) => lines.push(`- ${item}`))
+    lines.push('')
+  }
+  if (agreements.length) {
+    lines.push('Acuerdos:')
+    agreements.forEach((item) => lines.push(`- ${item}`))
     lines.push('')
   }
   if (priorities.length) {
@@ -211,12 +253,19 @@ export function insufficientExecutiveReport(userWords: string) {
     ? `La entrevista termino con poca informacion. Lo dicho por la persona: «${quoted.slice(0, 500)}». No alcanza para un diagnostico.`
     : 'La entrevista termino sin informacion suficiente de la persona entrevistada. No hay diagnostico ni recomendaciones.'
   return [
-    'REPORTE EJECUTIVO — GUIA',
+    'REPORTE EJECUTIVO — ENVIARDIAN',
+    `Generador: ${ENVIARDIAN_REPORT_VERSION}`,
+    'Modalidad: entrevista por voz',
     '',
-    'SITUACION',
+    'LO DICHO',
     situation,
     '',
-    'DIAGNOSTICO',
+    'LO VERIFICADO',
+    'Este informe se basa solo en la entrevista. No hubo consulta al tablero.',
+    '',
+    'LO ACORDADO',
+    'No hubo acuerdos.',
+    '',
     'Informacion insuficiente. No se infieren problemas, acuerdos ni responsables.',
   ].join('\n')
 }
