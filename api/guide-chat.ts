@@ -11,7 +11,14 @@ import {
 } from './_shared/http.js'
 import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth.js'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
+import { createServiceRoleClient } from './_shared/assistantAuth.js'
 import { loadGuideBoardContext } from './_shared/guideBoardContext.js'
+import { finalizeGuideInterview } from './_shared/finalizeGuideInterview.js'
+import {
+  retellCallEndedAt,
+  turnsFromRetellCall,
+  type GuideTranscriptTurn,
+} from './_shared/guideInterviewReport.js'
 import {
   formatExecutiveReport,
   inferGuideWorkIntent,
@@ -22,6 +29,7 @@ import {
   withWorkInInterpretation,
   type GuideCreatedWork,
 } from './_shared/guideWork.js'
+import { fetchRetellCall } from './_shared/retellCallFetch.js'
 import { geminiModelCandidates, isGeminiCapacityStatus } from './_shared/geminiModel.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
 
@@ -93,6 +101,7 @@ type GuideSessionRow = {
   id: string
   usuario_id: string
   provider: string
+  provider_session_id?: string | null
   status: string
   started_at: string
   expires_at: string
@@ -419,7 +428,7 @@ export default defineApiHandler(async (req, res) => {
       ? { data: null, error: null }
       : await supabase
           .from('guide_sessions')
-          .select('id,usuario_id,provider,status,started_at,expires_at')
+          .select('id,usuario_id,provider,provider_session_id,status,started_at,expires_at')
           .eq('id', sessionId)
           .maybeSingle()
 
@@ -488,6 +497,55 @@ export default defineApiHandler(async (req, res) => {
         if (!msgError && (allMessages?.length ?? 0) > 0) {
           closeMessages = allMessages as GuideMessageRow[]
         }
+      }
+
+      // Voz Retell: mismo generador que el webhook. No usar GUIDE_REFLECTION ni volcado de tablero.
+      if (sessionRow?.provider === 'retell') {
+        const turns: GuideTranscriptTurn[] = closeMessages.map((message) => ({
+          role: message.role === 'assistant' ? 'assistant' : 'user',
+          content: String(message.content ?? ''),
+        }))
+        let admin: ReturnType<typeof createServiceRoleClient>
+        try {
+          admin = createServiceRoleClient()
+        } catch {
+          admin = supabase as ReturnType<typeof createServiceRoleClient>
+        }
+        let result = await finalizeGuideInterview(admin, {
+          sessionId,
+          callId: sessionRow.provider_session_id,
+          turns,
+          event: 'client',
+        })
+        if (result.status === 'pending' || result.status === 'processing' || result.status === 'failed') {
+          const callId = sessionRow.provider_session_id || ''
+          const call = callId ? await fetchRetellCall(callId) : null
+          if (call) {
+            const official = turnsFromRetellCall(call)
+            result = await finalizeGuideInterview(admin, {
+              sessionId,
+              callId,
+              turns: official.length > 0 ? official : turns,
+              event: result.status === 'failed' ? 'retry' : 'call_analyzed',
+              endedAt: retellCallEndedAt(call),
+            })
+          }
+        }
+        const journal = result.journal
+        const createdWork = journal
+          ? ((journal as { created_work?: GuideCreatedWork[] }).created_work ?? [])
+          : []
+        return res.status(200).json({
+          remaining_seconds: 0,
+          journal,
+          createdWork,
+          pendingWork: createdWork.filter((item) => item.pending),
+          executiveReport:
+            (journal as { executive_report?: string | null } | null)?.executive_report ?? null,
+          status: result.status === 'ready' || result.status === 'insufficient' ? 'completed' : 'closing',
+          report_status: result.status,
+          already: result.already,
+        })
       }
 
       const transcript = closeMessages

@@ -12,4 +12,8 @@ describe('analyst action scope', () => {
     expect(analystCanSeeAction('Director', 'me', { responsable: 'otra-persona' })).toBe(true)
     expect(analystCanSeeAction(null, 'me', { responsable: 'otra-persona' })).toBe(true)
   })
+
+  it('lets interview_full_read see any action regardless of analyst role', () => {
+    expect(analystCanSeeAction('Analista', 'me', { responsable: 'otra-persona' }, 'organization')).toBe(true)
+  })
 })

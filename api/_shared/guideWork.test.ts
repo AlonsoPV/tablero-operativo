@@ -123,12 +123,14 @@ describe('guideWork', () => {
         version: 'enviardian-informe-v1',
       }
     )
-    expect(text).toContain('LO DICHO')
+    expect(text).toContain('HALLAZGOS')
+    expect(text).toContain('RESUMEN EJECUTIVO')
     expect(text).toContain('El conteo de inventario se atrasa.')
     expect(text).toContain('No hubo acuerdos')
     expect(text).toContain('se basa solo en la entrevista')
     expect(text).toContain('Sin propuesta')
     expect(text).toContain('Generador: enviardian-informe-v1')
+    expect(text).toContain('COMPROMISOS Y PROXIMOS PASOS')
     expect(text).not.toContain('TRABAJO CREADO')
   })
 

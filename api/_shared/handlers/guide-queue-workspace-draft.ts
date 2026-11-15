@@ -1,11 +1,17 @@
 /**
  * Custom function de Retell: encola un borrador de correo/evento.
  * No envia nada. Al colgar, finalizeGuideInterview rellena el borrador.
+ * La identidad sale de guide_sessions, no de metadata.usuario_id del modelo.
  */
 import { createServiceRoleClient } from '../assistantAuth.js'
 import { queueWorkspaceDraft } from '../assistantGoogleTools.js'
 import { defineApiHandler, readHeader, readRequestBody, readStringEnv } from '../http.js'
 import { verifyRetellSignature } from '../guideInterviewReport.js'
+import {
+  effectiveInviteAccessMode,
+  isGuideWriteAllowed,
+  normalizeGuideAccessMode,
+} from '../guideUserLinks.js'
 
 type RetellCall = {
   call_id?: unknown
@@ -52,8 +58,7 @@ export default defineApiHandler(async (req, res) => {
   }
 
   const sessionId = asString(metadata.guide_session_id, 80)
-  const usuarioId = asString(metadata.usuario_id, 80)
-  if (!sessionId || !usuarioId) {
+  if (!sessionId) {
     return res.status(200).json({
       result: 'No pude anotar el borrador porque falta la sesion. Sigue la conversacion; no afirmo que se envio.',
     })
@@ -84,6 +89,51 @@ export default defineApiHandler(async (req, res) => {
 
   try {
     const supabase = createServiceRoleClient()
+    let sessionQuery = await supabase
+      .from('guide_sessions')
+      .select('id,usuario_id,provider,status,guide_link_id,access_mode')
+      .eq('id', sessionId)
+      .maybeSingle()
+    if (sessionQuery.error && /access_mode|guide_link_id/i.test(sessionQuery.error.message ?? '')) {
+      sessionQuery = await supabase
+        .from('guide_sessions')
+        .select('id,usuario_id,provider,status')
+        .eq('id', sessionId)
+        .maybeSingle()
+    }
+    const session = sessionQuery.data as {
+      id?: string
+      usuario_id?: string
+      provider?: string
+      status?: string
+      guide_link_id?: string | null
+      access_mode?: string | null
+    } | null
+    if (sessionQuery.error || !session?.id || session.provider !== 'retell' || !session.usuario_id) {
+      return res.status(200).json({
+        result: 'No pude asociar el borrador a la sesion. No afirmo que se envio.',
+      })
+    }
+    if (session.status !== 'active' && session.status !== 'closing') {
+      return res.status(200).json({
+        result: 'La sesion de voz ya no esta abierta. No anote el borrador.',
+      })
+    }
+
+    let accessMode = normalizeGuideAccessMode(session.access_mode)
+    if (!session.access_mode && session.guide_link_id) {
+      accessMode = effectiveInviteAccessMode('read')
+    }
+    if (!session.access_mode && !session.guide_link_id) accessMode = 'propose'
+    if (session.guide_link_id) accessMode = effectiveInviteAccessMode(session.access_mode || accessMode)
+    if (!isGuideWriteAllowed(accessMode)) {
+      return res.status(200).json({
+        result:
+          'Esta invitacion es de solo lectura. No puedo dejar borradores de correo o calendario. No inventes que se envio.',
+      })
+    }
+
+    const usuarioId = String(session.usuario_id)
     const { data: usuario, error } = await supabase
       .from('usuarios')
       .select('id,user_id,rol,activo')

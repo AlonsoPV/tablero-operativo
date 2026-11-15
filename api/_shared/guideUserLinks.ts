@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { readStringEnv } from './http.js'
 
@@ -6,6 +6,9 @@ export const GUIDE_LINK_DURATION_MINUTES = 15
 export const GUIDE_LINK_DEFAULT_DAYS = 30
 export const GUIDE_LINK_MIN_DAYS = 1
 export const GUIDE_LINK_MAX_DAYS = 90
+export const GUIDE_GRANT_TTL_MS = 15 * 60 * 1000
+
+export type GuideAccessMode = 'read' | 'propose' | 'interview_full_read'
 
 export type GuideLinkRow = {
   id: string
@@ -15,6 +18,97 @@ export type GuideLinkRow = {
   opened_at: string | null
   last_used_at: string | null
   use_count: number
+  access_mode?: GuideAccessMode
+}
+
+/** Piloto: ligas de entrevista con lectura organizacional. Apagar con GUIDE_INTERVIEW_FULL_READ=0. */
+export function interviewFullReadPilotEnabled() {
+  const raw = readStringEnv('GUIDE_INTERVIEW_FULL_READ', '1').toLowerCase()
+  return raw !== '0' && raw !== 'false' && raw !== 'off' && raw !== 'no'
+}
+
+export function normalizeGuideAccessMode(raw: unknown): GuideAccessMode {
+  if (raw === 'propose') return 'propose'
+  if (raw === 'interview_full_read') return 'interview_full_read'
+  return 'read'
+}
+
+/** Modo efectivo de una liga personal (piloto eleva a interview_full_read). */
+export function effectiveInviteAccessMode(stored?: unknown): GuideAccessMode {
+  if (interviewFullReadPilotEnabled()) return 'interview_full_read'
+  const mode = normalizeGuideAccessMode(stored)
+  return mode === 'propose' ? 'read' : mode
+}
+
+export function isGuideWriteAllowed(mode: GuideAccessMode) {
+  return mode === 'propose'
+}
+
+export function guideBoardScopeForAccessMode(mode: GuideAccessMode): 'role' | 'organization' {
+  return mode === 'interview_full_read' ? 'organization' : 'role'
+}
+
+function guideGrantSecret() {
+  const dedicated = readStringEnv('GUIDE_LINK_GRANT_SECRET')
+  if (dedicated) return dedicated
+  const fallback = readStringEnv('SUPABASE_SERVICE_ROLE_KEY')
+  if (fallback) return fallback
+  throw Object.assign(new Error('Falta GUIDE_LINK_GRANT_SECRET o SUPABASE_SERVICE_ROLE_KEY.'), {
+    status: 503,
+  })
+}
+
+/** Grant de corta vida tras consentimiento en la landing. No guarda el token plano. */
+export function issueGuideAccessGrant(input: {
+  linkId: string
+  usuarioId: string
+  accessMode: GuideAccessMode
+  ttlMs?: number
+}) {
+  const exp = Date.now() + (input.ttlMs ?? GUIDE_GRANT_TTL_MS)
+  const body = `${input.linkId}|${input.usuarioId}|${input.accessMode}|${exp}`
+  const sig = createHmac('sha256', guideGrantSecret()).update(body, 'utf8').digest('base64url')
+  return `${Buffer.from(body, 'utf8').toString('base64url')}.${sig}`
+}
+
+export function verifyGuideAccessGrant(
+  grant: string,
+  expected: { linkId: string; usuarioId: string }
+): { ok: true; accessMode: GuideAccessMode; exp: number } | { ok: false; error: string } {
+  const raw = (grant ?? '').trim()
+  const dot = raw.lastIndexOf('.')
+  if (dot <= 0) return { ok: false, error: 'Falta el consentimiento de la invitacion.' }
+  const payloadB64 = raw.slice(0, dot)
+  const sig = raw.slice(dot + 1)
+  let body = ''
+  try {
+    body = Buffer.from(payloadB64, 'base64url').toString('utf8')
+  } catch {
+    return { ok: false, error: 'Consentimiento invalido.' }
+  }
+  const parts = body.split('|')
+  if (parts.length !== 4) return { ok: false, error: 'Consentimiento invalido.' }
+  const [linkId, usuarioId, mode, expRaw] = parts
+  const exp = Number(expRaw)
+  if (!linkId || !usuarioId || !Number.isFinite(exp)) {
+    return { ok: false, error: 'Consentimiento invalido.' }
+  }
+  if (exp <= Date.now()) return { ok: false, error: 'El consentimiento expiro. Vuelve a la invitacion.' }
+  if (linkId !== expected.linkId || usuarioId !== expected.usuarioId) {
+    return { ok: false, error: 'El consentimiento no corresponde a esta liga.' }
+  }
+  let expectedSig = ''
+  try {
+    expectedSig = createHmac('sha256', guideGrantSecret()).update(body, 'utf8').digest('base64url')
+  } catch {
+    return { ok: false, error: 'No se pudo verificar el consentimiento.' }
+  }
+  const a = Buffer.from(sig)
+  const b = Buffer.from(expectedSig)
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    return { ok: false, error: 'Consentimiento invalido.' }
+  }
+  return { ok: true, accessMode: normalizeGuideAccessMode(mode), exp }
 }
 
 export function hashGuideToken(token: string) {
@@ -103,7 +197,14 @@ export async function createGuideUserLink(
     source?: string | null
     appBaseUrl?: string | null
   }
-): Promise<{ link: string; expires_at: string; usuario_id: string; user_name: string; link_id: string }> {
+): Promise<{
+  link: string
+  expires_at: string
+  usuario_id: string
+  user_name: string
+  link_id: string
+  access_mode: GuideAccessMode
+}> {
   const { data: usuario, error: userError } = await supabase
     .from('usuarios')
     .select('id,nombre,activo')
@@ -133,7 +234,8 @@ export async function createGuideUserLink(
       .eq('source', 'whatsapp')
   }
 
-  const { data: row, error } = await supabase
+  const accessMode: GuideAccessMode = effectiveInviteAccessMode('read')
+  let inserted = await supabase
     .from('guide_user_links')
     .insert({
       usuario_id: usuario.id,
@@ -142,10 +244,43 @@ export async function createGuideUserLink(
       expires_at: expiresAt,
       created_by: input.createdBy ?? null,
       source,
+      access_mode: accessMode,
     })
-    .select('id,expires_at')
+    .select('id,expires_at,access_mode')
     .single()
 
+  if (inserted.error && /access_mode|interview_full_read|check/i.test(inserted.error.message ?? '')) {
+    inserted = await supabase
+      .from('guide_user_links')
+      .insert({
+        usuario_id: usuario.id,
+        token_hash: tokenHash,
+        status: 'active',
+        expires_at: expiresAt,
+        created_by: input.createdBy ?? null,
+        source,
+        access_mode: 'read',
+      })
+      .select('id,expires_at,access_mode')
+      .single()
+  }
+  if (inserted.error && /access_mode/i.test(inserted.error.message ?? '')) {
+    inserted = await supabase
+      .from('guide_user_links')
+      .insert({
+        usuario_id: usuario.id,
+        token_hash: tokenHash,
+        status: 'active',
+        expires_at: expiresAt,
+        created_by: input.createdBy ?? null,
+        source,
+      })
+      .select('id,expires_at')
+      .single()
+  }
+
+  const row = inserted.data
+  const error = inserted.error
   if (error || !row) {
     if (/guide_user_links|PGRST205|42P01/i.test(error?.message ?? '')) {
       throw Object.assign(
@@ -162,6 +297,7 @@ export async function createGuideUserLink(
     usuario_id: usuario.id,
     user_name: typeof usuario.nombre === 'string' && usuario.nombre.trim() ? usuario.nombre.trim() : 'Usuario',
     link_id: String(row.id),
+    access_mode: effectiveInviteAccessMode((row as { access_mode?: unknown }).access_mode ?? accessMode),
   }
 }
 
@@ -176,17 +312,26 @@ export async function validateGuideUserLink(
   expires_at: string
   duration_minutes: number
   source: string | null
+  access_mode: GuideAccessMode
 }> {
   const token = normalizeGuideLinkToken(input.token)
   if (token.length < 32) {
     throw Object.assign(new Error('Liga inválida.'), { status: 400 })
   }
   const tokenHash = hashGuideToken(token)
-  const { data: row, error } = await supabase
+  let rowQuery = await supabase
     .from('guide_user_links')
-    .select('id,usuario_id,status,expires_at,opened_at,source')
+    .select('id,usuario_id,status,expires_at,opened_at,source,access_mode')
     .eq('token_hash', tokenHash)
     .maybeSingle()
+  if (rowQuery.error && /access_mode/i.test(rowQuery.error.message ?? '')) {
+    rowQuery = await supabase
+      .from('guide_user_links')
+      .select('id,usuario_id,status,expires_at,opened_at,source')
+      .eq('token_hash', tokenHash)
+      .maybeSingle()
+  }
+  const { data: row, error } = rowQuery
 
   if (error) {
     if (/guide_user_links|PGRST205|42P01/i.test(error.message)) {
@@ -238,20 +383,32 @@ export async function validateGuideUserLink(
     expires_at: String(row.expires_at),
     duration_minutes: GUIDE_LINK_DURATION_MINUTES,
     source: typeof row.source === 'string' ? row.source : null,
+    access_mode: effectiveInviteAccessMode((row as { access_mode?: unknown }).access_mode),
   }
 }
 
 export async function resolveGuideLinkOwner(
   supabase: SupabaseClient,
   token: string
-): Promise<{ link_id: string; usuario_id: string; user_name: string; source: string | null }> {
+): Promise<{
+  link_id: string
+  usuario_id: string
+  user_name: string
+  source: string | null
+  access_mode: GuideAccessMode
+}> {
   const validated = await validateGuideUserLink(supabase, { token, markOpened: false })
   return {
     link_id: validated.link_id,
     usuario_id: validated.usuario_id,
     user_name: validated.user_name,
     source: validated.source,
+    access_mode: validated.access_mode,
   }
+}
+
+export function guideAccessGrantStorageKey(token: string) {
+  return `guide_access_grant:${normalizeGuideLinkToken(token)}`
 }
 
 export async function markGuideLinkUsed(supabase: SupabaseClient, linkId: string) {

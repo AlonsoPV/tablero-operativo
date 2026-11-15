@@ -51,6 +51,7 @@ export function PublicGuideInvitationPage() {
   const [consent, setConsent] = useState(false)
   const [micOk, setMicOk] = useState(false)
   const [micBusy, setMicBusy] = useState(false)
+  const [starting, setStarting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -97,11 +98,25 @@ export function PublicGuideInvitationPage() {
     }
   }
 
-  const canStart = Boolean(info && confirmIdentity && consent)
+  const canStart = Boolean(info && confirmIdentity && consent && !starting)
   const minutes = info?.duration_minutes ?? 15
   const expiry = info ? formatExpiry(info.expires_at) : null
   const showActions = Boolean(info) && !loading
   const unavailable = !loading && !info
+
+  async function startConversation() {
+    if (!token || !info || !confirmIdentity || !consent) return
+    setStarting(true)
+    setError(null)
+    try {
+      await guideService.consentUserLink(token)
+      navigate(ROUTES.GUIA_INVITACION_VOZ.replace(':token', encodeURIComponent(token)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo confirmar el consentimiento.')
+    } finally {
+      setStarting(false)
+    }
+  }
 
   return (
     <GuideInviteShell
@@ -205,10 +220,11 @@ export function PublicGuideInvitationPage() {
                 canStart && 'shadow-[0_14px_28px_-18px_hsl(var(--primary)/0.85)]'
               )}
               disabled={!canStart}
-              onClick={() =>
-                navigate(ROUTES.GUIA_INVITACION_VOZ.replace(':token', encodeURIComponent(token)))
-              }
+              onClick={() => void startConversation()}
             >
+              {starting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+              ) : null}
               Comenzar conversación
             </Button>
           </div>

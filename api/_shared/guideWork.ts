@@ -45,6 +45,7 @@ export type GuideExecutiveReport = {
   verified?: string[]
   agreed?: string[]
   recommendations?: string[]
+  pending?: string[]
   labeled?: boolean
   interviewOnly?: boolean
   consultFailed?: boolean
@@ -130,7 +131,10 @@ export function parseExecutiveReport(raw: unknown): GuideExecutiveReport | null 
   const verified = asStringList(row.verified || row.loVerificado || row.lo_verificado)
   const agreed = asStringList(row.agreed || row.loAcordado || row.lo_acordado)
   const recommendations = asStringList(row.recommendations || row.recomendaciones)
-  const labeled = ['said', 'verified', 'agreed', 'recommendations', 'loDicho', 'lo_dicho'].some((key) => key in row)
+  const pending = asStringList(row.pending || row.informacionPendiente || row.informacion_pendiente)
+  const labeled = ['said', 'verified', 'agreed', 'recommendations', 'pending', 'loDicho', 'lo_dicho'].some(
+    (key) => key in row
+  )
   return {
     situation: asString(row.situation || row.situacion) || said.join(' '),
     diagnosis: asString(row.diagnosis || row.diagnostico),
@@ -141,6 +145,7 @@ export function parseExecutiveReport(raw: unknown): GuideExecutiveReport | null 
     verified,
     agreed,
     recommendations,
+    pending,
     labeled,
   }
 }
@@ -258,7 +263,9 @@ export function formatExecutiveReport(
     const anchor = clock?.anchorYmd || cdmxYmd(clock?.startedAt) || cdmxYmd(new Date().toISOString()) || '2000-01-01'
     const said = report.said?.length ? report.said : [situation]
     const agreed = report.agreed ?? []
+    const pendingInfo = report.pending ?? []
     const recommendations = (report.recommendations?.length ? report.recommendations : priorities).slice(0, 3)
+    const summaryText = (fallback.summary || situation).trim().slice(0, 900)
     const lines = [
       'REPORTE EJECUTIVO — ENVIARDIAN',
       `Generador: ${clock?.version || ENVIARDIAN_REPORT_VERSION}`,
@@ -267,11 +274,13 @@ export function formatExecutiveReport(
       `Cierre: ${cdmxDateTimeLabel(clock?.closedAt) || 'No disponible'}`,
       `Duracion: ${sessionDurationLabel(clock?.startedAt, clock?.closedAt) || 'No disponible'}`,
       '',
-      'LO DICHO',
-      ...said.map((item) => `- ${item}`),
+      'RESUMEN EJECUTIVO',
+      summaryText || 'Conversacion breve; se conserva lo esencial.',
       '',
-      'LO VERIFICADO',
+      'HALLAZGOS',
+      ...said.map((item) => `- Situacion: ${item}`),
     ]
+    lines.push('', 'LO VERIFICADO')
     if (report.interviewOnly || !report.verified?.length) {
       lines.push(
         report.consultFailed
@@ -279,19 +288,22 @@ export function formatExecutiveReport(
           : 'Este informe se basa solo en la entrevista. No hubo una consulta exitosa al tablero.'
       )
     } else {
-      report.verified.forEach((item) => lines.push(`- ${item}`))
+      report.verified.forEach((item) => lines.push(`- Evidencia Scrumban: ${item}`))
     }
-    lines.push('', 'LO ACORDADO')
+    lines.push('', 'DECISIONES Y ACUERDOS')
     if (agreed.length === 0) lines.push('No hubo acuerdos en la entrevista.')
     else agreed.forEach((item) => lines.push(`- ${item}`))
+    lines.push('', 'COMPROMISOS Y PROXIMOS PASOS', ...actionPlanLines(ok, pending, anchor))
+    if (nextSteps.length) {
+      nextSteps.forEach((item) => lines.push(`- ${item} | Por definir | Por definir | Por confirmar`))
+    }
     if (recommendations.length) {
       lines.push('', 'RECOMENDACIONES')
       recommendations.forEach((item, index) => lines.push(`${index + 1}. ${item}`))
     }
-    lines.push('', 'PLAN DE ACCION', ...actionPlanLines(ok, pending, anchor))
-    if (nextSteps.length) {
-      lines.push('', 'PROXIMOS PASOS')
-      nextSteps.forEach((item) => lines.push(`- ${item}`))
+    if (pendingInfo.length) {
+      lines.push('', 'INFORMACION PENDIENTE')
+      pendingInfo.forEach((item) => lines.push(`- ${item}`))
     }
     return lines.join('\n').trim().slice(0, 6000)
   }

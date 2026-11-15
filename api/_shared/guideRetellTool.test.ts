@@ -7,6 +7,7 @@ import {
   consultLogEntry,
   groundVerifiedLines,
   isRetellBoardTool,
+  isRetellWriteTool,
   readRetellToolCall,
   stripModelIdentity,
   verifiedFactsFromLog,
@@ -53,6 +54,20 @@ describe('retell tool bridge', () => {
     expect(isRetellBoardTool('get_my_actions')).toBe(true)
     expect(isRetellBoardTool('gmail_search')).toBe(false)
     expect(isRetellBoardTool('create_action')).toBe(true)
+    expect(isRetellWriteTool('create_action')).toBe(true)
+    expect(isRetellWriteTool('get_my_actions')).toBe(false)
+  })
+
+  it('drops a forged usuario_id from the model and keeps the session id', () => {
+    const parsed = readRetellToolCall({
+      name: 'create_action',
+      args: { tool: 'create_action', usuario_id: 'intruso', title: 'Nueva' },
+      call: { metadata: { product: 'guide', guide_session_id: 'session-real', usuario_id: 'intruso' } },
+    })
+    expect(parsed.sessionId).toBe('session-real')
+    expect(parsed.args).not.toHaveProperty('usuario_id')
+    expect(parsed.tool).toBe('create_action')
+    expect(isRetellWriteTool(parsed.tool)).toBe(true)
   })
 
   it('asks for clarification when several people match and does not pick one', () => {

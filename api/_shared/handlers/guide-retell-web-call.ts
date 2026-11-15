@@ -15,7 +15,14 @@ import {
 } from '../assistantAuth.js'
 import { enableSystemCaCertificates } from '../enableSystemCa.js'
 import { ENVIARDIAN_PROMPT_VERSION, ENVIARDIAN_VOICE_CONSULT_INSTRUCTION } from '../enviardianPrompt.js'
-import { guideAppBaseUrl, markGuideLinkUsed, resolveGuideLinkOwner } from '../guideUserLinks.js'
+import {
+  guideAppBaseUrl,
+  markGuideLinkUsed,
+  effectiveInviteAccessMode,
+  resolveGuideLinkOwner,
+  verifyGuideAccessGrant,
+  type GuideAccessMode,
+} from '../guideUserLinks.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from '../tlsError.js'
 
 const SESSION_MS = 15 * 60 * 1000 - 1000
@@ -59,21 +66,20 @@ export default defineApiHandler(async (req, res) => {
       replace_active?: unknown
       guide_token?: unknown
       consent?: unknown
+      access_grant?: unknown
       intent?: unknown
     }
     const replaceActive = Boolean(payload.replace_active)
     const guideToken = typeof payload.guide_token === 'string' ? payload.guide_token.trim() : ''
-    const consent = payload.consent === true
+    const accessGrant = typeof payload.access_grant === 'string' ? payload.access_grant.trim() : ''
 
     let usuarioId = ''
     let guideLinkId = ''
     let channel: 'authenticated' | 'guide_link' | 'whatsapp' = 'authenticated'
+    let accessMode: GuideAccessMode = 'propose'
     let supabase: ReturnType<typeof createServiceRoleClient>
 
     if (guideToken) {
-      if (!consent) {
-        return res.status(400).json({ error: 'Debes aceptar el consentimiento para iniciar la voz.' })
-      }
       try {
         supabase = createServiceRoleClient()
       } catch {
@@ -81,8 +87,20 @@ export default defineApiHandler(async (req, res) => {
       }
       try {
         const owner = await resolveGuideLinkOwner(supabase, guideToken)
+        const grant = verifyGuideAccessGrant(accessGrant, {
+          linkId: owner.link_id,
+          usuarioId: owner.usuario_id,
+        })
+        if (!grant.ok) {
+          return res.status(401).json({
+            error: grant.error,
+            code: 'missing_access_grant',
+          })
+        }
         usuarioId = owner.usuario_id
         guideLinkId = owner.link_id
+        // Piloto: toda liga valida usa interview_full_read (lectura org). El grant solo autentica.
+        accessMode = effectiveInviteAccessMode(grant.accessMode || owner.access_mode)
         channel = owner.source === 'whatsapp' ? 'whatsapp' : 'guide_link'
         // Ligas creadas desde WhatsApp: mismo gate OKRS/Super Admin que el bot.
         if (owner.source === 'whatsapp') {
@@ -111,6 +129,7 @@ export default defineApiHandler(async (req, res) => {
       }
       usuarioId = auth.usuarioId
       supabase = auth.supabase
+      accessMode = 'propose'
     }
 
     const rate = checkAssistantRateLimit({
@@ -126,12 +145,18 @@ export default defineApiHandler(async (req, res) => {
 
     const { data: usuario, error: usuarioError } = await supabase
       .from('usuarios')
-      .select('id,nombre')
+      .select('id,nombre,user_id,activo')
       .eq('id', usuarioId)
       .maybeSingle()
 
-    if (usuarioError || !usuario?.id) {
+    if (usuarioError || !usuario?.id || usuario.activo === false) {
       return res.status(403).json({ error: 'No hay un perfil de usuario para iniciar Guia.' })
+    }
+    if (!usuario.user_id) {
+      return res.status(403).json({
+        error: 'Este perfil no puede consultar el tablero: falta vincular la cuenta de acceso.',
+        code: 'missing_user_id',
+      })
     }
 
     const { data: openRows, error: openError } = await supabase
@@ -183,11 +208,16 @@ export default defineApiHandler(async (req, res) => {
       started_at: startedAt.toISOString(),
       expires_at: expiresAt.toISOString(),
       report_status: 'pending',
+      access_mode: accessMode,
     }
     if (guideLinkId) sessionInsert.guide_link_id = guideLinkId
     let inserted = await supabase.from('guide_sessions').insert(sessionInsert).select(SESSION_SELECT).single()
+    if (inserted.error && /access_mode/i.test(inserted.error.message ?? '')) {
+      const { access_mode: _mode, ...withoutMode } = sessionInsert
+      inserted = await supabase.from('guide_sessions').insert(withoutMode).select(SESSION_SELECT).single()
+    }
     if (inserted.error && /guide_link_id|report_status/i.test(inserted.error.message ?? '')) {
-      const { guide_link_id: _link, report_status: _status, ...base } = sessionInsert
+      const { guide_link_id: _link, report_status: _status, access_mode: _mode, ...base } = sessionInsert
       inserted = await supabase.from('guide_sessions').insert(base).select(SESSION_SELECT).single()
     }
     const session = inserted.data
@@ -230,6 +260,7 @@ export default defineApiHandler(async (req, res) => {
           guide_link_id: guideLinkId || '',
           product: 'guide',
           source: channel,
+          access_mode: accessMode,
           queue_workspace_url: `${guideAppBaseUrl()}/api/guide-queue-workspace-draft`,
           scrumban_tool_url: `${guideAppBaseUrl()}/api/guide-retell-tool`,
         },
@@ -238,6 +269,7 @@ export default defineApiHandler(async (req, res) => {
           session_id: session.id,
           prompt_version: ENVIARDIAN_PROMPT_VERSION,
           channel,
+          access_mode: accessMode,
           consult_instruction: ENVIARDIAN_VOICE_CONSULT_INSTRUCTION,
         },
       }),

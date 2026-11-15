@@ -15,6 +15,7 @@ import {
 import { GuideReportActions } from '@/features/guide/components/GuideReportActions'
 import { GuideReportBody } from '@/features/guide/components/GuideReportBody'
 import { useRetellGuideCall } from '@/features/guide/hooks/useRetellGuideCall'
+import { guideService } from '@/features/guide/services/guide.service'
 import { guideVoiceLoginState } from '@/features/guide/voiceLogin'
 import { cn } from '@/lib/utils'
 
@@ -52,6 +53,9 @@ export function GuideVoiceInvitePage() {
   const [error, setError] = useState<string | null>(null)
   const [report, setReport] = useState<LinkReport | null>(null)
   const [reportBusy, setReportBusy] = useState(false)
+  const [accessGrant, setAccessGrant] = useState(() =>
+    token ? guideService.readAccessGrant(token) : ''
+  )
   const callIdRef = useRef('')
   const finalizedRef = useRef(false)
   const landingHref = useMemo(
@@ -59,8 +63,18 @@ export function GuideVoiceInvitePage() {
     [token]
   )
 
+  useEffect(() => {
+    if (!token) return
+    const grant = guideService.readAccessGrant(token)
+    setAccessGrant(grant)
+    if (!grant) {
+      setError('Vuelve a la invitacion y acepta el consentimiento para iniciar la voz.')
+    }
+  }, [token])
+
   const retell = useRetellGuideCall({
     guideToken: token,
+    accessGrant,
     onError: (message) => setError(message),
     onRemoteEnded: () => {
       setError(null)

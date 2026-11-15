@@ -83,7 +83,7 @@ describe('retell interview report', () => {
     ).toBe('generate')
   })
 
-  it('lets the browser wait so the official transcript writes the report', () => {
+  it('lets the browser and call_ended wait so only call_analyzed writes the report', () => {
     expect(
       decideReportAction({ event: 'client', current: 'pending', depth: 'ready', hasJournal: false })
     ).toBe('wait')
@@ -92,7 +92,7 @@ describe('retell interview report', () => {
     ).toBe('return_existing')
     expect(
       decideReportAction({ event: 'call_ended', current: 'pending', depth: 'ready', hasJournal: false })
-    ).toBe('generate')
+    ).toBe('wait')
   })
 
   it('uses the Retell end timestamp when it is after the interview start', () => {

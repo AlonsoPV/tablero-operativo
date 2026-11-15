@@ -118,6 +118,36 @@ async function setReportStatus(
   }
 }
 
+/** Reserva el informe para evitar dos LLM concurrentes (best-effort en serverless). */
+async function claimReportProcessing(
+  supabase: SupabaseClient,
+  sessionId: string,
+  closedAt: string,
+  force: boolean
+): Promise<boolean> {
+  const stamp = closedAt || new Date().toISOString()
+  if (!force) {
+    const current = await supabase
+      .from('guide_sessions')
+      .select('report_status,updated_at')
+      .eq('id', sessionId)
+      .maybeSingle()
+    if (current.error && missingColumn(current.error, 'report_status')) {
+      await setReportStatus(supabase, sessionId, 'processing', null, true, closedAt)
+      return true
+    }
+    const status = (current.data?.report_status as string | null | undefined) ?? null
+    if (status === 'ready' || status === 'insufficient') return false
+    if (status === 'processing' && ageMs(current.data?.updated_at as string | undefined) < 120_000) {
+      return false
+    }
+  }
+  await setReportStatus(supabase, sessionId, 'processing', null, true, closedAt)
+  // Marca updated_at para el siguiente claim stale.
+  await supabase.from('guide_sessions').update({ updated_at: stamp }).eq('id', sessionId)
+  return true
+}
+
 function userWords(turns: GuideTranscriptTurn[]) {
   return turns
     .filter((turn) => turn.role === 'user')
@@ -211,7 +241,10 @@ export async function finalizeGuideInterview(
     return { status: 'insufficient', journal: (saved.data as Record<string, unknown> | null) ?? payload, already: false }
   }
 
-  await setReportStatus(supabase, session.id, 'processing', null, true, closedAt)
+  const claimed = await claimReportProcessing(supabase, session.id, closedAt, input.event === 'retry')
+  if (!claimed) {
+    return { status: 'pending', journal, already: false }
+  }
 
   const transcript = turns.map((turn) => `${turn.role === 'user' ? 'Usuario' : 'Enviardian'}: ${turn.content}`).join('\n')
   const facts = verifiedFactsFromLog(session.consult_log)
@@ -272,12 +305,13 @@ export async function finalizeGuideInterview(
         verified: facts.hadSuccess ? groundVerifiedLines(facts.lines, parsed?.verified ?? []) : [],
         agreed: parsed?.agreed ?? [],
         recommendations: parsed?.recommendations ?? [],
+        pending: parsed?.pending ?? [],
         labeled: true,
         interviewOnly: !facts.hadSuccess,
         consultFailed: facts.hadError && !facts.hadSuccess,
       },
       {
-        summary: typeof reflection.summary === 'string' ? reflection.summary : null,
+        summary: typeof reflection.summary === 'string' ? reflection.summary.slice(0, 900) : null,
         learning: null,
         intention: null,
       },

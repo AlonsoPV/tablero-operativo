@@ -46,6 +46,10 @@ export function isRetellBoardTool(name: string) {
   return ALLOWED.has(name)
 }
 
+export function isRetellWriteTool(name: string) {
+  return (RETELL_WRITE_TOOLS as readonly string[]).includes(name)
+}
+
 export function stripModelIdentity(args: Record<string, unknown>) {
   const next: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(args)) {

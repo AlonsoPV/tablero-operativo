@@ -32,6 +32,7 @@ const API_ROUTES: Record<string, { file: string; op: string }> = {
   '/api/guide-user-link': { file: 'api/guide-user-link.ts', op: '' },
   '/api/create-guide-user-link': { file: 'api/guide-user-link.ts', op: 'create' },
   '/api/validate-guide-user-link': { file: 'api/guide-user-link.ts', op: 'validate' },
+  '/api/consent-guide-user-link': { file: 'api/guide-user-link.ts', op: 'consent' },
   '/api/assistant-media': { file: 'api/assistant-media.ts', op: '' },
   '/api/assistant-audio': { file: 'api/assistant-media.ts', op: 'audio' },
   '/api/assistant-transcribe': { file: 'api/assistant-media.ts', op: 'transcribe' },
