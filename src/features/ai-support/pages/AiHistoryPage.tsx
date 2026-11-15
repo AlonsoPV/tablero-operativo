@@ -33,11 +33,22 @@ function createdWorkItems(entry: GuideJournalEntry | null | undefined): GuideCre
   return (entry?.created_work ?? []).filter((item) => item.title && !item.error && !item.pending && item.id)
 }
 
+function reportStatusLabel(status: GuideJournalEntry['report_status']) {
+  if (status === 'processing') return 'Procesando informe'
+  if (status === 'pending') return 'Informe pendiente'
+  if (status === 'failed') return 'Informe no generado'
+  if (status === 'insufficient') return 'Entrevista breve'
+  if (status === 'ready') return 'Informe listo'
+  return null
+}
+
 function previewText(entry: GuideJournalEntry) {
   if (entry.executive_report?.trim()) {
     return entry.executive_report.split('\n').filter(Boolean).slice(0, 2).join(' ')
   }
-  return entry.summary?.trim() || entry.agent_inferences?.trim() || 'Sesion con Guia lista para revisar.'
+  const status = reportStatusLabel(entry.report_status)
+  if (status && !entry.summary?.trim()) return status
+  return entry.summary?.trim() || entry.agent_inferences?.trim() || status || 'Sesion con Guia lista para revisar.'
 }
 
 function cdmxDateKey(iso: string) {
@@ -319,6 +330,11 @@ export function AiHistoryPage() {
                   {selectedWork.length > 0 ? (
                     <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-500/25 dark:text-emerald-200">
                       {selectedWork.length} en tablero
+                    </span>
+                  ) : null}
+                  {reportStatusLabel(selected.report_status) ? (
+                    <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-foreground ring-1 ring-border/70">
+                      {reportStatusLabel(selected.report_status)}
                     </span>
                   ) : null}
                 </div>
@@ -639,6 +655,11 @@ export function AiHistoryPage() {
                   <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
                     {previewText(entry)}
                   </p>
+                  {reportStatusLabel(entry.report_status) && !entry.executive_report ? (
+                    <span className="inline-flex items-center pt-0.5 text-[11px] font-medium text-muted-foreground">
+                      {reportStatusLabel(entry.report_status)}
+                    </span>
+                  ) : null}
                   {work.length > 0 ? (
                     <span className="inline-flex items-center gap-1 pt-0.5 text-[11px] font-medium text-primary">
                       <ClipboardList className="h-3 w-3" aria-hidden />

@@ -318,7 +318,7 @@ SDK: `import { RetellWebClient } from 'retell-client-js-sdk'`.
 
 Custom Function en Retell Conversation Flow:
 
-- **URL:** `POST {SUPABASE_URL}/functions/v1/guide-session-state`
+- **URL:** `POST https://scrumbanemx.vercel.app/api/guide-session-state`
 - **Header:** `x-guide-tool-secret: <GUIDE_RETELL_TOOL_SECRET>`
 - **Body:** `{ "session_id": "{{session_id}}" }`
 
@@ -345,13 +345,13 @@ Protocolo del agente: llamar al inicio y como máximo cada 2 intervenciones del 
 
 ## 9. Webhook Retell (`guide-retell-webhook`)
 
-URL ejemplo:
+URL:
 
 ```text
-https://<PROJECT_REF>.supabase.co/functions/v1/guide-retell-webhook
+https://scrumbanemx.vercel.app/api/guide-retell-webhook
 ```
 
-Eventos: `call_started`, `call_ended`, `call_analyzed`.
+Eventos: `call_ended`, `call_analyzed`.
 
 1. Validar `x-retell-signature` con `RETELL_API_KEY` (SDK Retell).
 2. Guardar evento idempotente en `guide_provider_events`.

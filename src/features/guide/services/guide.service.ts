@@ -126,6 +126,43 @@ function normalizeJournal(row: GuideJournalEntry): GuideJournalEntry {
   }
 }
 
+function reportStatusLabel(status: string | null | undefined) {
+  if (status === 'processing') return 'Estamos preparando el informe'
+  if (status === 'failed') return 'El informe no se pudo generar'
+  if (status === 'insufficient') return 'La entrevista fue demasiado breve para un informe'
+  if (status === 'ready') return 'Informe listo'
+  return 'El informe todavia no esta listo'
+}
+
+function sessionWithoutJournal(row: {
+  id: string
+  usuario_id: string
+  report_status?: string | null
+  started_at?: string | null
+  closed_at?: string | null
+  updated_at?: string | null
+}): GuideJournalEntry {
+  const stamp = row.closed_at || row.updated_at || row.started_at || new Date().toISOString()
+  const status = (row.report_status ?? 'pending') as GuideJournalEntry['report_status']
+  return {
+    id: `pending-${row.id}`,
+    session_id: row.id,
+    usuario_id: row.usuario_id,
+    topic: 'Entrevista con Guia',
+    summary: reportStatusLabel(status),
+    learning: null,
+    intention: null,
+    reflection_question: null,
+    user_words: null,
+    agent_inferences: null,
+    executive_report: null,
+    created_work: [],
+    created_at: stamp,
+    updated_at: stamp,
+    report_status: status,
+  }
+}
+
 function readLocalState(): LocalGuideState | null {
   if (typeof sessionStorage === 'undefined') return null
   try {
@@ -737,6 +774,35 @@ export const guideService = {
       if (isMissingGuideTable(result.error)) return []
       throwGuideError(result.error, 'No se pudo leer el diario de Guia.')
     }
-    return ((result.data ?? []) as GuideJournalEntry[]).map(normalizeJournal)
+    const journals = ((result.data ?? []) as GuideJournalEntry[]).map(normalizeJournal)
+    const sessions = await supabase
+      .from('guide_sessions')
+      .select('id,usuario_id,report_status,started_at,closed_at,updated_at')
+      .eq('usuario_id', usuarioId)
+      .order('started_at', { ascending: false })
+      .limit(limit)
+    if (sessions.error && /report_status/i.test(sessions.error.message ?? '')) {
+      return journals
+    }
+    if (sessions.error) {
+      if (isMissingGuideTable(sessions.error)) return journals
+      return journals
+    }
+    const known = new Set(journals.map((entry) => entry.session_id))
+    const extras = (sessions.data ?? [])
+      .filter((row) => row.id && !known.has(row.id))
+      .map((row) => sessionWithoutJournal(row as Parameters<typeof sessionWithoutJournal>[0]))
+    const bySession = new Map((sessions.data ?? []).map((row) => [row.id as string, row]))
+    const withStatus = journals.map((entry) => {
+      const session = bySession.get(entry.session_id)
+      if (!session || entry.report_status) return entry
+      return {
+        ...entry,
+        report_status: (session.report_status as GuideJournalEntry['report_status']) ?? (entry.executive_report ? 'ready' : 'pending'),
+      }
+    })
+    return [...extras, ...withStatus]
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+      .slice(0, limit)
   },
 }

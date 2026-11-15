@@ -59,26 +59,41 @@ export function stripModelIdentity(args: Record<string, unknown>) {
   return next
 }
 
+function asObjectArgs(raw: unknown): Record<string, unknown> {
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {}
+    } catch {
+      return {}
+    }
+  }
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
+}
+
+function asId(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 export function readRetellToolCall(body: {
   name?: unknown
   args?: unknown
   arguments?: unknown
-  call?: { metadata?: unknown }
+  call?: { metadata?: unknown; retell_llm_dynamic_variables?: unknown }
 }) {
   const metadata = (body.call?.metadata ?? {}) as {
     guide_session_id?: unknown
     product?: unknown
     usuario_id?: unknown
   }
-  const sessionId = typeof metadata.guide_session_id === 'string' ? metadata.guide_session_id.trim() : ''
+  const dyn = (body.call?.retell_llm_dynamic_variables ?? {}) as { session_id?: unknown }
+  const sessionId =
+    asId(metadata.guide_session_id) || asId(dyn.session_id)
   const product = typeof metadata.product === 'string' ? metadata.product : ''
-  const modelUsuarioId = typeof metadata.usuario_id === 'string' ? metadata.usuario_id.trim() : ''
-  const rawArgs =
-    body.args && typeof body.args === 'object'
-      ? (body.args as Record<string, unknown>)
-      : body.arguments && typeof body.arguments === 'object'
-        ? (body.arguments as Record<string, unknown>)
-        : {}
+  const modelUsuarioId = asId(metadata.usuario_id)
+  const rawArgs = asObjectArgs(body.args ?? body.arguments)
   const named = typeof body.name === 'string' ? body.name.trim() : ''
   const nested = typeof rawArgs.tool === 'string' ? rawArgs.tool.trim() : ''
   const tool = isRetellBoardTool(named) ? named : nested

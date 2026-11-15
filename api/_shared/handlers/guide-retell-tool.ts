@@ -186,8 +186,10 @@ export default defineApiHandler(async (req, res) => {
       JSON.stringify({
         channel: 'retell',
         session: asString(session.id),
+        invitation_id: session.guide_link_id ?? null,
         tool: parsed.tool,
         status: classified.status,
+        access_mode: accessMode,
         ms: Date.now() - started,
         ignored_model_user: Boolean(parsed.modelUsuarioId && parsed.modelUsuarioId !== usuario.id),
       })

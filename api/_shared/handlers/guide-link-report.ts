@@ -4,8 +4,13 @@
  */
 import { createServiceRoleClient } from '../assistantAuth.js'
 import { finalizeGuideInterview } from '../finalizeGuideInterview.js'
-import type { GuideTranscriptTurn } from '../guideInterviewReport.js'
+import {
+  retellCallEndedAt,
+  turnsFromRetellCall,
+  type GuideTranscriptTurn,
+} from '../guideInterviewReport.js'
 import { resolveGuideLinkOwner } from '../guideUserLinks.js'
+import { fetchRetellCall } from '../retellCallFetch.js'
 import { shareGuideReport } from '../shareGuideReport.js'
 import { defineApiHandler, readRequestBody } from '../http.js'
 
@@ -56,7 +61,8 @@ export default defineApiHandler(async (req, res) => {
   }
 
   const callId = typeof body?.call_id === 'string' ? body.call_id.trim() : ''
-  const sessionSelect = 'id,usuario_id,provider_session_id,report_status,status,guide_link_id'
+  const sessionSelect =
+    'id,usuario_id,provider_session_id,report_status,status,guide_link_id,started_at,updated_at,closed_at'
   const byCall = callId
     ? await supabase
         .from('guide_sessions')
@@ -83,6 +89,9 @@ export default defineApiHandler(async (req, res) => {
     provider_session_id?: string | null
     report_status?: string | null
     guide_link_id?: string | null
+    started_at?: string | null
+    updated_at?: string | null
+    closed_at?: string | null
   } | null
   if (!session || session.usuario_id !== owner.usuario_id) {
     return res.status(404).json({ error: 'No hay una entrevista asociada a esta liga.' })
@@ -91,13 +100,55 @@ export default defineApiHandler(async (req, res) => {
     return res.status(403).json({ error: 'Esta liga no corresponde a la entrevista.' })
   }
 
-  if (action === 'finalize' || action === 'retry') {
+  const POLL_TIMEOUT_MS = 90_000
+  const ageMs = (iso: string | null | undefined) => {
+    const time = iso ? Date.parse(iso) : Number.NaN
+    if (!Number.isFinite(time)) return 0
+    return Math.max(0, Date.now() - time)
+  }
+  const stalePending =
+    !['ready', 'insufficient', 'failed'].includes(String(session.report_status || '')) &&
+    ageMs(session.updated_at || session.closed_at || session.started_at) >= POLL_TIMEOUT_MS
+
+  if (action === 'finalize' || action === 'retry' || action === 'poll-timeout' || (action === 'status' && stalePending)) {
+    const targetCallId = callId || session.provider_session_id || ''
+    let turns = asTurns(body?.messages)
+    let endedAt: string | null = null
+    const shouldFetch =
+      action === 'retry' ||
+      action === 'poll-timeout' ||
+      action === 'status' ||
+      (action === 'finalize' && turns.length === 0 && Boolean(targetCallId))
+    if (shouldFetch && targetCallId) {
+      const call = await fetchRetellCall(targetCallId)
+      if (call) {
+        const fetched = turnsFromRetellCall(call)
+        if (fetched.length >= turns.length) turns = fetched
+        endedAt = retellCallEndedAt(call)
+      }
+    }
+    const event =
+      action === 'retry' || action === 'poll-timeout' || action === 'status' ? 'retry' : 'client'
+    const started = Date.now()
     const result = await finalizeGuideInterview(supabase, {
       sessionId: session.id,
-      callId: callId || session.provider_session_id || undefined,
-      turns: asTurns(body?.messages),
-      event: action === 'retry' ? 'retry' : 'client',
+      callId: targetCallId || undefined,
+      turns,
+      event,
+      endedAt,
     })
+    console.info(
+      'guide-link-report',
+      JSON.stringify({
+        action,
+        invitation_id: owner.link_id,
+        session: session.id,
+        call_id: targetCallId || null,
+        report_status: result.status,
+        fetched: shouldFetch,
+        ms: Date.now() - started,
+      })
+    )
     return res.status(200).json(publicPayload(result.status, result.journal))
   }
 

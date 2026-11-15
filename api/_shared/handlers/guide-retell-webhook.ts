@@ -40,6 +40,7 @@ export default defineApiHandler(async (req, res) => {
     return res.status(200).json({ ok: true, ignored: 'no_session' })
   }
 
+  const started = Date.now()
   try {
     const supabase = createServiceRoleClient()
     const result = await finalizeGuideInterview(supabase, {
@@ -49,9 +50,29 @@ export default defineApiHandler(async (req, res) => {
       event: eventName,
       endedAt: retellCallEndedAt(call),
     })
+    console.info(
+      'guide-retell-webhook',
+      JSON.stringify({
+        event: eventName,
+        session: sessionId || null,
+        call_id: callId || null,
+        report_status: result.status,
+        already: result.already,
+        ms: Date.now() - started,
+      })
+    )
     return res.status(200).json({ ok: true, status: result.status, already: result.already })
   } catch (error) {
-    console.error('guide-retell-webhook', error instanceof Error ? error.message : error)
+    console.error(
+      'guide-retell-webhook',
+      JSON.stringify({
+        event: eventName,
+        session: sessionId || null,
+        call_id: callId || null,
+        error: error instanceof Error ? error.message : 'unknown',
+        ms: Date.now() - started,
+      })
+    )
     return res.status(500).json({ error: 'No se pudo procesar la entrevista.' })
   }
 })
