@@ -7,9 +7,17 @@ import { checkAssistantRateLimit, createServiceRoleClient } from '../assistantAu
 import { defineApiHandler, readHeader, readRequestBody, readStringEnv } from '../http.js'
 import { verifyRetellSignature } from '../guideInterviewReport.js'
 import {
+  effectiveInviteAccessMode,
+  guideBoardScopeForAccessMode,
+  isGuideWriteAllowed,
+  normalizeGuideAccessMode,
+  type GuideAccessMode,
+} from '../guideUserLinks.js'
+import {
   classifyRetellToolResult,
   consultLogEntry,
   isRetellBoardTool,
+  isRetellWriteTool,
   readRetellToolCall,
   type ConsultLogEntry,
 } from '../guideRetellTool.js'
@@ -93,12 +101,27 @@ export default defineApiHandler(async (req, res) => {
   const started = Date.now()
   try {
     const supabase = createServiceRoleClient()
-    const { data: session, error: sessionError } = await supabase
+    let sessionQuery = await supabase
       .from('guide_sessions')
-      .select('id,usuario_id,provider,status')
+      .select('id,usuario_id,provider,status,guide_link_id,access_mode')
       .eq('id', parsed.sessionId)
       .maybeSingle()
-    if (sessionError || !session?.id || session.provider !== 'retell' || !session.usuario_id) {
+    if (sessionQuery.error && /access_mode|guide_link_id/i.test(sessionQuery.error.message ?? '')) {
+      sessionQuery = await supabase
+        .from('guide_sessions')
+        .select('id,usuario_id,provider,status')
+        .eq('id', parsed.sessionId)
+        .maybeSingle()
+    }
+    const session = sessionQuery.data as {
+      id?: string
+      usuario_id?: string
+      provider?: string
+      status?: string
+      guide_link_id?: string | null
+      access_mode?: string | null
+    } | null
+    if (sessionQuery.error || !session?.id || session.provider !== 'retell' || !session.usuario_id) {
       return res.status(200).json({
         status: 'error',
         tool: parsed.tool,
@@ -110,6 +133,24 @@ export default defineApiHandler(async (req, res) => {
         status: 'error',
         tool: parsed.tool,
         result: 'La sesion de voz ya no esta abierta. No inventes datos del tablero.',
+      })
+    }
+
+    let accessMode: GuideAccessMode = normalizeGuideAccessMode(session.access_mode)
+    if (!session.access_mode && session.guide_link_id) {
+      accessMode = effectiveInviteAccessMode('read')
+    }
+    if (!session.access_mode && !session.guide_link_id) accessMode = 'propose'
+    if (session.guide_link_id) accessMode = effectiveInviteAccessMode(session.access_mode || accessMode)
+
+    if (!isGuideWriteAllowed(accessMode) && isRetellWriteTool(parsed.tool)) {
+      const entry = consultLogEntry(parsed.tool, 'denied', { status: 'denied', reason: 'read_only_invite' })
+      await appendConsultLog(supabase, session.id, entry)
+      return res.status(200).json({
+        status: 'denied',
+        tool: parsed.tool,
+        result:
+          'Esta invitacion es de solo lectura. No puedo crear ni modificar acciones. No inventes que quedo hecho.',
       })
     }
 
@@ -132,6 +173,7 @@ export default defineApiHandler(async (req, res) => {
         usuarioId: String(usuario.id),
         authUserId: String(usuario.user_id),
         rol: typeof usuario.rol === 'string' ? usuario.rol : null,
+        boardScope: guideBoardScopeForAccessMode(accessMode),
       },
       parsed.tool,
       parsed.args

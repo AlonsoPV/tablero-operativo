@@ -1,10 +1,10 @@
 /**
  * Valida una liga personal de Guía (público, sin JWT).
  */
-import { defineApiHandler, readRequestBody } from '../http.js'
-import { createServiceRoleClient } from '../assistantAuth.js'
+import { checkAssistantRateLimit, createServiceRoleClient } from '../assistantAuth.js'
+import { defineApiHandler, readHeader, readRequestBody } from '../http.js'
 import { enableSystemCaCertificates } from '../enableSystemCa.js'
-import { normalizeGuideLinkToken, validateGuideUserLink } from '../guideUserLinks.js'
+import { hashGuideToken, normalizeGuideLinkToken, validateGuideUserLink } from '../guideUserLinks.js'
 
 export default defineApiHandler(async (req, res) => {
   enableSystemCaCertificates()
@@ -22,6 +22,16 @@ export default defineApiHandler(async (req, res) => {
     return res.status(400).json({ error: 'Falta el token.' })
   }
 
+  const ip = readHeader(req, 'x-forwarded-for').split(',')[0]?.trim() || 'unknown'
+  const rate = checkAssistantRateLimit({
+    key: `guide-validate:${hashGuideToken(token).slice(0, 16)}:${ip}`,
+    limit: 30,
+    windowMs: 60_000,
+  })
+  if (rate.ok === false) {
+    return res.status(429).json({ error: `Demasiados intentos. Espera ${rate.retryAfterSec}s.`, valid: false })
+  }
+
   try {
     const supabase = createServiceRoleClient()
     const result = await validateGuideUserLink(supabase, {
@@ -35,3 +45,4 @@ export default defineApiHandler(async (req, res) => {
     return res.status(status).json({ error: message, valid: false })
   }
 })
+

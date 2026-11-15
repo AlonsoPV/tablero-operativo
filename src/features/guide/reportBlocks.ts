@@ -22,10 +22,15 @@ export function parseReportBlocks(raw: string): ReportBlock[] {
   const prettyHeading = (line: string) =>
     line
       .replace(/^REPORTE EJECUTIVO\b.*$/i, 'Reporte ejecutivo')
+      .replace(/\bRESUMEN EJECUTIVO\b/i, 'Resumen ejecutivo')
+      .replace(/\bHALLAZGOS\b/i, 'Hallazgos')
       .replace(/\bLO DICHO\b/i, 'Lo dicho')
       .replace(/\bLO VERIFICADO\b/i, 'Lo verificado')
+      .replace(/\bDECISIONES Y ACUERDOS\b/i, 'Decisiones y acuerdos')
       .replace(/\bLO ACORDADO\b/i, 'Lo acordado')
+      .replace(/\bCOMPROMISOS Y PROXIMOS PASOS\b/i, 'Compromisos y proximos pasos')
       .replace(/\bPLAN DE ACCION\b/i, 'Plan de accion')
+      .replace(/\bINFORMACION PENDIENTE\b/i, 'Informacion pendiente')
       .replace(/\bRECOMENDACIONES\b/i, 'Recomendaciones')
       .replace(/\bSITUACION\b/i, 'Situacion')
       .replace(/\bDIAGNOSTICO\b/i, 'Diagnostico')

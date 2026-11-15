@@ -66,9 +66,9 @@ export function decideReportAction(input: {
   ) {
     return 'busy'
   }
-  if (input.event === 'client') return 'wait'
+  // El frontend y call_ended nunca escriben el informe: solo call_analyzed / retry.
+  if (input.event === 'client' || input.event === 'call_ended') return 'wait'
   if (input.depth === 'ready') return 'generate'
-  if (input.event === 'call_ended') return 'wait'
   return 'insufficient'
 }
 
@@ -159,10 +159,15 @@ export function parseReportBlocks(raw: string): ReportSection[] {
   const prettyHeading = (line: string) =>
     line
       .replace(/^REPORTE EJECUTIVO\b.*$/i, 'Reporte ejecutivo')
+      .replace(/\bRESUMEN EJECUTIVO\b/i, 'Resumen ejecutivo')
+      .replace(/\bHALLAZGOS\b/i, 'Hallazgos')
       .replace(/\bLO DICHO\b/i, 'Lo dicho')
       .replace(/\bLO VERIFICADO\b/i, 'Lo verificado')
+      .replace(/\bDECISIONES Y ACUERDOS\b/i, 'Decisiones y acuerdos')
       .replace(/\bLO ACORDADO\b/i, 'Lo acordado')
+      .replace(/\bCOMPROMISOS Y PROXIMOS PASOS\b/i, 'Compromisos y proximos pasos')
       .replace(/\bPLAN DE ACCION\b/i, 'Plan de accion')
+      .replace(/\bINFORMACION PENDIENTE\b/i, 'Informacion pendiente')
       .replace(/\bRECOMENDACIONES\b/i, 'Recomendaciones')
       .replace(/\bSITUACION\b/i, 'Situacion')
       .replace(/\bDIAGNOSTICO\b/i, 'Diagnostico')
@@ -210,11 +215,13 @@ export function buildWhatsappReportMessage(input: {
   const blocks = report ? parseReportBlocks(report) : []
   const topic = input.topic?.trim() || ''
   const situation =
-    sectionBody(blocks, /lo dicho|situacion/i) || input.summary?.trim() || ''
+    sectionBody(blocks, /resumen ejecutivo|lo dicho|hallazgos|situacion/i) ||
+    input.summary?.trim() ||
+    ''
   const diagnosis = sectionBody(blocks, /lo verificado|diagnostico/i)
-  const agreements = bulletLines(sectionBody(blocks, /lo acordado|decision/i), 3)
+  const agreements = bulletLines(sectionBody(blocks, /lo acordado|decisiones y acuerdos|decision/i), 3)
   const priorities = bulletLines(sectionBody(blocks, /recomend|prioridad/i), 3)
-  const steps = bulletLines(sectionBody(blocks, /proximos pasos/i), 3)
+  const steps = bulletLines(sectionBody(blocks, /compromisos|plan de accion|proximos pasos/i), 3)
   const findings = bulletLines(diagnosis, 3).filter((line) => !/se basa solo en la entrevista/i.test(line))
 
   const lines = ['Resumen de tu sesion con Enviardian', '']
@@ -257,16 +264,20 @@ export function insufficientExecutiveReport(userWords: string) {
     `Generador: ${ENVIARDIAN_REPORT_VERSION}`,
     'Modalidad: entrevista por voz',
     '',
-    'LO DICHO',
+    'RESUMEN EJECUTIVO',
+    'Informacion insuficiente para un diagnostico consultivo.',
+    '',
+    'HALLAZGOS',
     situation,
     '',
     'LO VERIFICADO',
     'Este informe se basa solo en la entrevista. No hubo consulta al tablero.',
     '',
-    'LO ACORDADO',
+    'DECISIONES Y ACUERDOS',
     'No hubo acuerdos.',
     '',
-    'Informacion insuficiente. No se infieren problemas, acuerdos ni responsables.',
+    'INFORMACION PENDIENTE',
+    'Se requiere una conversacion con mas detalle para cerrar hallazgos y compromisos.',
   ].join('\n')
 }
 

@@ -38,6 +38,7 @@ export function compactRetellMessages(messages: GuideMessage[]): GuideCompactMes
 
 export function useRetellGuideCall(options?: {
   guideToken?: string
+  accessGrant?: string
   onRemoteEnded?: () => void
   onError?: (message: string) => void
 }) {
@@ -45,9 +46,11 @@ export function useRetellGuideCall(options?: {
   const sessionIdRef = useRef('')
   const localStopRef = useRef(false)
   const guideTokenRef = useRef(options?.guideToken?.trim() || '')
+  const accessGrantRef = useRef(options?.accessGrant?.trim() || '')
   const onRemoteEndedRef = useRef(options?.onRemoteEnded)
   const onErrorRef = useRef(options?.onError)
   guideTokenRef.current = options?.guideToken?.trim() || ''
+  accessGrantRef.current = options?.accessGrant?.trim() || ''
   onRemoteEndedRef.current = options?.onRemoteEnded
   onErrorRef.current = options?.onError
 
@@ -102,11 +105,20 @@ export function useRetellGuideCall(options?: {
       probe?.getTracks().forEach((track) => track.stop())
     }
 
+    const guideToken = guideTokenRef.current || undefined
+    const accessGrant =
+      accessGrantRef.current ||
+      (guideToken ? guideService.readAccessGrant(guideToken) : '') ||
+      undefined
+    if (guideToken && !accessGrant) {
+      setStatus('error')
+      throw new Error('Vuelve a la invitacion y acepta el consentimiento para iniciar la voz.')
+    }
     const created = await guideService.createRetellWebCall({
       replaceActive: true,
       intent: opts?.intent === 'create' ? 'create' : 'consult',
-      guideToken: guideTokenRef.current || undefined,
-      consent: guideTokenRef.current ? true : undefined,
+      guideToken,
+      accessGrant,
     })
     sessionIdRef.current = created.session.id
 

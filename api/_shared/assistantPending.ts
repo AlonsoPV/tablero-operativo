@@ -1,11 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CopilotProposal, CopilotWriteTool } from '../../src/features/ai-support/copilot/types.js'
 
+export type CopilotBoardScope = 'role' | 'organization'
+
 export type CopilotActor = {
   supabase: SupabaseClient
   usuarioId: string
   authUserId: string
   rol: string | null
+  /** organization = lectura piloto de toda la org (voz por URL). Default: role. */
+  boardScope?: CopilotBoardScope
 }
 
 export const BOARD_PENDING_TTL_MS = 10 * 60 * 1000

@@ -271,12 +271,20 @@ export function GuidePanel({
         setSessionWork(pending)
         setView('result')
         if (usuarioId) await loadJournal(usuarioId)
+        const reportStatus =
+          typeof (result as { report_status?: string }).report_status === 'string'
+            ? (result as { report_status: string }).report_status
+            : result.journal?.executive_report
+              ? 'ready'
+              : 'pending'
         toast.success(
           pending.length > 0
             ? `Conversacion terminada. ${pending.length} borrador${pending.length === 1 ? '' : 'es'} para aprobar.`
-            : reason === 'time_limit'
-              ? 'Se acabaron los 15 minutos. Reporte ejecutivo listo.'
-              : 'Conversacion terminada. Reporte ejecutivo listo.'
+            : reportStatus === 'ready' || reportStatus === 'insufficient'
+              ? reason === 'time_limit'
+                ? 'Se acabaron los 15 minutos. Reporte ejecutivo listo.'
+                : 'Conversacion terminada. Reporte ejecutivo listo.'
+              : 'Conversacion terminada. El informe se esta generando; revisalo en el historial en unos segundos.'
         )
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'No se pudo terminar la conversacion.')

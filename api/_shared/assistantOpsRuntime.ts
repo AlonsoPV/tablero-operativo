@@ -81,12 +81,18 @@ function actionTitle(row: ActionRow) {
   return row.titulo_accion?.trim() || row.descripcion_accion?.trim() || 'Accion'
 }
 
-/** Un analista solo ve acciones de las que es responsable. El resto conserva la vista de tablero. */
+function actorSeesOrganization(actor: Pick<CopilotActor, 'boardScope'>) {
+  return actor.boardScope === 'organization'
+}
+
+/** Un analista solo ve acciones de las que es responsable, salvo lectura organizacional del piloto. */
 export function analystCanSeeAction(
   rol: string | null | undefined,
   actorUsuarioId: string,
-  row: { responsable?: string | null }
+  row: { responsable?: string | null },
+  boardScope?: CopilotActor['boardScope']
 ) {
+  if (boardScope === 'organization') return true
   if (!isAnalystByRole(rol)) return true
   return Boolean(actorUsuarioId) && row.responsable === actorUsuarioId
 }
@@ -168,11 +174,12 @@ async function resolveAction(
   actor: CopilotActor,
   args: Record<string, unknown>
 ): Promise<ActionRow | CopilotClarification | { missing: string }> {
-  const analyst = isAnalystByRole(actor.rol)
+  const orgRead = actorSeesOrganization(actor)
+  const analyst = !orgRead && isAnalystByRole(actor.rol)
   const id = asString(args.action_id, 80)
   if (id) {
     const row = await loadAction(actor, id)
-    if (!row || !analystCanSeeAction(actor.rol, actor.usuarioId, row)) {
+    if (!row || !analystCanSeeAction(actor.rol, actor.usuarioId, row, actor.boardScope)) {
       return { missing: 'No encontré esa acción o no tienes permiso para verla.' }
     }
     return row
@@ -305,8 +312,8 @@ async function toolGetActionDetails(actor: CopilotActor, args: Record<string, un
 }
 
 async function toolGetTeamActions(actor: CopilotActor, args: Record<string, unknown>): Promise<CopilotToolResult> {
-  // Misma amplitud que dashboard/search del tablero: Analista solo ve lo propio.
-  if (isAnalystByRole(actor.rol)) {
+  // Misma amplitud que dashboard/search del tablero: Analista solo ve lo propio, salvo piloto org.
+  if (!actorSeesOrganization(actor) && isAnalystByRole(actor.rol)) {
     return denied(
       'get_team_actions',
       'No tienes vista de tablero completo. Solo puedo consultar tus acciones asignadas.'
@@ -327,14 +334,13 @@ async function toolGetTeamActions(actor: CopilotActor, args: Record<string, unkn
 }
 
 async function toolGetPendingVerifications(actor: CopilotActor): Promise<CopilotToolResult> {
-  const { data, error } = await actor.supabase
-    .from('acciones_diarias')
-    .select(ACTION_COLS)
-    .eq('estado', 'Hecho')
-    .or(
+  let q = actor.supabase.from('acciones_diarias').select(ACTION_COLS).eq('estado', 'Hecho')
+  if (!actorSeesOrganization(actor)) {
+    q = q.or(
       `responsable.eq.${actor.usuarioId},verificador_dato.eq.${actor.usuarioId},verificador_gobierno.eq.${actor.usuarioId},created_by.eq.${actor.usuarioId}`
     )
-    .limit(20)
+  }
+  const { data, error } = await q.limit(20)
   if (error) throw error
   return readOk('get_pending_verifications', {
     items: ((data ?? []) as ActionRow[]).map(summarizeAction),

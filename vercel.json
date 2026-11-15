@@ -55,6 +55,7 @@
     { "source": "/api/google-oauth-status", "destination": "/api/google-oauth?op=status" },
     { "source": "/api/create-guide-user-link", "destination": "/api/guide-user-link?op=create" },
     { "source": "/api/validate-guide-user-link", "destination": "/api/guide-user-link?op=validate" },
+    { "source": "/api/consent-guide-user-link", "destination": "/api/guide-user-link?op=consent" },
     { "source": "/api/assistant-audio", "destination": "/api/assistant-media?op=audio" },
     { "source": "/api/assistant-transcribe", "destination": "/api/assistant-media?op=transcribe" },
     { "source": "/api/elevenlabs-tts", "destination": "/api/assistant-media?op=tts" },

@@ -45,8 +45,13 @@ const SKIP_SECTION = /para aprobar|trabajo creado/i
 const BANNER_TITLE = /^reporte ejecutivo$/i
 
 function sectionKind(title: string): GuideReportSection['kind'] {
-  if (/lo dicho|lo verificado|situacion|diagnostico|hallazgo/i.test(title)) return 'finding'
-  if (/lo acordado|plan de accion|prioridad|recomend|accion|decision|oportun|pendiente/i.test(title)) return 'action'
+  if (/lo dicho|lo verificado|situacion|diagnostico|hallazgo|resumen ejecutivo/i.test(title)) return 'finding'
+  if (
+    /lo acordado|decisiones y acuerdos|compromisos|plan de accion|prioridad|recomend|accion|decision|oportun|pendiente/i.test(
+      title
+    )
+  )
+    return 'action'
   if (/proximo|cierre|siguiente/i.test(title)) return 'closing'
   if (/aprendizaje|intencion|interpret|pensar|nota/i.test(title)) return 'note'
   return 'lead'

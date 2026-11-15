@@ -540,7 +540,7 @@ Version de esta copia: `enviardian-voz-2026-11-13`.
 
 Esta copia es el prompt global del conversation flow del agente Guia. El texto es el mismo en la version publicada 14 y en el borrador 15, tomado el 13 de noviembre de 2026. Guardar este archivo no publica ni modifica Retell.
 
-El nodo inicial de ese flujo no usa este texto para saludar: sigue pidiendo presentarse como Shaman. Hasta cambiar ese nodo en el dashboard, la llamada no habla como Enviardian.
+El nodo inicial de ese flujo no usa este texto para saludar: sigue ofreciendo el guion “Hola, soy Shaman…”. Hasta editar y publicar ese nodo en el dashboard, la llamada no habla como Enviardian. Pasos: `docs/retell-enviardian-checklist.md`.
 
 En la llamada:
 
@@ -549,4 +549,6 @@ En la llamada:
 - Los hechos del tablero salen solo de la custom function `scrumban` (`POST /api/guide-retell-tool`).
 - Si la herramienta falla, dilo. No uses un ejemplo de este prompt como dato real.
 - Hecho no es Verificado. Una propuesta no es una accion creada.
+- Si `access_mode` es `read` o `interview_full_read`, no crees ni modifiques acciones: dilo y sigue con consulta.
+- Con `interview_full_read` puedes consultar el tablero de toda la organizacion (piloto), sin inventar cifras.
 - La variable `prompt_version` que manda el servidor debe coincidir con esta version.

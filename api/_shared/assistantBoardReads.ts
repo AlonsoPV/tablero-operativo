@@ -39,6 +39,8 @@ type BoardActor = {
   usuarioId: string
   authUserId: string
   rol: string | null
+  /** organization = lectura piloto de toda la org (voz por URL). */
+  boardScope?: 'role' | 'organization'
 }
 
 export const BOARD_READ_TOOLS = [
@@ -215,6 +217,8 @@ async function loadActorAccess(actor: BoardActor): Promise<ActorAccess> {
 }
 
 function canSeePath(actor: BoardActor, access: ActorAccess, pathname: string): boolean {
+  // Piloto interview_full_read: todos los modulos de la organizacion.
+  if (actor.boardScope === 'organization') return true
   if (pathname === ROUTES.OKRS || pathname.startsWith(`${ROUTES.OKRS}/`)) {
     if (!canAccessOkrs(actor.rol, access.appRole, access.area, access.areas)) return false
   }
@@ -255,6 +259,7 @@ async function denyUnlessModule(
 }
 
 function seesAllCorporateActions(actor: BoardActor) {
+  if (actor.boardScope === 'organization') return true
   return !isAnalystByRole(actor.rol)
 }
 

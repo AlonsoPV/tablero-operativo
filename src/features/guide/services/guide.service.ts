@@ -291,13 +291,45 @@ export const guideService = {
     return data as GuideSession
   },
 
+  accessGrantStorageKey(token: string) {
+    return `guide_access_grant:${token.trim()}`
+  },
+
+  readAccessGrant(token: string) {
+    if (typeof sessionStorage === 'undefined') return ''
+    try {
+      return sessionStorage.getItem(this.accessGrantStorageKey(token))?.trim() || ''
+    } catch {
+      return ''
+    }
+  },
+
+  storeAccessGrant(token: string, grant: string) {
+    if (typeof sessionStorage === 'undefined') return
+    try {
+      sessionStorage.setItem(this.accessGrantStorageKey(token), grant)
+    } catch {
+      /* private mode */
+    }
+  },
+
+  clearAccessGrant(token: string) {
+    if (typeof sessionStorage === 'undefined') return
+    try {
+      sessionStorage.removeItem(this.accessGrantStorageKey(token))
+    } catch {
+      /* ignore */
+    }
+  },
+
   async createRetellWebCall(opts?: {
     replaceActive?: boolean
     intent?: 'consult' | 'create'
     guideToken?: string
-    consent?: boolean
+    accessGrant?: string
   }): Promise<GuideRetellWebCallResponse> {
     const token = opts?.guideToken?.trim() || ''
+    const accessGrant = opts?.accessGrant?.trim() || (token ? this.readAccessGrant(token) : '')
     const headers = token
       ? { 'Content-Type': 'application/json' }
       : await authHeaders()
@@ -310,15 +342,17 @@ export const guideService = {
         ...(token
           ? {
               guide_token: token,
-              consent: opts?.consent === true,
+              access_grant: accessGrant,
             }
           : {}),
       }),
     })
     const payload = (await response.json().catch(() => ({}))) as GuideRetellWebCallResponse & {
       error?: string
+      code?: string
     }
     if (!response.ok) {
+      if (payload.code === 'missing_access_grant' && token) this.clearAccessGrant(token)
       throw new Error(payload.error || 'No se pudo iniciar la llamada de Guia.')
     }
     if (!payload.access_token || !payload.session?.id) {
@@ -369,12 +403,46 @@ export const guideService = {
       user_name?: string
       expires_at?: string
       duration_minutes?: number
+      access_mode?: string
       error?: string
     }
     if (!response.ok || payload.valid !== true) {
       throw new Error(payload.error || 'Liga inválida o no disponible.')
     }
     return {
+      user_name: payload.user_name ?? 'Usuario',
+      expires_at: payload.expires_at ?? '',
+      duration_minutes: payload.duration_minutes ?? 15,
+      access_mode: payload.access_mode === 'propose' ? 'propose' : 'read',
+    }
+  },
+
+  async consentUserLink(token: string) {
+    const response = await fetch('/api/consent-guide-user-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token,
+        confirm_identity: true,
+        consent: true,
+      }),
+    })
+    const payload = (await response.json().catch(() => ({}))) as {
+      ok?: boolean
+      access_grant?: string
+      access_mode?: string
+      user_name?: string
+      expires_at?: string
+      duration_minutes?: number
+      error?: string
+    }
+    if (!response.ok || !payload.access_grant) {
+      throw new Error(payload.error || 'No se pudo confirmar el consentimiento.')
+    }
+    this.storeAccessGrant(token, payload.access_grant)
+    return {
+      access_grant: payload.access_grant,
+      access_mode: payload.access_mode === 'propose' ? 'propose' : 'read',
       user_name: payload.user_name ?? 'Usuario',
       expires_at: payload.expires_at ?? '',
       duration_minutes: payload.duration_minutes ?? 15,

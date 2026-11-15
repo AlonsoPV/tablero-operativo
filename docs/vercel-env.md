@@ -68,6 +68,8 @@ Guía de producto: [voz.md](./voz.md).
 | `GUIDE_CLAUDE_MAX_TOKENS` | Opcional. Default `300`. |
 | `RETELL_API_KEY` | Web call de voz de Guía. |
 | `RETELL_GUIDE_AGENT_ID` | Agente Guía (no reutilizar `RETELL_AGENT_ID` de entrevistas). |
+| `GUIDE_LINK_GRANT_SECRET` | Opcional. HMAC del consentimiento de la URL de voz. Si falta, se usa `SUPABASE_SERVICE_ROLE_KEY`. |
+| `GUIDE_INTERVIEW_FULL_READ` | Piloto. Default `1`: ligas de entrevista con lectura organizacional (`interview_full_read`). `0` = solo lectura segun rol. |
 
 Producto: [guia.md](./guia.md).
 
