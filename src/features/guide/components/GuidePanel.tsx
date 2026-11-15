@@ -272,9 +272,9 @@ export function GuidePanel({
         setView('result')
         if (usuarioId) await loadJournal(usuarioId)
         const reportStatus =
-          typeof (result as { report_status?: string }).report_status === 'string'
-            ? (result as { report_status: string }).report_status
-            : result.journal?.executive_report
+          typeof result.report_status === 'string'
+            ? result.report_status
+            : result.journal?.executive_report || result.executiveReport
               ? 'ready'
               : 'pending'
         toast.success(

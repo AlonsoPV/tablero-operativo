@@ -83,6 +83,8 @@ export type GuideChatCloseResponse = {
   pendingWork?: GuideCreatedWork[]
   executiveReport?: string | null
   workSummary?: string | null
+  /** Presente en cierres Retell (finalizeGuideInterview). */
+  report_status?: string
 }
 
 export type GuideCompactMessage = {
