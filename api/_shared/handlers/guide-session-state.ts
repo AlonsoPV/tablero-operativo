@@ -9,9 +9,15 @@ import {
   sessionIdFromRetellBody,
 } from '../guideSessionClock.js'
 import { verifyRetellSignature } from '../guideInterviewReport.js'
-import { defineApiHandler, readHeader, readRequestBody, readStringEnv } from '../http.js'
+import {
+  defineApiHandler,
+  readHeader,
+  readRequestBody,
+  readStringEnv,
+  type VercelRequestLike,
+} from '../http.js'
 
-function authorized(req: { rawBody?: string }) {
+function authorized(req: VercelRequestLike) {
   const apiKey = readStringEnv('RETELL_API_KEY')
   const toolSecret = readStringEnv('GUIDE_RETELL_TOOL_SECRET')
   const signature = readHeader(req, 'x-retell-signature')
