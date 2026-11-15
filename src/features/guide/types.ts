@@ -64,6 +64,7 @@ export type GuideJournalEntry = {
   created_work?: GuideCreatedWork[] | null
   created_at: string
   updated_at: string
+  report_status?: 'pending' | 'processing' | 'ready' | 'failed' | 'insufficient' | null
 }
 
 export type GuideCloseReason = 'user_requested' | 'time_limit' | 'safety_ended' | 'abandoned'

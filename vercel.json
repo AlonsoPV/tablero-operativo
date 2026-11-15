@@ -62,6 +62,7 @@
     { "source": "/api/guide-retell-webhook", "destination": "/api/guide-retell?op=webhook" },
     { "source": "/api/guide-retell-web-call", "destination": "/api/guide-retell?op=web-call" },
     { "source": "/api/guide-retell-tool", "destination": "/api/guide-retell?op=tool" },
+    { "source": "/api/guide-session-state", "destination": "/api/guide-retell?op=session-state" },
     {
       "source": "/api/guide-queue-workspace-draft",
       "destination": "/api/guide-retell?op=queue-workspace-draft"

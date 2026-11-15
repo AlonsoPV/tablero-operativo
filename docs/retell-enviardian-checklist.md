@@ -29,14 +29,11 @@ URL token → validate-guide-user-link
 - Web call exige grant + `usuarios.user_id` activo.
 - Informe: `consult_log` groundea lo verificado; el evento `client` espera al webhook.
 - Informe post-llamada: el webhook (`call_analyzed`) escribe el informe; `call_ended` y el navegador esperan. El cierre autenticado de voz Retell usa el mismo `finalizeGuideInterview` (no el prompt de reflexion de texto). PDF e historial leen el mismo `executive_report` (v2).
-- Migraciones pendientes de aplicar en Supabase (en este orden):
+- Migraciones aplicadas en Supabase PROD (`xhpasmjzuwifmjhrsumb`), en este orden:
   1. `supabase/migrations/20261113130000_guide_session_consult_log.sql`
   2. `supabase/migrations/20261114160000_guide_link_access_mode.sql`
   3. `supabase/migrations/20261114170000_guide_interview_full_read.sql`
   4. `supabase/migrations/20261114180000_guide_sessions_call_id_unique.sql`
-
-Sin `consult_log` la herramienta responde, pero el informe dira que se basa solo en la entrevista.
-Sin `access_mode` el bridge asume lectura de liga vía piloto/`read` si hay `guide_link_id` y `propose` si no.
 
 ## Matriz de herramientas (voz / URL)
 
@@ -59,14 +56,12 @@ Con `interview_full_read`, las lecturas usan `boardScope=organization` (sin filt
 
 No editar el agente de entrevistas (`RETELL_AGENT_ID`).
 
-1. Nodo inicial **Apertura**: quitar la frase sugerida `Hola, soy Shaman...`. La apertura es Enviardian, asistente de IA empresarial de Scrumban.
-2. Registrar custom function `scrumban` → `POST {APP}/api/guide-retell-tool`, firma `x-retell-signature`.
-   - Parametros: `tool` + args del copiloto. No enviar `usuario_id`.
-3. Dejar de usar `get_session_state` (este repo no lo expone).
-4. Prompt global: copia en `docs/prompts/enviardian-voz.md` (`enviardian-voz-2026-11-13`). Guardar el markdown **no** publica Retell.
-5. Publicar la version del agente Guia.
+Estado publicado (v16, API `scripts/publish-guia-retell-tools.mjs`):
 
-Hasta publicar, una llamada real puede seguir saludando como Shaman y no consultar el tablero.
+1. Custom function `scrumban` → `POST https://scrumbanemx.vercel.app/api/guide-retell-tool` (firma `x-retell-signature`).
+2. `get_session_state` → `POST https://scrumbanemx.vercel.app/api/guide-session-state` (`x-guide-tool-secret`).
+3. `webhook_url` → `https://scrumbanemx.vercel.app/api/guide-retell-webhook` (`call_ended`, `call_analyzed`).
+4. Apertura ya presenta Enviardian (no Shaman). Prompt: `docs/prompts/enviardian-voz.md`.
 
 ## Pruebas E2E manuales (despues de migraciones + publish)
 
@@ -91,8 +86,6 @@ Logs `guide-retell-tool` / web-call: `session`, `tool`, `status`, `ms`, `ignored
 
 ## Riesgos pendientes
 
-- Nodo Shaman / funcion `scrumban` no publicados.
-- Migraciones no aplicadas en produccion.
 - Piloto de lectura global: cualquier liga activa ve el tablero completo de la org; revocar ligas o poner `GUIDE_INTERVIEW_FULL_READ=0` para restringir.
 - OKR bajo service role mas amplio que RLS JWT.
 - Sin OTP: quien tenga la URL actúa con el alcance del piloto mientras la liga este activa.

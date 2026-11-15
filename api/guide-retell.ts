@@ -7,12 +7,16 @@ import guideRetellWebhook from './_shared/handlers/guide-retell-webhook.js'
 import guideRetellWebCall from './_shared/handlers/guide-retell-web-call.js'
 import guideRetellTool from './_shared/handlers/guide-retell-tool.js'
 import guideQueueWorkspaceDraft from './_shared/handlers/guide-queue-workspace-draft.js'
+import guideSessionState from './_shared/handlers/guide-session-state.js'
 
 function resolveOp(req: { url?: string }) {
   const op = apiOpOf(req, ['guide-retell-', 'guide-'])
   if (op === 'webhook' || op === 'guide-retell-webhook') return 'webhook'
   if (op === 'web-call' || op === 'webcall' || op === 'guide-retell-web-call') return 'web-call'
   if (op === 'tool' || op === 'scrumban' || op === 'guide-retell-tool') return 'tool'
+  if (op === 'session-state' || op === 'guide-session-state' || op === 'get_session_state') {
+    return 'session-state'
+  }
   if (
     op === 'queue-workspace-draft' ||
     op === 'queue_workspace_draft' ||
@@ -23,6 +27,7 @@ function resolveOp(req: { url?: string }) {
   const leaf = (req.url || '').split('?')[0]?.split('/').filter(Boolean).pop() || ''
   if (leaf.includes('webhook')) return 'webhook'
   if (leaf.includes('web-call')) return 'web-call'
+  if (leaf.includes('session-state') || leaf.includes('get_session_state')) return 'session-state'
   if (leaf.includes('queue-workspace')) return 'queue-workspace-draft'
   if (leaf.includes('guide-retell-tool') || leaf === 'tool') return 'tool'
   return op
@@ -34,6 +39,7 @@ export default defineOpRouter(
     webhook: guideRetellWebhook,
     'web-call': guideRetellWebCall,
     tool: guideRetellTool,
+    'session-state': guideSessionState,
     'queue-workspace-draft': guideQueueWorkspaceDraft,
   },
   'Operacion Retell desconocida.'

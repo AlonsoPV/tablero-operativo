@@ -58,6 +58,20 @@ describe('retell tool bridge', () => {
     expect(isRetellWriteTool('get_my_actions')).toBe(false)
   })
 
+  it('parses string args and falls back to dynamic session_id', () => {
+    const parsed = readRetellToolCall({
+      name: 'scrumban',
+      args: JSON.stringify({ tool: 'get_okr_progress', usuario_id: 'intruso' }),
+      call: {
+        metadata: { product: 'guide' },
+        retell_llm_dynamic_variables: { session_id: 'session-dyn' },
+      },
+    })
+    expect(parsed.sessionId).toBe('session-dyn')
+    expect(parsed.tool).toBe('get_okr_progress')
+    expect(parsed.args).not.toHaveProperty('usuario_id')
+  })
+
   it('drops a forged usuario_id from the model and keeps the session id', () => {
     const parsed = readRetellToolCall({
       name: 'create_action',

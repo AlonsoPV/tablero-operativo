@@ -81,7 +81,10 @@ export function GuideVoiceInvitePage() {
     },
   })
 
-  const requestReport = async (action: 'status' | 'finalize' | 'retry' | 'whatsapp', confirm = false) => {
+  const requestReport = async (
+    action: 'status' | 'finalize' | 'retry' | 'poll-timeout' | 'whatsapp',
+    confirm = false
+  ) => {
     const response = await fetch('/api/guide-link-report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -124,8 +127,13 @@ export function GuideVoiceInvitePage() {
   useEffect(() => {
     const status = report?.report_status
     if (status !== 'pending' && status !== 'processing') return
+    const startedAt = Date.now()
+    let timeoutSent = false
     const timer = window.setInterval(() => {
-      void requestReport('status')
+      const overdue = Date.now() - startedAt >= 90_000
+      const action = overdue && !timeoutSent ? 'poll-timeout' : 'status'
+      if (action === 'poll-timeout') timeoutSent = true
+      void requestReport(action)
         .then((payload) => setReport(payload))
         .catch(() => undefined)
     }, 3000)
