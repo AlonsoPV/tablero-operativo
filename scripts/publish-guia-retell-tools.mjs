@@ -59,11 +59,14 @@ const SCRUMBAN = {
   url: `${APP}/api/guide-retell-tool`,
   method: 'POST',
   parameter_type: 'json',
-  args_at_root: true,
+  // false: Retell envía name + call (metadata/session) + args. Con true se pierde guide_session_id.
+  args_at_root: false,
   speak_after_execution: true,
   speak_during_execution: false,
   timeout_ms: 30000,
-  headers: {},
+  headers: {
+    'x-guide-tool-secret': toolSecret,
+  },
   query_params: {},
   parameters: {
     type: 'object',
@@ -90,12 +93,28 @@ const SCRUMBAN = {
 
 const agent = await retell('GET', `/get-agent/${agentId}`)
 const flowId = agent.response_engine?.conversation_flow_id
+const baseVersion = Number(agent.version ?? agent.response_engine?.version ?? 0)
 if (!flowId) {
   console.error('El agente Guia no tiene conversation_flow_id')
   process.exit(1)
 }
+if (!Number.isFinite(baseVersion) || baseVersion < 0) {
+  console.error('No pude resolver la version base del agente', agent.version)
+  process.exit(1)
+}
 
-const flow = await retell('GET', `/get-conversation-flow/${flowId}`)
+console.log('CREATE draft from version', baseVersion)
+const draftAgent = await retell('POST', `/create-agent-version/${agentId}`, {
+  base_version: baseVersion,
+})
+const draftVersion = Number(draftAgent.version ?? 0)
+if (!Number.isFinite(draftVersion) || draftVersion <= 0) {
+  console.error('No pude resolver la version draft', draftAgent)
+  process.exit(1)
+}
+console.log('draft version', draftVersion)
+
+const flow = await retell('GET', `/get-conversation-flow/${flowId}?version=${draftVersion}`)
 const clock = (flow.tools || []).find((t) => t.name === 'get_session_state')
 if (!clock) {
   console.error('No existe get_session_state en el flow')
@@ -132,27 +151,27 @@ const nodes = (flow.nodes || []).map((node) => {
   return node
 })
 
-console.log('PATCH flow', flowId)
-const updatedFlow = await retell('PATCH', `/update-conversation-flow/${flowId}`, { tools, nodes })
+console.log('PATCH flow', flowId, 'version', draftVersion)
+const updatedFlow = await retell(
+  'PATCH',
+  `/update-conversation-flow/${flowId}?version=${draftVersion}`,
+  { tools, nodes }
+)
 const toolNames = (updatedFlow.tools || tools).map((t) => `${t.name}@${t.url}`)
 console.log('tools', toolNames)
 
-console.log('PATCH agent webhook', agentId)
-await retell('PATCH', `/update-agent/${agentId}`, {
+console.log('PATCH agent webhook', agentId, 'version', draftVersion)
+await retell('PATCH', `/update-agent/${agentId}?version=${draftVersion}`, {
   webhook_url: `${APP}/api/guide-retell-webhook`,
   webhook_events: ['call_ended', 'call_analyzed'],
 })
 
-const draftVersion = Number(updatedFlow?.version ?? agent.version ?? 0)
-if (!Number.isFinite(draftVersion) || draftVersion <= 0) {
-  console.error('No pude resolver la version a publicar', updatedFlow?.version, agent.version)
-  process.exit(1)
-}
 console.log('PUBLISH agent-version', agentId, 'version', draftVersion)
 const published = await retell('POST', `/publish-agent-version/${agentId}`, {
   version: draftVersion,
-  version_title: 'Guia Vercel clock+scrumban+webhook',
-  version_description: 'get_session_state y scrumban en Vercel; webhook call_ended/call_analyzed',
+  version_title: 'Guia scrumban firma + args con session',
+  version_description:
+    'Firma Retell v=,d=; scrumban args_at_root=false + x-guide-tool-secret; reloj/webhook Vercel',
 })
 const verify = await retell('GET', `/get-agent/${agentId}`)
 console.log(
@@ -166,6 +185,7 @@ console.log(
       webhook_events: verify.webhook_events,
       clock_url: nextClock.url,
       scrumban_url: SCRUMBAN.url,
+      scrumban_args_at_root: SCRUMBAN.args_at_root,
       publish_response: published,
     },
     null,

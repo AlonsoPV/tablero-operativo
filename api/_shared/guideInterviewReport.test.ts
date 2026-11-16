@@ -39,6 +39,15 @@ describe('retell interview report', () => {
     expect(verifyRetellSignature(body, key, '')).toBe(false)
   })
 
+  it('verifies Retell v=,d= signatures as rawBody + timestamp', () => {
+    const body = '{"name":"scrumban","args":{"tool":"get_okr_progress"}}'
+    const key = 'retell-test-key'
+    const timestamp = '1731744000123'
+    const digest = createHmac('sha256', key).update(`${body}${timestamp}`).digest('hex')
+    expect(verifyRetellSignature(body, key, `v=${timestamp},d=${digest}`)).toBe(true)
+    expect(verifyRetellSignature(body, key, `v=${timestamp},d=${digest.slice(0, -2)}aa`)).toBe(false)
+  })
+
   it('reads agent and user turns without inventing lines', () => {
     const turns = turnsFromRetellCall({
       transcript_object: [

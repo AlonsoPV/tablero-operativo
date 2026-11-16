@@ -48,12 +48,17 @@ export default defineApiHandler(async (req, res) => {
   }
 
   const apiKey = readStringEnv('RETELL_API_KEY')
+  const toolSecret = readStringEnv('GUIDE_RETELL_TOOL_SECRET')
   const rawBody = typeof req.rawBody === 'string' ? req.rawBody : ''
   const signature = readHeader(req, 'x-retell-signature')
-  if (!apiKey) {
+  const guideSecret = readHeader(req, 'x-guide-tool-secret')
+  const bearer = readHeader(req, 'authorization').replace(/^Bearer\s+/i, '').trim()
+  const signedOk = Boolean(apiKey && rawBody && verifyRetellSignature(rawBody, apiKey, signature))
+  const secretOk = Boolean(toolSecret && ((guideSecret && guideSecret === toolSecret) || (bearer && bearer === toolSecret)))
+  if (!apiKey && !toolSecret) {
     return res.status(503).json({ status: 'error', result: 'Falta configurar la voz.' })
   }
-  if (!rawBody || !verifyRetellSignature(rawBody, apiKey, signature)) {
+  if (!signedOk && !secretOk) {
     return res.status(401).json({ status: 'error', result: 'Firma de Retell invalida.' })
   }
 
