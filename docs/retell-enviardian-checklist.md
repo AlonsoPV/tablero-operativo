@@ -56,12 +56,29 @@ Con `interview_full_read`, las lecturas usan `boardScope=organization` (sin filt
 
 No editar el agente de entrevistas (`RETELL_AGENT_ID`).
 
-Estado publicado (v16, API `scripts/publish-guia-retell-tools.mjs`):
+**No publicar ni desplegar producción** hasta autorización explícita. El script `scripts/publish-guia-retell-tools.mjs` hace dry-run por defecto; remoto solo con `GUIDE_RETELL_PUBLISH_OK=1`.
+
+### Custom tools — before / after (latencia voz)
+
+| Campo | Before (publicado previo) | After (listo en script; pendiente publish) |
+| --- | --- | --- |
+| `scrumban.speak_during_execution` | `false` | `true` |
+| `scrumban.execution_message_type` | (ausente) | `static_text` |
+| `scrumban.execution_message_description` | (ausente) | `Un momento, consulto el tablero.` |
+| `scrumban.speak_after_execution` | `true` | `true` (sin cambio) |
+| `scrumban.timeout_ms` | `30000` | `30000` (backend tipa ~3s con `GUIDE_RETELL_TOOL_TIMEOUT_MS`) |
+| `scrumban` descripción | lista plana de tools | prefer `get_my_actions` / `get_okr_progress` / `get_dashboard_summary`; evitar `search_board` / `get_module_data` amplios |
+| `get_session_state.speak_during_execution` | según draft | `true` + mensaje `Un segundo.` |
+| Prompt version | `enviardian-voz-2026-11-13` | `enviardian-voz-2026-11-16` (§13 carve-out espera de herramienta) |
+
+Estado en repo (código + script listos; remoto solo tras OK):
 
 1. Custom function `scrumban` → `POST https://scrumbanemx.vercel.app/api/guide-retell-tool` (firma `x-retell-signature`).
 2. `get_session_state` → `POST https://scrumbanemx.vercel.app/api/guide-session-state` (`x-guide-tool-secret`).
 3. `webhook_url` → `https://scrumbanemx.vercel.app/api/guide-retell-webhook` (`call_ended`, `call_analyzed`).
-4. Apertura ya presenta Enviardian (no Shaman). Prompt: `docs/prompts/enviardian-voz.md`.
+4. Prompt: `docs/prompts/enviardian-voz.md` (`enviardian-voz-2026-11-16`). Publicar el texto en el flow solo con autorización.
+5. Revisar en dashboard (no adivinar): modelo LLM, turn-taking, STT/TTS, timeouts publicados vs Vercel `maxDuration: 60`.
+6. Follow-up separado: `docs/guia.md` menciona `end_call_after_silence_ms` / `interruption_sensitivity` en web-call; `guide-retell-web-call` hoy no los manda — documentar o implementar aparte.
 
 ## Pruebas E2E manuales (despues de migraciones + publish)
 
@@ -82,7 +99,17 @@ Hasta completar A–J contra una URL real, la integracion de voz no esta cerrada
 
 ## Observabilidad
 
-Logs `guide-retell-tool` / web-call: `session`, `tool`, `status`, `ms`, `ignored_model_user`. No loguear tokens ni grants completos.
+Logs `guide-retell-tool`: `call_id`, `session`, `tool`, `status`, `auth_ms`, `session_ms`, `user_ms`, `dispatch_ms`, `consult_log_ms`, `payload_bytes`, `ms`, `ignored_model_user`. No loguear tokens ni grants completos.
+
+Harness local/preview: `node scripts/e2e-guia-voice-latency.mjs` (matriz A–N, p50/p95 por herramienta). Smoke corto: `scripts/e2e-guia-bridge-smoke.mjs`. Detalle: `docs/retell-voice-latency-baseline.md`.
+
+Migración consult_log atómico: `supabase/migrations/20261116120000_append_guide_consult_log.sql` (aplicar en DEV/PROD cuando se autorice).
+
+### Pendientes solo UI remota (tras autorización)
+
+- Publicar tools + prompt `enviardian-voz-2026-11-16` en Retell (`GUIDE_RETELL_PUBLISH_OK=1`).
+- Revisar modelo / STT / TTS / turn-taking en dashboard.
+- Deploy producción del backend (timeout tipado, voice-slim, métricas por fase).
 
 ## Riesgos pendientes
 

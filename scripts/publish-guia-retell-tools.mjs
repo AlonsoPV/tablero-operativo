@@ -4,6 +4,9 @@
  * - custom function scrumban → Vercel /api/guide-retell-tool
  * - webhook_url → Vercel /api/guide-retell-webhook
  * No toca RETELL_AGENT_ID.
+ *
+ * Publicar remoto exige GUIDE_RETELL_PUBLISH_OK=1 (autorización explícita).
+ * Sin esa variable: dry-run (imprime el payload de scrumban y sale 0).
  */
 import { loadDotenv } from './_load-dotenv.mjs'
 
@@ -14,6 +17,7 @@ const APP = 'https://scrumbanemx.vercel.app'
 const key = process.env.RETELL_API_KEY
 const agentId = process.env.RETELL_GUIDE_AGENT_ID
 const toolSecret = process.env.GUIDE_RETELL_TOOL_SECRET
+const publishOk = process.env.GUIDE_RETELL_PUBLISH_OK === '1'
 
 if (!key || !agentId || !toolSecret) {
   console.error('Faltan RETELL_API_KEY, RETELL_GUIDE_AGENT_ID o GUIDE_RETELL_TOOL_SECRET')
@@ -52,9 +56,10 @@ const SCRUMBAN = {
   name: 'scrumban',
   description:
     'Consulta o propone cambios en el tablero Scrumban del usuario de esta sesion. ' +
-    'Usa tool=get_my_actions|get_action_details|get_team_actions|get_pending_verifications|' +
-    'get_okr_progress|search_people|get_dashboard_summary|get_org_chart|get_module_data|search_board|' +
-    'create_action|update_action|add_action_comment|update_checklist_item|mark_action_done|verify_action. ' +
+    'Prefiere tool=get_my_actions|get_okr_progress|get_dashboard_summary|get_action_details|' +
+    'get_team_actions|get_pending_verifications|search_people. ' +
+    'Evita search_board y get_module_data amplios salvo peticion explicita del usuario. ' +
+    'Escrituras: create_action|update_action|add_action_comment|update_checklist_item|mark_action_done|verify_action. ' +
     'No inventes cifras: si falla o viene vacio, dilo. No envies usuario_id ni session_id.',
   url: `${APP}/api/guide-retell-tool`,
   method: 'POST',
@@ -62,7 +67,9 @@ const SCRUMBAN = {
   // false: Retell envía name + call (metadata/session) + args. Con true se pierde guide_session_id.
   args_at_root: false,
   speak_after_execution: true,
-  speak_during_execution: false,
+  speak_during_execution: true,
+  execution_message_type: 'static_text',
+  execution_message_description: 'Un momento, consulto el tablero.',
   timeout_ms: 30000,
   headers: {
     'x-guide-tool-secret': toolSecret,
@@ -74,14 +81,15 @@ const SCRUMBAN = {
     properties: {
       tool: {
         type: 'string',
-        description: 'Nombre de la herramienta del copiloto Scrumban.',
+        description:
+          'Nombre de la herramienta. Preferir get_my_actions, get_okr_progress o get_dashboard_summary.',
       },
       filter: { type: 'string', description: 'Filtro opcional (open, done, etc.).' },
       query: { type: 'string', description: 'Texto de busqueda.' },
       action_id: { type: 'string', description: 'Id de accion cuando aplique.' },
       title: { type: 'string', description: 'Titulo para create_action u otras escrituras.' },
       comment: { type: 'string', description: 'Comentario cuando aplique.' },
-      module: { type: 'string', description: 'Modulo para get_module_data.' },
+      module: { type: 'string', description: 'Modulo para get_module_data (solo si el usuario lo pide).' },
       objective: { type: 'string', description: 'Objetivo o contexto opcional.' },
       priority: { type: 'string', description: 'Prioridad opcional P1_Alta|P2_Media|P3_Baja.' },
       due_date: { type: 'string', description: 'Fecha opcional YYYY-MM-DD.' },
@@ -89,6 +97,36 @@ const SCRUMBAN = {
       description: { type: 'string', description: 'Descripcion opcional.' },
     },
   },
+}
+
+if (!publishOk) {
+  console.log(
+    JSON.stringify(
+      {
+        dry_run: true,
+        reason: 'Falta GUIDE_RETELL_PUBLISH_OK=1. No se publica ni se crea draft remoto.',
+        before: {
+          speak_during_execution: false,
+          execution_message_type: null,
+          execution_message_description: null,
+        },
+        after: {
+          speak_during_execution: SCRUMBAN.speak_during_execution,
+          execution_message_type: SCRUMBAN.execution_message_type,
+          execution_message_description: SCRUMBAN.execution_message_description,
+          speak_after_execution: SCRUMBAN.speak_after_execution,
+          timeout_ms: SCRUMBAN.timeout_ms,
+          args_at_root: SCRUMBAN.args_at_root,
+          description_steering: 'prefer get_my_actions|get_okr_progress|get_dashboard_summary',
+        },
+        how_to_publish:
+          'Autoriza y corre: GUIDE_RETELL_PUBLISH_OK=1 node scripts/publish-guia-retell-tools.mjs',
+      },
+      null,
+      2
+    )
+  )
+  process.exit(0)
 }
 
 const agent = await retell('GET', `/get-agent/${agentId}`)
@@ -130,6 +168,10 @@ const nextClock = {
   },
   method: 'POST',
   timeout_ms: clock.timeout_ms || 15000,
+  speak_after_execution: true,
+  speak_during_execution: true,
+  execution_message_type: 'static_text',
+  execution_message_description: 'Un segundo.',
 }
 
 const otherTools = (flow.tools || []).filter((t) => t.name !== 'get_session_state' && t.name !== 'scrumban')
@@ -169,9 +211,9 @@ await retell('PATCH', `/update-agent/${agentId}?version=${draftVersion}`, {
 console.log('PUBLISH agent-version', agentId, 'version', draftVersion)
 const published = await retell('POST', `/publish-agent-version/${agentId}`, {
   version: draftVersion,
-  version_title: 'Guia scrumban firma + args con session',
+  version_title: 'Guia voz: speak_during + steering slim',
   version_description:
-    'Firma Retell v=,d=; scrumban args_at_root=false + x-guide-tool-secret; reloj/webhook Vercel',
+    'scrumban speak_during_execution + mensaje espera; prefer get_my_actions/okr/dashboard; reloj speak_during',
 })
 const verify = await retell('GET', `/get-agent/${agentId}`)
 console.log(

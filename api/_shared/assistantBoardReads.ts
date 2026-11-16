@@ -41,7 +41,12 @@ type BoardActor = {
   rol: string | null
   /** organization = lectura piloto de toda la org (voz por URL). */
   boardScope?: 'role' | 'organization'
+  /** Canal voz: límites de filas más bajos y módulos pesados acotados. */
+  voiceChannel?: boolean
 }
+
+/** Límite de acciones abiertas en dashboard/voz (texto sigue en CORPORATE_OPEN_READ_LIMIT). */
+const VOICE_OPEN_READ_LIMIT = 48
 
 export const BOARD_READ_TOOLS = [
   'get_dashboard_summary',
@@ -280,13 +285,13 @@ function toCorporateAction(row: {
   }
 }
 
-async function loadOpenActions(actor: BoardActor, allBoard: boolean) {
+async function loadOpenActions(actor: BoardActor, allBoard: boolean, limit = CORPORATE_OPEN_READ_LIMIT) {
   let q = actor.supabase
     .from('acciones_diarias')
     .select('id,fecha,hora_limite,titulo_accion,estado,prioridad,responsable,area,updated_at')
     .in('estado', OPEN_STATES)
   if (!allBoard) q = q.eq('responsable', actor.usuarioId)
-  const { data, error } = await q.order('fecha', { ascending: true }).limit(CORPORATE_OPEN_READ_LIMIT)
+  const { data, error } = await q.order('fecha', { ascending: true }).limit(limit)
   if (error) throw error
   return (data ?? []) as Array<{
     id: string
@@ -315,7 +320,21 @@ async function dashboardSummary(actor: BoardActor, tool: CopilotToolName): Promi
   if ('kind' in gate) return gate
   const today = todayWallClockCDMX()
   const seesAll = seesAllCorporateActions(actor)
-  const rows = await loadOpenActions(actor, seesAll)
+  const openLimit = actor.voiceChannel ? VOICE_OPEN_READ_LIMIT : CORPORATE_OPEN_READ_LIMIT
+
+  let hechoQ = actor.supabase
+    .from('acciones_diarias')
+    .select('id', { count: 'exact', head: true })
+    .eq('estado', 'Hecho')
+  if (!seesAll) hechoQ = hechoQ.eq('responsable', actor.usuarioId)
+
+  const [rows, hechoRes, okrRes] = await Promise.all([
+    loadOpenActions(actor, seesAll, openLimit),
+    hechoQ,
+    actor.supabase.rpc('get_operational_okr_dashboard'),
+  ])
+  const hechoCount = hechoRes.count
+
   const actions = rows.flatMap((row) => {
     const action = toCorporateAction(row)
     return action ? [action] : []
@@ -323,18 +342,13 @@ async function dashboardSummary(actor: BoardActor, tool: CopilotToolName): Promi
   const summary = summarizeCorporateActions(actions, {
     scope: seesAll ? 'organizacion' : 'responsable',
     today,
-    truncated: readWasTruncated(rows.length, CORPORATE_OPEN_READ_LIMIT),
+    truncated: readWasTruncated(rows.length, openLimit),
   })
   const overdue = actions.filter((row) => isCorporateOverdue(row))
   const blocked = actions.filter((row) => isCorporateBlocked(row))
-  let hechoQ = actor.supabase
-    .from('acciones_diarias')
-    .select('id', { count: 'exact', head: true })
-    .eq('estado', 'Hecho')
-  if (!seesAllCorporateActions(actor)) hechoQ = hechoQ.eq('responsable', actor.usuarioId)
-  const { count: hechoCount } = await hechoQ
+  const rowById = new Map(rows.map((row) => [row.id, row]))
+
   let operational: Record<string, unknown> | null = null
-  const okrRes = await actor.supabase.rpc('get_operational_okr_dashboard')
   if (!okrRes.error && okrRes.data && typeof okrRes.data === 'object') {
     const payload = okrRes.data as {
       ok?: boolean
@@ -376,7 +390,7 @@ async function dashboardSummary(actor: BoardActor, tool: CopilotToolName): Promi
     hecho_abiertos_verificacion: hechoCount ?? 0,
     sample_overdue: clip(
       overdue.map((row) => {
-        const source = rows.find((item) => item.id === row.id)
+        const source = rowById.get(row.id)
         return { id: row.id, title: source?.titulo_accion, fecha: row.fecha, estado: row.estado }
       }),
       8
@@ -574,10 +588,57 @@ function shapeOkrProgress(input: {
   }
 }
 
+function shapeOkrFromDashboardRpc(
+  payload: { objectives?: unknown[]; keyResults?: unknown[]; initiatives?: unknown[] },
+  today: string
+): CopilotToolResult {
+  const objectives = (Array.isArray(payload?.objectives) ? payload.objectives : []).flatMap((item) => {
+    const row = item as Record<string, unknown>
+    return typeof row.id === 'string'
+      ? [{
+          id: row.id,
+          nombre_okr: typeof row.nombre_okr === 'string' ? row.nombre_okr : null,
+          scope: typeof row.scope === 'string' ? row.scope : null,
+          activo: row.activo !== false,
+          start_date: typeof row.start_date === 'string' ? row.start_date : null,
+          end_date: typeof row.end_date === 'string' ? row.end_date : null,
+        } satisfies OkrReadRow]
+      : []
+  })
+  const keyResults = (Array.isArray(payload?.keyResults) ? payload.keyResults : []).flatMap((item) => {
+    const row = asKrRow(item as Record<string, unknown>)
+    return row ? [row] : []
+  })
+  const initiatives = (Array.isArray(payload?.initiatives) ? payload.initiatives : []).flatMap((item) => {
+    const row = item as Record<string, unknown>
+    return typeof row.key_result_id === 'string' ? [{ key_result_id: row.key_result_id }] : []
+  })
+  return readOk(
+    'get_okr_progress',
+    shapeOkrProgress({
+      objectives,
+      keyResults,
+      initiatives,
+      today,
+      truncated: objectives.length >= OKR_OBJECTIVE_LIMIT,
+    })
+  )
+}
+
 async function toolOkrProgress(actor: BoardActor): Promise<CopilotToolResult> {
   const gate = await denyUnlessModule(actor, 'get_okr_progress', 'okrs')
   if ('kind' in gate) return gate
   const today = todayWallClockCDMX()
+
+  // Preferir RPC (1 hop) frente a okrs → key_results → initiatives en serie.
+  const rpc = await actor.supabase.rpc('okr_dashboard')
+  if (!rpc.error && rpc.data && typeof rpc.data === 'object') {
+    return shapeOkrFromDashboardRpc(
+      rpc.data as { objectives?: unknown[]; keyResults?: unknown[]; initiatives?: unknown[] },
+      today
+    )
+  }
+
   const { data, error } = await actor.supabase
     .from('okrs')
     .select('id,nombre_okr,scope,area_id,owner_user_id,start_date,end_date,activo')
@@ -585,41 +646,7 @@ async function toolOkrProgress(actor: BoardActor): Promise<CopilotToolResult> {
     .order('start_date', { ascending: false })
     .limit(OKR_OBJECTIVE_LIMIT)
   if (error) {
-    const rpc = await actor.supabase.rpc('okr_dashboard')
-    if (rpc.error) return denied('get_okr_progress', 'No tienes acceso a OKRs o el tablero no está disponible.')
-    const payload = rpc.data as {
-      objectives?: unknown[]
-      keyResults?: unknown[]
-      initiatives?: unknown[]
-    }
-    const objectives = (Array.isArray(payload?.objectives) ? payload.objectives : []).flatMap((item) => {
-      const row = item as Record<string, unknown>
-      return typeof row.id === 'string'
-        ? [{
-            id: row.id,
-            nombre_okr: typeof row.nombre_okr === 'string' ? row.nombre_okr : null,
-            scope: typeof row.scope === 'string' ? row.scope : null,
-            activo: row.activo !== false,
-            start_date: typeof row.start_date === 'string' ? row.start_date : null,
-            end_date: typeof row.end_date === 'string' ? row.end_date : null,
-          } satisfies OkrReadRow]
-        : []
-    })
-    const keyResults = (Array.isArray(payload?.keyResults) ? payload.keyResults : []).flatMap((item) => {
-      const row = asKrRow(item as Record<string, unknown>)
-      return row ? [row] : []
-    })
-    const initiatives = (Array.isArray(payload?.initiatives) ? payload.initiatives : []).flatMap((item) => {
-      const row = item as Record<string, unknown>
-      return typeof row.key_result_id === 'string' ? [{ key_result_id: row.key_result_id }] : []
-    })
-    return readOk('get_okr_progress', shapeOkrProgress({
-      objectives,
-      keyResults,
-      initiatives,
-      today,
-      truncated: objectives.length >= OKR_OBJECTIVE_LIMIT,
-    }))
+    return denied('get_okr_progress', 'No tienes acceso a OKRs o el tablero no está disponible.')
   }
   const objectives = (data ?? []) as OkrReadRow[]
   const ids = objectives.map((row) => row.id)
@@ -934,12 +961,13 @@ function modulePlanAccion() {
 async function moduleReports(actor: BoardActor) {
   const today = todayWallClockCDMX()
   const from = addDays(today, -30)
+  const rowLimit = actor.voiceChannel ? 120 : 800
   let q = actor.supabase
     .from('acciones_diarias')
     .select('id,estado,prioridad,area,fecha')
     .gte('fecha', from)
     .lte('fecha', today)
-    .limit(800)
+    .limit(rowLimit)
   if (!seesAllCorporateActions(actor)) q = q.eq('responsable', actor.usuarioId)
   const { data, error } = await q
   if (error) throw error
@@ -947,6 +975,7 @@ async function moduleReports(actor: BoardActor) {
   return {
     periodo: { from, to: today },
     total: rows.length,
+    truncated: rows.length >= rowLimit,
     by_estado: countBy(rows.map((row) => row.estado)),
     by_prioridad: countBy(rows.map((row) => row.prioridad)),
     by_area: countBy(rows.map((row) => row.area)),
@@ -971,6 +1000,17 @@ async function toolModuleData(
 ): Promise<CopilotToolResult> {
   if (module === 'dashboard') return dashboardSummary(actor, 'get_module_data')
   if (module === 'org_chart') return orgChart(actor, 'get_module_data', query)
+  // En voz, módulos pesados sin filtro bloquean el turno; preferir herramientas específicas.
+  if (
+    actor.voiceChannel &&
+    !query &&
+    (module === 'reports' || module === 'plan_accion' || module === 'academy')
+  ) {
+    return denied(
+      'get_module_data',
+      'En voz usa get_dashboard_summary, get_my_actions o get_okr_progress. Para academy/reports/plan_accion indica un filtro concreto.'
+    )
+  }
   const gate = await denyUnlessModule(actor, 'get_module_data', module)
   if ('kind' in gate) return gate
   const { access } = gate

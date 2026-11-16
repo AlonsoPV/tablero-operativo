@@ -10,6 +10,8 @@ export type CopilotActor = {
   rol: string | null
   /** organization = lectura piloto de toda la org (voz por URL). Default: role. */
   boardScope?: CopilotBoardScope
+  /** Canal voz Retell: lecturas más cortas y payloads compactos. */
+  voiceChannel?: boolean
 }
 
 export const BOARD_PENDING_TTL_MS = 10 * 60 * 1000
