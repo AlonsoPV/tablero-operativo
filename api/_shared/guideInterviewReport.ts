@@ -23,16 +23,26 @@ export function verifyRetellSignature(rawBody: string, apiKey: string, signature
   const digestOf = (payload: string) => createHmac('sha256', key).update(payload).digest('hex')
   const candidates = [digestOf(rawBody)]
 
-  const versioned = provided.match(/(?:^|[,\s])d=([a-f0-9]+)/i) ?? provided.match(/(?:^|[,\s])v1=([a-f0-9]+)/i)
-  const timestamp = provided.match(/(?:^|[,\s])t=(\d+)/)
-  if (timestamp) candidates.push(digestOf(`${timestamp[1]}.${rawBody}`))
+  // Retell actual: X-Retell-Signature: v=<timestamp_ms>,d=<hmac(rawBody + timestamp)>
+  const retell = provided.match(/(?:^|[,\s])v=(\d+)(?:,|$)/i)
+  const digestMatch =
+    provided.match(/(?:^|[,\s])d=([a-f0-9]+)/i) ?? provided.match(/(?:^|[,\s])v1=([a-f0-9]+)/i)
+  if (retell?.[1]) {
+    candidates.push(digestOf(`${rawBody}${retell[1]}`))
+    candidates.push(digestOf(`${retell[1]}.${rawBody}`))
+  }
+  // Legacy / alternate: t=<timestamp>
+  const legacyTs = provided.match(/(?:^|[,\s])t=(\d+)/i)
+  if (legacyTs?.[1]) {
+    candidates.push(digestOf(`${rawBody}${legacyTs[1]}`))
+    candidates.push(digestOf(`${legacyTs[1]}.${rawBody}`))
+  }
 
-  const expectedList = candidates
-  const actualHex = (versioned?.[1] ?? provided).trim().toLowerCase()
-  if (!/^[a-f0-9]+$/i.test(actualHex)) return false
+  const actualHex = (digestMatch?.[1] ?? (/^[a-f0-9]+$/i.test(provided) ? provided : '')).trim().toLowerCase()
+  if (!actualHex) return false
 
   const actual = Buffer.from(actualHex, 'hex')
-  return expectedList.some((expectedHex) => {
+  return candidates.some((expectedHex) => {
     const expected = Buffer.from(expectedHex, 'hex')
     if (expected.length !== actual.length) return false
     return timingSafeEqual(expected, actual)
