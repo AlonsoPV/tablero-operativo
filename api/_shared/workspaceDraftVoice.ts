@@ -523,6 +523,16 @@ export async function mutateVoiceWorkspaceDraft(
     }
   }
 
+  if (channel === 'unspecified') {
+    return {
+      ok: false,
+      spoken: '¿Lo prefieres por WhatsApp o correo? Dime el canal y lo dejo anotado.',
+      pending_op_ids: [],
+      pending_op_id: null,
+      action: 'prepare',
+    }
+  }
+
   const channels: Array<Exclude<CommunicationChannel, 'both' | 'unspecified'>> =
     channel === 'both' ? ['email', 'whatsapp'] : [channel]
   const ids: string[] = []
