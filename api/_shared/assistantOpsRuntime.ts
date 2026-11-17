@@ -1,7 +1,9 @@
 import { canManageActionsByRole, isAnalystByRole } from '../../src/features/auth/lib/permissions.js'
 import { isCopilotWriteTool } from '../../src/features/ai-support/copilot/catalog.js'
 import { isGoogleWriteTool } from '../../src/features/ai-support/copilot/googleWorkspace.js'
+import { isCommunicationWriteTool } from '../../src/features/ai-support/copilot/communicationTools.js'
 import { dispatchGoogleTool, executeGoogleWrite } from './assistantGoogleTools.js'
+import { executeWhatsappWrite } from './assistantCommunicationDrafts.js'
 import { createPendingOp, insertAssistantOpLog, type CopilotActor } from './assistantPending.js'
 import { assertWorkspaceHash } from './workspaceHash.js'
 import {
@@ -859,6 +861,9 @@ async function executePayload(actor: CopilotActor, tool: string, payload: Record
   if (isGoogleWriteTool(tool)) {
     return executeGoogleWrite(actor, tool, payload)
   }
+  if (isCommunicationWriteTool(tool)) {
+    throw new Error('whatsapp_prepare_send requiere pending_op_id en confirm.')
+  }
   throw new Error('Herramienta de escritura no soportada.')
 }
 
@@ -893,8 +898,27 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string) {
     )
   }
 
-  if (isGoogleWriteTool(row.tool)) {
+  if (isGoogleWriteTool(row.tool) || isCommunicationWriteTool(row.tool)) {
     assertWorkspaceHash(row.payload ?? {})
+    const payload = row.payload ?? {}
+    if (payload.incomplete === true) {
+      throw new Error(
+        'Este borrador aun no esta listo. Espera el cierre de la llamada o completa los datos.'
+      )
+    }
+    if (payload.needs_info === true) {
+      throw new Error(
+        typeof payload.needs_info_reason === 'string' && payload.needs_info_reason
+          ? payload.needs_info_reason
+          : 'Falta informacion del destinatario. Completala antes de enviar.'
+      )
+    }
+    if (isGoogleWriteTool(row.tool) && String(row.tool).startsWith('gmail_')) {
+      const to = Array.isArray(payload.to) ? payload.to.filter((item) => typeof item === 'string' && item.includes('@')) : []
+      if (to.length === 0) {
+        throw new Error('Falta un destinatario de correo valido.')
+      }
+    }
   }
 
   const { data: claimed } = await actor.supabase
@@ -930,7 +954,9 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string) {
   }
 
   try {
-    const result = await executePayload(actor, row.tool, row.payload ?? {})
+    const result = isCommunicationWriteTool(row.tool)
+      ? await executeWhatsappWrite(actor, row.payload ?? {}, opId)
+      : await executePayload(actor, row.tool, row.payload ?? {})
     await actor.supabase
       .from('assistant_pending_ops')
       .update({

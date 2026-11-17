@@ -768,20 +768,38 @@ export async function listSessionGoogleOps(actor: CopilotActor, sessionId: strin
       'calendar_prepare_event',
       'calendar_prepare_update',
       'calendar_prepare_cancel',
+      'whatsapp_prepare_send',
     ])
     .order('created_at', { ascending: true })
   if (error) throw error
-  return (data ?? []).map((row) => ({
-    ...proposalFromPendingRow({
-      id: String(row.id),
-      tool: String(row.tool),
-      preview: (row.preview ?? {}) as Record<string, unknown>,
-      expires_at: String(row.expires_at),
+  return (data ?? []).map((row) => {
+    const result =
+      row.result && typeof row.result === 'object' ? (row.result as Record<string, unknown>) : null
+    const deliveryStatus =
+      typeof result?.delivery_status === 'string'
+        ? result.delivery_status
+        : typeof result?.meta_message_id === 'string' && result.meta_message_id
+          ? 'accepted'
+          : null
+    return {
+      ...proposalFromPendingRow({
+        id: String(row.id),
+        tool: String(row.tool),
+        preview: (row.preview ?? {}) as Record<string, unknown>,
+        expires_at: String(row.expires_at),
+        status: String(row.status),
+      }),
       status: String(row.status),
-    }),
-    status: String(row.status),
-    errorMessage: typeof row.error_message === 'string' ? row.error_message : null,
-  }))
+      errorMessage: typeof row.error_message === 'string' ? row.error_message : null,
+      deliveryStatus,
+      providerMessageId:
+        typeof result?.meta_message_id === 'string'
+          ? result.meta_message_id
+          : typeof result?.id === 'string'
+            ? result.id
+            : null,
+    }
+  })
 }
 
 export async function queueWorkspaceDraft(

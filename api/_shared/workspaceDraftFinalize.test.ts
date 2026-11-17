@@ -64,4 +64,51 @@ describe('fillWorkspaceDraftsFromTranscript', () => {
     })
     expect(filled).toEqual([])
   })
+
+  it('fills a whatsapp draft body without claiming it was sent', () => {
+    const filled = fillWorkspaceDraftsFromTranscript({
+      drafts: [
+        {
+          id: 'op-wa',
+          tool: 'whatsapp_prepare_send',
+          payload: {
+            incomplete: true,
+            draft_kind: 'whatsapp',
+            purpose: 'acuerdos del corte',
+            recipient_hint: 'Carlos',
+            uttered_at: '2026-11-16T12:00:00-06:00',
+          },
+          preview: {},
+        },
+      ],
+      transcript: 'Prepara un WhatsApp para Carlos con los acuerdos del corte.',
+    })
+    expect(filled).toHaveLength(1)
+    expect(filled[0].workspace.kind).toBe('whatsapp')
+    expect(filled[0].payload.incomplete).toBe(false)
+    expect(String(filled[0].preview.summary)).toMatch(/no se envio/i)
+    expect(String(filled[0].payload.body)).toMatch(/acuerdos|Carlos/i)
+  })
+
+  it('marks whatsapp needs_info when recipient is missing', () => {
+    const filled = fillWorkspaceDraftsFromTranscript({
+      drafts: [
+        {
+          id: 'op-wa-2',
+          tool: 'whatsapp_prepare_send',
+          payload: {
+            incomplete: true,
+            draft_kind: 'whatsapp',
+            purpose: 'avisar el cierre',
+            recipient_hint: '',
+            uttered_at: '2026-11-16T12:00:00-06:00',
+          },
+          preview: {},
+        },
+      ],
+      transcript: 'Prepara un WhatsApp con el aviso del cierre.',
+    })
+    expect(filled[0].payload.needs_info).toBe(true)
+    expect(String(filled[0].payload.needs_info_reason)).toMatch(/destinatario/i)
+  })
 })

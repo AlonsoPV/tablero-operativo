@@ -95,7 +95,11 @@ describe('guideWork', () => {
     expect(guideWorkInstructions('create')).toMatch(/No pidas que elijan/i)
     expect(guideWorkInstructions('consult')).toMatch(/arma UNA accion/i)
     expect(guideWorkInstructions()).toMatch(/queue_workspace_draft/)
-    expect(guideWorkInstructions()).toMatch(/No envies el correo/)
+    expect(guideWorkInstructions()).toMatch(/action=prepare/)
+    expect(guideWorkInstructions()).toMatch(/action=update/)
+    expect(guideWorkInstructions()).toMatch(/action=cancel/)
+    expect(guideWorkInstructions()).toMatch(/whatsapp|both/i)
+    expect(guideWorkInstructions()).toMatch(/No envies nada en la llamada/)
   })
 
   it('separa lo dicho de lo acordado y no inventa un compromiso', () => {

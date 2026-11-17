@@ -44,6 +44,20 @@ export function isGuideWriteAllowed(mode: GuideAccessMode) {
   return mode === 'propose'
 }
 
+/**
+ * Cola de borradores de comunicación (correo/WhatsApp) durante la entrevista.
+ * Permitido en propose y también en ligas read/interview_full_read (dueño de la sesión).
+ * El envío sigue gated por canSendCommunication / sesión autenticada del dueño.
+ */
+export function canQueueCommunicationDraft(mode: GuideAccessMode) {
+  return mode === 'propose' || mode === 'read' || mode === 'interview_full_read'
+}
+
+/** Envío/confirmación: solo modo propose (sesión autenticada con escritura). */
+export function canSendCommunication(mode: GuideAccessMode) {
+  return mode === 'propose'
+}
+
 export function guideBoardScopeForAccessMode(mode: GuideAccessMode): 'role' | 'organization' {
   return mode === 'interview_full_read' ? 'organization' : 'role'
 }
