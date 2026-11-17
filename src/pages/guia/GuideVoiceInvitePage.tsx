@@ -251,10 +251,8 @@ export function GuideVoiceInvitePage() {
           <GuideReportBody
             executiveReport={report.executive_report}
             summary={report.summary}
-            agentInferences={report.agent_inferences}
-            learning={report.learning}
-            intention={report.intention}
-            reflectionQuestion={report.reflection_question}
+            topic={report.topic}
+            createdAt={report.created_at}
           />
           <GuideReportActions
             topic={report.topic}

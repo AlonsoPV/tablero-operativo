@@ -200,7 +200,7 @@ describe('retell tool bridge', () => {
     )
   })
 
-  it('keeps a create_action as a proposal and says nothing was written', () => {
+  it('keeps a create_action as a proposal and asks for confirm_pending_op', () => {
     const proposal: CopilotToolResult = {
       ok: true,
       tool: 'create_action',
@@ -216,10 +216,39 @@ describe('retell tool bridge', () => {
     }
     const result = classifyRetellToolResult(proposal)
     expect(result.status).toBe('needs_confirmation')
-    expect(result.spoken).toMatch(/no se creo/i)
+    expect(result.spoken).toMatch(/confirm_pending_op/i)
+    expect(result.data).toMatchObject({ pending_op_id: 'op-1' })
     const entry = consultLogEntry('create_action', result.status, result.data, '2026-11-13T18:00:00.000Z')
     expect(entry.summary).toBe('Propuesta pendiente: Revisar inventario')
     expect(entry.summary).not.toMatch(/[{}]|token|secret/i)
+  })
+
+  it('treats confirm_pending_op and cancel_pending_op as write tools with spoken outcomes', () => {
+    expect(isRetellWriteTool('confirm_pending_op')).toBe(true)
+    expect(isRetellWriteTool('cancel_pending_op')).toBe(true)
+    const confirmed = classifyRetellToolResult({
+      ok: true,
+      tool: 'confirm_pending_op',
+      kind: 'read',
+      data: { status: 'confirmed', pending_op_id: 'op-1', spoken_hint: 'Listo, quedo registrada.' },
+    })
+    expect(confirmed.status).toBe('ok')
+    expect(confirmed.spoken).toMatch(/quedo registrada/i)
+    const cancelled = classifyRetellToolResult({
+      ok: true,
+      tool: 'cancel_pending_op',
+      kind: 'read',
+      data: { status: 'cancelled', pending_op_id: 'op-1' },
+    })
+    expect(cancelled.spoken).toMatch(/cancelado/i)
+    const failed = classifyRetellToolResult({
+      ok: false,
+      tool: 'confirm_pending_op',
+      kind: 'error',
+      error: 'expired',
+    })
+    expect(failed.status).toBe('error')
+    expect(failed.spoken).toMatch(/no digas que quedo hecha/i)
   })
 
   it('lets the report cite only successful tool results', () => {

@@ -1,5 +1,10 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { ENVIARDIAN_REPORT_VERSION } from './enviardianPrompt.js'
+import {
+  buildEnviardianReportDocument,
+  resolveReportDocument,
+  serializeReportDocument,
+  tryParseReportDocument,
+} from '../../src/features/guide/enviardianReportDocument.js'
 
 export type GuideReportStatus = 'pending' | 'processing' | 'ready' | 'failed' | 'insufficient'
 
@@ -221,6 +226,53 @@ export function buildWhatsappReportMessage(input: {
   executiveReport?: string | null
   summary?: string | null
 }) {
+  const doc =
+    tryParseReportDocument(input.executiveReport) ||
+    resolveReportDocument({
+      executiveReport: input.executiveReport,
+      summary: input.summary,
+      topic: input.topic,
+    })
+  if (doc) {
+    const lines = ['Resumen de tu sesion con Enviardian', '']
+    if (doc.metadata.topic) lines.push(`Tema principal:\n${doc.metadata.topic}`, '')
+    if (doc.executive_summary.text) lines.push(`Lo que se dijo:\n${doc.executive_summary.text}`, '')
+    if (doc.executive_summary.headlineFinding || doc.key_findings[0]) {
+      lines.push('Hallazgo principal:')
+      lines.push(`- ${doc.executive_summary.headlineFinding || doc.key_findings[0]?.detail}`)
+      lines.push('')
+    }
+    if (doc.confirmed_decisions.length) {
+      lines.push('Acuerdos:')
+      doc.confirmed_decisions.slice(0, 3).forEach((item) => lines.push(`- ${item}`))
+      lines.push('')
+    }
+    if (doc.recommendations.length) {
+      lines.push('Recomendaciones:')
+      doc.recommendations.forEach((item, index) => lines.push(`${index + 1}. ${item}`))
+      lines.push('')
+    }
+    const steps = doc.confirmed_commitments.map((c) => c.action).filter(Boolean).slice(0, 3)
+    if (doc.executive_summary.nextStep && !steps.includes(doc.executive_summary.nextStep)) {
+      steps.unshift(doc.executive_summary.nextStep)
+    }
+    if (steps.length) {
+      lines.push('Proximos pasos:')
+      steps.slice(0, 3).forEach((item) => lines.push(`- ${item}`))
+      lines.push('')
+    }
+    if (
+      !doc.executive_summary.text &&
+      !doc.key_findings.length &&
+      !doc.recommendations.length &&
+      !steps.length
+    ) {
+      lines.push('La entrevista no dejo informacion suficiente para un diagnostico.', '')
+    }
+    lines.push('El informe completo esta en el historial de Scrumban, despues de iniciar sesion.')
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, 1400)
+  }
+
   const report = input.executiveReport?.trim() ?? ''
   const blocks = report ? parseReportBlocks(report) : []
   const topic = input.topic?.trim() || ''
@@ -266,29 +318,21 @@ export function buildWhatsappReportMessage(input: {
 
 export function insufficientExecutiveReport(userWords: string) {
   const quoted = userWords.trim()
-  const situation = quoted
+  const detail = quoted
     ? `La entrevista termino con poca informacion. Lo dicho por la persona: «${quoted.slice(0, 500)}». No alcanza para un diagnostico.`
     : 'La entrevista termino sin informacion suficiente de la persona entrevistada. No hay diagnostico ni recomendaciones.'
-  return [
-    'REPORTE EJECUTIVO — ENVIARDIAN',
-    `Generador: ${ENVIARDIAN_REPORT_VERSION}`,
-    'Modalidad: entrevista por voz',
-    '',
-    'RESUMEN EJECUTIVO',
-    'Informacion insuficiente para un diagnostico consultivo.',
-    '',
-    'HALLAZGOS',
-    situation,
-    '',
-    'LO VERIFICADO',
-    'Este informe se basa solo en la entrevista. No hubo consulta al tablero.',
-    '',
-    'DECISIONES Y ACUERDOS',
-    'No hubo acuerdos.',
-    '',
-    'INFORMACION PENDIENTE',
-    'Se requiere una conversacion con mas detalle para cerrar hallazgos y compromisos.',
-  ].join('\n')
+  return serializeReportDocument(
+    buildEnviardianReportDocument({
+      topic: 'Entrevista breve',
+      summary: 'Informacion insuficiente para un diagnostico consultivo.',
+      generationStatus: 'insufficient',
+      interviewOnly: true,
+      said: [detail],
+      llmFindings: [{ title: 'Informacion insuficiente', detail, evidence: 'said' }],
+      pending: ['Se requiere una conversacion con mas detalle para cerrar hallazgos y compromisos.'],
+      headlineFinding: 'Informacion insuficiente',
+    })
+  )
 }
 
 export function maskPhone(raw: string | null | undefined) {

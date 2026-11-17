@@ -294,6 +294,12 @@ export async function finalizeGuideInterview(
     const drafts = parseGuideWorkDrafts(reflection.actionDrafts)
     const pending = serializePendingWork(drafts)
     const parsed = parseExecutiveReport(reflection.executiveReport ?? reflection.executive_report)
+    const keyFindingsRaw = Array.isArray(reflection.keyFindings)
+      ? reflection.keyFindings
+      : Array.isArray(reflection.key_findings)
+        ? reflection.key_findings
+        : []
+    const risksRaw = Array.isArray(reflection.risks) ? reflection.risks : []
     const executive = formatExecutiveReport(
       {
         situation: parsed?.situation || '',
@@ -322,6 +328,34 @@ export async function finalizeGuideInterview(
         closedAt,
         anchorYmd,
         version: ENVIARDIAN_REPORT_VERSION,
+      },
+      {
+        topic: typeof reflection.topic === 'string' ? reflection.topic : null,
+        sessionId: session.id,
+        headlineFinding:
+          typeof reflection.headlineFinding === 'string'
+            ? reflection.headlineFinding
+            : typeof reflection.headline_finding === 'string'
+              ? reflection.headline_finding
+              : null,
+        nextStep:
+          typeof reflection.nextStep === 'string'
+            ? reflection.nextStep
+            : typeof reflection.next_step === 'string'
+              ? reflection.next_step
+              : null,
+        keyFindings: keyFindingsRaw as Array<{
+          title?: string
+          detail?: string
+          businessImpact?: string
+          evidence?: string
+        }>,
+        risks: risksRaw as Array<{
+          risk?: string
+          consequence?: string
+          mitigation?: string
+          opportunity?: string
+        }>,
       }
     )
     const payload = {

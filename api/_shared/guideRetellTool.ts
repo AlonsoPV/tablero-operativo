@@ -21,6 +21,8 @@ export const RETELL_WRITE_TOOLS = [
   'update_checklist_item',
   'mark_action_done',
   'verify_action',
+  'confirm_pending_op',
+  'cancel_pending_op',
 ] as const
 
 const ALLOWED = new Set<string>([...RETELL_READ_TOOLS, ...RETELL_WRITE_TOOLS])
@@ -230,8 +232,12 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
     return {
       status: 'needs_confirmation',
       spoken:
-        'Deje una propuesta para revisar en Scrumban. No se creo ni se modifico nada en el tablero. No digas que ya quedo hecha.',
-      data: { pending_op_id: result.proposal?.id ?? null, title: result.proposal?.title ?? null },
+        'Propuse el cambio. Resume en una frase y pregunta si lo confirmas. No digas que ya quedo hecho hasta que confirm_pending_op responda ok.',
+      data: {
+        pending_op_id: result.proposal?.id ?? null,
+        title: result.proposal?.title ?? null,
+        summary: result.proposal?.summary ?? null,
+      },
     }
   }
   if (result.kind === 'clarification') {
@@ -249,13 +255,34 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
     }
   }
   if (result.kind === 'error' || result.ok === false) {
+    const writeConfirm = result.tool === 'confirm_pending_op' || result.tool === 'cancel_pending_op'
     return {
       status: 'error',
       spoken:
         result.error === 'timeout'
           ? 'No pude recuperar ese dato a tiempo. No inventes cifras; ofrece reintentar o reformular.'
-          : 'No pude consultar el tablero. Prefiero no dar informacion que no pueda confirmar.',
+          : writeConfirm
+            ? 'No pude confirmar ni cancelar esa operacion. No digas que quedo hecha.'
+            : 'No pude consultar el tablero. Prefiero no dar informacion que no pueda confirmar.',
       data: null,
+    }
+  }
+  if (result.tool === 'confirm_pending_op') {
+    const hint =
+      result.data && typeof result.data === 'object' && 'spoken_hint' in result.data
+        ? String((result.data as { spoken_hint?: unknown }).spoken_hint || '')
+        : ''
+    return {
+      status: 'ok',
+      spoken: hint || 'Listo, quedo registrada. Confirma en una frase corta sin leer IDs ni URLs.',
+      data: compactVoiceToolData(serializeToolResultForModel(result)),
+    }
+  }
+  if (result.tool === 'cancel_pending_op') {
+    return {
+      status: 'ok',
+      spoken: 'Cancelado. No se ejecuto nada.',
+      data: compactVoiceToolData(serializeToolResultForModel(result)),
     }
   }
   if (payloadIsEmpty(result.data)) {

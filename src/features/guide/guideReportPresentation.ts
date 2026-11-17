@@ -1,4 +1,9 @@
-import { parseReportBlocks, type ReportBlock } from '@/features/guide/reportBlocks'
+import {
+  evidenceLabel,
+  resolveReportDocument,
+  type EnviardianReportDocument,
+  type EvidenceKind,
+} from '@/features/guide/enviardianReportDocument'
 
 const CDMX_TZ = 'America/Mexico_City'
 
@@ -18,7 +23,7 @@ export type GuideReportSource = {
 export type GuideReportSection = {
   title: string
   body: string
-  kind: 'lead' | 'finding' | 'action' | 'note' | 'closing'
+  kind: 'lead' | 'finding' | 'action' | 'note' | 'closing' | 'risk' | 'metric' | 'ai'
 }
 
 export type GuideReportPresentation = {
@@ -30,6 +35,8 @@ export type GuideReportPresentation = {
   sessionLabel: string | null
   entryId: string | null
   interviewDateKey: string | null
+  participant?: string | null
+  document: EnviardianReportDocument | null
   sections: GuideReportSection[]
   limitations: string[]
 }
@@ -39,22 +46,6 @@ export type GuideReportValidation = {
   errors: string[]
   warnings: string[]
   presentation: GuideReportPresentation | null
-}
-
-const SKIP_SECTION = /para aprobar|trabajo creado/i
-const BANNER_TITLE = /^reporte ejecutivo$/i
-
-function sectionKind(title: string): GuideReportSection['kind'] {
-  if (/lo dicho|lo verificado|situacion|diagnostico|hallazgo|resumen ejecutivo/i.test(title)) return 'finding'
-  if (
-    /lo acordado|decisiones y acuerdos|compromisos|plan de accion|prioridad|recomend|accion|decision|oportun|pendiente/i.test(
-      title
-    )
-  )
-    return 'action'
-  if (/proximo|cierre|siguiente/i.test(title)) return 'closing'
-  if (/aprendizaje|intencion|interpret|pensar|nota/i.test(title)) return 'note'
-  return 'lead'
 }
 
 /** Fecha/hora absoluta → etiqueta legible en America/Mexico_City. */
@@ -103,72 +94,174 @@ export function buildGuideReportFilename(input: {
   return `Enviardian_Informe_${dateKey}_${tail}.pdf`
 }
 
-function normalizeBlocks(source: GuideReportSource): ReportBlock[] {
-  const fromReport = source.executive_report?.trim()
-    ? parseReportBlocks(source.executive_report).filter(
-        (block) => !SKIP_SECTION.test(block.title || '')
-      )
-    : []
+function sectionFromDocument(doc: EnviardianReportDocument): GuideReportSection[] {
+  const sections: GuideReportSection[] = []
+  const overviewParts = [
+    doc.executive_summary.text,
+    doc.executive_summary.headlineFinding
+      ? `Hallazgo principal: ${doc.executive_summary.headlineFinding}`
+      : '',
+    doc.pending_decisions.length
+      ? `Decisiones pendientes: ${doc.pending_decisions.slice(0, 3).join('; ')}`
+      : '',
+    doc.executive_summary.nextStep ? `Siguiente paso: ${doc.executive_summary.nextStep}` : '',
+  ].filter(Boolean)
+  sections.push({
+    title: 'Resumen ejecutivo',
+    body: overviewParts.join('\n'),
+    kind: 'lead',
+  })
 
-  const blocks = fromReport
-    .map((block) => ({
-      title:
-        block.title && BANNER_TITLE.test(block.title.trim()) && block.body.length === 0
-          ? null
-          : block.title,
-      body: block.body.trim(),
-    }))
-    .filter((block) => block.body.length > 0)
-
-  if (blocks.length === 0 && source.summary?.trim()) {
-    blocks.push({ title: 'Situacion', body: source.summary.trim() })
+  if (doc.key_findings.length) {
+    sections.push({
+      title: 'Hallazgos prioritarios',
+      body: doc.key_findings
+        .map((item) => {
+          const impact = item.businessImpact ? ` Impacto: ${item.businessImpact}.` : ''
+          return `- ${item.title}: ${item.detail}${impact} [${evidenceLabel(item.evidence as EvidenceKind)}]`
+        })
+        .join('\n'),
+      kind: 'finding',
+    })
   }
-  return blocks
+
+  if (doc.verified_metrics.length) {
+    sections.push({
+      title: 'Indicadores verificados',
+      body: doc.verified_metrics
+        .map((m) => `- ${m.label}: ${m.value}${m.unit ? ` ${m.unit}` : ''}${m.sourceTool ? ` (${m.sourceTool})` : ''}`)
+        .join('\n'),
+      kind: 'metric',
+    })
+  }
+
+  if (doc.confirmed_decisions.length || doc.pending_decisions.length) {
+    const lines: string[] = []
+    if (doc.confirmed_decisions.length) {
+      lines.push('Confirmadas:')
+      doc.confirmed_decisions.forEach((item) => lines.push(`- ${item}`))
+    }
+    if (doc.pending_decisions.length) {
+      lines.push('Pendientes:')
+      doc.pending_decisions.forEach((item) => lines.push(`- ${item}`))
+    }
+    sections.push({ title: 'Decisiones', body: lines.join('\n'), kind: 'action' })
+  }
+
+  if (doc.recommendations.length) {
+    sections.push({
+      title: 'Analisis Enviardian (IA)',
+      body: [
+        'Recomendaciones de IA — no son hechos verificados',
+        ...doc.recommendations.map((item, i) => `${i + 1}. ${item}`),
+      ].join('\n'),
+      kind: 'ai',
+    })
+  }
+
+  if (doc.session_actions?.length) {
+    const label = (status: string) => {
+      if (status === 'executed') return 'Ejecutada'
+      if (status === 'pending_confirmation') return 'Pendiente de confirmacion'
+      if (status === 'recommendation') return 'Recomendacion (no ejecutada)'
+      return 'Compromiso'
+    }
+    sections.push({
+      title: 'Acciones',
+      body: doc.session_actions
+        .map((item) => {
+          const link = item.href ? ` · ${item.href}` : item.id ? ` · id ${item.id}` : ''
+          return `- [${label(item.status)}] ${item.title}${link}`
+        })
+        .join('\n'),
+      kind: 'action',
+    })
+  }
+
+  if (doc.confirmed_commitments.length) {
+    sections.push({
+      title: 'Plan de accion',
+      body: [
+        'Accion | Responsable | Fecha | Estado',
+        ...doc.confirmed_commitments.slice(0, 3).map((c) => {
+          const status =
+            c.status === 'confirmed' ? 'Confirmado' : c.status === 'proposal' ? 'Propuesta' : 'Por definir'
+          return `- ${c.action} | ${c.ownerHint || 'Por definir'} | ${c.dueDateHint || 'Por definir'} | ${status}`
+        }),
+      ].join('\n'),
+      kind: 'action',
+    })
+  }
+
+  if (doc.risks.length) {
+    sections.push({
+      title: 'Riesgos y oportunidades',
+      body: doc.risks
+        .map((r) => {
+          const bits = [r.risk]
+          if (r.consequence) bits.push(`Consecuencia: ${r.consequence}`)
+          if (r.mitigation) bits.push(`Mitigacion: ${r.mitigation}`)
+          if (r.opportunity) bits.push(`Oportunidad: ${r.opportunity}`)
+          return `- ${bits.join(' · ')}`
+        })
+        .join('\n'),
+      kind: 'risk',
+    })
+  }
+
+  if (doc.evidence_sources.length) {
+    sections.push({
+      title: 'Fuentes verificadas',
+      body: doc.evidence_sources.map((line) => `- ${line}`).join('\n'),
+      kind: 'note',
+    })
+  }
+
+  if (doc.executive_summary.nextStep) {
+    sections.push({
+      title: 'Proximo paso',
+      body: doc.executive_summary.nextStep,
+      kind: 'closing',
+    })
+  }
+
+  return sections.filter((section) => section.body.trim())
 }
 
 export function buildGuideReportPresentation(
   source: GuideReportSource,
   generatedAtIso: string
 ): GuideReportPresentation {
-  const blocks = normalizeBlocks(source)
-  const sections: GuideReportSection[] = blocks.map((block, index) => {
-    const title = (block.title || (index === 0 ? 'Situacion' : 'Detalle')).trim()
-    return {
-      title,
-      body: block.body,
-      kind: sectionKind(title),
-    }
+  const document = resolveReportDocument({
+    executiveReport: source.executive_report,
+    summary: source.summary,
+    topic: source.topic,
+    createdAt: source.created_at,
+    sessionId: source.session_id,
   })
 
-  if (source.learning?.trim()) {
-    sections.push({
-      title: 'Aprendizaje',
-      body: source.learning.trim(),
-      kind: 'note',
-    })
-  }
-  if (source.intention?.trim()) {
-    sections.push({
-      title: 'Intencion',
-      body: source.intention.trim(),
-      kind: 'note',
-    })
-  }
-
+  const sections = document ? sectionFromDocument(document) : []
   const limitations: string[] = []
   if (!source.executive_report?.trim() && source.summary?.trim()) {
     limitations.push('El informe usa el resumen almacenado; no hay reporte ejecutivo estructurado.')
+  }
+  if (document?.metadata.interviewOnly) {
+    limitations.push('Este informe se basa solo en la entrevista; no hubo consulta exitosa al tablero.')
+  }
+  if (document?.metadata.consultFailed) {
+    limitations.push('Una consulta al tablero fallo durante la entrevista.')
   }
   if (sections.length === 0) {
     limitations.push('No hay secciones con contenido suficiente para exportar.')
   }
 
-  const topic = source.topic?.trim() || 'Sesion con Guia'
+  const topic = document?.metadata.topic || source.topic?.trim() || 'Sesion con Guia'
+  const interviewIso = document?.metadata.startedAt || source.created_at
   const interviewAtLabel =
-    formatReportDateTimeCDMX(source.created_at) || 'Fecha de entrevista no disponible'
+    formatReportDateTimeCDMX(interviewIso) || 'Fecha de entrevista no disponible'
   const generatedAtLabel =
     formatReportDateTimeCDMX(generatedAtIso) || 'Fecha de generacion no disponible'
-  const sessionClean = source.session_id?.replace(/[^a-zA-Z0-9]/g, '') || ''
+  const sessionClean = (document?.metadata.sessionId || source.session_id || '').replace(/[^a-zA-Z0-9]/g, '')
   const sessionShort = sessionClean ? sessionClean.slice(-8) : null
 
   return {
@@ -179,7 +272,9 @@ export function buildGuideReportPresentation(
     generatedAtLabel,
     sessionLabel: sessionShort ? `Ref. sesion ${sessionShort}` : null,
     entryId: source.id ?? null,
-    interviewDateKey: reportDateKeyCDMX(source.created_at),
+    interviewDateKey: reportDateKeyCDMX(interviewIso),
+    participant: document?.metadata.participant ?? null,
+    document,
     sections,
     limitations,
   }

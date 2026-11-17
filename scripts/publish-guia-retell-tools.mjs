@@ -60,7 +60,8 @@ const SCRUMBAN = {
     'get_team_actions|get_pending_verifications|search_people. ' +
     'Evita search_board y get_module_data amplios salvo peticion explicita del usuario. ' +
     'Escrituras: create_action|update_action|add_action_comment|update_checklist_item|mark_action_done|verify_action. ' +
-    'No inventes cifras: si falla o viene vacio, dilo. No envies usuario_id ni session_id.',
+    'Tras una propuesta (needs_confirmation), resume y pregunta; si el usuario confirma usa confirm_pending_op con pending_op_id; si cancela usa cancel_pending_op. ' +
+    'Nunca digas que quedo hecha sin confirm_pending_op ok. No inventes cifras: si falla o viene vacio, dilo. No envies usuario_id ni session_id.',
   url: `${APP}/api/guide-retell-tool`,
   method: 'POST',
   parameter_type: 'json',
@@ -95,6 +96,10 @@ const SCRUMBAN = {
       due_date: { type: 'string', description: 'Fecha opcional YYYY-MM-DD.' },
       owner_hint: { type: 'string', description: 'Pista de responsable opcional.' },
       description: { type: 'string', description: 'Descripcion opcional.' },
+      pending_op_id: {
+        type: 'string',
+        description: 'Id de propuesta pendiente para confirm_pending_op o cancel_pending_op.',
+      },
     },
   },
 }
