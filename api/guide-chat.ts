@@ -571,7 +571,7 @@ export default defineApiHandler(async (req, res) => {
             '',
             transcript || 'Conversacion muy breve o vacia.',
             '',
-            inferGuideWorkIntent(transcript) === 'create'
+            payload.intent === 'create' || inferGuideWorkIntent(transcript) === 'create'
               ? 'Hubo trabajo para registrar. Genera 1 actionDraft para aprobar con lo acordado (titulo, fecha si la hay, evidencia). Si faltan datos, igual arma el draft.'
               : 'Al cerrar, genera el reporte ejecutivo y los actionDrafts para aprobar si hubo compromiso, pendiente o hay que.',
           ].join('\n'),
@@ -760,12 +760,16 @@ export default defineApiHandler(async (req, res) => {
       console.error('guide-chat board', error)
     }
 
-    const workIntent = inferGuideWorkIntentFromMessages(ordered)
+    const selectedIntent = payload.intent === 'create' ? 'create' : 'consult'
+    const workIntent =
+      selectedIntent === 'create' ? 'create' : inferGuideWorkIntentFromMessages(ordered)
     const userPrompt = [
       `Tiempo restante: ${remaining} segundos.`,
       phaseHint(remaining),
       workIntent === 'create'
-        ? 'La conversacion pide registrar trabajo. Arma el borrador en pocos turnos: titulo, fecha, evidencia. Una pregunta a la vez. No digas que ya quedo creada. Genera actionDrafts cuando haya titulo.'
+        ? selectedIntent === 'create'
+          ? 'Modo Crear activo. Arma el borrador en pocos turnos: titulo, fecha, evidencia. Una pregunta a la vez. No digas que ya quedo creada. Genera actionDrafts cuando haya titulo.'
+          : 'La conversacion pide registrar trabajo. Arma el borrador en pocos turnos: titulo, fecha, evidencia. Una pregunta a la vez. No digas que ya quedo creada. Genera actionDrafts cuando haya titulo.'
         : 'Informa y prioriza. Si el usuario pide crear, anotar o dicta un pendiente, cambia ya a armar el borrador. Solo genera actionDrafts si hay trabajo para registrar.',
       '',
       boardContext || 'Contexto del tablero: no disponible en este momento.',

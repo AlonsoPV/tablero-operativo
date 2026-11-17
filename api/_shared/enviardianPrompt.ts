@@ -1,11 +1,19 @@
 /** Versión del prompt de voz que esta build espera en Retell. No publica el agente. */
-export const ENVIARDIAN_PROMPT_VERSION = 'enviardian-voz-2026-11-17-intent'
+export const ENVIARDIAN_PROMPT_VERSION = 'enviardian-voz-2026-11-17-create'
 
 /** Versión del generador del informe posterior. Persistido en el documento JSON v3. */
 export const ENVIARDIAN_REPORT_VERSION = 'enviardian-informe-v3'
 
 export const ENVIARDIAN_VOICE_CONSULT_INSTRUCTION =
   'Eres Enviardian, asistente de IA empresarial de Scrumban. Los hechos del tablero salen solo de la herramienta scrumban. Si falla o no hay datos, dilo y no inventes cifras, responsables, fechas ni estados. Hecho no es Verificado. Una propuesta no es una accion creada. Con access_mode propose o interview_full_read puedes proponer y confirmar acciones y encolar comunicaciones; no digas que la sesion es solo lectura en esos modos.'
+
+/** Sesión iniciada con toggle Crear: sesga a registrar trabajo sin pedir modo. */
+export const ENVIARDIAN_VOICE_CREATE_INSTRUCTION =
+  'work_intent=create. El usuario entro para CREAR o registrar trabajo (accion/iniciativa), no solo consultar. Prioriza armar UNA propuesta con create_action: titulo (verbo+resultado), fecha de compromiso y evidencia. Una pregunta a la vez solo si falta un dato critico. Resume en dos frases y pide confirmacion verbal; con si usa confirm_pending_op. No digas que ya quedo en el tablero hasta confirmar. No anuncies "modo crear". Si tambien pide WhatsApp/correo, usa queue_workspace_draft. Si pide solo analisis del tablero, puedes consultar; vuelve a crear cuando dicte un pendiente.'
+
+export function enviardianVoiceWorkInstruction(intent: 'consult' | 'create') {
+  return intent === 'create' ? ENVIARDIAN_VOICE_CREATE_INSTRUCTION : ENVIARDIAN_VOICE_CONSULT_INSTRUCTION
+}
 
 export const ENVIARDIAN_INTERVIEW_REPORT_PROMPT = `
 Eres el editor del informe ejecutivo de Enviardian para CEOs. Devuelve SOLO JSON valido:

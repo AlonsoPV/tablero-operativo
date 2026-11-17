@@ -4,7 +4,7 @@
  * - custom function scrumban → Vercel /api/guide-retell-tool
  * - queue_workspace_draft → Vercel /api/guide-queue-workspace-draft
  * - webhook_url → Vercel /api/guide-retell-webhook
- * - steering A–D comunicaciones (prompt_version enviardian-voz-2026-11-17-intent)
+ * - steering A–D comunicaciones + work_intent create (prompt_version enviardian-voz-2026-11-17-create)
  * No toca RETELL_AGENT_ID.
  *
  * Publicar remoto exige GUIDE_RETELL_PUBLISH_OK=1 (autorización explícita).
@@ -23,7 +23,7 @@ const key = process.env.RETELL_API_KEY
 const agentId = process.env.RETELL_GUIDE_AGENT_ID
 const toolSecret = process.env.GUIDE_RETELL_TOOL_SECRET
 const publishOk = process.env.GUIDE_RETELL_PUBLISH_OK === '1'
-const PROMPT_VERSION = 'enviardian-voz-2026-11-17-intent'
+const PROMPT_VERSION = 'enviardian-voz-2026-11-17-create'
 
 if (!key || !agentId || !toolSecret) {
   console.error('Faltan RETELL_API_KEY, RETELL_GUIDE_AGENT_ID o GUIDE_RETELL_TOOL_SECRET')
@@ -168,6 +168,8 @@ const COMMS_STEERING = `
 Comunicaciones (prompt_version=${PROMPT_VERSION}): interpreta intencion, no solo keywords.
 A explicita → queue_workspace_draft action=prepare. B contextual → update + pending_op_id. C mencion informativa → NO tool; soft intent pregunta "Quieres que te deje preparado el mensaje?". D cancel/mod → cancel|update; "otro" = prepare nuevo.
 Canal ambiguo: pregunta WhatsApp o correo antes de encolar. Confirma solo si tool ok. No envies ni leas borradores largos en la llamada.
+work_intent: si work_intent=create o consult_instruction indica Modo Crear, prioriza create_action (titulo, fecha, evidencia), confirma con confirm_pending_op; no anuncies "modo crear".
+Variables: work_intent, consult_instruction, work_instruction, prompt_version.
 `.trim()
 
 function loadCommsAppendix() {

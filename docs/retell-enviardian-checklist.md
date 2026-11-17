@@ -99,6 +99,7 @@ Estado en repo (código + script listos; remoto solo tras OK):
 | L | Cancelar propuesta / confirmar duplicado | `cancel_pending_op` no escribe; confirm idempotente |
 | M | Email preview en ActionCard | Destinatario/asunto/cuerpo; envío solo tras confirm |
 | N | Informe sección Acciones | Ejecutadas / pendientes / recomendaciones no ejecutadas |
+| O1 | Toggle Crear antes de voz | `work_intent=create` en web-call; agente prioriza `create_action` |
 | O | Pedir WhatsApp/correo/ambos en voz | `queue_workspace_draft` action=prepare encola; no envía |
 | P | Colgar + `call_analyzed` | Borradores rellenados; visibles en historial / invite (solo lectura) |
 | Q | Aprobar envío autenticado / piloto | Gmail/Meta ok; `interview_full_read` puede enviar; `read` puro no |

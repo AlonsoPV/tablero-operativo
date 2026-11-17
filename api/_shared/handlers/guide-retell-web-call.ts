@@ -14,7 +14,10 @@ import {
   requireAssistantAuth,
 } from '../assistantAuth.js'
 import { enableSystemCaCertificates } from '../enableSystemCa.js'
-import { ENVIARDIAN_PROMPT_VERSION, ENVIARDIAN_VOICE_CONSULT_INSTRUCTION } from '../enviardianPrompt.js'
+import {
+  ENVIARDIAN_PROMPT_VERSION,
+  enviardianVoiceWorkInstruction,
+} from '../enviardianPrompt.js'
 import {
   guideAppBaseUrl,
   markGuideLinkUsed,
@@ -72,6 +75,7 @@ export default defineApiHandler(async (req, res) => {
     const replaceActive = Boolean(payload.replace_active)
     const guideToken = typeof payload.guide_token === 'string' ? payload.guide_token.trim() : ''
     const accessGrant = typeof payload.access_grant === 'string' ? payload.access_grant.trim() : ''
+    const workIntent = payload.intent === 'create' ? 'create' : 'consult'
 
     let usuarioId = ''
     let guideLinkId = ''
@@ -261,6 +265,7 @@ export default defineApiHandler(async (req, res) => {
           product: 'guide',
           source: channel,
           access_mode: accessMode,
+          work_intent: workIntent,
           queue_workspace_url: `${guideAppBaseUrl()}/api/guide-queue-workspace-draft`,
           scrumban_tool_url: `${guideAppBaseUrl()}/api/guide-retell-tool`,
         },
@@ -270,7 +275,9 @@ export default defineApiHandler(async (req, res) => {
           prompt_version: ENVIARDIAN_PROMPT_VERSION,
           channel,
           access_mode: accessMode,
-          consult_instruction: ENVIARDIAN_VOICE_CONSULT_INSTRUCTION,
+          work_intent: workIntent,
+          consult_instruction: enviardianVoiceWorkInstruction(workIntent),
+          work_instruction: enviardianVoiceWorkInstruction(workIntent),
         },
       }),
     })

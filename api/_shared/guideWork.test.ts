@@ -91,8 +91,9 @@ describe('guideWork', () => {
   })
 
   it('usa una sola instruccion que detecta crear en la conversacion', () => {
-    expect(guideOpening('create')).toMatch(/tablero/i)
-    expect(guideWorkInstructions('create')).toMatch(/No pidas que elijan/i)
+    expect(guideOpening('create')).toMatch(/accion o iniciativa|aprobar/i)
+    expect(guideWorkInstructions('create')).toMatch(/Modo Crear activo/i)
+    expect(guideWorkInstructions('consult')).toMatch(/No pidas que elijan/i)
     expect(guideWorkInstructions('consult')).toMatch(/arma UNA accion/i)
     expect(guideWorkInstructions()).toMatch(/queue_workspace_draft/)
     expect(guideWorkInstructions()).toMatch(/action=prepare/)

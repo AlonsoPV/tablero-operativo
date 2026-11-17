@@ -29,7 +29,9 @@ import type {
 import { cn } from '@/lib/utils'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { ActionDraftList } from '@/features/ai-support/components/ActionDraftList'
+import { WorkIntentToggle } from '@/features/ai-support/components/WorkIntentToggle'
 import { groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
+import type { WriteIntent } from '@/features/ai-support/writeIntent'
 import {
   isPendingWork,
   pendingWorkToAnalysis,
@@ -171,10 +173,13 @@ export function GuidePanel({
   const [sending, setSending] = useState(false)
   const [closing, setClosing] = useState(false)
   const [channel, setChannel] = useState<GuideChannel>('text')
+  const [writeIntent, setWriteIntent] = useState<WriteIntent>('consult')
   const [remaining, setRemaining] = useState(0)
   const [view, setView] = useState<'chat' | 'journal' | 'result'>('chat')
   const [sessionWork, setSessionWork] = useState<GuideCreatedWork[]>([])
   const pendingWorkRef = useRef<GuideCreatedWork[]>([])
+  const writeIntentRef = useRef<WriteIntent>('consult')
+  writeIntentRef.current = writeIntent
   const endRef = useRef<HTMLDivElement>(null)
   const closingRef = useRef(false)
   const startedAtRef = useRef(0)
@@ -244,11 +249,10 @@ export function GuidePanel({
       const voiceMessages = current.provider === 'retell' ? retellMessagesRef.current() : undefined
       if (current.provider === 'retell') setMessages(retellLiveRef.current)
       try {
-        const result = await guideService.closeSession(
-          current,
-          reason,
-          voiceMessages ? { messages: voiceMessages } : undefined
-        )
+        const result = await guideService.closeSession(current, reason, {
+          ...(voiceMessages ? { messages: voiceMessages } : {}),
+          intent: writeIntentRef.current,
+        })
         setSession((prev) =>
           prev
             ? {
@@ -333,7 +337,7 @@ export function GuidePanel({
       try {
         const userMessage = await guideService.insertUserMessage(current.id, text)
         setMessages((prev) => [...prev, userMessage])
-        const turn = await guideService.sendTurn(current)
+        const turn = await guideService.sendTurn(current, { intent: writeIntentRef.current })
         setMessages((prev) => [
           ...prev,
           {
@@ -384,10 +388,11 @@ export function GuidePanel({
     setChannel(nextChannel)
     setStarting(true)
     retell.stop()
+    const intent = writeIntentRef.current
     try {
       const next =
         nextChannel === 'voice'
-          ? (await retell.start()).session
+          ? (await retell.start({ intent })).session
           : await guideService.startSession(usuarioId, { replaceActive: true })
       setSession(next)
       setRemaining(guideService.remainingSeconds(next))
@@ -480,13 +485,38 @@ export function GuidePanel({
       ? 'Guia piensa…'
       : null
 
+  const intentLocked = active && isRetell
+  const intentControl = (
+    <div className="flex w-full min-w-0 flex-wrap items-center gap-2 px-1">
+      <WorkIntentToggle
+        value={writeIntent}
+        onChange={setWriteIntent}
+        className={cn(intentLocked && 'pointer-events-none opacity-80')}
+      />
+      <p className="min-w-0 flex-1 text-[10px] leading-4 text-muted-foreground">
+        {writeIntent === 'create'
+          ? intentLocked
+            ? 'Sesion en Crear: Guia arma acciones o iniciativas para aprobar.'
+            : active
+              ? 'Crear: cada mensaje prioriza dejar un borrador listo para aprobar.'
+              : 'Crear: al iniciar voz o texto, Guia prioriza dejar un borrador listo para aprobar.'
+          : intentLocked
+            ? 'Sesion en Consultar: Guia informa; si dictas un pendiente, igual lo arma.'
+            : 'Consultar: diagnostico del tablero. Cambia a Crear si quieres registrar trabajo.'}
+      </p>
+    </div>
+  )
+
   const startControl = (
-    <StartTrigger
-      starting={starting}
-      startingChannel={starting ? channel : null}
-      compact={compact}
-      onStart={(nextChannel) => void startConversation(nextChannel)}
-    />
+    <div className="space-y-2">
+      {intentControl}
+      <StartTrigger
+        starting={starting}
+        startingChannel={starting ? channel : null}
+        compact={compact}
+        onStart={(nextChannel) => void startConversation(nextChannel)}
+      />
+    </div>
   )
 
   if (!usuarioId) {
@@ -836,53 +866,63 @@ export function GuidePanel({
         >
           {composerLead ? <div className="flex w-full min-w-0 items-center gap-1 px-1">{composerLead}</div> : null}
           {active && isRetell ? (
-            <div className="flex items-center gap-2 px-1">
-              <Button
-                type="button"
-                variant={retell.muted ? 'secondary' : 'outline'}
-                className={cn('shrink-0 rounded-full', compact ? 'h-10 w-10 px-0' : 'h-11 w-11 px-0')}
-                disabled={busy || retell.status !== 'connected'}
-                onClick={() => retell.toggleMute()}
-                aria-label={retell.muted ? 'Activar microfono' : 'Silenciar microfono'}
-              >
-                {retell.muted ? <MicOff className="h-4 w-4" aria-hidden /> : <Mic className="h-4 w-4" aria-hidden />}
-              </Button>
-              <p className="flex-1 text-xs leading-5 text-muted-foreground">
-                {retell.status === 'connecting'
-                  ? 'Conectando con el agente…'
-                  : retell.muted
-                    ? 'Microfono silenciado. Guia sigue en la llamada.'
-                    : 'Habla con naturalidad. Si hay un pendiente, Guia lo arma.'}
-              </p>
+            <div className="space-y-2">
+              {intentControl}
+              <div className="flex items-center gap-2 px-1">
+                <Button
+                  type="button"
+                  variant={retell.muted ? 'secondary' : 'outline'}
+                  className={cn('shrink-0 rounded-full', compact ? 'h-10 w-10 px-0' : 'h-11 w-11 px-0')}
+                  disabled={busy || retell.status !== 'connected'}
+                  onClick={() => retell.toggleMute()}
+                  aria-label={retell.muted ? 'Activar microfono' : 'Silenciar microfono'}
+                >
+                  {retell.muted ? <MicOff className="h-4 w-4" aria-hidden /> : <Mic className="h-4 w-4" aria-hidden />}
+                </Button>
+                <p className="flex-1 text-xs leading-5 text-muted-foreground">
+                  {retell.status === 'connecting'
+                    ? 'Conectando con el agente…'
+                    : retell.muted
+                      ? 'Microfono silenciado. Guia sigue en la llamada.'
+                      : writeIntent === 'create'
+                        ? 'Habla el pendiente: titulo, fecha y evidencia. Guia lo deja para aprobar.'
+                        : 'Habla con naturalidad. Si hay un pendiente, Guia lo arma.'}
+                </p>
+              </div>
             </div>
           ) : active ? (
-            <div className="flex items-end gap-2">
-              <textarea
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                rows={compact ? 1 : 2}
-                placeholder="Escribe a Guia…"
-                className={cn(
-                  'flex-1 resize-none rounded-[1.1rem] border-0 bg-muted/40 px-3.5 py-2.5 text-sm outline-none ring-0 placeholder:text-muted-foreground/70 focus-visible:ring-2 focus-visible:ring-ring',
-                  compact && 'min-h-10 text-[13px]'
-                )}
-                disabled={busy || remaining <= 0}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault()
-                    void sendText(input)
+            <div className="space-y-2">
+              {intentControl}
+              <div className="flex items-end gap-2">
+                <textarea
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  rows={compact ? 1 : 2}
+                  placeholder={
+                    writeIntent === 'create' ? 'Describe la accion o iniciativa…' : 'Escribe a Guia…'
                   }
-                }}
-              />
-              <Button
-                type="button"
-                className={cn('shrink-0 rounded-full', compact ? 'h-10 w-10 px-0' : 'h-11 w-11 px-0')}
-                disabled={busy || !input.trim() || remaining <= 0}
-                onClick={() => void sendText(input)}
-                aria-label="Enviar"
-              >
-                {sending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
-              </Button>
+                  className={cn(
+                    'flex-1 resize-none rounded-[1.1rem] border-0 bg-muted/40 px-3.5 py-2.5 text-sm outline-none ring-0 placeholder:text-muted-foreground/70 focus-visible:ring-2 focus-visible:ring-ring',
+                    compact && 'min-h-10 text-[13px]'
+                  )}
+                  disabled={busy || remaining <= 0}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault()
+                      void sendText(input)
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  className={cn('shrink-0 rounded-full', compact ? 'h-10 w-10 px-0' : 'h-11 w-11 px-0')}
+                  disabled={busy || !input.trim() || remaining <= 0}
+                  onClick={() => void sendText(input)}
+                  aria-label="Enviar"
+                >
+                  {sending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
+                </Button>
+              </div>
             </div>
           ) : idle ? null : (
             startControl
