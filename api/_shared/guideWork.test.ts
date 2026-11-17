@@ -120,17 +120,21 @@ describe('guideWork', () => {
         startedAt: '2026-11-12T18:00:00.000Z',
         closedAt: '2026-11-12T18:12:00.000Z',
         anchorYmd: '2026-11-12',
-        version: 'enviardian-informe-v1',
+        version: 'enviardian-informe-v3',
       }
     )
-    expect(text).toContain('HALLAZGOS')
-    expect(text).toContain('RESUMEN EJECUTIVO')
-    expect(text).toContain('El conteo de inventario se atrasa.')
-    expect(text).toContain('No hubo acuerdos')
-    expect(text).toContain('se basa solo en la entrevista')
-    expect(text).toContain('Sin propuesta')
-    expect(text).toContain('Generador: enviardian-informe-v1')
-    expect(text).toContain('COMPROMISOS Y PROXIMOS PASOS')
+    const doc = JSON.parse(text) as {
+      version: string
+      key_findings: Array<{ detail: string; evidence: string }>
+      confirmed_decisions: string[]
+      recommendations: string[]
+      metadata: { interviewOnly?: boolean }
+    }
+    expect(doc.version).toBe('enviardian-informe-v3')
+    expect(doc.key_findings.some((f) => f.detail.includes('inventario'))).toBe(true)
+    expect(doc.confirmed_decisions).toEqual([])
+    expect(doc.recommendations[0]).toMatch(/corte el lunes/i)
+    expect(doc.metadata.interviewOnly).toBe(true)
     expect(text).not.toContain('TRABAJO CREADO')
   })
 

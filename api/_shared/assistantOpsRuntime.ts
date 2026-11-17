@@ -671,6 +671,10 @@ export async function dispatchCopilotTool(
         return await proposeDone(actor, args)
       case 'verify_action':
         return await proposeVerify(actor, args)
+      case 'confirm_pending_op':
+        return await toolConfirmPendingOp(actor, args)
+      case 'cancel_pending_op':
+        return await toolCancelPendingOp(actor, args)
       default:
         return { ok: false, tool: name as CopilotToolName, kind: 'error', error: 'Herramienta no reconocida.' }
     }
@@ -686,12 +690,80 @@ export function serializeToolResultForModel(result: CopilotToolResult) {
       status: 'needs_confirmation',
       pending_op_id: result.proposal.id,
       preview: result.proposal,
-      instruction: 'Muestra la propuesta y pide pulsar Confirmar. No digas que ya se ejecuto.',
+      instruction:
+        'Resume la propuesta y pide confirmacion. En voz usa confirm_pending_op con pending_op_id. No digas que ya se ejecuto.',
     }
   }
   if (result.kind === 'clarification') return { status: 'needs_clarification', ...result.clarification }
   if (result.kind === 'denied' || result.kind === 'error') return { status: 'error', error: result.error }
   return result.data
+}
+
+async function toolConfirmPendingOp(actor: CopilotActor, args: Record<string, unknown>): Promise<CopilotToolResult> {
+  const opId = asString(args.pending_op_id || args.pendingOpId || args.op_id || args.id)
+  if (!opId) {
+    return {
+      ok: false,
+      tool: 'confirm_pending_op',
+      kind: 'error',
+      error: 'Falta pending_op_id para confirmar.',
+    }
+  }
+  try {
+    const confirmed = await confirmPendingOp(actor, opId)
+    const result = (confirmed.result ?? {}) as { id?: string; href?: string; title?: string }
+    return {
+      ok: true,
+      tool: 'confirm_pending_op',
+      kind: 'read',
+      data: {
+        status: 'confirmed',
+        pending_op_id: opId,
+        id: result.id ?? null,
+        href: result.href ?? null,
+        title: result.title ?? (confirmed.preview as { title?: string } | undefined)?.title ?? null,
+        spoken_hint: 'Listo, quedo registrada.',
+      },
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      tool: 'confirm_pending_op',
+      kind: 'error',
+      error: error instanceof Error ? error.message : 'No se pudo confirmar.',
+    }
+  }
+}
+
+async function toolCancelPendingOp(actor: CopilotActor, args: Record<string, unknown>): Promise<CopilotToolResult> {
+  const opId = asString(args.pending_op_id || args.pendingOpId || args.op_id || args.id)
+  if (!opId) {
+    return {
+      ok: false,
+      tool: 'cancel_pending_op',
+      kind: 'error',
+      error: 'Falta pending_op_id para cancelar.',
+    }
+  }
+  try {
+    await cancelPendingOp(actor, opId)
+    return {
+      ok: true,
+      tool: 'cancel_pending_op',
+      kind: 'read',
+      data: {
+        status: 'cancelled',
+        pending_op_id: opId,
+        spoken_hint: 'Cancelado. No se ejecuto nada.',
+      },
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'No se pudo cancelar.'
+    if (/ya se ejecuto/i.test(message)) {
+      return { ok: false, tool: 'cancel_pending_op', kind: 'error', error: message }
+    }
+    return { ok: false, tool: 'cancel_pending_op', kind: 'error', error: message }
+  }
 }
 
 type PendingRow = {

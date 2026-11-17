@@ -25,6 +25,8 @@ export const COPILOT_WRITE_TOOLS = [
   'update_checklist_item',
   'mark_action_done',
   'verify_action',
+  'confirm_pending_op',
+  'cancel_pending_op',
   ...GOOGLE_WRITE_TOOLS,
 ] as const
 

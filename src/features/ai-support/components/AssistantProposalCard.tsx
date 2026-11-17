@@ -16,6 +16,12 @@ import { cn } from '@/lib/utils'
 import type { CopilotProposal } from '@/features/ai-support/copilot/types'
 import { isGoogleWriteTool } from '@/features/ai-support/copilot/googleWorkspace'
 import {
+  actionLifecycleTone,
+  actionTypeLabel,
+  toActionCardView,
+  type ActionLifecycleStatus,
+} from '@/features/ai-support/copilot/actionLifecycle'
+import {
   cancelAssistantOp,
   confirmAssistantOp,
   editAssistantOp,
@@ -45,9 +51,16 @@ export function AssistantProposalCard({
   const [error, setError] = useState<string | null>(null)
   const [editOpen, setEditOpen] = useState(false)
 
-  const workspace = proposal.workspace
   const googleWrite = isGoogleWriteTool(proposal.tool)
   const canEdit = googleWrite && status === 'pending'
+  const view = toActionCardView(proposal, {
+    status: busy === 'confirm' || busy === 'cancel' ? 'executing' : status,
+    busy,
+    errorMessage: error,
+    resultHref,
+  })
+  const tone = actionLifecycleTone(view.status)
+  const typeLabel = actionTypeLabel(view.tool, view.kind)
 
   const confirm = async () => {
     setBusy('confirm')
@@ -88,160 +101,173 @@ export function AssistantProposalCard({
   return (
     <section
       className={cn(
-        'mt-3 space-y-2.5 rounded-2xl bg-muted/30 px-3 py-2.5 ring-1 ring-border/50',
-        compact && 'px-2.5 py-2'
+        'relative mt-3 overflow-hidden rounded-2xl border bg-white shadow-sm',
+        tone.border,
+        tone.card,
+        compact ? 'px-2.5 py-2' : 'px-3 py-2.5'
       )}
       aria-label={proposal.title}
+      data-action-status={view.status}
     >
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-primary">
-          {proposal.title}
-        </p>
-        <p className={cn('mt-0.5 text-foreground', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
-          {proposal.summary}
-        </p>
-      </div>
-      {workspace?.kind === 'email' ? (
-        <dl className="space-y-1 text-[12px] leading-5">
-          {workspace.from ? (
+      <div className={cn('absolute inset-y-0 left-0 w-1.5', tone.rail)} aria-hidden />
+      <div className="space-y-2.5 pl-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={cn('rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em]', tone.badge)}>
+            {view.statusLabel}
+          </span>
+          <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">{typeLabel}</span>
+        </div>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-700">{proposal.title}</p>
+          <p className={cn('mt-0.5 text-slate-900', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
+            {proposal.summary}
+          </p>
+        </div>
+
+        {view.kind === 'email' && view.emailPreview ? (
+          <dl className="space-y-1 rounded-xl border border-white/70 bg-white/90 p-2.5 text-[12px] leading-5">
+            {view.emailPreview.from ? (
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 text-slate-500">De</dt>
+                <dd>{view.emailPreview.from}</dd>
+              </div>
+            ) : null}
             <div className="flex gap-2">
-              <dt className="w-24 shrink-0 text-muted-foreground">De</dt>
-              <dd>{workspace.from}</dd>
+              <dt className="w-24 shrink-0 text-slate-500">Para</dt>
+              <dd>{view.emailPreview.to.join(', ') || '—'}</dd>
             </div>
-          ) : null}
-          <div className="flex gap-2">
-            <dt className="w-24 shrink-0 text-muted-foreground">Para</dt>
-            <dd>{(workspace.to ?? []).join(', ') || '—'}</dd>
-          </div>
-          {workspace.cc?.length ? (
+            {view.emailPreview.cc?.length ? (
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 text-slate-500">CC</dt>
+                <dd>{view.emailPreview.cc.join(', ')}</dd>
+              </div>
+            ) : null}
             <div className="flex gap-2">
-              <dt className="w-24 shrink-0 text-muted-foreground">CC</dt>
-              <dd>{workspace.cc.join(', ')}</dd>
+              <dt className="w-24 shrink-0 text-slate-500">Asunto</dt>
+              <dd className="font-medium">{view.emailPreview.subject || '—'}</dd>
             </div>
-          ) : null}
-          <div className="flex gap-2">
-            <dt className="w-24 shrink-0 text-muted-foreground">Asunto</dt>
-            <dd>{workspace.subject || '—'}</dd>
-          </div>
-          {workspace.body ? (
+            {view.emailPreview.body ? (
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 text-slate-500">Cuerpo</dt>
+                <dd className="max-h-40 overflow-y-auto whitespace-pre-wrap">{view.emailPreview.body}</dd>
+              </div>
+            ) : null}
+          </dl>
+        ) : view.kind === 'event' && view.eventPreview ? (
+          <dl className="space-y-1 rounded-xl border border-white/70 bg-white/90 p-2.5 text-[12px] leading-5">
             <div className="flex gap-2">
-              <dt className="w-24 shrink-0 text-muted-foreground">Cuerpo</dt>
-              <dd className="whitespace-pre-wrap">{workspace.body}</dd>
+              <dt className="w-24 shrink-0 text-slate-500">Titulo</dt>
+              <dd>{view.eventPreview.title || '—'}</dd>
             </div>
-          ) : null}
-        </dl>
-      ) : workspace?.kind === 'event' ? (
-        <dl className="space-y-1 text-[12px] leading-5">
-          <div className="flex gap-2">
-            <dt className="w-24 shrink-0 text-muted-foreground">Titulo</dt>
-            <dd>{workspace.title || '—'}</dd>
-          </div>
-          {workspace.start ? (
-            <div className="flex gap-2">
-              <dt className="w-24 shrink-0 text-muted-foreground">Inicio</dt>
-              <dd>{workspace.start.replace('T', ' ')} (CDMX)</dd>
-            </div>
-          ) : null}
-          {workspace.end ? (
-            <div className="flex gap-2">
-              <dt className="w-24 shrink-0 text-muted-foreground">Fin</dt>
-              <dd>{workspace.end.replace('T', ' ')} (CDMX)</dd>
-            </div>
-          ) : null}
-          {workspace.attendees?.length ? (
-            <div className="flex gap-2">
-              <dt className="w-24 shrink-0 text-muted-foreground">Participantes</dt>
-              <dd>{workspace.attendees.join(', ')}</dd>
-            </div>
-          ) : null}
-        </dl>
-      ) : proposal.fields.length > 0 ? (
-        <dl className="space-y-1">
-          {proposal.fields.map((field) => (
-            <div key={`${field.label}-${field.to}`} className="flex gap-2 text-[12px] leading-5">
-              <dt className="w-24 shrink-0 text-muted-foreground">{field.label}</dt>
-              <dd className="min-w-0 text-foreground">
-                {field.from ? (
-                  <>
-                    <span className="text-muted-foreground line-through">{field.from}</span>
-                    {' → '}
-                  </>
-                ) : null}
-                {field.to}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
-      {error ? <p className="text-[11px] text-destructive">{error}</p> : null}
-      {status === 'confirmed' ? (
-        <p className="text-[12px] text-foreground">
-          Ejecutado.
-          {resultHref ? (
-            <>
-              {' '}
-              {resultHref.startsWith('http') ? (
-                <a
-                  href={resultHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-0.5 font-medium text-primary hover:underline"
-                >
-                  Abrir
-                  <ArrowUpRight className="h-3 w-3" aria-hidden />
-                </a>
-              ) : (
-                <Link
-                  to={resultHref}
-                  className="inline-flex items-center gap-0.5 font-medium text-primary hover:underline"
-                >
-                  Abrir registro
-                  <ArrowUpRight className="h-3 w-3" aria-hidden />
-                </Link>
-              )}
-            </>
-          ) : null}
-        </p>
-      ) : status === 'cancelled' ? (
-        <p className="text-[12px] text-muted-foreground">Operacion cancelada.</p>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            className="h-8 rounded-full px-3"
-            disabled={busy !== null}
-            onClick={() => void confirm()}
-          >
-            {busy === 'confirm' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-            Confirmar
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-8 rounded-full px-3"
-            disabled={busy !== null}
-            onClick={() => void cancel()}
-          >
-            {busy === 'cancel' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-            Cancelar
-          </Button>
-          {canEdit ? (
+            {view.eventPreview.start ? (
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 text-slate-500">Inicio</dt>
+                <dd>{view.eventPreview.start.replace('T', ' ')} (CDMX)</dd>
+              </div>
+            ) : null}
+            {view.eventPreview.end ? (
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 text-slate-500">Fin</dt>
+                <dd>{view.eventPreview.end.replace('T', ' ')} (CDMX)</dd>
+              </div>
+            ) : null}
+            {view.eventPreview.attendees?.length ? (
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 text-slate-500">Participantes</dt>
+                <dd>{view.eventPreview.attendees.join(', ')}</dd>
+              </div>
+            ) : null}
+          </dl>
+        ) : proposal.fields.length > 0 ? (
+          <dl className="space-y-1 rounded-xl border border-white/70 bg-white/90 p-2.5">
+            {proposal.fields.map((field) => (
+              <div key={`${field.label}-${field.to}`} className="flex gap-2 text-[12px] leading-5">
+                <dt className="w-24 shrink-0 text-slate-500">{field.label}</dt>
+                <dd className="min-w-0 text-slate-900">
+                  {field.from ? (
+                    <>
+                      <span className="text-slate-400 line-through">{field.from}</span>
+                      {' → '}
+                    </>
+                  ) : null}
+                  {field.to}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+
+        {error ? <p className="text-[11px] text-red-700">{error}</p> : null}
+
+        {status === 'confirmed' ? (
+          <p className="text-[12px] text-slate-800">
+            Completado.
+            {resultHref ? (
+              <>
+                {' '}
+                {resultHref.startsWith('http') ? (
+                  <a
+                    href={resultHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-0.5 font-medium text-[#2563EB] hover:underline"
+                  >
+                    Abrir
+                    <ArrowUpRight className="h-3 w-3" aria-hidden />
+                  </a>
+                ) : (
+                  <Link
+                    to={resultHref}
+                    className="inline-flex items-center gap-0.5 font-medium text-[#2563EB] hover:underline"
+                  >
+                    Abrir registro
+                    <ArrowUpRight className="h-3 w-3" aria-hidden />
+                  </Link>
+                )}
+              </>
+            ) : null}
+          </p>
+        ) : status === 'cancelled' ? (
+          <p className="text-[12px] text-slate-500">Operacion cancelada.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               size="sm"
-              variant="outline"
               className="h-8 rounded-full px-3"
               disabled={busy !== null}
-              onClick={() => setEditOpen(true)}
+              onClick={() => void confirm()}
             >
-              <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden />
-              Editar
+              {busy === 'confirm' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+              Confirmar
             </Button>
-          ) : null}
-        </div>
-      )}
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-8 rounded-full px-3"
+              disabled={busy !== null}
+              onClick={() => void cancel()}
+            >
+              {busy === 'cancel' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+              Cancelar
+            </Button>
+            {canEdit ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 rounded-full px-3"
+                disabled={busy !== null}
+                onClick={() => setEditOpen(true)}
+              >
+                <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden />
+                Editar
+              </Button>
+            ) : null}
+          </div>
+        )}
+      </div>
 
       <EditWorkspaceDialog
         open={editOpen}
@@ -253,6 +279,7 @@ export function AssistantProposalCard({
           try {
             const next = await editAssistantOp(proposal.id, patch)
             setProposal(next)
+            setStatus('pending')
             onUpdated?.(next)
             setEditOpen(false)
             toast.success('Borrador actualizado. Confirma de nuevo para enviar.')
@@ -266,6 +293,11 @@ export function AssistantProposalCard({
     </section>
   )
 }
+
+/** Alias canónico del plan de acciones. */
+export const ActionCard = AssistantProposalCard
+
+export type { ActionLifecycleStatus }
 
 function EditWorkspaceDialog({
   open,
@@ -336,9 +368,7 @@ function EditWorkspaceDialog({
             type="button"
             disabled={busy}
             onClick={() =>
-              void onSave(
-                isEmail ? { subject, body } : { title, start, end }
-              )
+              void onSave(isEmail ? { subject, body } : { title, start, end })
             }
           >
             {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}

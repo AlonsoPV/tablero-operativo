@@ -5,6 +5,7 @@ import {
   type GuideReportSection,
   type GuideReportSource,
 } from '@/features/guide/guideReportPresentation'
+import { pdfToneForSectionKind, REPORT_PDF_RGB } from '@/features/guide/reportVisualTheme'
 
 /** Letter size (carta) in PDF points. */
 export const PDF_PAGE_WIDTH = 612
@@ -14,18 +15,31 @@ const MARGIN_X = 58
 const MARGIN_TOP = 64
 const MARGIN_BOTTOM = 56
 const CONTENT_WIDTH = PDF_PAGE_WIDTH - MARGIN_X * 2
-const HEADER_BAR = 6
+const HEADER_BAR = 10
 const FOOTER_Y = 34
 
-/** Navy used for formal accents — close to product primary, print-safe. */
+/** Semántica alineada a reportVisualTheme (imprimible). */
 const COLOR = {
-  ink: '0.09 0.11 0.16',
-  muted: '0.38 0.41 0.48',
-  soft: '0.55 0.58 0.64',
-  navy: '0.12 0.25 0.52',
-  rule: '0.78 0.81 0.86',
-  band: '0.12 0.25 0.52',
+  ink: REPORT_PDF_RGB.ink,
+  muted: REPORT_PDF_RGB.muted,
+  soft: REPORT_PDF_RGB.muted,
+  navy: REPORT_PDF_RGB.navy,
+  blue: REPORT_PDF_RGB.blue,
+  teal: REPORT_PDF_RGB.teal,
+  green: REPORT_PDF_RGB.green,
+  amber: REPORT_PDF_RGB.amber,
+  coral: REPORT_PDF_RGB.coral,
+  red: REPORT_PDF_RGB.red,
+  violet: REPORT_PDF_RGB.violet,
+  surface: REPORT_PDF_RGB.surface,
+  rule: REPORT_PDF_RGB.rule,
+  band: REPORT_PDF_RGB.navy,
 } as const
+
+function accentForSection(kind: GuideReportSection['kind'] | undefined) {
+  const tone = pdfToneForSectionKind(kind)
+  return REPORT_PDF_RGB[tone]
+}
 
 export type PdfLine = {
   text: string
@@ -261,7 +275,11 @@ export function reportToPdfLines(input: {
 
 function heightOf(line: PdfLine) {
   if (line.kind === 'rule') return 16
-  if (line.kind === 'heading') return LEAD.heading + 8
+  if (line.kind === 'heading') {
+    // Prefer keeping overview + findings together on page 1 when possible.
+    if (line.sectionKind === 'lead' || line.sectionKind === 'finding') return LEAD.heading + 10
+    return LEAD.heading + 8
+  }
   if (line.kind === 'title') return LEAD.title + 4
   if (line.kind === 'topic') return LEAD.topic + 2
   if (line.kind === 'spacer') return 8
@@ -372,14 +390,20 @@ function placePage(lines: PdfLine[]): PlacedLine[] {
 
 function pageChrome(pageNumber: number, pageCount: number, isFirst: boolean) {
   const commands: string[] = []
-  // Top brand band
+  // Soft page tint
+  commands.push(`${COLOR.surface} rg`)
+  commands.push(`0 0 ${PDF_PAGE_WIDTH} ${PDF_PAGE_HEIGHT} re`)
+  commands.push('f')
+  // Top brand band (hero navy)
   commands.push(`${COLOR.band} rg`)
   commands.push(`0 ${PDF_PAGE_HEIGHT - HEADER_BAR} ${PDF_PAGE_WIDTH} ${HEADER_BAR} re`)
   commands.push('f')
-  // Soft left margin accent on first page
   if (isFirst) {
+    commands.push(`${COLOR.blue} rg`)
+    commands.push(`0 ${PDF_PAGE_HEIGHT - HEADER_BAR - 3} ${PDF_PAGE_WIDTH} 3 re`)
+    commands.push('f')
     commands.push(`${COLOR.navy} rg`)
-    commands.push(`0 ${MARGIN_BOTTOM} 3 ${PDF_PAGE_HEIGHT - HEADER_BAR - MARGIN_BOTTOM} re`)
+    commands.push(`0 ${MARGIN_BOTTOM} 3.5 ${PDF_PAGE_HEIGHT - HEADER_BAR - MARGIN_BOTTOM} re`)
     commands.push('f')
   }
   // Footer rule
@@ -425,9 +449,21 @@ function pageStream(lines: PdfLine[], pageNumber: number, pageCount: number, isF
     }
 
     if (item.kind === 'heading') {
+      const accent = accentForSection(item.sectionKind)
       commands.push('ET')
-      commands.push(`${COLOR.navy} rg`)
-      commands.push(`${MARGIN_X} ${item.y - 1} 20 2 re`)
+      commands.push(`${accent} rg`)
+      commands.push(`${MARGIN_X} ${item.y - 1} 22 2.4 re`)
+      commands.push('f')
+      commands.push('BT')
+      currentFont = null
+      currentSize = null
+    }
+
+    if (item.kind === 'bullet' && item.sectionKind) {
+      const accent = accentForSection(item.sectionKind)
+      commands.push('ET')
+      commands.push(`${accent} rg`)
+      commands.push(`${MARGIN_X + 2} ${item.y + 1} 3.2 3.2 re`)
       commands.push('f')
       commands.push('BT')
       currentFont = null
@@ -441,8 +477,12 @@ function pageStream(lines: PdfLine[], pageNumber: number, pageCount: number, isF
       currentSize = item.size
     }
 
-    if (item.kind === 'heading' || item.kind === 'brand' || item.kind === 'docType') {
+    if (item.kind === 'heading') {
+      commands.push(`${accentForSection(item.sectionKind)} rg`)
+    } else if (item.kind === 'brand' || item.kind === 'docType' || item.kind === 'title') {
       commands.push(`${COLOR.navy} rg`)
+    } else if (item.kind === 'topic') {
+      commands.push(`${COLOR.blue} rg`)
     } else if (item.kind === 'muted' || item.kind === 'meta' || item.kind === 'metaLabel') {
       commands.push(`${COLOR.muted} rg`)
     } else {

@@ -21,6 +21,8 @@ export const RETELL_WRITE_TOOLS = [
   'update_checklist_item',
   'mark_action_done',
   'verify_action',
+  'confirm_pending_op',
+  'cancel_pending_op',
 ] as const
 
 const ALLOWED = new Set<string>([...RETELL_READ_TOOLS, ...RETELL_WRITE_TOOLS])
@@ -111,6 +113,116 @@ function payloadIsEmpty(data: unknown): boolean {
   return arrays.every((list) => list.length === 0)
 }
 
+/** Ítems máximos en payloads de voz (totales + muestra corta). */
+export const VOICE_SLIM_ITEM_LIMIT = 8
+
+const VOICE_SLIM_KEEP_KEYS = new Set([
+  'id',
+  'title',
+  'titulo',
+  'titulo_accion',
+  'nombre',
+  'nombre_okr',
+  'label',
+  'estado',
+  'status',
+  'fecha',
+  'due_date',
+  'end_date',
+  'start_date',
+  'prioridad',
+  'progress',
+  'overall_progress',
+  'current',
+  'current_value',
+  'target',
+  'target_value',
+  'unit',
+  'scope',
+  'area',
+  'without_initiatives',
+  'insufficient_krs',
+  'krs',
+  'key_results',
+])
+
+function slimRow(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(row)) {
+    if (!VOICE_SLIM_KEEP_KEYS.has(key)) continue
+    if (Array.isArray(value)) {
+      out[key] = value.slice(0, VOICE_SLIM_ITEM_LIMIT).map((item) =>
+        item && typeof item === 'object' && !Array.isArray(item)
+          ? slimRow(item as Record<string, unknown>)
+          : item
+      )
+      continue
+    }
+    if (value && typeof value === 'object') {
+      out[key] = slimRow(value as Record<string, unknown>)
+      continue
+    }
+    out[key] = value
+  }
+  return out
+}
+
+function compactVoiceNode(data: unknown, root: boolean): unknown {
+  if (data == null) return data
+  if (Array.isArray(data)) {
+    const items = data.slice(0, VOICE_SLIM_ITEM_LIMIT).map((item) =>
+      item && typeof item === 'object' && !Array.isArray(item)
+        ? slimRow(item as Record<string, unknown>)
+        : item
+    )
+    const wrapped: Record<string, unknown> = {
+      total: data.length,
+      truncated: data.length > items.length,
+      items,
+    }
+    if (root) {
+      wrapped.as_of = new Date().toISOString()
+      wrapped.voice_slim = true
+    }
+    return wrapped
+  }
+  if (typeof data !== 'object') return data
+  const source = data as Record<string, unknown>
+  const out: Record<string, unknown> = root ? { as_of: new Date().toISOString() } : {}
+  let truncated = Boolean(source.truncated)
+  for (const [key, value] of Object.entries(source)) {
+    if (Array.isArray(value)) {
+      const clipped = value.slice(0, VOICE_SLIM_ITEM_LIMIT).map((item) =>
+        item && typeof item === 'object' && !Array.isArray(item)
+          ? slimRow(item as Record<string, unknown>)
+          : item
+      )
+      if (value.length > clipped.length) truncated = true
+      out[key] = clipped
+      if (!(`${key}_total` in source) && !(key === 'items' && typeof source.total === 'number')) {
+        out[`${key}_total`] = value.length
+      }
+      continue
+    }
+    if (value && typeof value === 'object') {
+      out[key] = compactVoiceNode(value, false)
+      continue
+    }
+    out[key] = value
+  }
+  out.truncated = truncated
+  if (root) out.voice_slim = true
+  return out
+}
+
+/**
+ * Compacta el payload para Retell: totales + ≤8 ítems con campos de voz.
+ * No inventa cifras; solo filtra/agrega lo ya verificado en backend.
+ */
+export function compactVoiceToolData(data: unknown): unknown {
+  return compactVoiceNode(data, true)
+}
+
 export function classifyRetellToolResult(result: CopilotToolResult): {
   status: RetellToolStatus
   spoken: string
@@ -120,8 +232,12 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
     return {
       status: 'needs_confirmation',
       spoken:
-        'Deje una propuesta para revisar en Scrumban. No se creo ni se modifico nada en el tablero. No digas que ya quedo hecha.',
-      data: { pending_op_id: result.proposal?.id ?? null, title: result.proposal?.title ?? null },
+        'Propuse el cambio. Resume en una frase y pregunta si lo confirmas. No digas que ya quedo hecho hasta que confirm_pending_op responda ok.',
+      data: {
+        pending_op_id: result.proposal?.id ?? null,
+        title: result.proposal?.title ?? null,
+        summary: result.proposal?.summary ?? null,
+      },
     }
   }
   if (result.kind === 'clarification') {
@@ -139,10 +255,34 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
     }
   }
   if (result.kind === 'error' || result.ok === false) {
+    const writeConfirm = result.tool === 'confirm_pending_op' || result.tool === 'cancel_pending_op'
     return {
       status: 'error',
-      spoken: 'No pude consultar el tablero. Prefiero no dar informacion que no pueda confirmar.',
+      spoken:
+        result.error === 'timeout'
+          ? 'No pude recuperar ese dato a tiempo. No inventes cifras; ofrece reintentar o reformular.'
+          : writeConfirm
+            ? 'No pude confirmar ni cancelar esa operacion. No digas que quedo hecha.'
+            : 'No pude consultar el tablero. Prefiero no dar informacion que no pueda confirmar.',
       data: null,
+    }
+  }
+  if (result.tool === 'confirm_pending_op') {
+    const hint =
+      result.data && typeof result.data === 'object' && 'spoken_hint' in result.data
+        ? String((result.data as { spoken_hint?: unknown }).spoken_hint || '')
+        : ''
+    return {
+      status: 'ok',
+      spoken: hint || 'Listo, quedo registrada. Confirma en una frase corta sin leer IDs ni URLs.',
+      data: compactVoiceToolData(serializeToolResultForModel(result)),
+    }
+  }
+  if (result.tool === 'cancel_pending_op') {
+    return {
+      status: 'ok',
+      spoken: 'Cancelado. No se ejecuto nada.',
+      data: compactVoiceToolData(serializeToolResultForModel(result)),
     }
   }
   if (payloadIsEmpty(result.data)) {
@@ -155,7 +295,39 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
   return {
     status: 'ok',
     spoken: 'Consulta hecha. Responde solo con estos datos.',
-    data: serializeToolResultForModel(result),
+    data: compactVoiceToolData(serializeToolResultForModel(result)),
+  }
+}
+
+export type RetellToolPhaseMetrics = {
+  channel: 'retell'
+  call_id: string | null
+  session: string
+  invitation_id: string | null
+  tool: string
+  status: RetellToolStatus | 'timeout'
+  access_mode: string
+  auth_ms: number
+  session_ms: number
+  user_ms: number
+  dispatch_ms: number
+  consult_log_ms: number
+  payload_bytes: number
+  ms: number
+  ignored_model_user: boolean
+}
+
+export function buildRetellToolMetrics(
+  input: Omit<RetellToolPhaseMetrics, 'channel'>
+): RetellToolPhaseMetrics {
+  return { channel: 'retell', ...input }
+}
+
+export function estimatePayloadBytes(data: unknown): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(data ?? null), 'utf8')
+  } catch {
+    return 0
   }
 }
 

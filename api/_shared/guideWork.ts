@@ -1,6 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { parseDueDateHint } from '../../src/features/ai-support/parseWorkFacts.js'
-import { ENVIARDIAN_REPORT_VERSION } from './enviardianPrompt.js'
+import {
+  buildEnviardianReportDocument,
+  serializeReportDocument,
+} from '../../src/features/guide/enviardianReportDocument.js'
 
 export type GuideWorkKind = 'action' | 'initiative'
 
@@ -224,20 +227,19 @@ export function recordedWorkFromCreated(items: GuideCreatedWork[] | null | undef
   return (items ?? []).filter((item) => item.title && !item.error && !item.pending && Boolean(item.id))
 }
 
-function actionPlanLines(created: GuideCreatedWork[], pending: GuideWorkDraft[], anchorYmd: string) {
-  const lines = ['Accion | Responsable | Fecha | Estado']
-  for (const item of pending) {
-    const owner = item.ownerHint?.trim() || 'Por definir'
-    const date = commitmentDateLabel(item.dueDateHint, anchorYmd)
-    lines.push(`- ${item.title} | ${owner} | ${date} | Propuesta pendiente`)
-  }
-  for (const item of recordedWorkFromCreated(created)) {
-    const date = commitmentDateLabel(item.dueDateHint, anchorYmd)
-    const note = item.alreadyExisted ? 'Ya estaba en el tablero' : 'Registrada en Scrumban'
-    lines.push(`- ${item.title} | Por definir | ${date} | ${note}`)
-  }
-  if (lines.length === 1) lines.push('- Sin acciones en esta entrevista | Por definir | Por definir | Sin propuesta')
-  return lines
+export type FormatExecutiveExtras = {
+  topic?: string | null
+  sessionId?: string | null
+  participant?: string | null
+  headlineFinding?: string | null
+  nextStep?: string | null
+  keyFindings?: Array<{
+    title?: string
+    detail?: string
+    businessImpact?: string
+    evidence?: string
+  }>
+  risks?: Array<{ risk?: string; consequence?: string; mitigation?: string; opportunity?: string }>
 }
 
 export function formatExecutiveReport(
@@ -245,7 +247,8 @@ export function formatExecutiveReport(
   fallback: { summary?: string | null; learning?: string | null; intention?: string | null },
   created: GuideCreatedWork[],
   pending: GuideWorkDraft[] = [],
-  clock?: ReportClock
+  clock?: ReportClock,
+  extras?: FormatExecutiveExtras
 ): string {
   const situation = report?.situation || fallback.summary || 'Conversacion breve; se conserva lo esencial.'
   const diagnosis = report?.diagnosis || fallback.learning || ''
@@ -266,46 +269,65 @@ export function formatExecutiveReport(
     const pendingInfo = report.pending ?? []
     const recommendations = (report.recommendations?.length ? report.recommendations : priorities).slice(0, 3)
     const summaryText = (fallback.summary || situation).trim().slice(0, 900)
-    const lines = [
-      'REPORTE EJECUTIVO — ENVIARDIAN',
-      `Generador: ${clock?.version || ENVIARDIAN_REPORT_VERSION}`,
-      'Modalidad: entrevista por voz',
-      `Inicio: ${cdmxDateTimeLabel(clock?.startedAt) || 'No disponible'}`,
-      `Cierre: ${cdmxDateTimeLabel(clock?.closedAt) || 'No disponible'}`,
-      `Duracion: ${sessionDurationLabel(clock?.startedAt, clock?.closedAt) || 'No disponible'}`,
-      '',
-      'RESUMEN EJECUTIVO',
-      summaryText || 'Conversacion breve; se conserva lo esencial.',
-      '',
-      'HALLAZGOS',
-      ...said.map((item) => `- Situacion: ${item}`),
+    const commitments = [
+      ...pending.map((item) => ({
+        action: item.title,
+        ownerHint: item.ownerHint,
+        dueDateHint: commitmentDateLabel(item.dueDateHint, anchor),
+        status: 'proposal' as const,
+      })),
+      ...recordedWorkFromCreated(ok).map((item) => ({
+        action: item.title,
+        ownerHint: item.ownerHint,
+        dueDateHint: commitmentDateLabel(item.dueDateHint, anchor),
+        status: 'confirmed' as const,
+      })),
+      ...nextSteps.map((item) => ({
+        action: item,
+        status: 'undefined' as const,
+      })),
     ]
-    lines.push('', 'LO VERIFICADO')
-    if (report.interviewOnly || !report.verified?.length) {
-      lines.push(
-        report.consultFailed
-          ? 'No pude consultar el tablero durante la entrevista. Este informe se basa solo en lo conversado.'
-          : 'Este informe se basa solo en la entrevista. No hubo una consulta exitosa al tablero.'
-      )
-    } else {
-      report.verified.forEach((item) => lines.push(`- Evidencia Scrumban: ${item}`))
-    }
-    lines.push('', 'DECISIONES Y ACUERDOS')
-    if (agreed.length === 0) lines.push('No hubo acuerdos en la entrevista.')
-    else agreed.forEach((item) => lines.push(`- ${item}`))
-    lines.push('', 'COMPROMISOS Y PROXIMOS PASOS', ...actionPlanLines(ok, pending, anchor))
-    if (nextSteps.length) {
-      nextSteps.forEach((item) => lines.push(`- ${item} | Por definir | Por definir | Por confirmar`))
-    }
-    if (recommendations.length) {
-      lines.push('', 'RECOMENDACIONES')
-      recommendations.forEach((item, index) => lines.push(`${index + 1}. ${item}`))
-    }
-    if (pendingInfo.length) {
-      lines.push('', 'INFORMACION PENDIENTE')
-      pendingInfo.forEach((item) => lines.push(`- ${item}`))
-    }
-    return lines.join('\n').trim().slice(0, 6000)
+    const doc = buildEnviardianReportDocument({
+      topic: extras?.topic,
+      summary: summaryText,
+      sessionId: extras?.sessionId,
+      participant: extras?.participant,
+      startedAt: clock?.startedAt,
+      closedAt: clock?.closedAt,
+      durationLabel: sessionDurationLabel(clock?.startedAt, clock?.closedAt),
+      interviewOnly: report.interviewOnly,
+      consultFailed: report.consultFailed,
+      generationStatus: 'ready',
+      llmFindings: extras?.keyFindings,
+      said,
+      verifiedLines: report.interviewOnly ? [] : report.verified ?? [],
+      agreed,
+      pending: pendingInfo,
+      recommendations,
+      nextSteps: [],
+      risks: extras?.risks,
+      commitments,
+      createdWork: [
+        ...pending.map((item) => ({
+          title: item.title,
+          pending: true,
+          ownerHint: item.ownerHint,
+          dueDateHint: item.dueDateHint,
+          kind: item.kind,
+        })),
+        ...recordedWorkFromCreated(ok).map((item) => ({
+          title: item.title,
+          id: item.id,
+          pending: false,
+          ownerHint: item.ownerHint,
+          dueDateHint: item.dueDateHint,
+          kind: item.kind,
+        })),
+      ],
+      headlineFinding: extras?.headlineFinding,
+      nextStep: extras?.nextStep,
+    })
+    return serializeReportDocument(doc)
   }
 
   const lines = ['REPORTE EJECUTIVO — GUIA', '', 'SITUACION', situation]

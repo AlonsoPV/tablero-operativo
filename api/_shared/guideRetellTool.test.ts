@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest'
 import type { CopilotToolResult } from '../../src/features/ai-support/copilot/types.js'
 import { verifyRetellSignature } from './guideInterviewReport.js'
 import {
+  buildRetellToolMetrics,
   classifyRetellToolResult,
   consultLogEntry,
+  estimatePayloadBytes,
   groundVerifiedLines,
   isRetellBoardTool,
   isRetellWriteTool,
@@ -118,14 +120,87 @@ describe('retell tool bridge', () => {
       ok: false,
       tool: 'get_okr_progress',
       kind: 'error',
-      error: 'timeout',
+      error: 'boom',
     })
     expect(result.status).toBe('error')
     expect(result.data).toBeNull()
     expect(result.spoken).toMatch(/no pude consultar/i)
   })
 
-  it('keeps a create_action as a proposal and says nothing was written', () => {
+  it('speaks a typed timeout without inventing board data', () => {
+    const result = classifyRetellToolResult({
+      ok: false,
+      tool: 'get_okr_progress',
+      kind: 'error',
+      error: 'timeout',
+    })
+    expect(result.status).toBe('error')
+    expect(result.spoken).toMatch(/a tiempo/i)
+    expect(result.data).toBeNull()
+  })
+
+  it('compacts ok reads into voice-slim payloads with capped items', () => {
+    const items = Array.from({ length: 20 }, (_, i) => ({
+      id: `a-${i}`,
+      titulo_accion: `Accion ${i}`,
+      estado: 'Pendiente',
+      fecha: '2026-11-16',
+      secret_field: 'drop-me',
+    }))
+    const result = classifyRetellToolResult({
+      ok: true,
+      tool: 'get_my_actions',
+      kind: 'read',
+      data: { filter: 'open', items, total: 20 },
+    })
+    expect(result.status).toBe('ok')
+    const data = result.data as {
+      voice_slim?: boolean
+      truncated?: boolean
+      items?: unknown[]
+      items_total?: number
+    }
+    expect(data.voice_slim).toBe(true)
+    expect(data.truncated).toBe(true)
+    expect(data.items).toHaveLength(8)
+    expect(JSON.stringify(data)).not.toMatch(/secret_field|drop-me/)
+    expect(estimatePayloadBytes(data)).toBeGreaterThan(0)
+    const metrics = buildRetellToolMetrics({
+      call_id: 'call-1',
+      session: 'session-1',
+      invitation_id: null,
+      tool: 'get_my_actions',
+      status: 'ok',
+      access_mode: 'propose',
+      auth_ms: 1,
+      session_ms: 2,
+      user_ms: 3,
+      dispatch_ms: 4,
+      consult_log_ms: 0,
+      payload_bytes: estimatePayloadBytes(data),
+      ms: 10,
+      ignored_model_user: false,
+    })
+    expect(metrics.channel).toBe('retell')
+    expect(metrics.payload_bytes).toBeGreaterThan(0)
+    expect(Object.keys(metrics)).toEqual(
+      expect.arrayContaining([
+        'call_id',
+        'session',
+        'tool',
+        'auth_ms',
+        'session_ms',
+        'user_ms',
+        'dispatch_ms',
+        'consult_log_ms',
+        'payload_bytes',
+        'ms',
+        'status',
+      ])
+    )
+  })
+
+  it('keeps a create_action as a proposal and asks for confirm_pending_op', () => {
     const proposal: CopilotToolResult = {
       ok: true,
       tool: 'create_action',
@@ -141,10 +216,39 @@ describe('retell tool bridge', () => {
     }
     const result = classifyRetellToolResult(proposal)
     expect(result.status).toBe('needs_confirmation')
-    expect(result.spoken).toMatch(/no se creo/i)
+    expect(result.spoken).toMatch(/confirm_pending_op/i)
+    expect(result.data).toMatchObject({ pending_op_id: 'op-1' })
     const entry = consultLogEntry('create_action', result.status, result.data, '2026-11-13T18:00:00.000Z')
     expect(entry.summary).toBe('Propuesta pendiente: Revisar inventario')
     expect(entry.summary).not.toMatch(/[{}]|token|secret/i)
+  })
+
+  it('treats confirm_pending_op and cancel_pending_op as write tools with spoken outcomes', () => {
+    expect(isRetellWriteTool('confirm_pending_op')).toBe(true)
+    expect(isRetellWriteTool('cancel_pending_op')).toBe(true)
+    const confirmed = classifyRetellToolResult({
+      ok: true,
+      tool: 'confirm_pending_op',
+      kind: 'read',
+      data: { status: 'confirmed', pending_op_id: 'op-1', spoken_hint: 'Listo, quedo registrada.' },
+    })
+    expect(confirmed.status).toBe('ok')
+    expect(confirmed.spoken).toMatch(/quedo registrada/i)
+    const cancelled = classifyRetellToolResult({
+      ok: true,
+      tool: 'cancel_pending_op',
+      kind: 'read',
+      data: { status: 'cancelled', pending_op_id: 'op-1' },
+    })
+    expect(cancelled.spoken).toMatch(/cancelado/i)
+    const failed = classifyRetellToolResult({
+      ok: false,
+      tool: 'confirm_pending_op',
+      kind: 'error',
+      error: 'expired',
+    })
+    expect(failed.status).toBe('error')
+    expect(failed.spoken).toMatch(/no digas que quedo hecha/i)
   })
 
   it('lets the report cite only successful tool results', () => {

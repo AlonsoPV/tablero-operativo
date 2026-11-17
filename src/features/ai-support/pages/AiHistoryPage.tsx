@@ -44,7 +44,25 @@ function reportStatusLabel(status: GuideJournalEntry['report_status']) {
 
 function previewText(entry: GuideJournalEntry) {
   if (entry.executive_report?.trim()) {
-    return entry.executive_report.split('\n').filter(Boolean).slice(0, 2).join(' ')
+    const raw = entry.executive_report.trim()
+    if (raw.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(raw) as {
+          executive_summary?: { text?: string; headlineFinding?: string }
+          metadata?: { topic?: string }
+        }
+        return (
+          parsed.executive_summary?.text ||
+          parsed.executive_summary?.headlineFinding ||
+          parsed.metadata?.topic ||
+          entry.summary ||
+          'Informe listo'
+        )
+      } catch {
+        /* fall through */
+      }
+    }
+    return raw.split('\n').filter(Boolean).slice(0, 2).join(' ')
   }
   const status = reportStatusLabel(entry.report_status)
   if (status && !entry.summary?.trim()) return status
@@ -430,10 +448,10 @@ export function AiHistoryPage() {
           <GuideReportBody
             executiveReport={selected.executive_report}
             summary={selected.summary}
-            agentInferences={selected.agent_inferences}
-            learning={selected.learning}
-            intention={selected.intention}
-            reflectionQuestion={selected.reflection_question}
+            topic={selected.topic}
+            createdAt={selected.created_at}
+            sessionId={selected.session_id}
+            createdWork={selected.created_work}
           />
 
           {workspaceOps.length > 0 ? (

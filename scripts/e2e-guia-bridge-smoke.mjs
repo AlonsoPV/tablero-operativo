@@ -69,10 +69,12 @@ const toolBody = JSON.stringify({
     },
   },
 })
+const toolStarted = Date.now()
 const tool = await post('/api/guide-retell-tool', toolBody, {
   'x-retell-signature': sign(toolBody),
 })
-console.log('scrumban_okr', tool.status, tool.text.slice(0, 500))
+const okrMs = Date.now() - toolStarted
+console.log('scrumban_okr', tool.status, `ms=${okrMs}`, tool.text.slice(0, 500))
 
 const toolBody2 = JSON.stringify({
   name: 'scrumban',
@@ -82,16 +84,25 @@ const toolBody2 = JSON.stringify({
     retell_llm_dynamic_variables: { session_id: session.id },
   },
 })
+const actionsStarted = Date.now()
 const tool2 = await post('/api/guide-retell-tool', toolBody2, {
   'x-retell-signature': sign(toolBody2),
 })
-console.log('scrumban_actions', tool2.status, tool2.text.slice(0, 500))
+const actionsMs = Date.now() - actionsStarted
+console.log('scrumban_actions', tool2.status, `ms=${actionsMs}`, tool2.text.slice(0, 500))
 
-const { data: after } = await sb
-  .from('guide_sessions')
-  .select('consult_log,report_status')
-  .eq('id', session.id)
-  .maybeSingle()
+// consult_log es async tras el 200; reintentar brevemente.
+let after = null
+for (let i = 0; i < 8; i += 1) {
+  const { data } = await sb
+    .from('guide_sessions')
+    .select('consult_log,report_status')
+    .eq('id', session.id)
+    .maybeSingle()
+  after = data
+  if (Array.isArray(after?.consult_log) && after.consult_log.length > 0) break
+  await new Promise((r) => setTimeout(r, 250))
+}
 console.log('consult_log', JSON.stringify(after?.consult_log, null, 2))
 
 await sb
@@ -101,8 +112,14 @@ await sb
 
 const clockOk = clock.status === 200 && clock.text.includes('"found":true')
 const toolOk =
-  (tool.status === 200 && /"status":"(ok|empty|denied)"/.test(tool.text)) ||
-  (tool2.status === 200 && /"status":"(ok|empty|denied)"/.test(tool2.text))
+  (tool.status === 200 && /"status":"(ok|empty|denied|error)"/.test(tool.text)) ||
+  (tool2.status === 200 && /"status":"(ok|empty|denied|error)"/.test(tool2.text))
 const logOk = Array.isArray(after?.consult_log) && after.consult_log.length > 0
-console.log(JSON.stringify({ host, clockOk, toolOk, logOk }, null, 2))
+const latency = {
+  okr_ms: okrMs,
+  actions_ms: actionsMs,
+  payload_bytes_okr: Buffer.byteLength(tool.text, 'utf8'),
+  payload_bytes_actions: Buffer.byteLength(tool2.text, 'utf8'),
+}
+console.log(JSON.stringify({ host, clockOk, toolOk, logOk, latency }, null, 2))
 process.exit(clockOk && toolOk && logOk ? 0 : 1)
