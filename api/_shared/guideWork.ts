@@ -722,17 +722,31 @@ export function inferGuideWorkIntentFromMessages(messages: Array<{ role?: string
   return inferGuideWorkIntent(userText)
 }
 
-export function guideOpening(_intent: 'consult' | 'create' = 'consult') {
+export function guideOpening(intent: 'consult' | 'create' = 'consult') {
+  if (intent === 'create') {
+    return 'Hola. Soy Guia. Vamos a dejar una accion o iniciativa lista para aprobar. Que hay que lograr?'
+  }
   return 'Hola. Soy Guia. En quince minutos revisamos tu tablero. Que quieres atacar primero?'
 }
 
-export function guideWorkInstructions(_intent: 'consult' | 'create' = 'consult') {
-  return `
+export function guideWorkInstructions(intent: 'consult' | 'create' = 'consult') {
+  const createBias =
+    intent === 'create'
+      ? `
+Modo Crear activo (el usuario lo eligio antes de empezar): asume que quiere registrar trabajo.
+No preguntes si prefiere consultar o crear. Abre creando: pide o confirma titulo, fecha y evidencia.
+Usa create_action (o initiative) en cuanto tengas titulo util; confirma con confirm_pending_op tras el "si".
+Solo cambia a consulta pura si pide expresamente un diagnostico del tablero sin pendiente.
+`
+      : `
 No pidas que elijan consultar o crear. Lees la conversacion y cambias sola.
-
-Apertura: "${guideOpening()}"
-
 Si quieren entender el tablero: informa, prioriza y diagnostica. No empujes a crear.
+`
+
+  return `
+${createBias.trim()}
+
+Apertura: "${guideOpening(intent)}"
 
 Si piden registrar trabajo, o dictan un pendiente (crea, anota, ponme, hay que + tarea o fecha, compromiso, accion, iniciativa): arma UNA accion sin anunciar "modo crear".
 Flujo corto, una pregunta a la vez, solo si falta:
