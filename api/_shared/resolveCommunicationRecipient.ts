@@ -204,3 +204,24 @@ export async function resolveCommunicationRecipient(
     needsInfoReason: null,
   }
 }
+
+/** Compat: callers that only need WhatsApp fields. */
+export async function resolveWhatsappRecipient(
+  supabase: SupabaseClient,
+  recipientHint: string
+): Promise<{
+  toUserId: string | null
+  phone: string | null
+  name: string | null
+  ambiguous: boolean
+  needsInfoReason: string | null
+}> {
+  const resolved = await resolveCommunicationRecipient(supabase, recipientHint, 'whatsapp')
+  return {
+    toUserId: resolved.toUserId,
+    phone: resolved.phone,
+    name: resolved.name,
+    ambiguous: resolved.ambiguous,
+    needsInfoReason: resolved.needsInfoReason,
+  }
+}
