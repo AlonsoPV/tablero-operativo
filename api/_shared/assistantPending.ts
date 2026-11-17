@@ -17,6 +17,8 @@ export type CopilotActor = {
    * Usado para gates de envío (canSendCommunication) en confirm_pending_op.
    */
   guideAccessMode?: 'propose' | 'read' | 'interview_full_read'
+  /** Sesión Guía Retell: se estampa en assistant_pending_ops para aprobar desde la liga. */
+  guideSessionId?: string | null
 }
 
 export const BOARD_PENDING_TTL_MS = 10 * 60 * 1000
@@ -72,7 +74,8 @@ export async function createPendingOp(
     status: 'pending',
     expires_at: expiresAt,
   }
-  if (input.sessionId) row.session_id = input.sessionId
+  const sessionId = input.sessionId || actor.guideSessionId || null
+  if (sessionId) row.session_id = sessionId
   if (input.channel) row.channel = input.channel
 
   const { data, error } = await actor.supabase
