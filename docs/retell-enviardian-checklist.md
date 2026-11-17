@@ -69,7 +69,7 @@ No editar el agente de entrevistas (`RETELL_AGENT_ID`).
 | `scrumban.timeout_ms` | `30000` | `30000` (backend tipa ~3s con `GUIDE_RETELL_TOOL_TIMEOUT_MS`) |
 | `scrumban` descripción | lista plana de tools | prefer `get_my_actions` / `get_okr_progress` / `get_dashboard_summary`; evitar `search_board` / `get_module_data` amplios |
 | `get_session_state.speak_during_execution` | según draft | `true` + mensaje `Un segundo.` |
-| Prompt version | `enviardian-voz-2026-11-13` | `enviardian-voz-2026-11-16-actions` (confirm/cancel verbal + Acciones informe) |
+| Prompt version | `enviardian-voz-2026-11-16-comms` | `enviardian-voz-2026-11-17-intent` (taxonomía A–D comunicaciones; sin publish hasta OK) |
 | `confirm_pending_op` / `cancel_pending_op` | ausente | en `RETELL_WRITE_TOOLS` + steering `scrumban` (solo `access_mode=propose`) |
 
 Estado en repo (código + script listos; remoto solo tras OK):
@@ -117,10 +117,12 @@ Hasta completar A–Z contra una URL real, la integracion de voz no esta cerrada
 ## Comunicaciones post-entrevista (correo + WhatsApp)
 
 - Persistencia: `assistant_pending_ops` (`gmail_prepare_send`, `whatsapp_prepare_send`).
-- Cola Retell: `POST /api/guide-queue-workspace-draft` con `action=prepare|update|cancel`, `channel=email|whatsapp|both`, `pending_op_id`, `idempotency_key`.
+- Cola Retell: `POST /api/guide-queue-workspace-draft` con `action=prepare|update|cancel`, `channel=email|whatsapp|both`, `pending_op_id`, `idempotency_key`, `content_instructions`, `conversation_context`.
+- Canal `unspecified` / mensaje sin canal: **no encola**; spoken pide WhatsApp o correo.
+- Detección de intención (offline + prompt): [`communicationIntent.ts`](../api/_shared/communicationIntent.ts) + taxonomía A–D en `enviardian-voz-2026-11-17-intent`. Menciones informativas **no** generan borrador; soft intent pregunta confirmación.
 - Ligas: pueden **encolar** borradores; no pueden **enviar**. Migración: `20261117010000_whatsapp_prepare_pending_ops.sql`.
 - UI: `GuideCommunicationsSection` (“Comunicaciones por aprobar”) + chip `N comunicaciones pendientes` en historial e invite (read-only).
-- Config externa requerida para envío real: `WHATSAPP_*`, Gmail OAuth del dueño, ventana 24h WhatsApp, publish Retell del schema de `queue_workspace_draft`.
+- Config externa requerida para envío real: `WHATSAPP_*`, Gmail OAuth del dueño, ventana 24h WhatsApp, publish Retell del prompt/schema (`GUIDE_RETELL_PUBLISH_OK`).
 - Sin publish Retell / deploy prod sin OK.
 
 ## Informe ejecutivo v3 (web + PDF)

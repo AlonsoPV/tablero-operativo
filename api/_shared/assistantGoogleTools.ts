@@ -812,11 +812,15 @@ export async function queueWorkspaceDraft(
     utteredAt?: string
     timeAnchor?: string
     sessionId?: string | null
+    contentInstructions?: string
+    conversationContext?: string
   }
 ): Promise<CopilotProposal> {
   const purpose = input.purpose.trim().slice(0, 500)
   if (!purpose) throw new Error('Indica el proposito del borrador.')
   const uttered = input.utteredAt || new Date().toISOString()
+  const contentInstructions = (input.contentInstructions || '').trim().slice(0, 500)
+  const conversationContext = (input.conversationContext || '').trim().slice(0, 800)
   const tool: GoogleWriteTool = input.type === 'event' ? 'calendar_prepare_event' : 'gmail_prepare_send'
   const workspace: CopilotWorkspacePreview =
     input.type === 'event'
@@ -839,6 +843,8 @@ export async function queueWorkspaceDraft(
     recipient_hint: input.recipient || '',
     attendees_hint: input.attendees ?? [],
     purpose,
+    content_instructions: contentInstructions,
+    conversation_context: conversationContext,
     uttered_at: uttered,
     time_anchor: input.timeAnchor || '',
     to: workspace.to ?? [],

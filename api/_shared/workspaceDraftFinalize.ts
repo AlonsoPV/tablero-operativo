@@ -65,10 +65,18 @@ export function fillWorkspaceDraftsFromTranscript(input: {
           ? 'event'
           : 'email')
     const purpose = asString(payload.purpose, 500)
+    const contentInstructions = asString(payload.content_instructions, 500)
+    const conversationContext = asString(payload.conversation_context, 800)
     const utteredAt = asString(payload.uttered_at, 40) || (input.now ?? new Date()).toISOString()
     const anchor = asString(payload.time_anchor, 80)
     const today = cdmxYmdFromInstant(utteredAt)
-    const context = sentencesNear(transcript, purpose || asString(payload.recipient_hint, 80))
+    const context = [
+      conversationContext,
+      contentInstructions,
+      sentencesNear(transcript, purpose || asString(payload.recipient_hint, 80)),
+    ]
+      .filter(Boolean)
+      .join('\n')
     const recipientHint = asString(payload.recipient_hint, 160)
     const attendeeHint = Array.isArray(payload.attendees_hint)
       ? payload.attendees_hint.map((item) => String(item))
@@ -76,7 +84,11 @@ export function fillWorkspaceDraftsFromTranscript(input: {
 
     if (kind === 'whatsapp') {
       // Recipient resolution is async in persistFilledWorkspaceDrafts; here we only draft body.
-      const body = clipText(context || purpose, WHATSAPP_BODY_MAX) || purpose
+      const body =
+        clipText(
+          [contentInstructions, conversationContext, context, purpose].filter(Boolean).join('\n'),
+          WHATSAPP_BODY_MAX
+        ) || purpose
       const workspace: CopilotWorkspacePreview = {
         kind: 'whatsapp',
         recipientName: recipientHint || undefined,

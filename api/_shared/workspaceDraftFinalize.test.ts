@@ -90,6 +90,29 @@ describe('fillWorkspaceDraftsFromTranscript', () => {
     expect(String(filled[0].payload.body)).toMatch(/acuerdos|Carlos/i)
   })
 
+  it('prefers content_instructions when filling whatsapp body', () => {
+    const filled = fillWorkspaceDraftsFromTranscript({
+      drafts: [
+        {
+          id: 'op-wa-ci',
+          tool: 'whatsapp_prepare_send',
+          payload: {
+            incomplete: true,
+            draft_kind: 'whatsapp',
+            purpose: 'seguimiento',
+            recipient_hint: 'Carlos',
+            content_instructions: 'Tono directo; menciona solo los acuerdos de OTIF.',
+            conversation_context: 'Acordaron revisar OTIF el lunes.',
+            uttered_at: '2026-11-16T12:00:00-06:00',
+          },
+          preview: {},
+        },
+      ],
+      transcript: 'Texto largo irrelevante de otra parte de la llamada.',
+    })
+    expect(String(filled[0].payload.body)).toMatch(/OTIF|directo|acuerdos/i)
+  })
+
   it('marks whatsapp needs_info when recipient is missing', () => {
     const filled = fillWorkspaceDraftsFromTranscript({
       drafts: [
