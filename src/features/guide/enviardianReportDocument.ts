@@ -182,7 +182,7 @@ export function sessionActionHref(id: string | null | undefined) {
   return `/kanban?accion=${encodeURIComponent(id.trim())}`
 }
 
-/** Fuente unica: created_work + recomendaciones no ejecutadas. */
+/** Fuente unica: created_work (recomendaciones LLM van al bloque de analisis, no aqui). */
 export function buildSessionActions(input: {
   createdWork?: Array<{
     title?: string | null
@@ -193,10 +193,10 @@ export function buildSessionActions(input: {
     dueDateHint?: string | null
     kind?: string | null
   }> | null
+  /** @deprecated Ignorado: las recomendaciones no se convierten en session_actions. */
   recommendations?: string[] | null
 }): EnviardianSessionAction[] {
   const actions: EnviardianSessionAction[] = []
-  const titles = new Set<string>()
   for (const item of input.createdWork ?? []) {
     const title = asString(item.title, 200)
     if (!title || item.error) continue
@@ -211,11 +211,6 @@ export function buildSessionActions(input: {
       dueDateHint: asString(item.dueDateHint, 80) || undefined,
       kind: item.kind === 'initiative' ? 'initiative' : 'action',
     })
-    titles.add(title.toLowerCase())
-  }
-  for (const line of asStringList(input.recommendations, 3, 400)) {
-    if (titles.has(line.toLowerCase())) continue
-    actions.push({ title: line, status: 'recommendation', kind: 'recommendation' })
   }
   return actions.slice(0, 12)
 }
@@ -398,7 +393,13 @@ export function normalizeReportDocument(
             ? item.kind
             : undefined,
       }))
-      .filter((item) => item.title && !isTechnicalNarrative(item.title))
+      .filter(
+        (item) =>
+          item.title &&
+          !isTechnicalNarrative(item.title) &&
+          item.status !== 'recommendation' &&
+          item.kind !== 'recommendation'
+      )
       .slice(0, 12),
     evidence_sources: evidence,
     technical_attention: technicalAttention,
@@ -601,8 +602,8 @@ export function metricsFromEvidenceSources(lines: string[]): EnviardianVerifiedM
 
 export function evidenceLabel(kind: EvidenceKind): string {
   if (kind === 'verified') return 'Confirmado en Scrumban'
-  if (kind === 'hypothesis') return 'Hipotesis del asesor'
-  if (kind === 'recommendation') return 'Recomendacion IA'
+  if (kind === 'hypothesis') return 'Interpretacion de Enviardian'
+  if (kind === 'recommendation') return 'Sugerencia de Enviardian'
   return 'Reportado en entrevista'
 }
 
@@ -757,7 +758,6 @@ export function buildEnviardianReportDocument(input: BuildReportDocumentInput): 
         ? input.sessionActions
         : buildSessionActions({
             createdWork: input.createdWork,
-            recommendations: input.recommendations,
           }),
     evidence_sources: verifiedLines,
     technical_attention: input.technicalAttention ?? [],

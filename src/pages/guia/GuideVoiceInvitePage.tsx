@@ -14,10 +14,7 @@ import {
 } from '@/features/guide/components/GuidePresence'
 import { GuideReportActions } from '@/features/guide/components/GuideReportActions'
 import { GuideReportBody } from '@/features/guide/components/GuideReportBody'
-import {
-  countPendingCommunications,
-  GuideCommunicationsSection,
-} from '@/features/guide/components/GuideCommunicationsSection'
+import { countPendingCommunications } from '@/features/guide/components/GuideCommunicationsSection'
 import type { CopilotProposal } from '@/features/ai-support/copilot/types'
 import { useRetellGuideCall } from '@/features/guide/hooks/useRetellGuideCall'
 import { guideService } from '@/features/guide/services/guide.service'
@@ -281,7 +278,7 @@ export function GuideVoiceInvitePage() {
       ) : null}
 
       {report && reportReady ? (
-        <section className="relative z-10 mx-auto w-full max-w-lg space-y-4 px-5 pb-2 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500">
+        <section className="relative z-10 mx-auto w-full max-w-3xl space-y-4 px-5 pb-2 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500">
           {(() => {
             const pendingComms = countPendingCommunications(report.communications ?? [])
             return pendingComms > 0 ? (
@@ -295,20 +292,16 @@ export function GuideVoiceInvitePage() {
             summary={report.summary}
             topic={report.topic}
             createdAt={report.created_at}
+            communications={report.communications}
+            confirmOp={confirmInviteOp}
+            cancelOp={cancelInviteOp}
+            disableEditCommunications
+            onCommunicationResolved={() => {
+              void requestReport('status')
+                .then((payload) => setReport(payload))
+                .catch(() => undefined)
+            }}
           />
-          {report.communications && report.communications.length > 0 ? (
-            <GuideCommunicationsSection
-              ops={report.communications}
-              confirmOp={confirmInviteOp}
-              cancelOp={cancelInviteOp}
-              disableEdit
-              onResolved={() => {
-                void requestReport('status')
-                  .then((payload) => setReport(payload))
-                  .catch(() => undefined)
-              }}
-            />
-          ) : null}
           <GuideReportActions
             topic={report.topic}
             dateLabel="Entrevista por liga"
@@ -318,6 +311,22 @@ export function GuideVoiceInvitePage() {
             intention={report.intention}
             createdAt={report.created_at}
             entryId={report.entry_id}
+            communications={(report.communications ?? []).map((op) => ({
+              channel:
+                op.tool === 'whatsapp_prepare_send'
+                  ? 'WhatsApp'
+                  : String(op.tool || '').startsWith('gmail_')
+                    ? 'Correo'
+                    : String(op.tool || '').startsWith('calendar_')
+                      ? 'Evento'
+                      : 'Mensaje',
+              title: op.title,
+              status: op.status,
+              recipient:
+                op.workspace?.recipientName ||
+                op.workspace?.to?.join(', ') ||
+                op.workspace?.phone,
+            }))}
             onShare={async (confirm) => {
               const payload = await requestReport('whatsapp', confirm)
               return {

@@ -1,9 +1,12 @@
 import {
   evidenceLabel,
-  resolveReportDocument,
   type EnviardianReportDocument,
   type EvidenceKind,
 } from '@/features/guide/enviardianReportDocument'
+import {
+  buildReportViewModel,
+  type EnviardianReportViewModel,
+} from '@/features/guide/reportViewModel'
 
 const CDMX_TZ = 'America/Mexico_City'
 
@@ -101,134 +104,152 @@ export function buildGuideReportFilename(input: {
   return `Enviardian_Informe_${dateKey}_${tail}.pdf`
 }
 
-function sectionFromDocument(doc: EnviardianReportDocument): GuideReportSection[] {
+function sectionsFromViewModel(
+  vm: EnviardianReportViewModel,
+  communications?: GuideReportSource['communications']
+): GuideReportSection[] {
   const sections: GuideReportSection[] = []
-  const overviewParts = [
-    doc.executive_summary.text,
-    doc.executive_summary.headlineFinding
-      ? `Hallazgo principal: ${doc.executive_summary.headlineFinding}`
-      : '',
-    doc.pending_decisions.length
-      ? `Decisiones pendientes: ${doc.pending_decisions.slice(0, 3).join('; ')}`
-      : '',
-    doc.executive_summary.nextStep ? `Siguiente paso: ${doc.executive_summary.nextStep}` : '',
+  const { hero, stats, block1, block2, block3 } = vm
+
+  const leadParts = [
+    hero.conclusion,
+    ...hero.keyPoints.map((point) => `- ${point}`),
+    ...stats
+      .filter((stat) => stat.id !== 'pending' || hero.pendingReviewCount === 0)
+      .map((stat) => stat.text),
   ].filter(Boolean)
+  if (hero.pendingReviewCount > 0) {
+    leadParts.push(
+      hero.pendingReviewCount === 1
+        ? '1 solicitud por revisar'
+        : `${hero.pendingReviewCount} solicitudes por revisar`
+    )
+  }
   sections.push({
     title: 'Resumen ejecutivo',
-    body: overviewParts.join('\n'),
+    body: leadParts.join('\n'),
     kind: 'lead',
   })
 
-  if (doc.key_findings.length) {
+  const resultLines: string[] = []
+  if (block1.findings.length) {
+    resultLines.push('Hallazgos:')
+    for (const item of block1.findings) {
+      const impact = item.businessImpact ? ` Impacto: ${item.businessImpact}.` : ''
+      resultLines.push(
+        `- ${item.title}: ${item.detail}${impact} [${evidenceLabel(item.evidence as EvidenceKind)}]`
+      )
+    }
+  }
+  if (block1.metrics.length) {
+    resultLines.push('Indicadores verificados:')
+    for (const metric of block1.metrics) {
+      resultLines.push(
+        `- ${metric.label}: ${metric.value}${metric.unit ? ` ${metric.unit}` : ''}`
+      )
+    }
+  }
+  if (block1.evidenceSources.length) {
+    resultLines.push('Fuente de informacion:')
+    for (const line of block1.evidenceSources) resultLines.push(`- ${line}`)
+  }
+  if (block1.technicalAttention.length) {
+    resultLines.push('Atencion tecnica (no son hallazgos de negocio):')
+    for (const item of block1.technicalAttention) {
+      resultLines.push(`- ${item.code}${item.tool ? ` · ${item.tool}` : ''}: ${item.message}`)
+    }
+  }
+  if (resultLines.length) {
     sections.push({
-      title: 'Hallazgos prioritarios',
-      body: doc.key_findings
-        .map((item) => {
-          const impact = item.businessImpact ? ` Impacto: ${item.businessImpact}.` : ''
-          return `- ${item.title}: ${item.detail}${impact} [${evidenceLabel(item.evidence as EvidenceKind)}]`
-        })
-        .join('\n'),
+      title: '01 · Resultados de la sesion',
+      body: [
+        'Que identificamos y que datos lo respaldan.',
+        ...resultLines,
+      ].join('\n'),
       kind: 'finding',
     })
   }
 
-  if (doc.verified_metrics.length) {
-    sections.push({
-      title: 'Indicadores verificados',
-      body: doc.verified_metrics
-        .map((m) => `- ${m.label}: ${m.value}${m.unit ? ` ${m.unit}` : ''}${m.sourceTool ? ` (${m.sourceTool})` : ''}`)
-        .join('\n'),
-      kind: 'metric',
+  const analysisLines: string[] = []
+  if (block2.interpretation) analysisLines.push(block2.interpretation)
+  if (block2.nextStep) analysisLines.push(`Siguiente paso sugerido: ${block2.nextStep}`)
+  if (block2.risks.length) {
+    analysisLines.push('Riesgos y oportunidades:')
+    for (const risk of block2.risks) {
+      const bits = [risk.risk]
+      if (risk.consequence) bits.push(`Consecuencia: ${risk.consequence}`)
+      if (risk.mitigation) bits.push(`Mitigacion: ${risk.mitigation}`)
+      if (risk.opportunity) bits.push(`Oportunidad: ${risk.opportunity}`)
+      analysisLines.push(`- ${bits.join(' · ')}`)
+    }
+  }
+  if (block2.recommendations.length) {
+    analysisLines.push('Recomendaciones de Enviardian (sugerencias, no decisiones confirmadas):')
+    block2.recommendations.forEach((item, index) => {
+      if (item.what || item.why || item.outcome) {
+        const parts = [`${index + 1}.`]
+        if (item.what) parts.push(`Que: ${item.what}`)
+        if (item.why) parts.push(`Por que: ${item.why}`)
+        if (item.outcome) parts.push(`Resultado: ${item.outcome}`)
+        analysisLines.push(parts.join(' '))
+      } else {
+        analysisLines.push(`${index + 1}. ${item.text}`)
+      }
     })
   }
-
-  if (doc.confirmed_decisions.length || doc.pending_decisions.length) {
-    const lines: string[] = []
-    if (doc.confirmed_decisions.length) {
-      lines.push('Confirmadas:')
-      doc.confirmed_decisions.forEach((item) => lines.push(`- ${item}`))
-    }
-    if (doc.pending_decisions.length) {
-      lines.push('Pendientes:')
-      doc.pending_decisions.forEach((item) => lines.push(`- ${item}`))
-    }
-    sections.push({ title: 'Decisiones', body: lines.join('\n'), kind: 'action' })
-  }
-
-  if (doc.recommendations.length) {
+  if (analysisLines.length) {
     sections.push({
-      title: 'Analisis Enviardian (IA)',
+      title: '02 · Analisis y recomendaciones',
       body: [
-        'Recomendaciones de IA — no son hechos verificados',
-        ...doc.recommendations.map((item, i) => `${i + 1}. ${item}`),
+        'Que significan los resultados y que conviene hacer.',
+        ...analysisLines,
       ].join('\n'),
       kind: 'ai',
     })
   }
 
-  if (doc.session_actions?.length) {
-    const label = (status: string) => {
-      if (status === 'executed') return 'Ejecutada'
-      if (status === 'pending_confirmation') return 'Pendiente de confirmacion'
-      if (status === 'recommendation') return 'Recomendacion (no ejecutada)'
-      return 'Compromiso'
+  const followLines: string[] = []
+  const pdfComms = communications?.length ? communications : null
+  if (pdfComms?.length) {
+    followLines.push('Comunicaciones (estado al generar el PDF; la aprobacion se hace en la app):')
+    for (const item of pdfComms) {
+      const channel = item.channel || 'mensaje'
+      const status = item.status || 'pendiente'
+      const who = item.recipient ? ` → ${item.recipient}` : ''
+      followLines.push(`- [${status}] ${channel}: ${item.title || 'Borrador'}${who}`)
     }
-    sections.push({
-      title: 'Acciones',
-      body: doc.session_actions
-        .map((item) => {
-          const link = item.href ? ` · ${item.href}` : item.id ? ` · id ${item.id}` : ''
-          return `- [${label(item.status)}] ${item.title}${link}`
-        })
-        .join('\n'),
-      kind: 'action',
-    })
   }
-
-  if (doc.confirmed_commitments.length) {
+  if (block3.boardProposals.length) {
+    followLines.push('Tareas e iniciativas propuestas:')
+    for (const item of block3.boardProposals) {
+      followLines.push(`- [${item.statusLabel}] ${item.title}`)
+    }
+  }
+  if (block3.orphanCommitments.length) {
+    followLines.push('Compromisos registrados:')
+    for (const item of block3.orphanCommitments) {
+      const who = item.ownerHint || 'Por definir'
+      const when = item.dueDateHint || 'Por definir'
+      followLines.push(`- [${item.statusLabel}] ${item.title} | ${who} | ${when}`)
+    }
+  }
+  if (block3.pendingDecisions.length) {
+    followLines.push('Decisiones pendientes:')
+    for (const item of block3.pendingDecisions) followLines.push(`- ${item}`)
+  }
+  if (block3.executed.length || block3.confirmedDecisions.length) {
+    followLines.push('Operaciones ejecutadas:')
+    for (const item of block3.executed) followLines.push(`- [${item.statusLabel}] ${item.title}`)
+    for (const item of block3.confirmedDecisions) followLines.push(`- [Confirmada] ${item}`)
+  }
+  if (followLines.length) {
     sections.push({
-      title: 'Plan de accion',
+      title: '03 · Pendientes de aprobacion',
       body: [
-        'Accion | Responsable | Fecha | Estado',
-        ...doc.confirmed_commitments.slice(0, 3).map((c) => {
-          const status =
-            c.status === 'confirmed' ? 'Confirmado' : c.status === 'proposal' ? 'Propuesta' : 'Por definir'
-          return `- ${c.action} | ${c.ownerHint || 'Por definir'} | ${c.dueDateHint || 'Por definir'} | ${status}`
-        }),
+        'Que necesita tu revision para continuar.',
+        ...followLines,
       ].join('\n'),
       kind: 'action',
-    })
-  }
-
-  if (doc.risks.length) {
-    sections.push({
-      title: 'Riesgos y oportunidades',
-      body: doc.risks
-        .map((r) => {
-          const bits = [r.risk]
-          if (r.consequence) bits.push(`Consecuencia: ${r.consequence}`)
-          if (r.mitigation) bits.push(`Mitigacion: ${r.mitigation}`)
-          if (r.opportunity) bits.push(`Oportunidad: ${r.opportunity}`)
-          return `- ${bits.join(' · ')}`
-        })
-        .join('\n'),
-      kind: 'risk',
-    })
-  }
-
-  if (doc.evidence_sources.length) {
-    sections.push({
-      title: 'Fuentes verificadas',
-      body: doc.evidence_sources.map((line) => `- ${line}`).join('\n'),
-      kind: 'note',
-    })
-  }
-
-  if (doc.executive_summary.nextStep) {
-    sections.push({
-      title: 'Proximo paso',
-      body: doc.executive_summary.nextStep,
-      kind: 'closing',
     })
   }
 
@@ -239,7 +260,7 @@ export function buildGuideReportPresentation(
   source: GuideReportSource,
   generatedAtIso: string
 ): GuideReportPresentation {
-  const document = resolveReportDocument({
+  const vm = buildReportViewModel({
     executiveReport: source.executive_report,
     summary: source.summary,
     topic: source.topic,
@@ -247,23 +268,9 @@ export function buildGuideReportPresentation(
     sessionId: source.session_id,
   })
 
-  const sections = document ? sectionFromDocument(document) : []
-  if (source.communications?.length) {
-    const insertAt = Math.min(2, sections.length)
-    sections.splice(insertAt, 0, {
-      title: 'Comunicaciones',
-      body: [
-        'Estado al momento de generar este PDF. La aprobacion y el envio se hacen en la app.',
-        ...source.communications.map((item) => {
-          const channel = item.channel || 'mensaje'
-          const status = item.status || 'pendiente'
-          const who = item.recipient ? ` → ${item.recipient}` : ''
-          return `- [${status}] ${channel}: ${item.title || 'Borrador'}${who}`
-        }),
-      ].join('\n'),
-      kind: 'action',
-    })
-  }
+  const document = vm?.document ?? null
+  const sections = vm ? sectionsFromViewModel(vm, source.communications) : []
+
   const limitations: string[] = []
   if (!source.executive_report?.trim() && source.summary?.trim()) {
     limitations.push('El informe usa el resumen almacenado; no hay reporte ejecutivo estructurado.')
@@ -284,7 +291,10 @@ export function buildGuideReportPresentation(
     formatReportDateTimeCDMX(interviewIso) || 'Fecha de entrevista no disponible'
   const generatedAtLabel =
     formatReportDateTimeCDMX(generatedAtIso) || 'Fecha de generacion no disponible'
-  const sessionClean = (document?.metadata.sessionId || source.session_id || '').replace(/[^a-zA-Z0-9]/g, '')
+  const sessionClean = (document?.metadata.sessionId || source.session_id || '').replace(
+    /[^a-zA-Z0-9]/g,
+    ''
+  )
   const sessionShort = sessionClean ? sessionClean.slice(-8) : null
 
   return {

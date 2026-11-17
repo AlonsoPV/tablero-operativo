@@ -1,124 +1,46 @@
 import {
   AlertTriangle,
-  CheckCircle2,
-  CircleDot,
   ClipboardList,
   Lightbulb,
-  Sparkles,
+  Scale,
   Target,
   TrendingUp,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
-import {
-  buildSessionActions,
-  evidenceLabel,
-  resolveReportDocument,
-  type EvidenceKind,
-  type EnviardianSessionActionStatus,
-  type ReportCommitmentStatus,
-} from '@/features/guide/enviardianReportDocument'
+import type { CopilotProposal } from '@/features/ai-support/copilot/types'
+import { GuideCommunicationsSection } from '@/features/guide/components/GuideCommunicationsSection'
+import { EvidenceTag } from '@/features/guide/components/report/EvidenceTag'
+import { FollowUpCard } from '@/features/guide/components/report/FollowUpCard'
+import { RecommendationCard } from '@/features/guide/components/report/RecommendationCard'
+import { ReportBlock } from '@/features/guide/components/report/ReportBlock'
+import { SessionStat } from '@/features/guide/components/report/SessionStat'
 import type { GuideCreatedWork } from '@/features/guide/types'
+import {
+  buildReportViewModel,
+  hasFollowUpContent,
+} from '@/features/guide/reportViewModel'
+
+type ReportCommunicationOp = CopilotProposal & {
+  status?: string
+  errorMessage?: string | null
+  deliveryStatus?: string | null
+}
 import {
   REPORT_PALETTE,
   toneClasses,
-  toneForCommitment,
-  toneForDecision,
   toneForEvidence,
   toneForRisk,
-  toneForSessionAction,
-  type ReportToneId,
 } from '@/features/guide/reportVisualTheme'
 import { cn } from '@/lib/utils'
 
-function EvidenceBadge({ kind }: { kind: EvidenceKind }) {
-  const tone = toneClasses(toneForEvidence(kind))
+function MetricRow({ label, value }: { label: string; value: string }) {
   return (
-    <span
-      className={cn(
-        'inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em]',
-        tone.badge
-      )}
-    >
-      {evidenceLabel(kind)}
-    </span>
-  )
-}
-
-function StatusChip({ status }: { status: ReportCommitmentStatus }) {
-  const tone = toneClasses(toneForCommitment(status))
-  const label =
-    status === 'confirmed' ? 'Confirmado' : status === 'proposal' ? 'Propuesta' : 'Por definir'
-  return (
-    <span className={cn('inline-flex rounded-md border px-2 py-0.5 text-[11px] font-semibold', tone.badge)}>
-      {label}
-    </span>
-  )
-}
-
-function SessionActionChip({ status }: { status: EnviardianSessionActionStatus }) {
-  const tone = toneClasses(toneForSessionAction(status))
-  const label =
-    status === 'executed'
-      ? 'Ejecutada'
-      : status === 'pending_confirmation'
-        ? 'Pendiente de confirmacion'
-        : status === 'recommendation'
-          ? 'Recomendacion'
-          : 'Compromiso'
-  return (
-    <span className={cn('inline-flex rounded-md border px-2 py-0.5 text-[11px] font-semibold', tone.badge)}>
-      {label}
-    </span>
-  )
-}
-
-function KpiCard({
-  label,
-  value,
-  toneId,
-  icon: Icon,
-}: {
-  label: string
-  value: string | number
-  toneId: ReportToneId
-  icon: typeof Target
-}) {
-  const tone = toneClasses(toneId)
-  return (
-    <div className={cn('min-w-[9.5rem] flex-1 rounded-2xl border p-4 shadow-sm', tone.card, tone.border)}>
-      <div className="mb-2 flex items-center gap-2">
-        <span className={cn('inline-flex h-8 w-8 items-center justify-center rounded-xl', tone.card)}>
-          <Icon className={cn('h-4 w-4', tone.text)} aria-hidden />
-        </span>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-600">{label}</p>
-      </div>
-      <p className={cn('text-3xl font-semibold tabular-nums tracking-tight', tone.kpiValue)}>{value}</p>
+    <div className="rounded-xl border border-slate-200/80 bg-white px-3.5 py-3 shadow-sm">
+      <p className="text-xs font-medium text-slate-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold tabular-nums tracking-tight text-[#0D9488]">
+        {value}
+      </p>
     </div>
   )
-}
-
-function MetricBar({ label, value, toneId = 'teal' }: { label: string; value: string; toneId?: ReportToneId }) {
-  const tone = toneClasses(toneId)
-  const numeric = Number(String(value).replace(/[^\d.]/g, ''))
-  const pct = Number.isFinite(numeric) ? Math.max(6, Math.min(100, numeric > 100 ? 100 : numeric)) : 40
-  return (
-    <div className={cn('space-y-2 rounded-xl border p-3', tone.border, tone.card)}>
-      <div className="flex items-baseline justify-between gap-3 text-sm">
-        <span className="text-slate-600">{label}</span>
-        <span className={cn('font-semibold tabular-nums', tone.kpiValue)}>{value}</span>
-      </div>
-      <div className="h-2 overflow-hidden rounded-full bg-white/80">
-        <div className={cn('h-full rounded-full', tone.bar)} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  )
-}
-
-function evidenceIcon(kind: EvidenceKind) {
-  if (kind === 'verified') return CheckCircle2
-  if (kind === 'hypothesis') return AlertTriangle
-  if (kind === 'recommendation') return Sparkles
-  return CircleDot
 }
 
 export function GuideReportBody({
@@ -128,6 +50,13 @@ export function GuideReportBody({
   createdAt,
   sessionId,
   createdWork,
+  communications,
+  communicationsReadOnly = false,
+  confirmOp,
+  cancelOp,
+  disableEditCommunications = false,
+  onCommunicationUpdated,
+  onCommunicationResolved,
   agentInferences: _agentInferences,
   learning: _learning,
   intention: _intention,
@@ -139,20 +68,45 @@ export function GuideReportBody({
   createdAt?: string | null
   sessionId?: string | null
   createdWork?: GuideCreatedWork[] | null
+  communications?: ReportCommunicationOp[] | null
+  communicationsReadOnly?: boolean
+  confirmOp?: (opId: string) => Promise<{ result?: { href?: string } | null }>
+  cancelOp?: (opId: string) => Promise<void>
+  disableEditCommunications?: boolean
+  onCommunicationUpdated?: (proposal: CopilotProposal) => void
+  onCommunicationResolved?: (id: string, status: 'confirmed' | 'cancelled') => void
   agentInferences?: string | null
   learning?: string | null
   intention?: string | null
   reflectionQuestion?: string | null
 }) {
-  const doc = resolveReportDocument({
+  const vm = buildReportViewModel({
     executiveReport,
     summary,
     topic,
     createdAt,
     sessionId,
+    createdWork,
+    communications: (communications ?? []).map((op) => ({
+      id: op.id,
+      tool: op.tool,
+      title: op.title,
+      status: op.status,
+      errorMessage: op.errorMessage,
+      deliveryStatus: op.deliveryStatus,
+      workspace: op.workspace
+        ? {
+            needsInfo: op.workspace.needsInfo,
+            incomplete: op.workspace.incomplete,
+            recipientName: op.workspace.recipientName,
+            to: op.workspace.to,
+            phone: op.workspace.phone,
+          }
+        : null,
+    })),
   })
 
-  if (!doc) {
+  if (!vm) {
     return (
       <section
         className="space-y-2 rounded-2xl border border-slate-200 p-5"
@@ -165,21 +119,8 @@ export function GuideReportBody({
     )
   }
 
-  const sessionActions =
-    doc.session_actions?.length > 0
-      ? doc.session_actions
-      : buildSessionActions({
-          createdWork,
-          recommendations: doc.recommendations,
-        })
-  const commitments = doc.confirmed_commitments.slice(0, 3)
-  const showKpis =
-    (doc.counts &&
-      (doc.counts.findings > 0 || doc.counts.pendingDecisions > 0 || doc.counts.commitments > 0)) ||
-    doc.verified_metrics.length > 0
-  const confirmedTone = toneClasses(toneForDecision('confirmed'))
-  const pendingTone = toneClasses(toneForDecision('pending'))
-  const aiTone = toneClasses(toneForDecision('recommendation'))
+  const { hero, stats, block1, block2, block3, document: doc } = vm
+  const showFollowUp = hasFollowUpContent(vm)
 
   return (
     <div
@@ -187,9 +128,8 @@ export function GuideReportBody({
       style={{ background: REPORT_PALETTE.surface }}
       aria-label="Informe ejecutivo"
     >
-      {/* Hero */}
       <header
-        className="relative space-y-4 px-5 py-6 text-white sm:px-7 sm:py-8"
+        className="relative space-y-4 px-5 py-6 text-white sm:px-7 sm:py-7"
         style={{ background: REPORT_PALETTE.navy }}
       >
         <div
@@ -204,397 +144,346 @@ export function GuideReportBody({
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-blue-100/90">
             Scrumban · Enviardian
           </p>
-          <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">Informe ejecutivo</h2>
-          <p className="text-sm text-blue-100/90 sm:text-base">{doc.metadata.topic}</p>
-          {(doc.metadata.participant || doc.metadata.durationLabel) && (
-            <p className="text-xs text-blue-100/70">
-              {[doc.metadata.participant, doc.metadata.durationLabel].filter(Boolean).join(' · ')}
+          <div className="space-y-1">
+            <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">{hero.topic}</h2>
+            <p className="max-w-3xl text-[15px] leading-6 text-white/95 sm:text-base">
+              {hero.conclusion}
             </p>
-          )}
-          <p className="max-w-3xl text-[15px] leading-7 text-white/95 sm:text-base sm:leading-7">
-            {doc.executive_summary.text}
-          </p>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-white/20">
-              <Target className="h-3.5 w-3.5" aria-hidden />
-              {doc.executive_summary.headlineFinding ||
-                doc.key_findings[0]?.title ||
-                'Sin hallazgo destacado'}
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-400/20 px-3 py-1.5 text-xs font-medium text-teal-50 ring-1 ring-teal-200/30">
-              <TrendingUp className="h-3.5 w-3.5" aria-hidden />
-              Siguiente: {doc.executive_summary.nextStep || 'Por definir'}
-            </span>
+          </div>
+          {hero.keyPoints.length > 0 ? (
+            <ul className="max-w-3xl space-y-1.5 text-sm text-blue-50/95">
+              {hero.keyPoints.map((point) => (
+                <li key={point} className="flex gap-2">
+                  <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-teal-300" aria-hidden />
+                  <span>{point}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-xs text-blue-100/75">
+            {hero.dateLabel ? <span>{hero.dateLabel}</span> : null}
+            {hero.durationLabel ? <span>· {hero.durationLabel}</span> : null}
+            {hero.participant ? <span>· {hero.participant}</span> : null}
+            {hero.pendingReviewCount > 0 ? (
+              <span className="inline-flex rounded-full bg-amber-400/20 px-2.5 py-1 font-medium text-amber-50 ring-1 ring-amber-200/30">
+                {hero.pendingReviewCount === 1
+                  ? '1 solicitud por revisar'
+                  : `${hero.pendingReviewCount} solicitudes por revisar`}
+              </span>
+            ) : null}
           </div>
         </div>
       </header>
 
-      <div className="space-y-6 p-4 sm:space-y-8 sm:p-6">
-        {showKpis ? (
-          <section aria-label="Indicadores" className="space-y-3">
-            <h3 className="text-sm font-semibold tracking-tight text-slate-800">Indicadores</h3>
-            <div className="flex gap-3 overflow-x-auto pb-1 sm:grid sm:grid-cols-2 sm:overflow-visible lg:grid-cols-4">
-              {doc.counts?.findings ? (
-                <KpiCard
-                  label="Hallazgos"
-                  value={doc.counts.findings}
-                  toneId="blue"
-                  icon={ClipboardList}
-                />
-              ) : null}
-              {doc.counts?.pendingDecisions ? (
-                <KpiCard
-                  label="Pendientes"
-                  value={doc.counts.pendingDecisions}
-                  toneId="amber"
-                  icon={AlertTriangle}
-                />
-              ) : null}
-              {doc.counts?.commitments ? (
-                <KpiCard
-                  label="Compromisos"
-                  value={doc.counts.commitments}
-                  toneId="green"
-                  icon={CheckCircle2}
-                />
-              ) : null}
-              {doc.verified_metrics.length ? (
-                <KpiCard
-                  label="Metricas verificadas"
-                  value={doc.verified_metrics.length}
-                  toneId="teal"
-                  icon={TrendingUp}
-                />
-              ) : null}
-            </div>
-          </section>
+      <div className="space-y-8 p-4 sm:space-y-10 sm:p-6 lg:p-7">
+        {stats.length > 0 ? (
+          <div className="flex flex-wrap gap-2" aria-label="Resumen de la sesion">
+            {stats.map((stat) => (
+              <SessionStat key={stat.id} text={stat.text} />
+            ))}
+          </div>
         ) : null}
 
-        {(doc.technical_attention?.length ?? 0) > 0 ? (
-          <section className="space-y-3" aria-label="Atencion tecnica">
-            <div className="space-y-1">
-              <h3 className="text-sm font-semibold tracking-tight text-slate-800">
-                Solicitudes que requieren atencion tecnica
-              </h3>
-              <p className="text-xs text-slate-500">
-                Fallas de integracion o herramientas. No son hallazgos de negocio.
-              </p>
-            </div>
-            <ul className="space-y-2 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
-              {(doc.technical_attention ?? []).map((item) => (
-                <li key={`${item.code}-${item.message}`} className="text-sm leading-6 text-slate-700">
-                  <span className="font-medium text-amber-900">{item.code}</span>
-                  {item.tool ? <span className="text-slate-500"> · {item.tool}</span> : null}
-                  <span className="text-slate-600"> — {item.message}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-
-        {doc.key_findings.length > 0 ? (
-          <section className="space-y-3" aria-label="Hallazgos">
-            <h3 className="text-sm font-semibold tracking-tight text-slate-800">Hallazgos prioritarios</h3>
-            <div className="grid gap-3 lg:grid-cols-2">
-              {doc.key_findings.map((item) => {
-                const toneId = toneForEvidence(item.evidence)
-                const tone = toneClasses(toneId)
-                const Icon = evidenceIcon(item.evidence)
-                return (
-                  <article
-                    key={`${item.title}-${item.detail}`}
-                    className={cn('relative overflow-hidden rounded-2xl border bg-white p-4 shadow-sm', tone.border)}
-                  >
-                    <div className={cn('absolute inset-y-0 left-0 w-1.5', tone.rail)} aria-hidden />
-                    <div className="space-y-2 pl-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Icon className={cn('h-4 w-4', tone.text)} aria-hidden />
-                        <p className="text-sm font-semibold text-slate-900">{item.title}</p>
-                        <EvidenceBadge kind={item.evidence} />
-                      </div>
-                      <p className="text-sm leading-6 text-slate-600">{item.detail}</p>
-                      {item.businessImpact ? (
-                        <p className="text-sm leading-6 text-slate-800">
-                          <span className="font-medium">Impacto: </span>
-                          {item.businessImpact}
-                        </p>
-                      ) : null}
-                    </div>
-                  </article>
-                )
-              })}
-            </div>
-          </section>
-        ) : null}
-
-        {doc.verified_metrics.length > 0 ? (
-          <section className="space-y-3" aria-label="Indicadores verificados">
-            <div className="space-y-1">
-              <h3 className="text-sm font-semibold tracking-tight text-slate-800">Indicadores verificados</h3>
-              <p className="text-xs text-slate-500">Solo datos consultados en Scrumban durante la llamada.</p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {doc.verified_metrics.map((metric, index) => (
-                <MetricBar
-                  key={`${metric.label}-${metric.value}`}
-                  label={metric.label}
-                  value={metric.value}
-                  toneId={index % 2 === 0 ? 'teal' : 'blue'}
-                />
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        {sessionActions.length > 0 ? (
-          <section className="space-y-3" aria-label="Acciones">
-            <div className="space-y-1">
-              <h3 className="text-sm font-semibold tracking-tight text-slate-800">Acciones</h3>
-              <p className="text-xs text-slate-500">
-                Ejecutadas, pendientes de confirmacion y recomendaciones no ejecutadas de esta sesion.
-              </p>
-            </div>
-            <ul className="space-y-2">
-              {sessionActions.map((item) => {
-                const tone = toneClasses(toneForSessionAction(item.status))
-                return (
-                  <li
-                    key={`${item.status}-${item.title}-${item.id || ''}`}
-                    className={cn(
-                      'relative overflow-hidden rounded-2xl border bg-white p-3.5 shadow-sm',
-                      tone.border
-                    )}
-                  >
-                    <div className={cn('absolute inset-y-0 left-0 w-1.5', tone.rail)} aria-hidden />
-                    <div className="flex flex-wrap items-start justify-between gap-2 pl-2.5">
-                      <div className="min-w-0 space-y-1">
-                        <p className="text-sm font-semibold text-slate-900">{item.title}</p>
-                        {(item.ownerHint || item.dueDateHint) && (
-                          <p className="text-xs text-slate-500">
-                            {[item.ownerHint, item.dueDateHint].filter(Boolean).join(' · ')}
-                          </p>
-                        )}
-                        {item.href ? (
-                          <Link
-                            to={item.href}
-                            className="text-xs font-medium text-[#2563EB] hover:underline"
-                          >
-                            Abrir en Scrumban
-                          </Link>
-                        ) : null}
-                      </div>
-                      <SessionActionChip status={item.status} />
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-          </section>
-        ) : null}
-
-        {(doc.confirmed_decisions.length > 0 || doc.pending_decisions.length > 0) && (
-          <section className="space-y-3" aria-label="Decisiones">
-            <h3 className="text-sm font-semibold tracking-tight text-slate-800">Decisiones</h3>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className={cn('space-y-2 rounded-2xl border p-4', confirmedTone.card, confirmedTone.border)}>
-                <p className={cn('text-[11px] font-semibold uppercase tracking-[0.06em]', confirmedTone.text)}>
-                  Confirmadas
-                </p>
-                {doc.confirmed_decisions.length ? (
-                  <ul className="space-y-2">
-                    {doc.confirmed_decisions.map((item) => (
-                      <li
-                        key={item}
-                        className="rounded-xl border border-white/60 bg-white/80 px-3 py-2 text-sm leading-6 text-slate-800"
-                      >
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-slate-500">Ninguna</p>
-                )}
-              </div>
-              <div className={cn('space-y-2 rounded-2xl border p-4', pendingTone.card, pendingTone.border)}>
-                <p className={cn('text-[11px] font-semibold uppercase tracking-[0.06em]', pendingTone.text)}>
-                  Pendientes
-                </p>
-                {doc.pending_decisions.length ? (
-                  <ul className="space-y-2">
-                    {doc.pending_decisions.map((item) => (
-                      <li
-                        key={item}
-                        className="rounded-xl border border-white/60 bg-white/80 px-3 py-2 text-sm leading-6 text-slate-800"
-                      >
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-slate-500">Ninguna</p>
-                )}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {commitments.length > 0 ? (
-          <section className="space-y-3" aria-label="Plan de accion">
-            <h3 className="text-sm font-semibold tracking-tight text-slate-800">Plan de accion</h3>
-            <div className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white md:block">
-              <table className="w-full border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-[0.06em] text-slate-500">
-                    <th className="px-4 py-3 font-semibold">Accion</th>
-                    <th className="px-4 py-3 font-semibold">Responsable</th>
-                    <th className="px-4 py-3 font-semibold">Fecha</th>
-                    <th className="px-4 py-3 font-semibold">Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {commitments.map((row) => {
-                    const tone = toneClasses(toneForCommitment(row.status))
-                    return (
-                      <tr key={row.action} className="border-b border-slate-100 align-top last:border-0">
-                        <td className="px-4 py-3">
-                          <div className="flex items-start gap-2">
-                            <span className={cn('mt-1 h-2 w-2 shrink-0 rounded-full', tone.rail)} aria-hidden />
-                            <span className="font-medium text-slate-900">{row.action}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">{row.ownerHint || 'Por definir'}</td>
-                        <td className="px-4 py-3 text-slate-600">{row.dueDateHint || 'Por definir'}</td>
-                        <td className="px-4 py-3">
-                          <StatusChip status={row.status} />
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <div className="grid gap-3 md:hidden">
-              {commitments.map((row) => {
-                const tone = toneClasses(toneForCommitment(row.status))
-                return (
-                  <article
-                    key={row.action}
-                    className={cn('space-y-2 rounded-2xl border bg-white p-4', tone.border)}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-900">{row.action}</p>
-                      <StatusChip status={row.status} />
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      {row.ownerHint || 'Por definir'} · {row.dueDateHint || 'Por definir'}
-                    </p>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-                      <div
-                        className={cn('h-full rounded-full', tone.bar)}
-                        style={{
-                          width:
-                            row.status === 'confirmed' ? '100%' : row.status === 'proposal' ? '55%' : '30%',
-                        }}
-                      />
-                    </div>
-                  </article>
-                )
-              })}
-            </div>
-          </section>
-        ) : null}
-
-        {doc.risks.length > 0 ? (
-          <section className="space-y-3" aria-label="Riesgos">
-            <h3 className="text-sm font-semibold tracking-tight text-slate-800">Riesgos y oportunidades</h3>
-            <div className="grid gap-3 lg:grid-cols-2">
-              {doc.risks.map((risk) => {
-                const riskToneId = toneForRisk(risk.risk, {
-                  hasOpportunity: Boolean(risk.opportunity),
-                })
-                const riskTone = toneClasses(riskToneId)
-                return (
-                  <div key={risk.risk} className="space-y-3">
+        <ReportBlock
+          number="01"
+          title="Resultados de la sesion"
+          subtitle="Que identificamos y que datos lo respaldan."
+          icon={ClipboardList}
+        >
+          {block1.findings.length > 0 ? (
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold text-slate-800">Hallazgos</h4>
+              <div className="grid gap-3 lg:grid-cols-2">
+                {block1.findings.map((item) => {
+                  const tone = toneClasses(toneForEvidence(item.evidence))
+                  return (
                     <article
-                      className={cn('overflow-hidden rounded-2xl border bg-white shadow-sm', riskTone.border)}
+                      key={`${item.title}-${item.detail}`}
+                      className={cn(
+                        'relative overflow-hidden rounded-2xl border bg-white p-4 shadow-sm',
+                        tone.border
+                      )}
                     >
-                      <div className={cn('px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-white', riskTone.rail)}>
-                        Riesgo
-                      </div>
-                      <div className="space-y-1.5 p-4">
-                        <p className="text-sm font-semibold text-slate-900">{risk.risk}</p>
-                        {risk.consequence ? (
-                          <p className="text-sm text-slate-600">Consecuencia: {risk.consequence}</p>
-                        ) : null}
-                        {risk.mitigation ? (
-                          <p className="text-sm text-slate-600">Mitigacion: {risk.mitigation}</p>
+                      <div className={cn('absolute inset-y-0 left-0 w-1.5', tone.rail)} aria-hidden />
+                      <div className="space-y-2 pl-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold text-slate-900">{item.title}</p>
+                          <EvidenceTag kind={item.evidence} source={item.source} />
+                        </div>
+                        <p className="text-sm leading-6 text-slate-600">{item.detail}</p>
+                        {item.businessImpact ? (
+                          <p className="text-sm leading-6 text-slate-800">
+                            <span className="font-medium">Impacto: </span>
+                            {item.businessImpact}
+                          </p>
                         ) : null}
                       </div>
                     </article>
-                    {risk.opportunity ? (
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {block1.metrics.length > 0 ? (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <h4 className="text-sm font-semibold text-slate-800">Indicadores verificados</h4>
+                <p className="text-xs text-slate-500">
+                  Solo datos consultados en Scrumban durante la conversacion.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {block1.metrics.map((metric) => (
+                  <MetricRow
+                    key={`${metric.label}-${metric.value}`}
+                    label={metric.label}
+                    value={`${metric.value}${metric.unit ? ` ${metric.unit}` : ''}`}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {block1.evidenceSources.length > 0 ? (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-slate-800">Fuente de informacion</h4>
+              <ul className="space-y-1.5 rounded-2xl border border-slate-200/80 bg-white/70 px-4 py-3 text-sm text-slate-600">
+                {block1.evidenceSources.map((line) => (
+                  <li key={line} className="flex gap-2">
+                    <TrendingUp className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#0D9488]" aria-hidden />
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {block1.technicalAttention.length > 0 ? (
+            <div className="space-y-2 rounded-2xl border border-amber-200/80 bg-amber-50/50 p-4">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-700" aria-hidden />
+                <h4 className="text-sm font-semibold text-amber-900">Atencion tecnica</h4>
+              </div>
+              <p className="text-xs text-amber-800/80">
+                Fallas de integracion o herramientas. No son hallazgos de negocio.
+              </p>
+              <ul className="space-y-1.5 text-sm text-slate-700">
+                {block1.technicalAttention.map((item) => (
+                  <li key={`${item.code}-${item.message}`}>
+                    <span className="font-medium text-amber-900">{item.code}</span>
+                    {item.tool ? <span className="text-slate-500"> · {item.tool}</span> : null}
+                    <span className="text-slate-600"> — {item.message}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {block1.interviewOnly || block1.consultFailed ? (
+            <p className="text-xs text-slate-500">
+              {block1.consultFailed
+                ? 'Una consulta al tablero fallo. Este informe no completa cifras faltantes.'
+                : 'Sin consulta exitosa al tablero: el informe se basa solo en la entrevista.'}
+            </p>
+          ) : null}
+        </ReportBlock>
+
+        <ReportBlock
+          number="02"
+          title="Analisis y recomendaciones"
+          subtitle="Que significan los resultados y que conviene hacer."
+          icon={Lightbulb}
+        >
+          {(block2.interpretation || block2.nextStep) && (
+            <div className="space-y-2 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <Scale className="h-4 w-4 text-[#172B59]" aria-hidden />
+                <h4 className="text-sm font-semibold text-slate-800">Interpretacion ejecutiva</h4>
+              </div>
+              {block2.interpretation ? (
+                <p className="text-sm leading-6 text-slate-700">{block2.interpretation}</p>
+              ) : null}
+              {block2.nextStep ? (
+                <p className="text-sm leading-6 text-slate-800">
+                  <span className="font-medium">Siguiente paso sugerido: </span>
+                  {block2.nextStep}
+                </p>
+              ) : null}
+            </div>
+          )}
+
+          {block2.risks.length > 0 ? (
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold text-slate-800">Riesgos y oportunidades</h4>
+              <div className="grid gap-3 lg:grid-cols-2">
+                {block2.risks.map((risk) => {
+                  const riskTone = toneClasses(
+                    toneForRisk(risk.risk, { hasOpportunity: Boolean(risk.opportunity) })
+                  )
+                  return (
+                    <div key={risk.risk} className="space-y-3">
                       <article
                         className={cn(
                           'overflow-hidden rounded-2xl border bg-white shadow-sm',
-                          toneClasses('teal').border
+                          riskTone.border
                         )}
                       >
                         <div
                           className={cn(
                             'px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-white',
-                            toneClasses('teal').rail
+                            riskTone.rail
                           )}
                         >
-                          Oportunidad
+                          Riesgo
                         </div>
-                        <p className="p-4 text-sm leading-6 text-slate-800">{risk.opportunity}</p>
+                        <div className="space-y-1.5 p-4">
+                          <p className="text-sm font-semibold text-slate-900">{risk.risk}</p>
+                          {risk.consequence ? (
+                            <p className="text-sm text-slate-600">Consecuencia: {risk.consequence}</p>
+                          ) : null}
+                          {risk.mitigation ? (
+                            <p className="text-sm text-slate-600">Mitigacion: {risk.mitigation}</p>
+                          ) : null}
+                        </div>
                       </article>
-                    ) : null}
-                  </div>
-                )
-              })}
-            </div>
-          </section>
-        ) : null}
-
-        {doc.recommendations.length > 0 ? (
-          <section className="space-y-3" aria-label="Recomendaciones IA">
-            <div
-              className={cn(
-                'overflow-hidden rounded-2xl border shadow-sm',
-                aiTone.border,
-                aiTone.card
-              )}
-            >
-              <div className={cn('flex items-center gap-2 px-4 py-3 text-white', aiTone.rail)}>
-                <Sparkles className="h-4 w-4" aria-hidden />
-                <div>
-                  <p className="text-sm font-semibold">Analisis Enviardian</p>
-                  <p className="text-[11px] text-violet-100">Recomendaciones de IA — no son hechos verificados</p>
-                </div>
+                      {risk.opportunity ? (
+                        <article className="overflow-hidden rounded-2xl border border-[#0D9488]/25 bg-white shadow-sm">
+                          <div className="bg-[#0D9488] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-white">
+                            Oportunidad
+                          </div>
+                          <p className="p-4 text-sm leading-6 text-slate-800">{risk.opportunity}</p>
+                        </article>
+                      ) : null}
+                    </div>
+                  )
+                })}
               </div>
-              <ul className="space-y-2 p-4">
-                {doc.recommendations.map((item, index) => (
-                  <li
-                    key={item}
-                    className="flex gap-3 rounded-xl border border-white/70 bg-white/90 px-3 py-2.5 text-sm leading-6 text-slate-800"
-                  >
-                    <Lightbulb className={cn('mt-0.5 h-4 w-4 shrink-0', aiTone.text)} aria-hidden />
-                    <span>
-                      <span className={cn('mr-1 font-semibold', aiTone.text)}>{index + 1}.</span>
-                      {item}
-                    </span>
-                  </li>
-                ))}
-              </ul>
             </div>
-          </section>
+          ) : null}
+
+          {block2.recommendations.length > 0 ? (
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold text-slate-800">Recomendaciones de Enviardian</h4>
+              <div className="grid gap-3">
+                {block2.recommendations.map((item, index) => (
+                  <RecommendationCard key={item.text} item={item} index={index} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {!block2.interpretation &&
+          !block2.nextStep &&
+          block2.risks.length === 0 &&
+          block2.recommendations.length === 0 ? (
+            <p className="text-sm text-slate-500">Sin analisis adicional en esta sesion.</p>
+          ) : null}
+        </ReportBlock>
+
+        {showFollowUp ? (
+          <ReportBlock
+            number="03"
+            title="Pendientes de aprobacion"
+            subtitle="Que necesita tu revision para continuar."
+            icon={Target}
+          >
+            {(communications?.length ?? 0) > 0 ? (
+              <GuideCommunicationsSection
+                ops={communications ?? []}
+                readOnly={communicationsReadOnly}
+                confirmOp={confirmOp}
+                cancelOp={cancelOp}
+                disableEdit={disableEditCommunications}
+                onUpdated={onCommunicationUpdated}
+                onResolved={onCommunicationResolved}
+                showPendingChip
+              />
+            ) : null}
+
+            {block3.boardProposals.length > 0 ? (
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-slate-800">Tareas e iniciativas propuestas</h4>
+                <ul className="space-y-2">
+                  {block3.boardProposals.map((item) => (
+                    <li key={item.key}>
+                      <FollowUpCard
+                        item={item}
+                        kindLabel={item.kind === 'board' ? 'Propuesta de tablero' : 'Propuesta'}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {block3.orphanCommitments.length > 0 ? (
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-slate-800">Compromisos registrados</h4>
+                <ul className="space-y-2">
+                  {block3.orphanCommitments.map((item) => (
+                    <li key={item.key}>
+                      <FollowUpCard item={item} kindLabel="Compromiso" />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {block3.pendingDecisions.length > 0 ? (
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-slate-800">Decisiones pendientes</h4>
+                <ul className="space-y-2">
+                  {block3.pendingDecisions.map((item) => (
+                    <li key={item}>
+                      <FollowUpCard
+                        item={{
+                          key: `decision:${item}`,
+                          kind: 'decision',
+                          title: item,
+                          statusLabel: 'Por confirmar',
+                          statusTone: 'decision',
+                        }}
+                        kindLabel="Decision"
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {block3.executed.length > 0 || block3.confirmedDecisions.length > 0 ? (
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-slate-800">Operaciones ejecutadas</h4>
+                <ul className="space-y-2">
+                  {block3.executed.map((item) => (
+                    <li key={item.key}>
+                      <FollowUpCard item={item} kindLabel="Ejecutada" />
+                    </li>
+                  ))}
+                  {block3.confirmedDecisions.map((item) => (
+                    <li key={item}>
+                      <FollowUpCard
+                        item={{
+                          key: `confirmed:${item}`,
+                          kind: 'decision',
+                          title: item,
+                          statusLabel: 'Confirmada',
+                          statusTone: 'executed',
+                        }}
+                        kindLabel="Decision confirmada"
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </ReportBlock>
         ) : null}
 
-        {doc.metadata.interviewOnly || doc.metadata.consultFailed ? (
+        {doc.metadata.generationStatus === 'insufficient' ? (
           <p className="text-xs text-slate-500">
-            {doc.metadata.consultFailed
-              ? 'Una consulta al tablero fallo. Este informe no completa cifras faltantes.'
-              : 'Sin consulta exitosa al tablero: el informe se basa solo en la entrevista.'}
+            La conversacion fue breve; el informe conserva solo lo esencial.
           </p>
         ) : null}
       </div>
