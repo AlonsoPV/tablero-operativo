@@ -35,6 +35,7 @@ import { useKanbanStatuses } from '@/features/catalogs/hooks/useStatuses'
 import type { AccionDiaria, ActionStatus } from '@/types'
 import type { AccionesFilter } from '@/services/acciones.service'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
+import { formatCorporateScopeLabel } from '@/features/metrics/corporateActionMetrics'
 import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
 import { useGapAccionesForGapIds } from '@/features/kpi/hooks/useGapAccionesForGapIds'
 import { useGap } from '@/features/kpi/hooks/useGaps'
@@ -260,6 +261,18 @@ export function KanbanPage() {
     [accionesDisplay, priorities]
   )
 
+  const scopeLabel = useMemo(
+    () =>
+      formatCorporateScopeLabel({
+        area: filter.area,
+        responsable: filter.responsable
+          ? responsableNames[filter.responsable]
+          : null,
+        esOkr: filter.es_okr,
+      }),
+    [filter.area, filter.es_okr, filter.responsable, responsableNames]
+  )
+
   const filterEstadoSingle = useMemo((): ActionStatus | undefined => {
     if (filter.estado != null && !Array.isArray(filter.estado)) return filter.estado
     if (Array.isArray(filter.estado) && filter.estado.length === 1) return filter.estado[0]
@@ -388,7 +401,13 @@ export function KanbanPage() {
         />
       ) : null}
 
-      {!accionesError ? <KanbanMetricsRow metrics={healthMetrics} statuses={kanbanStatuses} /> : null}
+      {!accionesError ? (
+        <KanbanMetricsRow
+          metrics={healthMetrics}
+          statuses={kanbanStatuses}
+          scopeLabel={scopeLabel}
+        />
+      ) : null}
 
       <section
         id="kanban-content"

@@ -119,6 +119,8 @@ export function formatCorporateScopeLabel(input: {
   responsable?: string | null
   periodStart?: string | null
   periodEnd?: string | null
+  /** true = solo iniciativas OKR; false = operativas BAU; undefined = sin filtro. */
+  esOkr?: boolean | null
 }): string {
   const area = input.area?.trim() || 'todas las áreas'
   const responsable = input.responsable?.trim() || 'todos los responsables'
@@ -126,5 +128,56 @@ export function formatCorporateScopeLabel(input: {
     input.periodStart && input.periodEnd
       ? `${input.periodStart} a ${input.periodEnd}`
       : 'sin período explícito'
-  return `Acciones corporativas · horario CDMX · ${area} · ${responsable} · ${period}`
+  const universe =
+    input.esOkr === true ? 'solo iniciativas OKR' : input.esOkr === false ? 'operación BAU' : 'todas las acciones'
+  return `Acciones corporativas · ${universe} · horario CDMX · ${area} · ${responsable} · ${period}`
+}
+
+export const TEAM_POPULATION = 'acciones_equipo' as const
+
+export function formatTeamScopeLabel(areaName?: string | null): string {
+  const area = areaName?.trim() || 'área seleccionada'
+  return `Acciones de equipo · ${area}`
+}
+
+/** Compara dos listas por id (y opcionalmente estado) para conciliación Dashboard ↔ Kanban. */
+export function reconcileActionIds<T extends { id: string; estado?: string }>(
+  left: T[],
+  right: T[]
+): {
+  missingInRight: string[]
+  extraInRight: string[]
+  statusMismatch: Array<{ id: string; leftEstado?: string; rightEstado?: string }>
+} {
+  const leftMap = new Map(left.map((item) => [item.id, item]))
+  const rightMap = new Map(right.map((item) => [item.id, item]))
+  const missingInRight: string[] = []
+  const extraInRight: string[] = []
+  const statusMismatch: Array<{ id: string; leftEstado?: string; rightEstado?: string }> = []
+
+  for (const id of leftMap.keys()) {
+    if (!rightMap.has(id)) missingInRight.push(id)
+  }
+  for (const id of rightMap.keys()) {
+    if (!leftMap.has(id)) extraInRight.push(id)
+  }
+  for (const [id, leftItem] of leftMap) {
+    const rightItem = rightMap.get(id)
+    if (!rightItem) continue
+    if (
+      leftItem.estado != null &&
+      rightItem.estado != null &&
+      leftItem.estado !== rightItem.estado
+    ) {
+      statusMismatch.push({
+        id,
+        leftEstado: leftItem.estado,
+        rightEstado: rightItem.estado,
+      })
+    }
+  }
+  missingInRight.sort()
+  extraInRight.sort()
+  statusMismatch.sort((a, b) => a.id.localeCompare(b.id))
+  return { missingInRight, extraInRight, statusMismatch }
 }

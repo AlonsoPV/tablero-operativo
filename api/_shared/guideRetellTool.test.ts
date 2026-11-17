@@ -272,6 +272,52 @@ describe('retell tool bridge', () => {
     })
   })
 
+  it('does not label assignee not-found as PERMISSION_DENIED', () => {
+    const classified = classifyRetellToolResult({
+      ok: false,
+      tool: 'create_action',
+      kind: 'denied',
+      error: 'No encontré un usuario activo llamado "Gerardo Puga".',
+    })
+    expect(classified.status).toBe('error')
+    expect(classified.error_code).toBe('VALIDATION_FAILED')
+    expect(classified.denial_reason).toBe('not_found')
+    expect(classified.spoken).toMatch(/Gerardo Puga/i)
+    expect(classified.spoken).toMatch(/continuar/i)
+    expect(classified.spoken).not.toMatch(/no tengo permiso/i)
+
+    const entry = consultLogEntry('create_action', classified.status, classified.data, undefined, {
+      summaryHint: classified.spoken,
+      error_code: classified.error_code,
+      denial_reason: classified.denial_reason,
+    })
+    expect(entry.summary).not.toBe('Sin permiso')
+    expect(entry.error_code).toBe('VALIDATION_FAILED')
+
+    const facts = verifiedFactsFromLog([entry])
+    expect(facts.technicalAttention[0]?.code).toBe('VALIDATION_FAILED')
+    expect(facts.technicalAttention[0]?.code).not.toBe('PERMISSION_DENIED')
+  })
+
+  it('keeps real write-mode denials as PERMISSION_DENIED', () => {
+    const classified = classifyRetellToolResult({
+      ok: false,
+      tool: 'create_action',
+      kind: 'denied',
+      error: 'No tienes permiso de escritura en este modo.',
+    })
+    expect(classified.status).toBe('denied')
+    expect(classified.error_code).toBe('PERMISSION_DENIED')
+    const facts = verifiedFactsFromLog([
+      consultLogEntry('create_action', classified.status, null, undefined, {
+        summaryHint: classified.spoken,
+        error_code: classified.error_code,
+        denial_reason: classified.denial_reason,
+      }),
+    ])
+    expect(facts.technicalAttention[0]?.code).toBe('PERMISSION_DENIED')
+  })
+
   it('stores a short phrase and keeps model-written verified text out of the report', () => {
     const entry = consultLogEntry('get_my_actions', 'ok', {
       items: [{ title: 'Cerrar OTIF' }, { titulo: 'Revisar inventario' }],

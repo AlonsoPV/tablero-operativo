@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  classifyDenialReason,
   classifyDeniedMessage,
   guideToolFailure,
   guideToolSuccess,
   maskEmailForLog,
   maskPhoneForLog,
+  statusToErrorCode,
 } from './guideToolResult'
 
 describe('guideToolResult', () => {
@@ -44,5 +46,26 @@ describe('guideToolResult', () => {
     expect(classifyDeniedMessage('Firma de Retell invalida')).toBe('AUTHENTICATION_FAILED')
     expect(classifyDeniedMessage('falta la sesion')).toBe('SESSION_NOT_FOUND')
     expect(classifyDeniedMessage('solo lectura')).toBe('PERMISSION_DENIED')
+    expect(classifyDeniedMessage('No tienes permiso de escritura en este modo.')).toBe('PERMISSION_DENIED')
+    expect(classifyDeniedMessage('No encontré un usuario activo llamado "Gerardo Puga".')).toBe(
+      'VALIDATION_FAILED'
+    )
+    expect(classifyDeniedMessage('Indica un nombre.')).toBe('VALIDATION_FAILED')
+    expect(classifyDeniedMessage('Indica un título de al menos 3 caracteres.')).toBe('VALIDATION_FAILED')
+    expect(classifyDenialReason('No encontré un usuario activo llamado "Gerardo Puga".')).toBe('not_found')
+    expect(classifyDenialReason('Indica una fecha de compromiso')).toBe('validation')
+    expect(classifyDenialReason('solo lectura')).toBe('permission')
+  })
+
+  it('maps Retell status to typed codes without collapsing validation into PERMISSION_DENIED', () => {
+    expect(statusToErrorCode('denied')).toBe('PERMISSION_DENIED')
+    expect(statusToErrorCode('denied', 'No encontré un usuario activo llamado "Gerardo Puga".')).toBe(
+      'VALIDATION_FAILED'
+    )
+    expect(statusToErrorCode('denied', 'No tienes permiso de escritura en este modo.')).toBe(
+      'PERMISSION_DENIED'
+    )
+    expect(statusToErrorCode('timeout')).toBe('TIMEOUT')
+    expect(statusToErrorCode('error', 'Indica un nombre.')).toBe('VALIDATION_FAILED')
   })
 })

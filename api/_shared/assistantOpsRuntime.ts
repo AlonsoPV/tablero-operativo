@@ -10,10 +10,10 @@ import { assertWorkspaceHash } from './workspaceHash.js'
 import {
   evaluatePendingTransition,
   matchActionsByQuery,
-  matchPeopleByName,
   wrapUntrustedToolData,
   type NamedPerson,
 } from '../../src/features/ai-support/copilot/matching.js'
+import { searchActivePeopleByName } from './searchActivePeople.js'
 import { draftFromRequest, evidenceOrPlaceholder, sanitizeCheckpoints } from '../../src/features/ai-support/creationDraft.js'
 import { parseDueDateHint } from '../../src/features/ai-support/parseWorkFacts.js'
 import { todayWallClockCDMX } from '../../src/lib/dateUtils.js'
@@ -144,13 +144,7 @@ async function loadAction(actor: CopilotActor, id: string) {
 }
 
 async function searchPeople(actor: CopilotActor, name: string): Promise<NamedPerson[]> {
-  const { data, error } = await actor.supabase
-    .from('usuarios')
-    .select('id,nombre,rol,area')
-    .eq('activo', true)
-    .limit(80)
-  if (error) throw error
-  return matchPeopleByName((data ?? []) as NamedPerson[], name)
+  return searchActivePeopleByName(actor.supabase, name)
 }
 
 function peopleClarification(people: NamedPerson[]): CopilotClarification {

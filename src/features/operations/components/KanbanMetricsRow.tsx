@@ -12,6 +12,8 @@ import {
 type KanbanMetricsRowProps = {
   metrics: KanbanHealthMetrics
   statuses?: Status[]
+  /** Población y filtros activos (p. ej. formatCorporateScopeLabel). */
+  scopeLabel?: string
   className?: string
 }
 
@@ -26,7 +28,12 @@ function retrasoHint(metrics: KanbanHealthMetrics, emptyHint: string): string {
     : `${metrics.vencidasRojas} rojas entre ellas`
 }
 
-export function KanbanMetricsRow({ metrics, statuses = [], className }: KanbanMetricsRowProps) {
+export function KanbanMetricsRow({
+  metrics,
+  statuses = [],
+  scopeLabel,
+  className,
+}: KanbanMetricsRowProps) {
   const statusByKey = statusCatalogByKey(statuses)
   const showBlockedMetric = isActionStatusActiveInCatalog(statuses, 'Bloqueado')
   const showRetrasoMetric = isActionStatusActiveInCatalog(statuses, 'Retraso')
@@ -118,38 +125,42 @@ export function KanbanMetricsRow({ metrics, statuses = [], className }: KanbanMe
   const visibleItems = items.filter((item) => item.visible)
 
   return (
-    <div
-      className={cn(
-        'grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6',
-        'sm:gap-2.5',
-        className
-      )}
-    >
-      {visibleItems.map((item) => (
-        <div
-          key={item.key}
-          className={cn(
-            'rounded-xl border px-2.5 py-2 shadow-sm transition-colors sm:px-3 sm:py-2.5',
-            'hover:shadow-md',
-            item.tone
-          )}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <p className={cn('text-[10px] font-semibold uppercase tracking-wide', item.labelTone)}>
-              {item.label}
-            </p>
-            <item.icon className={cn('h-3 w-3 opacity-70', item.valueTone)} aria-hidden />
-          </div>
-          <div className="mt-1.5 flex items-end justify-between gap-2">
-            <p className={cn('text-xl font-bold tabular-nums leading-none sm:text-2xl', item.valueTone)}>
-              {item.value}
-            </p>
-            <div className="text-right">
-              <p className={cn('text-[9px] leading-none text-muted-foreground', item.hintTone)}>{item.hint}</p>
+    <div className={cn('space-y-2', className)}>
+      {scopeLabel ? <p className="text-xs text-muted-foreground">{scopeLabel}</p> : null}
+      <div
+        className={cn(
+          'grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6',
+          'sm:gap-2.5'
+        )}
+      >
+        {visibleItems.map((item) => (
+          <div
+            key={item.key}
+            className={cn(
+              'rounded-xl border px-2.5 py-2 shadow-sm transition-colors sm:px-3 sm:py-2.5',
+              'hover:shadow-md',
+              item.tone
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className={cn('text-[10px] font-semibold uppercase tracking-wide', item.labelTone)}>
+                {item.label}
+              </p>
+              <item.icon className={cn('h-3 w-3 opacity-70', item.valueTone)} aria-hidden />
+            </div>
+            <div className="mt-1.5 flex items-end justify-between gap-2">
+              <p className={cn('text-xl font-bold tabular-nums leading-none sm:text-2xl', item.valueTone)}>
+                {item.value}
+              </p>
+              <div className="text-right">
+                <p className={cn('text-[9px] leading-none text-muted-foreground', item.hintTone)}>
+                  {item.hint}
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   )
 }

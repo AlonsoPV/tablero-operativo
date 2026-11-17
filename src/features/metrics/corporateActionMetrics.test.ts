@@ -6,9 +6,12 @@ import { calculateCoreMetrics } from '@/pages/dashboard/hooks/useOperationalDash
 import { krProgress, objectivePaceStatus, objectiveProgress } from '@/features/okrs/model'
 import { summarizeTeamActions } from '@/features/team-kanban/utils/teamDashboardMetrics'
 import {
+  formatCorporateScopeLabel,
+  formatTeamScopeLabel,
   isCorporateOverdue,
   isPendingVerification,
   readWasTruncated,
+  reconcileActionIds,
   summarizeCorporateActions,
 } from './corporateActionMetrics'
 
@@ -173,5 +176,79 @@ describe('corporate and OKR metric reconciliation', () => {
         truncated: true,
       }).truncated
     ).toBe(true)
+  })
+
+  it('reconciles action ids between dashboard and kanban subsets', () => {
+    const left = [
+      action({ id: 'a', estado: 'Pendiente' }),
+      action({ id: 'b', estado: 'Hecho' }),
+      action({ id: 'c', estado: 'Bloqueado' }),
+    ]
+    const right = [
+      action({ id: 'a', estado: 'Pendiente' }),
+      action({ id: 'b', estado: 'Verificado' }),
+      action({ id: 'd', estado: 'Hoy' }),
+    ]
+    const result = reconcileActionIds(left, right)
+    expect(result.missingInRight).toEqual(['c'])
+    expect(result.extraInRight).toEqual(['d'])
+    expect(result.statusMismatch).toEqual([
+      { id: 'b', leftEstado: 'Hecho', rightEstado: 'Verificado' },
+    ])
+  })
+
+  it('keeps Hecho out of verified and out of overdue when blocked rules apply', () => {
+    const hecho = action({ id: 'hecho', estado: 'Hecho', fecha: '2020-01-01', hora_limite: '00:00' })
+    const verified = action({ id: 'ver', estado: 'Verificado', fecha: '2020-01-01' })
+    const rows = [hecho, verified]
+    const core = calculateCoreMetrics(rows, [], priorities, [], TODAY)
+    const health = kanbanHealthFromAcciones(rows, priorities)
+    expect(core.pendingVerificationActions.map((item) => item.id)).toEqual(['hecho'])
+    expect(core.openActions).toHaveLength(0)
+    expect(health.abiertas).toBe(0)
+    expect(isCorporateOverdue(hecho, NOW)).toBe(false)
+    expect(reconcileActionIds(core.openActions, [])).toEqual({
+      missingInRight: [],
+      extraInRight: [],
+      statusMismatch: [],
+    })
+  })
+
+  it('treats CDMX hour-limit edge and missing fecha consistently', () => {
+    const justBefore = new Date('2026-06-05T16:59:00-06:00')
+    const justAfter = new Date('2026-06-05T17:01:00-06:00')
+    const dueToday = action({ id: 'edge', fecha: TODAY, hora_limite: '17:00' })
+    const noFecha = action({ id: 'nofecha', fecha: '' as unknown as string })
+    expect(isCorporateOverdue(dueToday, justBefore)).toBe(false)
+    expect(isCorporateOverdue(dueToday, justAfter)).toBe(true)
+    expect(isCorporateOverdue(noFecha, NOW)).toBe(false)
+  })
+
+  it('labels corporate BAU vs OKR and team populations distinctly', () => {
+    expect(formatCorporateScopeLabel({ esOkr: false })).toContain('operación BAU')
+    expect(formatCorporateScopeLabel({ esOkr: true })).toContain('solo iniciativas OKR')
+    expect(formatTeamScopeLabel('Finanzas')).toBe('Acciones de equipo · Finanzas')
+  })
+
+  it('matches open/overdue/blocked ids between core metrics and kanban health', () => {
+    const rows = [
+      action({ id: 'open', fecha: '2026-06-06' }),
+      action({ id: 'blocked', estado: 'Bloqueado', fecha: '2020-01-01' }),
+      action({ id: 'hecho', estado: 'Hecho', fecha: '2020-01-01' }),
+      action({ id: 'overdue', fecha: '2020-01-01', hora_limite: '00:00' }),
+      action({ id: 'okr-like', fecha: '2026-06-06', es_okr: true }),
+    ]
+    const bau = rows.filter((row) => row.es_okr !== true)
+    const core = calculateCoreMetrics(bau, [], priorities, [], TODAY)
+    const health = kanbanHealthFromAcciones(bau, priorities)
+    expect(core.openActions).toHaveLength(health.abiertas)
+    expect(core.overdueActions).toHaveLength(health.vencidas)
+    expect(core.blockedActions).toHaveLength(health.bloqueadas)
+    const openReconcile = reconcileActionIds(
+      core.openActions,
+      bau.filter((row) => row.estado !== 'Hecho' && row.estado !== 'Verificado')
+    )
+    expect(openReconcile.missingInRight).toEqual([])
+    expect(openReconcile.extraInRight).toEqual([])
   })
 })

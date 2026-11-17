@@ -1,9 +1,18 @@
 /**
- * Política de enrutamiento WhatsApp: Ops (tareas/bidireccional) vs Agent (chatbot).
- * Debe mantenerse alineada con `supabase/functions/whatsapp-webhook/index.ts`.
+ * Política de enrutamiento WhatsApp: Ops (tareas) vs Agent (chatbot).
+ * SSOT: copiar a Edge con `node scripts/sync-whatsapp-routing.mjs`.
  */
 
 export type WhatsAppFlow = 'ops' | 'agent'
+
+/** Intenciones del brief — el clasificador no ejecuta negocio. */
+export type WhatsAppIntent =
+  | 'QUERY'
+  | 'TASK_UPDATE'
+  | 'TASK_REPLY'
+  | 'CLARIFICATION'
+  | 'CANCEL'
+  | 'UNKNOWN'
 
 export type WhatsAppInboundRoute =
   | { kind: 'ops_button'; buttonId: string }
@@ -12,12 +21,17 @@ export type WhatsAppInboundRoute =
   | { kind: 'agent_consult' }
   | { kind: 'agent_channel'; channel: 'text' | 'voice' }
   | { kind: 'ops_keyword'; action: 'done' | 'progress' | 'support'; text: string }
+  | { kind: 'ops_clarify'; action: 'done' | 'progress' | 'support'; text: string; reason: 'none' | 'many' }
   | { kind: 'agent_free_text'; text: string }
   | { kind: 'ops_help'; text?: string }
+  | { kind: 'ask_flow'; text: string }
+  | { kind: 'cancel'; text: string }
   | { kind: 'ignore' }
 
 const AIOP_RE = /^aiop:([0-9a-fA-F-]{36}):(ok|no)$/i
 const OPS_BUTTON_RE = /^(act|chk|tchk):/i
+const EXPLICIT_TASK_RE =
+  /\b(marca|marcar|actualiza|actualizar|cambia|cambiar|cierra|cerrar|pon|poner)\b[\s\S]{0,40}\b(tarea|accion|acción|checkpoint)\b|\btarea\s*#?\s*\d+/i
 
 export function parseAiOpButtonId(raw: string | null | undefined): {
   opId: string
@@ -73,8 +87,10 @@ export function inferOpsTextAction(text: string): 'done' | 'progress' | 'support
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
   if (!t) return null
-  if (/\b(realizada|realizado|hecho|done|completad[oa]|lista|listo)\b/.test(t)) return 'done'
-  if (/\b(en progreso|en proceso|proceso|avance|avanzando|progress|trabajando)\b/.test(t)) {
+  if (/\b(realizada|realizado|hecho|done|completad[oa]|lista|listo|ya termine)\b/.test(t)) {
+    return 'done'
+  }
+  if (/\b(en progreso|en proceso|proceso|avance|avanzando|progress|trabajando|reportar avance)\b/.test(t)) {
     return 'progress'
   }
   if (/\b(requiero apoyo|necesito apoyo|necesito ayuda|ayuda|support|bloquead[oa]|apoyo)\b/.test(t)) {
@@ -90,6 +106,36 @@ function foldWaText(text: string | null | undefined) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[_-]+/g, ' ')
+}
+
+/** Consulta de información (no actualización). */
+export function looksLikeQueryText(text: string | null | undefined): boolean {
+  const t = foldWaText(text)
+  if (!t) return false
+  if (/[?]/.test(text ?? '')) return true
+  if (
+    /^(que|qué|cual|cuál|cuantas|cuántas|cuantos|cuántos|como|cómo|donde|dónde)\b/.test(t)
+  ) {
+    return true
+  }
+  return (
+    /\b(que tareas|qué tareas|tareas vencidas|acciones vencidas|como van|cómo van|okrs?|indicadores|resumen|prioridad|prioriz|bloqueadas|rojas|dashboard|tablero)\b/.test(
+      t
+    ) && !EXPLICIT_TASK_RE.test(text ?? '')
+  )
+}
+
+export function looksLikeCancelText(text: string | null | undefined): boolean {
+  const t = foldWaText(text)
+  if (!t) return false
+  return (
+    /^(cancelar|cancelalo|cancelala|cancela|olvidalo|olvidalo|ya no|no actualices)\b/.test(t) ||
+    /\bcancelar (actualizacion|actualización|avance|tarea)\b/.test(t)
+  )
+}
+
+export function looksLikeExplicitTaskUpdate(text: string | null | undefined): boolean {
+  return EXPLICIT_TASK_RE.test(text ?? '')
 }
 
 /** Ice breaker / comando: «Consulta al Bot», «Iniciar bot», `/consulta`. */
@@ -145,9 +191,7 @@ export function inferAiChannelText(
   return null
 }
 
-/** Evita reenviar el selector interactivo si el usuario toca «Iniciar bot» dos veces. */
 export const CHANNEL_SELECTOR_DEBOUNCE_MS = 60_000
-/** Reenvía la misma liga de voz sin crear otra si aún está caliente. */
 export const VOICE_LINK_RESEND_COOLDOWN_MS = 120_000
 
 export function isWithinCooldown(
@@ -161,7 +205,6 @@ export function isWithinCooldown(
   return nowMs - t >= 0 && nowMs - t < windowMs
 }
 
-/** Extrae URL de liga guardada en payload de outbound (voice_link_sent). */
 export function extractVoiceLinkFromPayload(
   payload: Record<string, unknown> | null | undefined
 ): string | null {
@@ -189,35 +232,47 @@ export function channelSelectorFallbackText() {
   ].join('\n')
 }
 
-/**
- * Decide la ruta tras evidencia pendiente (evidencia se resuelve antes).
- * - Botones act/chk/tchk → ops (todos)
- * - aiop → agent (interacción de propuestas)
- * - Más información / Ver actividades → mas_info (solo ops; no abre Gemini)
- * - Consulta al Bot / Iniciar bot → agent_consult (selector mensaje/voz)
- * - aich:text|voice o keywords de canal → agent_channel
- * - Keywords ops (Realizada / En proceso / apoyo) → siempre ops, también OKRS
- * - Texto libre agent solo si canUseAi y hay sesión agent activa
- */
-export function resolveWhatsAppInboundRoute(input: {
+export function askFlowClarificationText() {
+  return '¿Quieres consultar esa información o actualizar una tarea? Responde "consultar" o usa los botones del recordatorio para actualizar.'
+}
+
+export function askWhichTaskText() {
+  return 'Tienes más de una actualización pendiente. ¿Cuál tarea quieres actualizar? Usa el botón del recordatorio o indica el título.'
+}
+
+export type ResolveWhatsAppInboundInput = {
   canUseAi: boolean
   /**
-   * @deprecated Las keywords ops siempre aplican; se ignora.
-   * Conservado por compat de callers antiguos.
+   * @deprecated Conservado por compat.
    */
   opsKeywordsForAiUsers?: boolean
   /** True si hubo outbound/agent reciente (p. ej. tras «Consulta al Bot»). */
   agentSessionActive?: boolean
+  /**
+   * Candidatos OPS correlacionados (followups recientes).
+   * undefined = callers legacy (keyword corto → ops_keyword).
+   */
+  correlatedTargetCount?: number
+  /** Hay sesión de aclaración OPS/agent pendiente. */
+  clarificationPending?: boolean
   buttonId?: string | null
   buttonTitle?: string | null
   textBody?: string | null
   messageType?: string | null
-}): WhatsAppInboundRoute {
+}
+
+/**
+ * Prioridad: interactivo firmado → comandos → aclaración → QUERY antes que keyword ops
+ * → keyword ops solo con correlación inequívoca → UNKNOWN/ask.
+ */
+export function resolveWhatsAppInboundRoute(input: ResolveWhatsAppInboundInput): WhatsAppInboundRoute {
   const buttonId = input.buttonId?.trim() || null
   const buttonTitle = input.buttonTitle?.trim() || null
   const textBody = input.textBody?.trim() || null
   const messageType = input.messageType ?? ''
   const agentSessionActive = input.agentSessionActive === true
+  const correlated =
+    typeof input.correlatedTargetCount === 'number' ? input.correlatedTargetCount : undefined
 
   const aiOp = parseAiOpButtonId(buttonId)
   if (aiOp) {
@@ -253,6 +308,10 @@ export function resolveWhatsAppInboundRoute(input: {
 
   if (!freeText) return { kind: 'ignore' }
 
+  if (looksLikeCancelText(freeText)) {
+    return { kind: 'cancel', text: freeText }
+  }
+
   if (isConsultaAlBotText(freeText)) {
     return { kind: 'agent_consult' }
   }
@@ -262,25 +321,100 @@ export function resolveWhatsAppInboundRoute(input: {
     return { kind: 'agent_channel', channel: channelText }
   }
 
-  // Ice breaker / texto «Ver actividades» → mismo gate ops que el botón.
   if (isMasInfoButton(null, freeText)) {
     return { kind: 'mas_info' }
   }
 
-  const action = inferOpsTextAction(freeText)
-  if (action) return { kind: 'ops_keyword', action, text: freeText }
-
-  if (input.canUseAi && agentSessionActive) {
+  if (input.clarificationPending) {
     return { kind: 'agent_free_text', text: freeText }
   }
 
+  // QUERY antes que keywords ops genéricos (Case A / D).
+  if (looksLikeQueryText(freeText) && !looksLikeExplicitTaskUpdate(freeText)) {
+    if (input.canUseAi) {
+      return { kind: 'agent_free_text', text: freeText }
+    }
+    return { kind: 'ops_help', text: freeText }
+  }
+
+  if (looksLikeExplicitTaskUpdate(freeText)) {
+    const action = inferOpsTextAction(freeText) || 'done'
+    if (correlated === undefined || correlated === 1) {
+      return { kind: 'ops_keyword', action, text: freeText }
+    }
+    if (correlated === 0) return { kind: 'ops_clarify', action, text: freeText, reason: 'none' }
+    return { kind: 'ops_clarify', action, text: freeText, reason: 'many' }
+  }
+
+  const action = inferOpsTextAction(freeText)
+  if (action) {
+    // Ice breakers cortos / confirmaciones: requieren correlación inequívoca cuando se informa.
+    if (correlated === undefined) {
+      return { kind: 'ops_keyword', action, text: freeText }
+    }
+    if (correlated === 1) {
+      return { kind: 'ops_keyword', action, text: freeText }
+    }
+    if (correlated === 0) {
+      return { kind: 'ops_clarify', action, text: freeText, reason: 'none' }
+    }
+    return { kind: 'ops_clarify', action, text: freeText, reason: 'many' }
+  }
+
+  if (input.canUseAi && (agentSessionActive || looksLikeQueryText(freeText))) {
+    return { kind: 'agent_free_text', text: freeText }
+  }
+
+  if (input.canUseAi && freeText.length > 12) {
+    // Posible consulta sin signos de pregunta claros → no forzar ops_help ciego.
+    return { kind: 'ask_flow', text: freeText }
+  }
+
   return { kind: 'ops_help', text: freeText }
+}
+
+export function intentForRoute(route: WhatsAppInboundRoute): WhatsAppIntent {
+  switch (route.kind) {
+    case 'ops_button':
+      return 'TASK_REPLY'
+    case 'ops_keyword':
+      return looksLikeExplicitTaskUpdate(route.text) ? 'TASK_UPDATE' : 'TASK_REPLY'
+    case 'ops_clarify':
+      return 'CLARIFICATION'
+    case 'agent_aiop':
+      return route.action === 'cancel' ? 'CANCEL' : 'TASK_UPDATE'
+    case 'cancel':
+      return 'CANCEL'
+    case 'agent_free_text':
+    case 'agent_consult':
+    case 'agent_channel':
+    case 'mas_info':
+      return 'QUERY'
+    case 'ask_flow':
+      return 'UNKNOWN'
+    case 'ops_help':
+      return 'UNKNOWN'
+    default:
+      return 'UNKNOWN'
+  }
+}
+
+/** Clasificador puro (sin I/O). */
+export function classifyWhatsAppIntent(input: ResolveWhatsAppInboundInput): {
+  intent: WhatsAppIntent
+  route: WhatsAppInboundRoute
+  rule: string
+} {
+  const route = resolveWhatsAppInboundRoute(input)
+  const intent = intentForRoute(route)
+  return { intent, route, rule: route.kind }
 }
 
 export function flowForRoute(route: WhatsAppInboundRoute): WhatsAppFlow | null {
   switch (route.kind) {
     case 'ops_button':
     case 'ops_keyword':
+    case 'ops_clarify':
     case 'ops_help':
       return 'ops'
     case 'agent_aiop':
@@ -288,9 +422,21 @@ export function flowForRoute(route: WhatsAppInboundRoute): WhatsAppFlow | null {
     case 'agent_consult':
     case 'agent_channel':
       return 'agent'
+    case 'ask_flow':
+    case 'cancel':
+      return null
     case 'mas_info':
-      return null // mixed gate
+      return null
     default:
       return null
   }
+}
+
+/** Candidatos OPS desde deliveries (lógica pura para tests). */
+export function pickUniqueOpsTarget<T extends { id: string }>(
+  candidates: T[]
+): { status: 'one'; target: T } | { status: 'none' } | { status: 'many'; targets: T[] } {
+  if (candidates.length === 0) return { status: 'none' }
+  if (candidates.length === 1) return { status: 'one', target: candidates[0] }
+  return { status: 'many', targets: candidates }
 }

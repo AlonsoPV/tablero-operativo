@@ -10,11 +10,16 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createServiceRoleClient } from './_shared/assistantAuth.js'
 import { readStringEnv } from './_shared/http.js'
 import {
-  inferFollowupTextAction,
   isVerActividadesButton,
   parseFollowupButtonId,
   whatsappPhoneVariants,
 } from './_shared/whatsappBidirectional.js'
+import {
+  askFlowClarificationText,
+  askWhichTaskText,
+  classifyWhatsAppIntent,
+  intentForRoute,
+} from '../src/lib/whatsappFlowRouting.js'
 
 type WaMessage = {
   id?: string
@@ -152,7 +157,8 @@ async function replyText(
   supabase: ReturnType<typeof createServiceRoleClient>,
   to: string,
   body: string,
-  usuarioId: string | null
+  usuarioId: string | null,
+  extras?: Record<string, unknown>
 ) {
   try {
     const graphBody = textPayload(to, body)
@@ -168,11 +174,51 @@ async function replyText(
       delivery_status: result.ok ? 'sent' : 'failed',
       error_message: result.ok ? null : result.raw.slice(0, 2000),
       sent_at: result.ok ? new Date().toISOString() : null,
-      payload: { request: graphBody, response: result.json, source: 'vercel_webhook' },
+      payload: {
+        request: graphBody,
+        response: result.json,
+        source: 'vercel_webhook',
+        ...(extras ?? {}),
+      },
     })
   } catch (error) {
     console.error('whatsapp vercel reply failed', error)
   }
+}
+
+const OPS_FALLBACK_WINDOW_MS = 72 * 60 * 60 * 1000
+
+async function countRecentFollowups(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  usuarioId: string
+): Promise<{ count: number; accionIds: string[] }> {
+  const sinceIso = new Date(Date.now() - OPS_FALLBACK_WINDOW_MS).toISOString()
+  const { data: last } = await supabase
+    .from('action_delivery_log')
+    .select('accion_id,payload,created_at')
+    .eq('channel', 'whatsapp')
+    .eq('usuario_id', usuarioId)
+    .eq('delivery_status', 'sent')
+    .gte('created_at', sinceIso)
+    .order('created_at', { ascending: false })
+    .limit(20)
+  const ids = new Set<string>()
+  for (const row of last ?? []) {
+    const payload = (row.payload ?? {}) as Record<string, unknown>
+    if (payload.message_type !== 'checkpoint_followup') continue
+    if (row.accion_id) ids.add(String(row.accion_id))
+  }
+  return { count: ids.size, accionIds: [...ids] }
+}
+
+function logVercelRoute(fields: Record<string, unknown>) {
+  console.log(
+    JSON.stringify({
+      event: 'whatsapp_inbound_route',
+      entry: 'vercel',
+      ...fields,
+    })
+  )
 }
 
 async function findUsuarioByWa(supabase: ReturnType<typeof createServiceRoleClient>, waId: string) {
@@ -439,19 +485,18 @@ async function processMessage(
     throw inboundError
   }
 
-  await supabase.from('whatsapp_messages').insert({
-    wa_id: waId,
-    usuario_id: identity?.usuario_id ?? null,
-    direction: 'inbound',
-    source: 'contact',
-    message_kind: message.type ?? 'unknown',
-    body_text: inboundPreview(message),
-    meta_message_id: message.id ?? null,
-    delivery_status: 'delivered',
-    payload: { message, value, source: 'vercel_webhook' },
-  })
-
   if (!identity?.usuario_id) {
+    await supabase.from('whatsapp_messages').insert({
+      wa_id: waId,
+      usuario_id: null,
+      direction: 'inbound',
+      source: 'contact',
+      message_kind: message.type ?? 'unknown',
+      body_text: inboundPreview(message),
+      meta_message_id: message.id ?? null,
+      delivery_status: 'delivered',
+      payload: { message, value, source: 'vercel_webhook' },
+    })
     await replyText(supabase, waId, 'Tu numero no esta vinculado a un usuario del tablero.', null)
     return
   }
@@ -466,65 +511,147 @@ async function processMessage(
   const buttonTitle =
     message.interactive?.button_reply?.title || message.button?.text || message.interactive?.list_reply?.title || null
 
-  if (isVerActividadesButton(buttonRaw, buttonTitle)) {
+  const { data: aiAllowed } = await supabase.rpc('can_use_ai_whatsapp_for_usuario', {
+    p_usuario_id: identity.usuario_id,
+  })
+  const canUseAi = aiAllowed === true
+  const followups = await countRecentFollowups(supabase, identity.usuario_id)
+  const { route } = classifyWhatsAppIntent({
+    canUseAi,
+    agentSessionActive: canUseAi,
+    correlatedTargetCount: followups.count,
+    buttonId: buttonRaw,
+    buttonTitle,
+    textBody: message.type === 'text' ? message.text?.body ?? null : null,
+    messageType: message.type,
+  })
+  const intent = intentForRoute(route)
+  logVercelRoute({
+    meta_message_id: message.id ?? null,
+    intent,
+    rule: route.kind,
+    correlatedTargetCount: followups.count,
+    usuario_id: identity.usuario_id,
+  })
+
+  await supabase.from('whatsapp_messages').insert({
+    wa_id: waId,
+    usuario_id: identity.usuario_id,
+    direction: 'inbound',
+    source: 'contact',
+    message_kind: message.type ?? 'unknown',
+    body_text: inboundPreview(message),
+    meta_message_id: message.id ?? null,
+    delivery_status: 'delivered',
+    payload: {
+      message,
+      value,
+      source: 'vercel_webhook',
+      route_kind: route.kind,
+      intent,
+      correlated_target_count: followups.count,
+    },
+  })
+
+  if (route.kind === 'mas_info' || isVerActividadesButton(buttonRaw, buttonTitle)) {
     const sent = await sendLatestActionFollowupButtons(supabase, {
       waId,
       usuarioId: identity.usuario_id,
     })
     if (!sent) {
-      await replyText(supabase, waId, 'No tienes actividades abiertas en el tablero.', identity.usuario_id)
-    }
-    await maybeAi(supabase, {
-      waId,
-      usuarioId: identity.usuario_id,
-      text: 'El usuario toco Mas informacion. Resume sus actividades abiertas y pregunta en que puedes ayudar.',
-    })
-    return
-  }
-
-  const parsed = parseFollowupButtonId(buttonRaw)
-  let action = parsed?.action ?? null
-  let accionId = parsed?.kind === 'action' ? parsed.accionId : null
-  if (!action && message.type === 'text' && message.text?.body) {
-    action = inferFollowupTextAction(message.text.body)
-    if (action) {
-      const { data: last } = await supabase
-        .from('action_delivery_log')
-        .select('accion_id,payload')
-        .eq('channel', 'whatsapp')
-        .eq('usuario_id', identity.usuario_id)
-        .eq('delivery_status', 'sent')
-        .order('created_at', { ascending: false })
-        .limit(8)
-      const followup = (last ?? []).find((row) => {
-        const payload = (row.payload ?? {}) as Record<string, unknown>
-        return payload.message_type === 'checkpoint_followup' && row.accion_id
+      await replyText(supabase, waId, 'No tienes actividades abiertas en el tablero.', identity.usuario_id, {
+        flow: 'ops',
       })
-      accionId = followup?.accion_id ?? accionId
     }
+    return
   }
 
-  if (action && accionId) {
+  if (route.kind === 'ops_button') {
+    const parsed = parseFollowupButtonId(route.buttonId)
+    if (parsed?.kind === 'action' && parsed.accionId && parsed.action) {
+      await applyActionResponse(supabase, {
+        accionId: parsed.accionId,
+        action: parsed.action,
+        usuarioId: identity.usuario_id,
+        waId,
+      })
+    }
+    return
+  }
+
+  if (route.kind === 'ops_clarify' || (route.kind === 'ops_keyword' && followups.count !== 1)) {
+    await replyText(
+      supabase,
+      waId,
+      followups.count > 1
+        ? askWhichTaskText()
+        : 'No hay un seguimiento reciente para asociar tu respuesta. Usa el boton del recordatorio.',
+      identity.usuario_id,
+      { flow: 'ops', intent: 'CLARIFICATION' }
+    )
+    return
+  }
+
+  if (route.kind === 'ops_keyword' && followups.count === 1 && followups.accionIds[0]) {
     await applyActionResponse(supabase, {
-      accionId,
-      action,
+      accionId: followups.accionIds[0],
+      action: route.action,
       usuarioId: identity.usuario_id,
       waId,
     })
     return
   }
 
-  const chatText = (message.type === 'text' && message.text?.body?.trim()) || buttonTitle?.trim() || ''
-  if (chatText) {
+  if (route.kind === 'ask_flow') {
+    await replyText(supabase, waId, askFlowClarificationText(), identity.usuario_id, {
+      flow: 'ops',
+      intent: 'UNKNOWN',
+    })
+    return
+  }
+
+  if (route.kind === 'cancel') {
+    await replyText(
+      supabase,
+      waId,
+      'Listo, cancele la actualizacion pendiente.',
+      identity.usuario_id,
+      { flow: 'ops', intent: 'CANCEL' }
+    )
+    return
+  }
+
+  if (
+    route.kind === 'agent_free_text' ||
+    route.kind === 'agent_consult' ||
+    route.kind === 'agent_channel'
+  ) {
+    const chatText =
+      ('text' in route && typeof route.text === 'string' && route.text) ||
+      (message.type === 'text' && message.text?.body?.trim()) ||
+      buttonTitle?.trim() ||
+      'Consulta al tablero'
     const ai = await maybeAi(supabase, { waId, usuarioId: identity.usuario_id, text: chatText })
-    if (!ai && message.type === 'text') {
+    if (!ai) {
       await replyText(
         supabase,
         waId,
-        'Puedes reportar avance con Realizada, En proceso o Requiero apoyo, o esperar el recordatorio.',
-        identity.usuario_id
+        'No pude consultar el asistente ahora. Intenta de nuevo en unos minutos.',
+        identity.usuario_id,
+        { flow: 'agent' }
       )
     }
+    return
+  }
+
+  if (route.kind === 'ops_help') {
+    await replyText(
+      supabase,
+      waId,
+      'Puedes reportar avance con Realizada, En proceso o Requiero apoyo, o esperar el recordatorio.',
+      identity.usuario_id,
+      { flow: 'ops' }
+    )
   }
 }
 

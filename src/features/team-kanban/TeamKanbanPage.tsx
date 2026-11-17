@@ -65,6 +65,7 @@ import { KanbanMineToggle } from '@/features/operations/components/KanbanMineTog
 import { useTeamActionCommentCounts } from './hooks/useTeamActionComentarios'
 import { useTeamAreaScope } from './hooks/useTeamAreaScope'
 import { formatRecurrenceLabel, upcomingOccurrenceDate } from './utils/recurrence'
+import { formatTeamScopeLabel } from '@/features/metrics/corporateActionMetrics'
 import {
   isTeamActionBlocked,
   isTeamActionOverdue,
@@ -711,6 +712,9 @@ export function TeamKanbanPage() {
             <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground sm:text-sm">
               Acciones privadas del equipo por estado. Cambia de area sin salir del tablero.
             </p>
+            <p className="text-xs font-medium text-muted-foreground">
+              {formatTeamScopeLabel(selectedArea?.nombre)} · población distinta al Kanban corporativo
+            </p>
           </div>
         </div>
 
@@ -776,7 +780,10 @@ export function TeamKanbanPage() {
         </p>
       ) : boardView ? (
         <div className="space-y-4">
-          <MetricsRow metrics={metrics} />
+          <MetricsRow
+            metrics={metrics}
+            scopeLabel={formatTeamScopeLabel(selectedArea?.nombre)}
+          />
 
           <FrequentSeriesPanel
             series={boardView.series ?? []}
@@ -1056,8 +1063,10 @@ export function TeamKanbanPage() {
 
 function MetricsRow({
   metrics,
+  scopeLabel,
 }: {
   metrics: { rojos: number; vencidas: number; abiertas: number; retrasoLabel: string }
+  scopeLabel?: string
 }) {
   const items = [
     {
@@ -1074,7 +1083,7 @@ function MetricsRow({
       key: 'vencidas',
       label: metrics.retrasoLabel,
       value: metrics.vencidas,
-      hint: 'Fecha o hora límite rebasada',
+      hint: 'fecha_limite rebasada',
       icon: Clock3,
       tone: 'border-orange-200/80 bg-orange-50/80',
       valueTone: 'text-orange-700',
@@ -1093,26 +1102,34 @@ function MetricsRow({
   ] as const
 
   return (
-    <div className="grid grid-cols-3 gap-2 sm:gap-3">
-      {items.map((item) => (
-        <div
-          key={item.key}
-          className={cn('rounded-xl border px-3 py-2.5 shadow-sm sm:px-3.5 sm:py-3', item.tone)}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <p className={cn('text-[11px] font-semibold uppercase tracking-wide', item.labelTone)}>
-              {item.label}
-            </p>
-            <item.icon className={cn('h-3.5 w-3.5 opacity-70', item.valueTone)} aria-hidden />
+    <div className="space-y-2">
+      {scopeLabel ? <p className="text-xs text-muted-foreground">{scopeLabel}</p> : null}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        {items.map((item) => (
+          <div
+            key={item.key}
+            className={cn('rounded-xl border px-3 py-2.5 shadow-sm sm:px-3.5 sm:py-3', item.tone)}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className={cn('text-[11px] font-semibold uppercase tracking-wide', item.labelTone)}>
+                {item.label}
+              </p>
+              <item.icon className={cn('h-3.5 w-3.5 opacity-70', item.valueTone)} aria-hidden />
+            </div>
+            <div className="mt-1 flex items-baseline gap-2">
+              <p
+                className={cn(
+                  'text-2xl font-bold tabular-nums leading-none sm:text-[1.75rem]',
+                  item.valueTone
+                )}
+              >
+                {item.value}
+              </p>
+              <p className="text-[11px] text-muted-foreground">{item.hint}</p>
+            </div>
           </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <p className={cn('text-2xl font-bold tabular-nums leading-none sm:text-[1.75rem]', item.valueTone)}>
-              {item.value}
-            </p>
-            <p className="text-[11px] text-muted-foreground">{item.hint}</p>
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   )
 }

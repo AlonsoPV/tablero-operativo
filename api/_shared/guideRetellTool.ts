@@ -1,5 +1,11 @@
 import type { CopilotToolResult } from '../../src/features/ai-support/copilot/types.js'
 import { serializeToolResultForModel } from './assistantOpsRuntime.js'
+import {
+  classifyDenialReason,
+  classifyDeniedMessage,
+  type DenialReasonClass,
+  type GuideToolErrorCode,
+} from './guideToolResult.js'
 
 export const RETELL_READ_TOOLS = [
   'get_my_actions',
@@ -42,6 +48,8 @@ export type ConsultLogEntry = {
   status: RetellToolStatus
   at: string
   summary: string
+  error_code?: GuideToolErrorCode | null
+  denial_reason?: DenialReasonClass | null
 }
 
 export function isRetellBoardTool(name: string) {
@@ -227,6 +235,8 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
   status: RetellToolStatus
   spoken: string
   data: unknown
+  error_code?: GuideToolErrorCode | null
+  denial_reason?: DenialReasonClass | null
 } {
   if (result.kind === 'proposal') {
     return {
@@ -249,15 +259,32 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
   }
   if (result.kind === 'denied') {
     const detail = typeof result.error === 'string' ? result.error.trim() : ''
-    const permissionSend = /PERMISSION_DENIED|no permite enviar/i.test(detail)
+    const error_code = classifyDeniedMessage(detail || 'denied')
+    const denial_reason = classifyDenialReason(detail || 'denied')
+    if (error_code === 'PERMISSION_DENIED') {
+      const permissionSend = /PERMISSION_DENIED|no permite enviar/i.test(detail)
+      return {
+        status: 'denied',
+        spoken: permissionSend
+          ? 'Este modo no permite enviar comunicaciones. No inventes que se envio.'
+          : detail && detail.length < 160
+            ? detail
+            : 'No tengo permiso para consultar eso. No inventes el resultado.',
+        data: null,
+        error_code,
+        denial_reason,
+      }
+    }
+    const brief =
+      detail && detail.length < 160
+        ? detail
+        : 'No pude completar esa solicitud por un problema de validacion.'
     return {
-      status: 'denied',
-      spoken: permissionSend
-        ? 'Este modo no permite enviar comunicaciones. No inventes que se envio.'
-        : detail && detail.length < 160
-          ? detail
-          : 'No tengo permiso para consultar eso. No inventes el resultado.',
+      status: 'error',
+      spoken: `${brief} Podemos continuar con la conversacion.`,
       data: null,
+      error_code,
+      denial_reason,
     }
   }
   if (result.kind === 'error' || result.ok === false) {
@@ -268,8 +295,12 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
         status: 'denied',
         spoken: 'Este modo no permite enviar comunicaciones. No inventes que se envio.',
         data: null,
+        error_code: 'PERMISSION_DENIED',
+        denial_reason: 'permission',
       }
     }
+    const error_code =
+      result.error === 'timeout' ? ('TIMEOUT' as const) : detail ? classifyDeniedMessage(detail) : 'UNKNOWN_ERROR'
     return {
       status: 'error',
       spoken:
@@ -281,6 +312,8 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
               ? 'No pude confirmar ni cancelar esa operacion. No digas que quedo hecha.'
               : 'No pude consultar el tablero. Prefiero no dar informacion que no pueda confirmar.',
       data: null,
+      error_code,
+      denial_reason: detail ? classifyDenialReason(detail) : 'other',
     }
   }
   if (result.tool === 'confirm_pending_op') {
@@ -377,9 +410,18 @@ function collectTitles(data: unknown): string[] {
   return titles
 }
 
-export function consultSummary(status: RetellToolStatus, data: unknown): string {
-  if (status === 'error') return 'Consulta fallida'
-  if (status === 'denied') return 'Sin permiso'
+export function consultSummary(status: RetellToolStatus, data: unknown, detail?: string | null): string {
+  if (status === 'error') {
+    const msg = typeof detail === 'string' ? detail.trim() : ''
+    if (msg && !/^consulta fallida$/i.test(msg)) return msg.slice(0, 240)
+    return 'Consulta fallida'
+  }
+  if (status === 'denied') {
+    const msg = typeof detail === 'string' ? detail.trim() : ''
+    if (msg && classifyDeniedMessage(msg) === 'PERMISSION_DENIED') return msg.slice(0, 240)
+    if (msg) return msg.slice(0, 240)
+    return 'Sin permiso'
+  }
   if (status === 'empty') return 'Sin registros visibles'
   if (status === 'needs_clarification') {
     const question =
@@ -411,8 +453,33 @@ function readableSummary(summary: string): string {
   return trimmed.slice(0, 240)
 }
 
-export function consultLogEntry(tool: string, status: RetellToolStatus, data: unknown, at = new Date().toISOString()): ConsultLogEntry {
-  return { tool, status, at, summary: consultSummary(status, data).slice(0, 700) }
+export function consultLogEntry(
+  tool: string,
+  status: RetellToolStatus,
+  data: unknown,
+  at = new Date().toISOString(),
+  meta?: {
+    summaryHint?: string | null
+    error_code?: GuideToolErrorCode | null
+    denial_reason?: DenialReasonClass | null
+  }
+): ConsultLogEntry {
+  const hint = meta?.summaryHint?.trim() || null
+  const summary = (hint || consultSummary(status, data, hint)).slice(0, 700)
+  const error_code =
+    meta?.error_code ??
+    (status === 'denied' || status === 'error' ? classifyDeniedMessage(summary || status) : null)
+  const denial_reason =
+    meta?.denial_reason ??
+    (status === 'denied' || status === 'error' ? classifyDenialReason(summary || status) : null)
+  return {
+    tool,
+    status,
+    at,
+    summary,
+    error_code: status === 'denied' || status === 'error' ? error_code : null,
+    denial_reason: status === 'denied' || status === 'error' ? denial_reason : null,
+  }
 }
 
 export type VerifiedFactMetric = {
@@ -487,12 +554,21 @@ export function verifiedFactsFromLog(log: unknown): VerifiedFactsFromLog {
 
     if (status === 'error' || status === 'denied') {
       hadError = true
+      const loggedCode =
+        typeof (item as { error_code?: unknown }).error_code === 'string'
+          ? String((item as { error_code: string }).error_code)
+          : null
+      const code = loggedCode || classifyDeniedMessage(summary || status)
+      const typedCode =
+        code === 'PERMISSION_DENIED' || code === 'VALIDATION_FAILED' || code === 'TIMEOUT'
+          ? code
+          : 'TOOL_ERROR'
       technicalAttention.push({
-        code: status === 'denied' ? 'PERMISSION_DENIED' : 'TOOL_ERROR',
+        code: typedCode,
         message: (summary || `Fallo en ${tool}`).slice(0, 400),
         tool,
         at,
-        retryable: status === 'error',
+        retryable: status === 'error' && typedCode !== 'VALIDATION_FAILED' && typedCode !== 'PERMISSION_DENIED',
       })
       continue
     }

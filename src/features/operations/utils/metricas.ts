@@ -8,6 +8,7 @@ import {
   isCorporateBlocked,
   isCorporateOpen,
   isCorporateOverdue,
+  isCorporateVerified,
 } from '@/features/metrics/corporateActionMetrics'
 import { priorityColorFor } from './priorityColors'
 import { findPriorityForAccion } from './resolveAccionPrioridad'
@@ -34,9 +35,6 @@ export type KanbanHealthMetrics = {
   promedioAperturaRojosDias: number
 }
 
-/** Para edad de rojos: solo Verificado cierra; Hecho sigue abierto. */
-const ESTADOS_VERIFICADOS = new Set(['Verificado'])
-
 function isAccionRoja(accion: AccionDiaria, priorities: Priority[]): boolean {
   const priority = findPriorityForAccion(accion, priorities)
   return priorityColorFor(priority?.nombre ?? accion.prioridad, priority?.color) === 'rojo'
@@ -55,9 +53,7 @@ function promedioAperturaDias(acciones: AccionDiaria[]): number {
 
 export function metricasFromAcciones(acciones: AccionDiaria[]): MetricasAcciones {
   const total = acciones.length
-  const completadas = acciones.filter((a) =>
-    a.estado === 'Hecho' || a.estado === 'Verificado'
-  ).length
+  const completadas = acciones.filter((a) => !isCorporateOpen(a)).length
   const bloqueadas = acciones.filter((a) => isCorporateBlocked(a)).length
   const retraso = acciones.filter((a) => isCorporateOverdue(a)).length
   const eficienciaPorcentaje = total > 0 ? Math.round((completadas / total) * 100) : 0
@@ -71,23 +67,23 @@ export function metricasFromAcciones(acciones: AccionDiaria[]): MetricasAcciones
   }
 }
 
-/** Resumen operativo para las tarjetas del Kanban corporativo / por equipos. */
+/** Resumen operativo para las tarjetas del Kanban corporativo (misma fuente que Dashboard). */
 export function kanbanHealthFromAcciones(
   acciones: AccionDiaria[],
   priorities: Priority[] = []
 ): KanbanHealthMetrics {
   const open = acciones.filter((accion) => isCorporateOpen(accion))
-  const vencidas = open.filter((accion) => isCorporateOverdue(accion))
+  const vencidas = acciones.filter((accion) => isCorporateOverdue(accion))
   /** Rojas aún no verificadas (Hecho sigue contando para edad). */
   const openRojas = acciones.filter(
-    (accion) => !ESTADOS_VERIFICADOS.has(accion.estado) && isAccionRoja(accion, priorities)
+    (accion) => !isCorporateVerified(accion) && isAccionRoja(accion, priorities)
   )
 
   return {
     rojos: openRojas.length,
     vencidas: vencidas.length,
     vencidasRojas: vencidas.filter((accion) => isAccionRoja(accion, priorities)).length,
-    bloqueadas: open.filter((accion) => isCorporateBlocked(accion)).length,
+    bloqueadas: acciones.filter((accion) => isCorporateBlocked(accion)).length,
     abiertas: open.length,
     promedioAperturaTotalDias: promedioAperturaDias(open),
     promedioAperturaRojosDias: promedioAperturaDias(openRojas),

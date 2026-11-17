@@ -148,6 +148,7 @@ Migraciones clave:
 | `20260708051934_update_whatsapp_action_message_template.sql` | Ajuste copy plantillas |
 | `20260623130000…` / `20260706130000…` | Identidades / teléfonos duplicados |
 | `20261104120000_can_use_ai_whatsapp_for_usuario.sql` | RPC chatbot: OKRS/Super Admin por `usuario_id` (solo `service_role`) |
+| `20261117120000_whatsapp_flow_sessions.sql` | Sesiones separadas `chatbot_query` / `task_update` |
 
 Ruta UI settings: `ROUTES.SETTINGS_WHATSAPP` → `/settings/whatsapp`.
 
@@ -412,34 +413,36 @@ Tras `done`, el bot pide texto o media. El siguiente mensaje:
 
 Formatos: pdf, png, jpg, csv, xlsx, xls, bin.
 
-### Chatbot Gemini — flujo independiente del Ops
+### Chatbot Gemini — flujo independiente del Ops (read-only)
 
-Mismo número WABA, **dos routers** en `whatsapp-webhook`:
+Mismo número WABA (sin segunda app Meta). SSOT: `src/lib/whatsappFlowRouting.ts` (sync a Edge: `node scripts/sync-whatsapp-routing.mjs`).
 
 | Flujo | Quién | Qué maneja |
 | --- | --- | --- |
-| **Ops** | Todos | Evidencia, botones `act:`/`chk:`/`tchk:`, keywords ops, “Ver actividades” / Más información, follow-ups |
-| **Agent** | OKRS / Super Admin | Solo tras **Consulta al Bot** (o `/consulta`), texto libre en sesión agent, botones `aiop:`. Precarga dashboard + OKRs + acciones propias/equipo y puede llamar herramientas de todo el tablero autorizado |
+| **Ops** (`task_update`) | Todos | Evidencia, botones `act:`/`chk:`/`tchk:`, keywords con **una** correlación, “Ver actividades” |
+| **Agent** (`chatbot_query`) | OKRS / Super Admin | Consultas (QUERY), `Consulta al Bot`, sesión agent; **solo tools de lectura** |
 
-Prioridad inbound:
+#### Intent → handler
 
-1. Número no vinculado → mensaje fijo.
-2. Evidencia pendiente → **Ops**.
-3. Botones `act:`/`chk:`/`tchk:` → **Ops** (también OKRS).
-4. Botones `aiop:` → **Agent** (interacción de propuestas).
-5. “Más información” / `Ver actividades` → **solo Ops** (listado/botones; **no** Gemini).
-6. `Consulta al Bot` → **Agent** (invite); abre sesión ~24 h vía outbound `flow=agent`.
-7. Keywords ops (`Realizada` / `Reportar avance` / `Necesito apoyo`, etc.) → **siempre Ops**, también OKRS.
-8. Texto libre:
-   - `can_use_ai` **y** sesión agent activa → **Agent**.
-   - resto → ayuda operativa; **nunca** Gemini.
-9. Si Gemini falla: reply corto; **siempre 200 a Meta**.
+| Intent | Señal | Destino |
+| --- | --- | --- |
+| `TASK_REPLY` | Botón `act:/chk:/tchk:` o keyword corto con **1** followup &lt; 72 h | Ops update |
+| `TASK_UPDATE` | Comando explícito con tarea/id | Ops update |
+| `QUERY` | Pregunta / vencidas / OKR / “Consulta al Bot” | Agent read-only |
+| `CLARIFICATION` | Keyword ops con 0 o N&gt;1 candidatos | Pregunta “¿cuál tarea?” |
+| `CANCEL` | “cancelar” / `aiop:…:no` | Cierra sesión / cancela propuesta |
+| `UNKNOWN` | Ambiguo | Pregunta consultar vs actualizar |
 
-Payload hilo: `flow: 'ops' | 'agent'`. Política testeable: `src/lib/whatsappFlowRouting.ts`.
+Prioridad: interactivo firmado → correlación → comandos → aclaración pendiente → **QUERY antes que keyword ops** → keyword corto solo si correlación inequívoca → UNKNOWN.
 
-El cerebro vive en Vercel (`GEMINI_*`). Edge **no** necesita `GEMINI_API_KEY`. Escrituras al tablero solo tras confirmar (`assistant_pending_ops`). Inbox: `source=ai` / `flow=agent` → **Asistente**.
+- Si el chatbot detecta pedido de escritura → responde ofreciendo actualizar y `handoff: 'task_update'` (no escribe).
+- Sesiones: tabla `whatsapp_flow_sessions` (`chatbot_query` \| `task_update`).
+- Callback canónico Meta → **Edge** `whatsapp-webhook`. Fallback Vercel `/api/whatsapp-webhook` usa el **mismo** clasificador + dedup `external_inbound_messages` (no configurar ambas URLs activas a la vez).
+- Payload inbound: `flow`, `route_kind`, `intent`, `correlated_target_count`.
 
-No commitear secretos. Flag: `WHATSAPP_AI_ENABLED`.
+El cerebro vive en Vercel (`GEMINI_*`). Edge **no** necesita `GEMINI_API_KEY`. Flag: `WHATSAPP_AI_ENABLED`.
+
+**No deploy Meta/prod ni cambiar secrets sin OK explícito.**
 
 ---
 

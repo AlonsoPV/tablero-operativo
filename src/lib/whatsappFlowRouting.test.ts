@@ -1,16 +1,23 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   CHANNEL_SELECTOR_DEBOUNCE_MS,
   VOICE_LINK_RESEND_COOLDOWN_MS,
   channelSelectorFallbackText,
+  classifyWhatsAppIntent,
   extractVoiceLinkFromPayload,
   flowForRoute,
   inferOpsTextAction,
+  intentForRoute,
   isConsultaAlBotText,
   isMasInfoButton,
   isOpsStructuredButton,
   isWithinCooldown,
+  looksLikeQueryText,
   parseAiOpButtonId,
+  pickUniqueOpsTarget,
   resolveWhatsAppInboundRoute,
 } from './whatsappFlowRouting'
 
@@ -68,7 +75,7 @@ describe('whatsappFlowRouting', () => {
     expect(flowForRoute(help)).toBe('ops')
   })
 
-  it('OKRS: reportar/apoyo siempre ops; agent solo con sesión o Consulta al Bot', () => {
+  it('OKRS: reportar/apoyo ops; QUERY va a agent aunque no haya sesión', () => {
     const realizada = resolveWhatsAppInboundRoute({
       canUseAi: true,
       textBody: 'Realizada',
@@ -96,7 +103,7 @@ describe('whatsappFlowRouting', () => {
       textBody: 'Qué acciones rojas tengo?',
       messageType: 'text',
     })
-    expect(withoutSession.kind).toBe('ops_help')
+    expect(withoutSession.kind).toBe('agent_free_text')
 
     const withSession = resolveWhatsAppInboundRoute({
       canUseAi: true,
@@ -241,10 +248,10 @@ describe('whatsappFlowRouting', () => {
         flow: null,
       },
       {
-        name: 'OKRS free text sin sesión → ops_help',
+        name: 'OKRS free text sin sesión → agent (QUERY)',
         input: { canUseAi: true, textBody: 'resumen de rojos', messageType: 'text' },
-        kind: 'ops_help',
-        flow: 'ops',
+        kind: 'agent_free_text',
+        flow: 'agent',
       },
       {
         name: 'OKRS free text con sesión → agent',
@@ -324,14 +331,24 @@ describe('whatsappFlowRouting', () => {
         flow: 'agent',
       },
       {
-        name: 'interactive free text título → ops_help sin sesión',
+        name: 'interactive free text título con tablero → QUERY agent',
         input: {
           canUseAi: true,
           buttonTitle: 'Consulta tablero',
           messageType: 'interactive',
         },
-        kind: 'ops_help',
-        flow: 'ops',
+        kind: 'agent_free_text',
+        flow: 'agent',
+      },
+      {
+        name: 'texto ambiguo largo → ask_flow',
+        input: {
+          canUseAi: true,
+          textBody: 'necesito revisar eso mañana temprano',
+          messageType: 'text',
+        },
+        kind: 'ask_flow',
+        flow: null,
       },
     ]
 
@@ -340,5 +357,173 @@ describe('whatsappFlowRouting', () => {
       expect(route.kind, row.name).toBe(row.kind)
       expect(flowForRoute(route), row.name).toBe(row.flow)
     }
+  })
+
+  describe('escenarios A–J (separación QUERY vs OPS)', () => {
+    it('A QUERY vencidas → agent/QUERY', () => {
+      const { intent, route } = classifyWhatsAppIntent({
+        canUseAi: true,
+        textBody: '¿Qué tareas tengo vencidas?',
+        messageType: 'text',
+        correlatedTargetCount: 2,
+      })
+      expect(route.kind).toBe('agent_free_text')
+      expect(intent).toBe('QUERY')
+    })
+
+    it('B update explícito → TASK_UPDATE', () => {
+      const { intent, route } = classifyWhatsAppIntent({
+        canUseAi: true,
+        textBody: 'Marca la tarea #12 como hecha',
+        messageType: 'text',
+        correlatedTargetCount: 1,
+      })
+      expect(route.kind).toBe('ops_keyword')
+      expect(intent).toBe('TASK_UPDATE')
+    })
+
+    it('C cambio de flujo OKR keyword → update', () => {
+      const { route } = classifyWhatsAppIntent({
+        canUseAi: true,
+        textBody: 'Realizada',
+        messageType: 'text',
+        correlatedTargetCount: 1,
+      })
+      expect(route.kind).toBe('ops_keyword')
+      expect(flowForRoute(route)).toBe('ops')
+    })
+
+    it('D followup pendiente + consulta bloqueadas → QUERY sin mutar', () => {
+      const { intent, route } = classifyWhatsAppIntent({
+        canUseAi: true,
+        textBody: '¿Cuáles están bloqueadas?',
+        messageType: 'text',
+        correlatedTargetCount: 1,
+      })
+      expect(route.kind).toBe('agent_free_text')
+      expect(intent).toBe('QUERY')
+      expect(looksLikeQueryText('¿Cuáles están bloqueadas?')).toBe(true)
+    })
+
+    it('E Ya terminé con 1 correlación → TASK_REPLY', () => {
+      const { intent, route } = classifyWhatsAppIntent({
+        canUseAi: true,
+        textBody: 'Ya terminé',
+        messageType: 'text',
+        correlatedTargetCount: 1,
+      })
+      expect(route.kind).toBe('ops_keyword')
+      expect(intent).toBe('TASK_REPLY')
+    })
+
+    it('F Ya terminé con 2 → CLARIFICATION', () => {
+      const { intent, route } = classifyWhatsAppIntent({
+        canUseAi: true,
+        textBody: 'Ya terminé',
+        messageType: 'text',
+        correlatedTargetCount: 2,
+      })
+      expect(route.kind).toBe('ops_clarify')
+      expect(intent).toBe('CLARIFICATION')
+      if (route.kind === 'ops_clarify') expect(route.reason).toBe('many')
+    })
+
+    it('G dedup conceptual: mismo meta id no re-clasifica distinto', () => {
+      const input = {
+        canUseAi: true,
+        textBody: '¿Qué OKRs van mal?',
+        messageType: 'text' as const,
+      }
+      const a = classifyWhatsAppIntent(input)
+      const b = classifyWhatsAppIntent(input)
+      expect(a.rule).toBe(b.rule)
+      expect(a.intent).toBe(b.intent)
+    })
+
+    it('H mensajes rápidos: orden + aislamiento sesión (clarificationPending)', () => {
+      const first = classifyWhatsAppIntent({
+        canUseAi: true,
+        textBody: 'Ya terminé',
+        messageType: 'text',
+        correlatedTargetCount: 2,
+      })
+      expect(first.route.kind).toBe('ops_clarify')
+
+      const second = classifyWhatsAppIntent({
+        canUseAi: true,
+        textBody: 'la del informe semanal',
+        messageType: 'text',
+        clarificationPending: true,
+        correlatedTargetCount: 2,
+      })
+      // Aclaración pendiente no fuerza OPS write ciego; va a texto libre/agent para desambiguar.
+      expect(second.route.kind).toBe('agent_free_text')
+    })
+
+    it('I reply expirado (0 correlación) → pedir contexto', () => {
+      const { intent, route } = classifyWhatsAppIntent({
+        canUseAi: false,
+        textBody: 'hecho',
+        messageType: 'text',
+        correlatedTargetCount: 0,
+      })
+      expect(route.kind).toBe('ops_clarify')
+      expect(intent).toBe('CLARIFICATION')
+      if (route.kind === 'ops_clarify') expect(route.reason).toBe('none')
+    })
+
+    it('J alternancia consulta/update conserva intents distintos', () => {
+      const query = classifyWhatsAppIntent({
+        canUseAi: true,
+        textBody: '¿Cómo van mis OKRs?',
+        messageType: 'text',
+        correlatedTargetCount: 1,
+      })
+      const update = classifyWhatsAppIntent({
+        canUseAi: true,
+        textBody: 'listo',
+        messageType: 'text',
+        correlatedTargetCount: 1,
+      })
+      expect(query.intent).toBe('QUERY')
+      expect(update.intent).toBe('TASK_REPLY')
+      expect(flowForRoute(query.route)).toBe('agent')
+      expect(flowForRoute(update.route)).toBe('ops')
+    })
+
+    it('pickUniqueOpsTarget one/none/many', () => {
+      expect(pickUniqueOpsTarget([])).toEqual({ status: 'none' })
+      expect(pickUniqueOpsTarget([{ id: 'a' }])).toEqual({
+        status: 'one',
+        target: { id: 'a' },
+      })
+      const many = pickUniqueOpsTarget([{ id: 'a' }, { id: 'b' }])
+      expect(many.status).toBe('many')
+    })
+
+    it('cancel intent', () => {
+      const { intent, route } = classifyWhatsAppIntent({
+        canUseAi: true,
+        textBody: 'cancelar',
+        messageType: 'text',
+      })
+      expect(route.kind).toBe('cancel')
+      expect(intent).toBe('CANCEL')
+      expect(intentForRoute(route)).toBe('CANCEL')
+    })
+  })
+
+  it('anti-drift: Edge _shared espeja src/lib/whatsappFlowRouting.ts', () => {
+    const root = join(dirname(fileURLToPath(import.meta.url)), '../..')
+    const src = readFileSync(join(root, 'src/lib/whatsappFlowRouting.ts'), 'utf8')
+    const edge = readFileSync(
+      join(root, 'supabase/functions/_shared/whatsappFlowRouting.ts'),
+      'utf8'
+    )
+    const withoutBanner = edge.replace(
+      /^\/\*\* AUTO-GENERATED from src\/lib\/whatsappFlowRouting\.ts[^\n]*\n/,
+      ''
+    )
+    expect(withoutBanner).toBe(src)
   })
 })
