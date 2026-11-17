@@ -2,12 +2,17 @@
  * Actualiza y publica el agente Guia (RETELL_GUIDE_AGENT_ID):
  * - get_session_state → Vercel /api/guide-session-state
  * - custom function scrumban → Vercel /api/guide-retell-tool
+ * - queue_workspace_draft → Vercel /api/guide-queue-workspace-draft
  * - webhook_url → Vercel /api/guide-retell-webhook
+ * - steering A–D comunicaciones (prompt_version enviardian-voz-2026-11-17-intent)
  * No toca RETELL_AGENT_ID.
  *
  * Publicar remoto exige GUIDE_RETELL_PUBLISH_OK=1 (autorización explícita).
- * Sin esa variable: dry-run (imprime el payload de scrumban y sale 0).
+ * Sin esa variable: dry-run (imprime el payload y sale 0).
  */
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { loadDotenv } from './_load-dotenv.mjs'
 
 loadDotenv(import.meta.url)
@@ -18,6 +23,7 @@ const key = process.env.RETELL_API_KEY
 const agentId = process.env.RETELL_GUIDE_AGENT_ID
 const toolSecret = process.env.GUIDE_RETELL_TOOL_SECRET
 const publishOk = process.env.GUIDE_RETELL_PUBLISH_OK === '1'
+const PROMPT_VERSION = 'enviardian-voz-2026-11-17-intent'
 
 if (!key || !agentId || !toolSecret) {
   console.error('Faltan RETELL_API_KEY, RETELL_GUIDE_AGENT_ID o GUIDE_RETELL_TOOL_SECRET')
@@ -104,16 +110,90 @@ const SCRUMBAN = {
   },
 }
 
+const QUEUE_WORKSPACE_DRAFT = {
+  tool_id: 'tool_queue_workspace_draft',
+  type: 'custom',
+  name: 'queue_workspace_draft',
+  description:
+    'Encola, actualiza o cancela borradores de correo/WhatsApp/evento para revision post-llamada. ' +
+    'Nunca envia. Usa action=prepare|update|cancel. Reutiliza pending_op_id al actualizar/cancelar. ' +
+    'channel=email|whatsapp|both|event. Si el canal no esta claro, pregunta antes de llamar. ' +
+    'No uses esta tool ante menciones informativas (mejorar WhatsApp, nunca revisa correos).',
+  url: `${APP}/api/guide-queue-workspace-draft`,
+  method: 'POST',
+  parameter_type: 'json',
+  args_at_root: false,
+  speak_after_execution: true,
+  speak_during_execution: true,
+  execution_message_type: 'static_text',
+  execution_message_description: 'Un segundo, lo anoto.',
+  timeout_ms: 15000,
+  headers: {},
+  query_params: {},
+  parameters: {
+    type: 'object',
+    required: ['action', 'channel', 'purpose'],
+    properties: {
+      action: {
+        type: 'string',
+        description: 'prepare | update | cancel',
+      },
+      channel: {
+        type: 'string',
+        description: 'email | whatsapp | both | event',
+      },
+      purpose: { type: 'string', description: 'Proposito breve del mensaje o evento.' },
+      recipient: { type: 'string', description: 'Nombre o pista del destinatario.' },
+      pending_op_id: {
+        type: 'string',
+        description: 'Id del borrador al actualizar o cancelar.',
+      },
+      content_instructions: {
+        type: 'string',
+        description: 'Tono o contenido pedido (corto).',
+      },
+      conversation_context: {
+        type: 'string',
+        description: 'Contexto corto de la conversacion (acuerdos).',
+      },
+      uttered_at: { type: 'string', description: 'ISO de cuando lo pidio el usuario.' },
+      idempotency_key: { type: 'string', description: 'Clave estable para reintentos.' },
+      time_anchor: { type: 'string', description: 'Ancla temporal para eventos.' },
+      attendees: { type: 'string', description: 'Asistentes de evento (opcional).' },
+    },
+  },
+}
+
+const COMMS_STEERING = `
+Comunicaciones (prompt_version=${PROMPT_VERSION}): interpreta intencion, no solo keywords.
+A explicita → queue_workspace_draft action=prepare. B contextual → update + pending_op_id. C mencion informativa → NO tool; soft intent pregunta "Quieres que te deje preparado el mensaje?". D cancel/mod → cancel|update; "otro" = prepare nuevo.
+Canal ambiguo: pregunta WhatsApp o correo antes de encolar. Confirma solo si tool ok. No envies ni leas borradores largos en la llamada.
+`.trim()
+
+function loadCommsAppendix() {
+  try {
+    const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+    const md = readFileSync(join(root, 'docs', 'prompts', 'enviardian-voz.md'), 'utf8')
+    const marker = '### Comunicaciones WhatsApp / correo'
+    const at = md.indexOf(marker)
+    if (at < 0) return COMMS_STEERING
+    return md.slice(at).trim().slice(0, 3500)
+  } catch {
+    return COMMS_STEERING
+  }
+}
+
 if (!publishOk) {
   console.log(
     JSON.stringify(
       {
         dry_run: true,
         reason: 'Falta GUIDE_RETELL_PUBLISH_OK=1. No se publica ni se crea draft remoto.',
-        before: {
-          speak_during_execution: false,
-          execution_message_type: null,
-          execution_message_description: null,
+        prompt_version: PROMPT_VERSION,
+        queue_workspace_draft: {
+          url: QUEUE_WORKSPACE_DRAFT.url,
+          args_at_root: QUEUE_WORKSPACE_DRAFT.args_at_root,
+          parameters: Object.keys(QUEUE_WORKSPACE_DRAFT.parameters.properties),
         },
         after: {
           speak_during_execution: SCRUMBAN.speak_during_execution,
@@ -179,8 +259,18 @@ const nextClock = {
   execution_message_description: 'Un segundo.',
 }
 
-const otherTools = (flow.tools || []).filter((t) => t.name !== 'get_session_state' && t.name !== 'scrumban')
-const tools = [...otherTools, nextClock, SCRUMBAN]
+const otherTools = (flow.tools || []).filter(
+  (t) =>
+    t.name !== 'get_session_state' &&
+    t.name !== 'scrumban' &&
+    t.name !== 'queue_workspace_draft'
+)
+const existingQueue = (flow.tools || []).find((t) => t.name === 'queue_workspace_draft')
+const nextQueue = {
+  ...QUEUE_WORKSPACE_DRAFT,
+  tool_id: existingQueue?.tool_id || QUEUE_WORKSPACE_DRAFT.tool_id,
+}
+const tools = [...otherTools, nextClock, SCRUMBAN, nextQueue]
 
 const nodeIdsWithClock = new Set(
   (flow.nodes || [])
@@ -191,18 +281,28 @@ const nodeIdsWithClock = new Set(
 const nodes = (flow.nodes || []).map((node) => {
   if (!nodeIdsWithClock.has(node.id) && node.type !== 'conversation') return node
   const ids = Array.isArray(node.tool_ids) ? [...node.tool_ids] : []
-  if (nodeIdsWithClock.has(node.id) || ids.includes('tool_get_session_state')) {
+  if (nodeIdsWithClock.has(node.id) || ids.includes('tool_get_session_state') || node.type === 'conversation') {
     if (!ids.includes('tool_scrumban')) ids.push('tool_scrumban')
-    return { ...node, tool_ids: ids }
+    if (!ids.includes(nextQueue.tool_id)) ids.push(nextQueue.tool_id)
   }
-  return node
+  // No mutar node.instruction: en Retell es objeto estructurado, no string.
+  return { ...node, tool_ids: ids }
 })
+
+const flowPatch = { tools, nodes }
+const commsAppendix = loadCommsAppendix()
+if (typeof flow.global_prompt === 'string') {
+  const gp = flow.global_prompt.includes(PROMPT_VERSION)
+    ? flow.global_prompt
+    : `${flow.global_prompt.trim()}\n\n${commsAppendix}`.trim()
+  flowPatch.global_prompt = gp
+}
 
 console.log('PATCH flow', flowId, 'version', draftVersion)
 const updatedFlow = await retell(
   'PATCH',
   `/update-conversation-flow/${flowId}?version=${draftVersion}`,
-  { tools, nodes }
+  flowPatch
 )
 const toolNames = (updatedFlow.tools || tools).map((t) => `${t.name}@${t.url}`)
 console.log('tools', toolNames)
@@ -216,9 +316,9 @@ await retell('PATCH', `/update-agent/${agentId}?version=${draftVersion}`, {
 console.log('PUBLISH agent-version', agentId, 'version', draftVersion)
 const published = await retell('POST', `/publish-agent-version/${agentId}`, {
   version: draftVersion,
-  version_title: 'Guia voz: speak_during + steering slim',
+  version_title: `Guia voz: ${PROMPT_VERSION}`,
   version_description:
-    'scrumban speak_during_execution + mensaje espera; prefer get_my_actions/okr/dashboard; reloj speak_during',
+    'Comunicaciones A-D + queue_workspace_draft prepare/update/cancel; scrumban speak_during; reloj speak_during',
 })
 const verify = await retell('GET', `/get-agent/${agentId}`)
 console.log(
@@ -232,6 +332,8 @@ console.log(
       webhook_events: verify.webhook_events,
       clock_url: nextClock.url,
       scrumban_url: SCRUMBAN.url,
+      queue_workspace_draft_url: nextQueue.url,
+      prompt_version: PROMPT_VERSION,
       scrumban_args_at_root: SCRUMBAN.args_at_root,
       publish_response: published,
     },

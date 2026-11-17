@@ -113,6 +113,41 @@ describe('fillWorkspaceDraftsFromTranscript', () => {
     expect(String(filled[0].payload.body)).toMatch(/OTIF|directo|acuerdos/i)
   })
 
+  it('includes agreed lines from executive report in the body', () => {
+    const report = JSON.stringify({
+      version: 'enviardian-informe-v3',
+      situation: 'x',
+      diagnosis: 'y',
+      priorities: [],
+      decisions: [],
+      nextSteps: [],
+      agreed: ['Revisar OTIF el lunes'],
+      pending: ['Confirmar evidencia'],
+      verified: [],
+      said: [],
+      recommendations: [],
+    })
+    const filled = fillWorkspaceDraftsFromTranscript({
+      drafts: [
+        {
+          id: 'op-mail-agreed',
+          tool: 'gmail_prepare_send',
+          payload: {
+            incomplete: true,
+            draft_kind: 'email',
+            purpose: 'seguimiento de pendientes',
+            recipient_hint: 'ana@empresa.com',
+            uttered_at: '2026-11-16T12:00:00-06:00',
+          },
+          preview: {},
+        },
+      ],
+      transcript: 'ruido',
+      report,
+    })
+    expect(String(filled[0].payload.body)).toMatch(/OTIF|Acuerdo|Pendiente/i)
+  })
+
   it('marks whatsapp needs_info when recipient is missing', () => {
     const filled = fillWorkspaceDraftsFromTranscript({
       drafts: [

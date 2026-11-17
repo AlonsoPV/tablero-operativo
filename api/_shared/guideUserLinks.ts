@@ -33,29 +33,35 @@ export function normalizeGuideAccessMode(raw: unknown): GuideAccessMode {
   return 'read'
 }
 
-/** Modo efectivo de una liga personal (piloto eleva a interview_full_read). */
+/**
+ * Modo efectivo de una liga personal.
+ * Piloto: interview_full_read = lectura org + escritura (acciones/comunicaciones).
+ */
 export function effectiveInviteAccessMode(stored?: unknown): GuideAccessMode {
   if (interviewFullReadPilotEnabled()) return 'interview_full_read'
   const mode = normalizeGuideAccessMode(stored)
-  return mode === 'propose' ? 'read' : mode
+  return mode === 'propose' ? 'propose' : mode
 }
 
+/** Escritura de tablero y propuestas: propose o liga piloto interview_full_read. */
 export function isGuideWriteAllowed(mode: GuideAccessMode) {
-  return mode === 'propose'
+  return mode === 'propose' || mode === 'interview_full_read'
 }
 
 /**
  * Cola de borradores de comunicación (correo/WhatsApp) durante la entrevista.
- * Permitido en propose y también en ligas read/interview_full_read (dueño de la sesión).
- * El envío sigue gated por canSendCommunication / sesión autenticada del dueño.
+ * Permitido en propose y ligas read/interview_full_read (dueño de la sesión).
  */
 export function canQueueCommunicationDraft(mode: GuideAccessMode) {
   return mode === 'propose' || mode === 'read' || mode === 'interview_full_read'
 }
 
-/** Envío/confirmación: solo modo propose (sesión autenticada con escritura). */
+/**
+ * Confirm/envío de comunicaciones: propose o liga piloto interview_full_read
+ * (actúa como el dueño de la sesión; no ampliar a `read` puro).
+ */
 export function canSendCommunication(mode: GuideAccessMode) {
-  return mode === 'propose'
+  return mode === 'propose' || mode === 'interview_full_read'
 }
 
 export function guideBoardScopeForAccessMode(mode: GuideAccessMode): 'role' | 'organization' {

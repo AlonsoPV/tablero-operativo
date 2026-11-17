@@ -17,7 +17,7 @@ URL token → validate-guide-user-link
 
 - Retell **nunca** habla con Supabase desde el navegador.
 - La identidad **no** sale de un `usuario_id` que mande el modelo.
-- **Piloto** `GUIDE_INTERVIEW_FULL_READ=1` (default): toda liga valida usa `interview_full_read` = lectura de toda la organizacion (modulos/herramientas), **sin escritura**. Apagar con `0` para volver a lectura segun rol.
+- **Piloto** `GUIDE_INTERVIEW_FULL_READ=1` (default): toda liga valida usa `interview_full_read` = lectura org **+ escritura** (acciones/comunicaciones). Apagar con `0` para restringir.
 - Voz autenticada en app sigue en `propose`.
 - El producto es single-tenant: aislamiento por proyecto/DB (no hay `organization_id` multi-tenant).
 - OTP ejecutivo: fuera de alcance (riesgo residual si alguien reenvia la URL).
@@ -47,8 +47,8 @@ URL token → validate-guide-user-link
 | `search_board` / `get_module_data` / `get_org_chart` | read | Gate de modulo + rol |
 | `get_okr_progress` | read | Gate OKR; con service role puede ser mas amplio que RLS JWT (riesgo documentado) |
 | `search_people` | read | Usuarios activos (matching por nombre) |
-| `create_action` / `update_*` / `mark_action_done` / `verify_action` | write | Solo si `access_mode=propose`; denegado en `read` e `interview_full_read` |
-| `queue_workspace_draft` | write (cola) | Identidad de sesion; **comunicaciones** permitidas en `propose` y ligas `read`/`interview_full_read` (`canQueueCommunicationDraft`). Envío/confirm **no** permitido desde invite (`canSendCommunication`). Calendario sigue gated por `isGuideWriteAllowed`. |
+| `create_action` / `update_*` / `mark_action_done` / `verify_action` | write | `propose` o `interview_full_read` (piloto liga); denegado en `read` puro |
+| `queue_workspace_draft` | write (cola) | `propose` / `read` / `interview_full_read`. Confirm/envío: `propose` o `interview_full_read`. |
 
 Con `interview_full_read`, las lecturas usan `boardScope=organization` (sin filtro por area/equipo del participante).
 
@@ -91,7 +91,7 @@ Estado en repo (código + script listos; remoto solo tras OK):
 | D | Pedir datos de otro tenant / org ajena | N/A single-tenant; denegar si no hay permiso de rol |
 | E | Liga vencida o revocada | Acceso denegado en validate/web-call |
 | F | Forzar otro `usuario_id` en args | Se ignora; no amplía permisos |
-| G | `create_action` con liga piloto | Denied (`interview_full_read` no escribe) |
+| G | `create_action` con liga piloto | Permitido (`interview_full_read` escribe en piloto) |
 | H | Fallo de herramienta | Agente no inventa cifras |
 | I | Colgar | Informe en historial; PDF = mismo texto |
 | J | Repetir webhook | No duplica informe (`return_existing`) |
@@ -141,11 +141,12 @@ Harness local/preview: `node scripts/e2e-guia-voice-latency.mjs` (matriz A–N, 
 
 Migración consult_log atómico: `supabase/migrations/20261116120000_append_guide_consult_log.sql` (aplicar en DEV/PROD cuando se autorice).
 
-### Pendientes solo UI remota (tras autorización)
+### Remoto Retell (publicado)
 
-- Publicar tools + prompt `enviardian-voz-2026-11-16-actions` en Retell (`GUIDE_RETELL_PUBLISH_OK=1`).
+- Agente Guia `agent_7d29c561f608e3defcfa360acb` **version 21** publicada (`enviardian-voz-2026-11-17-intent`): `scrumban`, `get_session_state`, `queue_workspace_draft` → Vercel.
+- Si el dashboard aún no muestra el apéndice A–D en el prompt global, pegar la sección Comunicaciones de [`docs/prompts/enviardian-voz.md`](./prompts/enviardian-voz.md) (el script no muta `instruction` objeto de nodos).
 - Revisar modelo / STT / TTS / turn-taking en dashboard.
-- Deploy producción del backend (timeout tipado, voice-slim, métricas por fase).
+- Deploy producción del backend cuando el código de resolución/fill esté en `main`.
 
 ## Riesgos pendientes
 
