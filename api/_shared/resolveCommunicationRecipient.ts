@@ -3,7 +3,7 @@
  * Ambiguo / equipo → needs_info; nunca elige al azar ni cruza orgs.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { matchPeopleByName, type NamedPerson } from '../../src/features/ai-support/copilot/matching.js'
+import type { NamedPerson } from '../../src/features/ai-support/copilot/matching.js'
 import { searchActivePeopleByName } from './searchActivePeople.js'
 
 export type ResolvedCommunicationRecipient = {
