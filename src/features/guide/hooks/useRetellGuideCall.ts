@@ -86,7 +86,7 @@ export function useRetellGuideCall(options?: {
   }, [])
 
   const start = useCallback(async (opts?: {
-    intent?: 'consult' | 'create'
+    intent?: 'consult' | 'create' | 'action' | 'whatsapp' | 'email'
   }): Promise<{ session: GuideSession; callId: string }> => {
     localStopRef.current = false
     setStatus('connecting')
@@ -114,9 +114,16 @@ export function useRetellGuideCall(options?: {
       setStatus('error')
       throw new Error('Vuelve a la invitacion y acepta el consentimiento para iniciar la voz.')
     }
+    const intentRaw = opts?.intent
+    const intent =
+      intentRaw === 'create' || intentRaw === 'action'
+        ? 'action'
+        : intentRaw === 'whatsapp' || intentRaw === 'email'
+          ? intentRaw
+          : 'consult'
     const created = await guideService.createRetellWebCall({
       replaceActive: true,
-      intent: opts?.intent === 'create' ? 'create' : 'consult',
+      intent,
       guideToken,
       accessGrant,
     })

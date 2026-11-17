@@ -16,8 +16,10 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ROUTES } from '@/constants'
 import { GuidePresence, type GuideMood } from '@/features/guide/components/GuidePresence'
+import { GuideReportBody } from '@/features/guide/components/GuideReportBody'
 import { useRetellGuideCall } from '@/features/guide/hooks/useRetellGuideCall'
 import { GuidePersonalLinkButton } from '@/features/guide/components/GuidePersonalLinkButton'
+import { reportPreviewText } from '@/features/guide/reportPreviewText'
 import { guideService } from '@/features/guide/services/guide.service'
 import type {
   GuideCompactMessage,
@@ -31,7 +33,12 @@ import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { ActionDraftList } from '@/features/ai-support/components/ActionDraftList'
 import { WorkIntentToggle } from '@/features/ai-support/components/WorkIntentToggle'
 import { groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
-import type { WriteIntent } from '@/features/ai-support/writeIntent'
+import {
+  GUIDE_WORK_INTENT_OPTIONS,
+  guideWorkIntentHint,
+  guideWorkIntentPlaceholder,
+  type GuideWorkIntent,
+} from '@/features/guide/guideWorkIntent'
 import {
   isPendingWork,
   pendingWorkToAnalysis,
@@ -173,13 +180,13 @@ export function GuidePanel({
   const [sending, setSending] = useState(false)
   const [closing, setClosing] = useState(false)
   const [channel, setChannel] = useState<GuideChannel>('text')
-  const [writeIntent, setWriteIntent] = useState<WriteIntent>('consult')
+  const [workIntent, setWorkIntent] = useState<GuideWorkIntent>('consult')
   const [remaining, setRemaining] = useState(0)
   const [view, setView] = useState<'chat' | 'journal' | 'result'>('chat')
   const [sessionWork, setSessionWork] = useState<GuideCreatedWork[]>([])
   const pendingWorkRef = useRef<GuideCreatedWork[]>([])
-  const writeIntentRef = useRef<WriteIntent>('consult')
-  writeIntentRef.current = writeIntent
+  const workIntentRef = useRef<GuideWorkIntent>('consult')
+  workIntentRef.current = workIntent
   const endRef = useRef<HTMLDivElement>(null)
   const closingRef = useRef(false)
   const startedAtRef = useRef(0)
@@ -251,7 +258,7 @@ export function GuidePanel({
       try {
         const result = await guideService.closeSession(current, reason, {
           ...(voiceMessages ? { messages: voiceMessages } : {}),
-          intent: writeIntentRef.current,
+          intent: workIntentRef.current,
         })
         setSession((prev) =>
           prev
@@ -337,7 +344,7 @@ export function GuidePanel({
       try {
         const userMessage = await guideService.insertUserMessage(current.id, text)
         setMessages((prev) => [...prev, userMessage])
-        const turn = await guideService.sendTurn(current, { intent: writeIntentRef.current })
+        const turn = await guideService.sendTurn(current, { intent: workIntentRef.current })
         setMessages((prev) => [
           ...prev,
           {
@@ -388,7 +395,7 @@ export function GuidePanel({
     setChannel(nextChannel)
     setStarting(true)
     retell.stop()
-    const intent = writeIntentRef.current
+    const intent = workIntentRef.current
     try {
       const next =
         nextChannel === 'voice'
@@ -486,23 +493,18 @@ export function GuidePanel({
       : null
 
   const intentLocked = active && isRetell
+  const intentPhase = intentLocked ? 'locked' : active ? 'active' : 'idle'
   const intentControl = (
-    <div className="flex w-full min-w-0 flex-wrap items-center gap-2 px-1">
+    <div className="flex w-full min-w-0 flex-col gap-1.5 px-1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
       <WorkIntentToggle
-        value={writeIntent}
-        onChange={setWriteIntent}
-        className={cn(intentLocked && 'pointer-events-none opacity-80')}
+        value={workIntent}
+        onChange={setWorkIntent}
+        options={GUIDE_WORK_INTENT_OPTIONS}
+        aria-label="Que quieres hacer en Guia"
+        className={cn('w-full sm:w-auto', intentLocked && 'pointer-events-none opacity-80')}
       />
       <p className="min-w-0 flex-1 text-[10px] leading-4 text-muted-foreground">
-        {writeIntent === 'create'
-          ? intentLocked
-            ? 'Sesion en Crear: Guia arma acciones o iniciativas para aprobar.'
-            : active
-              ? 'Crear: cada mensaje prioriza dejar un borrador listo para aprobar.'
-              : 'Crear: al iniciar voz o texto, Guia prioriza dejar un borrador listo para aprobar.'
-          : intentLocked
-            ? 'Sesion en Consultar: Guia informa; si dictas un pendiente, igual lo arma.'
-            : 'Consultar: diagnostico del tablero. Cambia a Crear si quieres registrar trabajo.'}
+        {guideWorkIntentHint(workIntent, intentPhase)}
       </p>
     </div>
   )
@@ -659,18 +661,16 @@ export function GuidePanel({
 
       {view === 'result' ? (
         <div className={cn('relative min-h-0 flex-1 space-y-3 overflow-y-auto', compact ? 'px-3 pb-3' : 'px-5 pb-5')}>
-          <div className="space-y-3 rounded-[1.35rem] bg-primary/[0.06] px-4 py-3.5 ring-1 ring-primary/15">
-            <p className="text-xs font-medium text-primary">Reporte de resultado</p>
-            {journal?.topic ? (
-              <p className="text-sm font-semibold tracking-tight">{journal.topic}</p>
-            ) : (
-              <p className="text-sm font-semibold tracking-tight">Conversacion terminada</p>
-            )}
-            <p className="whitespace-pre-wrap text-sm leading-5 text-foreground/90">
-              {(journal?.executive_report || journal?.summary || 'Se conservo lo esencial de la conversacion.')
-                .split('\nPARA APROBAR')[0]
-                .trim()}
-            </p>
+          <div className="space-y-3">
+            <p className="px-1 text-xs font-medium text-primary">Reporte de resultado</p>
+            <GuideReportBody
+              executiveReport={journal?.executive_report}
+              summary={journal?.summary}
+              topic={journal?.topic || 'Conversacion terminada'}
+              createdAt={journal?.created_at}
+              sessionId={journal?.session_id}
+              createdWork={recordedWorkItems(sessionWork)}
+            />
             <CreatedWorkList items={recordedWorkItems(sessionWork)} />
           </div>
           {pendingAnalysis ? (
@@ -720,8 +720,8 @@ export function GuidePanel({
             >
               <p className="text-xs font-medium text-primary">Ultimo reporte</p>
               {journal.topic ? <p className="text-sm font-semibold tracking-tight">{journal.topic}</p> : null}
-              <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-5 text-foreground/90">
-                {journal.executive_report || journal.summary}
+              <p className="line-clamp-4 text-sm leading-5 text-foreground/90">
+                {reportPreviewText(journal)}
               </p>
               <CreatedWorkList items={createdWorkItems(journal)} />
             </Link>
@@ -753,9 +753,7 @@ export function GuidePanel({
                   </p>
                   <p className="truncate text-sm font-medium">{entry.topic || 'Sesion con Guia'}</p>
                   <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
-                    {entry.executive_report
-                      ? entry.executive_report.split('\n').filter(Boolean).slice(0, 2).join(' ')
-                      : entry.summary}
+                    {reportPreviewText(entry)}
                   </p>
                   <CreatedWorkList items={createdWorkItems(entry)} />
                 </div>
@@ -884,9 +882,13 @@ export function GuidePanel({
                     ? 'Conectando con el agente…'
                     : retell.muted
                       ? 'Microfono silenciado. Guia sigue en la llamada.'
-                      : writeIntent === 'create'
+                      : workIntent === 'action'
                         ? 'Habla el pendiente: titulo, fecha y evidencia. Guia lo deja para aprobar.'
-                        : 'Habla con naturalidad. Si hay un pendiente, Guia lo arma.'}
+                        : workIntent === 'whatsapp'
+                          ? 'Di para quien y que debe decir el WhatsApp. No se envia en la llamada.'
+                          : workIntent === 'email'
+                            ? 'Di para quien y que debe decir el correo. No se envia en la llamada.'
+                            : 'Habla con naturalidad. Si hay un pendiente, Guia lo arma.'}
                 </p>
               </div>
             </div>
@@ -898,9 +900,7 @@ export function GuidePanel({
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
                   rows={compact ? 1 : 2}
-                  placeholder={
-                    writeIntent === 'create' ? 'Describe la accion o iniciativa…' : 'Escribe a Guia…'
-                  }
+                  placeholder={guideWorkIntentPlaceholder(workIntent)}
                   className={cn(
                     'flex-1 resize-none rounded-[1.1rem] border-0 bg-muted/40 px-3.5 py-2.5 text-sm outline-none ring-0 placeholder:text-muted-foreground/70 focus-visible:ring-2 focus-visible:ring-ring',
                     compact && 'min-h-10 text-[13px]'

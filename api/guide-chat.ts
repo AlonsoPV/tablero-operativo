@@ -571,9 +571,13 @@ export default defineApiHandler(async (req, res) => {
             '',
             transcript || 'Conversacion muy breve o vacia.',
             '',
-            payload.intent === 'create' || inferGuideWorkIntent(transcript) === 'create'
+            payload.intent === 'create' ||
+            payload.intent === 'action' ||
+            inferGuideWorkIntent(transcript) === 'create'
               ? 'Hubo trabajo para registrar. Genera 1 actionDraft para aprobar con lo acordado (titulo, fecha si la hay, evidencia). Si faltan datos, igual arma el draft.'
-              : 'Al cerrar, genera el reporte ejecutivo y los actionDrafts para aprobar si hubo compromiso, pendiente o hay que.',
+              : payload.intent === 'whatsapp' || payload.intent === 'email'
+                ? 'Hubo pedido de comunicacion. No inventes envios. El borrador queda en pending ops; el informe no debe tratar errores tecnicos como hallazgos.'
+                : 'Al cerrar, genera el reporte ejecutivo y los actionDrafts para aprobar si hubo compromiso, pendiente o hay que.',
           ].join('\n'),
           readNumberEnv('GUIDE_CLOSE_MAX_TOKENS', 1800),
           controller.signal
@@ -760,17 +764,31 @@ export default defineApiHandler(async (req, res) => {
       console.error('guide-chat board', error)
     }
 
-    const selectedIntent = payload.intent === 'create' ? 'create' : 'consult'
+    const selectedRaw =
+      typeof payload.intent === 'string' ? payload.intent.trim().toLowerCase() : 'consult'
+    const selectedIntent =
+      selectedRaw === 'create' || selectedRaw === 'action'
+        ? 'action'
+        : selectedRaw === 'whatsapp' || selectedRaw === 'email'
+          ? selectedRaw
+          : 'consult'
+    const inferredCreate = inferGuideWorkIntentFromMessages(ordered) === 'create'
     const workIntent =
-      selectedIntent === 'create' ? 'create' : inferGuideWorkIntentFromMessages(ordered)
+      selectedIntent !== 'consult' ? selectedIntent : inferredCreate ? 'action' : 'consult'
+    const intentHint =
+      workIntent === 'action'
+        ? selectedIntent === 'action'
+          ? 'Modo Accion activo. Arma el borrador en pocos turnos: titulo, fecha, evidencia. Una pregunta a la vez. No digas que ya quedo creada. Genera actionDrafts cuando haya titulo.'
+          : 'La conversacion pide registrar trabajo. Arma el borrador en pocos turnos: titulo, fecha, evidencia. Una pregunta a la vez. No digas que ya quedo creada. Genera actionDrafts cuando haya titulo.'
+        : workIntent === 'whatsapp'
+          ? 'Modo WhatsApp activo. Prioriza preparar un borrador de WhatsApp (destinatario + proposito). No digas que se envio. No generes actionDrafts salvo pedido explicito de accion.'
+          : workIntent === 'email'
+            ? 'Modo Correo activo. Prioriza preparar un borrador de correo (destinatario + proposito/asunto). No digas que se envio. No generes actionDrafts salvo pedido explicito de accion.'
+            : 'Informa y prioriza. Si el usuario pide crear, anotar o dicta un pendiente, cambia ya a armar el borrador. Solo genera actionDrafts si hay trabajo para registrar.'
     const userPrompt = [
       `Tiempo restante: ${remaining} segundos.`,
       phaseHint(remaining),
-      workIntent === 'create'
-        ? selectedIntent === 'create'
-          ? 'Modo Crear activo. Arma el borrador en pocos turnos: titulo, fecha, evidencia. Una pregunta a la vez. No digas que ya quedo creada. Genera actionDrafts cuando haya titulo.'
-          : 'La conversacion pide registrar trabajo. Arma el borrador en pocos turnos: titulo, fecha, evidencia. Una pregunta a la vez. No digas que ya quedo creada. Genera actionDrafts cuando haya titulo.'
-        : 'Informa y prioriza. Si el usuario pide crear, anotar o dicta un pendiente, cambia ya a armar el borrador. Solo genera actionDrafts si hay trabajo para registrar.',
+      intentHint,
       '',
       boardContext || 'Contexto del tablero: no disponible en este momento.',
       '',
