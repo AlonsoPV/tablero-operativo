@@ -94,8 +94,6 @@ import type { AccionComentario } from '@/types/accionComentario'
 
 const MAX_MESSAGES = 24
 const OPEN_ACTION_STATES = ['Pendiente', 'Hoy', 'En_Ejecucion', 'Bloqueado', 'Retraso'] as const
-const ANALYSIS_PROMPT =
-  'Analiza mis acciones abiertas y OKRs. Dime que conviene optimizar primero y dame 3 recomendaciones ejecutivas.'
 const PORTFOLIO_PROMPTS = [
   'Que acciones tengo abiertas?',
   'Cuales he asignado yo?',
@@ -189,6 +187,7 @@ async function sendMessage({
     headers,
     body: JSON.stringify({
       mode,
+      requestId: messages.at(-1)?.requestId,
       messages: messages.map(({ role, content }) => ({ role, content })),
       actionContext,
       okrContext,
@@ -949,7 +948,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     const trimmed = prompt.trim()
     if (!trimmed || loading) return
 
-    const nextMessages = [...messages, { role: 'user' as const, content: trimmed }].slice(
+    const nextMessages = [...messages, { role: 'user' as const, content: trimmed, requestId: crypto.randomUUID() }].slice(
       -MAX_MESSAGES
     )
 

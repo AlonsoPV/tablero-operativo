@@ -1,9 +1,10 @@
+import { executeDailySummaryUpdate, proposeDailySummaryUpdate, readDailySummary } from './assistantDailySummary.js'
 import { canManageActionsByRole, isAnalystByRole } from '../../src/features/auth/lib/permissions.js'
 import { isCopilotWriteTool } from '../../src/features/ai-support/copilot/catalog.js'
 import { isGoogleWriteTool } from '../../src/features/ai-support/copilot/googleWorkspace.js'
 import { isCommunicationWriteTool } from '../../src/features/ai-support/copilot/communicationTools.js'
 import { dispatchGoogleTool, executeGoogleWrite } from './assistantGoogleTools.js'
-import { executeWhatsappWrite } from './assistantCommunicationDrafts.js'
+import { executeWhatsappWrite, prepareWhatsappDraft, readWhatsappStatus } from './assistantCommunicationDrafts.js'
 import { createPendingOp, insertAssistantOpLog, type CopilotActor } from './assistantPending.js'
 import { canSendCommunication, normalizeGuideAccessMode } from './guideUserLinks.js'
 import { assertWorkspaceHash } from './workspaceHash.js'
@@ -777,7 +778,7 @@ async function proposeNotifyActionEmail(
   const prioridad =
     prioridadRaw === 'Alta' || prioridadRaw === 'Urgente' ? prioridadRaw : ('Normal' as const)
 
-  const emailPayload = {
+  const emailPayload: Record<string, unknown> = {
     ...buildAccionEmailPayload({
       accionId: resolved.id,
       tituloAccion: resolved.titulo_accion ?? '',
@@ -805,6 +806,7 @@ async function proposeNotifyActionEmail(
     tool: 'notify_action_email',
     resourceId: resolved.id,
     expectedUpdatedAt: resolved.updated_at,
+    channel: actor.voiceChannel ? 'retell' : 'web',
     payload: {
       usuario_id: resolved.responsable,
       tipo: 'responsable',
@@ -878,6 +880,22 @@ export async function dispatchCopilotTool(
         return await proposeDone(actor, args)
       case 'verify_action':
         return await proposeVerify(actor, args)
+      case 'get_whatsapp_operation_status':
+        return { ok: true, tool: name, kind: 'read', data: await readWhatsappStatus(actor, asString(args.pending_op_id, 80)) }
+      case 'get_daily_action_summary':
+        return { ok: true, tool: name, kind: 'read', data: await readDailySummary(actor, args.include_history === true) }
+      case 'update_daily_action_summary':
+        return { ok: true, tool: name, kind: 'proposal', proposal: await proposeDailySummaryUpdate(actor, args) }
+      case 'whatsapp_prepare_send': {
+        const recipient = asString(args.recipient, 160)
+        if (!recipient) return denied(name, 'Indica a quién quieres enviar el WhatsApp.')
+        const proposal = await prepareWhatsappDraft(actor, {
+          recipient,
+          body: asString(args.body, 1400),
+          includeOverdue: args.include_overdue === true,
+        })
+        return { ok: true, tool: name, kind: 'proposal', proposal }
+      }
       case 'notify_action_email':
         return await proposeNotifyActionEmail(actor, args)
       case 'confirm_pending_op':
@@ -919,7 +937,7 @@ async function toolConfirmPendingOp(actor: CopilotActor, args: Record<string, un
     }
   }
   try {
-    const confirmed = await confirmPendingOp(actor, opId)
+    const confirmed = await confirmPendingOp(actor, opId, { fromTool: true })
     const result = (confirmed.result ?? {}) as { id?: string; href?: string; title?: string }
     return {
       ok: true,
@@ -1065,14 +1083,20 @@ async function executePayload(actor: CopilotActor, tool: string, payload: Record
     if (count === 0) throw new Error('No se pudo verificar. Revisa permisos.')
     return { id: payload.action_id, href: actionHref(String(payload.action_id)), estado: 'Verificado' }
   }
+  if (tool === 'update_daily_action_summary') return executeDailySummaryUpdate(actor, payload)
   if (tool === 'notify_action_email') {
     const usuarioId = asString(payload.usuario_id, 80)
     const emailPayload =
       payload.email_payload && typeof payload.email_payload === 'object'
         ? (payload.email_payload as Record<string, unknown>)
         : null
-    if (!usuarioId || !emailPayload) {
+    const actionId = asString(emailPayload?.accion_id, 80)
+    if (!usuarioId || !emailPayload || !actionId) {
       throw new Error('Falta el destinatario o el contenido del correo de accion.')
+    }
+    const action = await loadAction(actor, actionId)
+    if (!action || action.responsable !== usuarioId || !analystCanSeeAction(actor.rol, actor.usuarioId, action)) {
+      throw new Error('PERMISSION_DENIED: Revisa el acceso a la acción y su responsable actual.')
     }
     const prioridadRaw = asString(payload.prioridad, 20)
     const prioridad =
@@ -1093,13 +1117,14 @@ async function executePayload(actor: CopilotActor, tool: string, payload: Record
           'No se pudo enviar el correo de notificacion.'
       )
     }
-    const actionId = asString(emailPayload.accion_id, 80)
+    if (!result.email_id) throw new Error('PROVIDER_ERROR: El correo no tiene un identificador de aceptación.')
     return {
       id: actionId || usuarioId,
       href: actionId ? actionHref(actionId) : undefined,
       title: asString(emailPayload.titulo_accion, 120) || ACCION_SHARE_EMAIL_TITLE,
       provider: result.provider ?? 'gmail',
-      email_id: result.email_id ?? null,
+      email_id: result.email_id,
+      delivery_status: 'accepted',
       notified_usuario_id: usuarioId,
     }
   }
@@ -1112,7 +1137,7 @@ async function executePayload(actor: CopilotActor, tool: string, payload: Record
   throw new Error('Herramienta de escritura no soportada.')
 }
 
-export async function confirmPendingOp(actor: CopilotActor, opId: string) {
+export async function confirmPendingOp(actor: CopilotActor, opId: string, options?: { fromTool?: boolean }) {
   const { data, error } = await actor.supabase
     .from('assistant_pending_ops')
     .select('id,usuario_id,tool,resource_id,expected_updated_at,payload,preview,status,expires_at,result')
@@ -1121,6 +1146,12 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string) {
   if (error || !data) throw new Error('No encontré esa operación pendiente.')
   const row = data as PendingRow
   if (row.usuario_id !== actor.usuarioId) throw new Error('Esa operación no te pertenece.')
+
+  const sendsCommunication =
+    isCommunicationWriteTool(row.tool) || row.tool.startsWith('gmail_') || row.tool === 'notify_action_email'
+  if ((sendsCommunication || row.tool === 'update_daily_action_summary') && (options?.fromTool || !actor.accessToken)) {
+    throw new Error('PERMISSION_DENIED: Aprueba el envío desde una sesión web autenticada.')
+  }
 
   const transition = evaluatePendingTransition({ status: row.status, expiresAt: row.expires_at })
   if (!transition.ok && transition.reason === 'already_done') {
@@ -1174,14 +1205,17 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string) {
     }
   }
 
-  const { data: claimed } = await actor.supabase
+  const { data: claimed, error: claimError } = await actor.supabase
     .from('assistant_pending_ops')
     .update({ status: 'executing' })
     .eq('id', opId)
     .eq('status', 'pending')
+    .eq('payload', JSON.stringify(row.payload ?? {}))
+    .gt('expires_at', new Date().toISOString())
     .select('id')
     .maybeSingle()
 
+  if (claimError) throw new Error('DATABASE_ERROR: No se pudo reservar la operación.')
   if (!claimed) {
     const { data: again } = await actor.supabase
       .from('assistant_pending_ops')
@@ -1191,51 +1225,55 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string) {
     if (again?.status === 'confirmed') {
       return { status: 'confirmed' as const, result: again.result, preview: row.preview }
     }
-    throw new Error('Otro intento está procesando esta operación.')
+    throw new Error('La operación cambió después de la vista previa o ya está en ejecución. Revisa su estado.')
   }
 
-  if (row.resource_id && row.expected_updated_at && isCopilotWriteTool(row.tool) && row.tool !== 'create_action') {
-    const current = await loadAction(actor, row.resource_id)
-    if (current?.updated_at && current.updated_at !== row.expected_updated_at) {
-      await actor.supabase
-        .from('assistant_pending_ops')
-        .update({ status: 'conflict', decided_at: new Date().toISOString(), error_message: 'stale' })
-        .eq('id', opId)
-      await insertLog(actor, { tool: row.tool, result: 'conflict', pendingOpId: opId, resourceId: row.resource_id })
-      throw new Error('El registro cambió después de la vista previa. Pide una nueva confirmación.')
-    }
-  }
-
+  let result: Record<string, unknown>
   try {
-    const result = isCommunicationWriteTool(row.tool)
+    if (row.resource_id && row.expected_updated_at && isCopilotWriteTool(row.tool) && row.tool !== 'create_action') {
+      const current = await loadAction(actor, row.resource_id)
+      if (!current?.updated_at || current.updated_at !== row.expected_updated_at) {
+        await actor.supabase
+          .from('assistant_pending_ops')
+          .update({ status: 'conflict', decided_at: new Date().toISOString(), error_message: 'stale' })
+          .eq('id', opId)
+          .eq('status', 'executing')
+        await insertLog(actor, { tool: row.tool, result: 'conflict', pendingOpId: opId, resourceId: row.resource_id })
+        throw new Error('El registro cambió después de la vista previa. Pide una nueva confirmación.')
+      }
+    }
+    result = isCommunicationWriteTool(row.tool)
       ? await executeWhatsappWrite(actor, row.payload ?? {}, opId)
       : await executePayload(actor, row.tool, row.payload ?? {})
-    await actor.supabase
-      .from('assistant_pending_ops')
-      .update({
-        status: 'confirmed',
-        result,
-        decided_at: new Date().toISOString(),
-        error_message: null,
-      })
-      .eq('id', opId)
-    await insertLog(actor, {
-      tool: row.tool,
-      result: 'executed',
-      pendingOpId: opId,
-      resourceId: (result.id as string) ?? row.resource_id,
-      summary: String(row.preview?.title ?? row.tool),
-    })
-    return { status: 'confirmed' as const, result, preview: row.preview }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'No se pudo ejecutar.'
     await actor.supabase
       .from('assistant_pending_ops')
       .update({ status: 'pending', error_message: message.slice(0, 220) })
       .eq('id', opId)
+      .eq('status', 'executing')
     await insertLog(actor, { tool: row.tool, result: 'error', pendingOpId: opId, resourceId: row.resource_id })
     throw new Error(message)
   }
+
+  const { data: completed, error: completionError } = await actor.supabase
+    .from('assistant_pending_ops')
+    .update({ status: 'confirmed', result, decided_at: new Date().toISOString(), error_message: null })
+    .eq('id', opId)
+    .eq('status', 'executing')
+    .select('id')
+    .maybeSingle()
+  if (completionError || !completed) {
+    throw new Error('DATABASE_ERROR: No se pudo guardar el resultado de la operación. Consulta su estado.')
+  }
+  await insertLog(actor, {
+    tool: row.tool,
+    result: 'executed',
+    pendingOpId: opId,
+    resourceId: (result.id as string) ?? row.resource_id,
+    summary: String(row.preview?.title ?? row.tool),
+  })
+  return { status: 'confirmed' as const, result, preview: row.preview }
 }
 
 export async function cancelPendingOp(
@@ -1251,6 +1289,7 @@ export async function cancelPendingOp(
   if (error || !data) throw new Error('No encontré esa operación pendiente.')
   if (data.usuario_id !== actor.usuarioId) throw new Error('Esa operación no te pertenece.')
   if (data.status === 'confirmed') throw new Error('La operación ya se ejecutó.')
+  if (data.status === 'executing') throw new Error('La operación está en ejecución.')
   if (data.status === 'cancelled') return { status: 'cancelled' as const }
   if (data.status === 'expired' || data.status === 'conflict') {
     throw new Error('Esta operación ya no se puede descartar.')
@@ -1259,7 +1298,7 @@ export async function cancelPendingOp(
     typeof opts?.reason === 'string' && opts.reason.trim()
       ? `discarded: ${opts.reason.trim().slice(0, 180)}`
       : `discarded_by:${actor.usuarioId}`
-  const { error: updateError } = await actor.supabase
+  const { data: cancelled, error: updateError } = await actor.supabase
     .from('assistant_pending_ops')
     .update({
       status: 'cancelled',
@@ -1267,8 +1306,11 @@ export async function cancelPendingOp(
       error_message: reason.slice(0, 220),
     })
     .eq('id', opId)
-    .in('status', ['pending', 'executing'])
+    .eq('status', 'pending')
+    .select('id')
+    .maybeSingle()
   if (updateError) throw updateError
+  if (!cancelled) throw new Error('La operación cambió de estado. Consulta su resultado.')
   await insertLog(actor, {
     tool: String(data.tool),
     result: 'cancelled',

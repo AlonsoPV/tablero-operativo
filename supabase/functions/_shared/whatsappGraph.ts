@@ -1,3 +1,4 @@
+import { sendWhatsAppGraphMessage } from './whatsappTransport.ts'
 /**
  * Referencia de helpers WhatsApp.
  * Las Edge Functions desplegables son autocontenidas en su `index.ts`
@@ -110,24 +111,7 @@ export async function hasOpenSession(supabase: SupabaseClient, waId: string): Pr
 }
 
 export async function graphSendMessage(body: Record<string, unknown>) {
-  const { accessToken, phoneNumberId, graphVersion } = whatsappConfig()
-  const url = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  })
-  const raw = await response.text()
-  let json: Record<string, unknown> = {}
-  try {
-    json = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
-  } catch {
-    json = { raw }
-  }
-  return { ok: response.ok, status: response.status, json, raw }
+  return sendWhatsAppGraphMessage(whatsappConfig(), body)
 }
 
 export function interactiveFollowupPayload(to: string, bodyText: string, buttonIdPrefix: string) {

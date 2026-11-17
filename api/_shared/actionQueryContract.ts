@@ -134,15 +134,7 @@ export function actionMatchesStatusGroup(
 ): boolean {
   if (statusGroup === 'verification') return row.estado === 'Hecho'
   if (statusGroup === 'blocked') {
-    return (
-      Boolean(row.id && row.estado && row.fecha) &&
-      isCorporateBlocked({
-        id: row.id!,
-        estado: row.estado!,
-        fecha: row.fecha!,
-        hora_limite: row.hora_limite,
-      })
-    )
+    return Boolean(row.id && row.estado && row.fecha && isCorporateBlocked({ estado: row.estado }))
   }
   const action =
     row.id && row.estado && row.fecha

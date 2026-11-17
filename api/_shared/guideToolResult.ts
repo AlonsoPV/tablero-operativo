@@ -12,6 +12,11 @@ export type GuideToolErrorCode =
   | 'DATABASE_ERROR'
   | 'PROVIDER_ERROR'
   | 'TIMEOUT'
+  | 'CONFIGURATION_ERROR'
+  | 'RATE_LIMITED'
+  | 'MISSING_CONTACT'
+  | 'AMBIGUOUS_RECIPIENT'
+  | 'PERSON_NOT_FOUND'
   | 'RESPONSE_FORMAT_ERROR'
   | 'CHANNEL_UNSPECIFIED'
   | 'TOOL_NOT_FOUND'
@@ -58,6 +63,7 @@ export type GuideToolPayload = GuideToolSuccessPayload | GuideToolFailurePayload
 
 const RETRYABLE: ReadonlySet<GuideToolErrorCode> = new Set([
   'TIMEOUT',
+  'RATE_LIMITED',
   'PROVIDER_ERROR',
   'DATABASE_ERROR',
   'UNKNOWN_ERROR',
@@ -211,6 +217,8 @@ export function logGuideToolEvent(fields: GuideToolLogFields) {
 
 /** Heurística: mapear mensaje de denegación genérico a código tipado. */
 export function classifyDeniedMessage(message: string): GuideToolErrorCode {
+  const explicit = /^(PERMISSION_DENIED|VALIDATION_FAILED|DATABASE_ERROR|PROVIDER_ERROR|CONFIGURATION_ERROR|TIMEOUT|RATE_LIMITED|MISSING_CONTACT|AMBIGUOUS_RECIPIENT|PERSON_NOT_FOUND):/.exec(message)
+  if (explicit) return explicit[1] as GuideToolErrorCode
   const m = message.toLowerCase()
   if (/firma|autentic|api.?key|secret/i.test(m)) return 'AUTHENTICATION_FAILED'
   if (/sesion|sesión|session/i.test(m)) return 'SESSION_NOT_FOUND'

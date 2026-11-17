@@ -16,6 +16,8 @@ export const COPILOT_READ_TOOLS = [
   'get_org_chart',
   'get_module_data',
   'search_board',
+  'get_daily_action_summary',
+  'get_whatsapp_operation_status',
   ...GOOGLE_READ_TOOLS,
 ] as const
 
@@ -27,6 +29,7 @@ export const COPILOT_WRITE_TOOLS = [
   'mark_action_done',
   'verify_action',
   'notify_action_email',
+  'update_daily_action_summary',
   'confirm_pending_op',
   'cancel_pending_op',
   ...COMMUNICATION_WRITE_TOOLS,

@@ -64,6 +64,7 @@ export function AssistantProposalCard({
 
   const googleWrite = isGoogleWriteTool(proposal.tool)
   const whatsappWrite = proposal.tool === 'whatsapp_prepare_send'
+  const dailySummary = proposal.tool === 'update_daily_action_summary'
   const boardNotifyEmail = proposal.tool === 'notify_action_email'
   const canEdit = !disableEdit && (googleWrite || whatsappWrite) && status === 'pending'
   const view = toActionCardView(proposal, {
@@ -80,7 +81,7 @@ export function AssistantProposalCard({
     Boolean(proposal.workspace?.incomplete) ||
     (view.kind === 'email' && !(proposal.workspace?.to && proposal.workspace.to.length > 0))
   const approveLabel =
-    view.kind === 'board' ? 'Aprobar y ejecutar' : needsInfo ? 'Completar informacion' : 'Aprobar y enviar'
+    dailySummary ? 'Aprobar cambio' : view.kind === 'board' ? 'Aprobar y ejecutar' : needsInfo ? 'Completar informacion' : 'Aprobar y enviar'
 
   const confirm = async () => {
     setBusy('confirm')
@@ -97,11 +98,13 @@ export function AssistantProposalCard({
         whatsappWrite
           ? 'WhatsApp aceptado por el proveedor.'
           : boardNotifyEmail
-            ? 'Correo de accion enviado al responsable.'
+            ? 'Correo aceptado por el proveedor.'
             : googleWrite
               ? 'Listo en Google Workspace.'
-              : view.kind === 'board'
-                ? 'Accion creada en el tablero.'
+              : dailySummary
+                ? 'Resumen diario actualizado.'
+                : view.kind === 'board'
+                  ? 'Accion creada en el tablero.'
                 : 'Operacion ejecutada.'
       )
     } catch (err) {
@@ -361,6 +364,7 @@ export function AssistantProposalCard({
       </div>
 
       <EditWorkspaceDialog
+        key={`${proposal.id}:${editOpen}`}
         open={editOpen}
         proposal={proposal}
         busy={busy === 'edit'}
@@ -401,11 +405,12 @@ function EditWorkspaceDialog({
   proposal: CopilotProposal
   busy: boolean
   onOpenChange: (open: boolean) => void
-  onSave: (patch: { subject?: string; body?: string; title?: string; start?: string; end?: string }) => Promise<void>
+  onSave: (patch: { recipientName?: string; subject?: string; body?: string; title?: string; start?: string; end?: string }) => Promise<void>
 }) {
   const workspace = proposal.workspace
   const isWhatsapp = workspace?.kind === 'whatsapp' || proposal.tool === 'whatsapp_prepare_send'
   const isEmail = !isWhatsapp && (workspace?.kind === 'email' || proposal.tool.startsWith('gmail_'))
+  const [recipientName, setRecipientName] = useState('')
   const [subject, setSubject] = useState(workspace?.subject ?? '')
   const [body, setBody] = useState(workspace?.body ?? '')
   const [title, setTitle] = useState(workspace?.title ?? '')
@@ -425,6 +430,16 @@ function EditWorkspaceDialog({
         </DialogHeader>
         {isWhatsapp || isEmail ? (
           <div className="space-y-3">
+            {isWhatsapp ? (
+              <label className="space-y-1 text-xs font-medium">
+                Destinatario
+                <Input
+                  value={recipientName}
+                  placeholder={workspace?.recipientName || 'Nombre en Scrumban'}
+                  onChange={(event) => setRecipientName(event.target.value)}
+                />
+              </label>
+            ) : null}
             {isEmail ? (
               <label className="space-y-1 text-xs font-medium">
                 Asunto
@@ -465,7 +480,7 @@ function EditWorkspaceDialog({
             disabled={busy}
             onClick={() =>
               void onSave(
-                isWhatsapp ? { body } : isEmail ? { subject, body } : { title, start, end }
+                isWhatsapp ? { body, recipientName: recipientName.trim() || undefined } : isEmail ? { subject, body } : { title, start, end }
               )
             }
           >

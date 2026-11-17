@@ -133,7 +133,7 @@ export function sanitizeRecipientFacingText(raw: string | null | undefined, max 
     .replace(/\b(get_okr_progress|get_my_actions|queue_workspace_draft|confirm_pending_op|whatsapp_prepare_send|gmail_prepare_send|notify_action_email)\b/gi, '')
     .replace(/\b(PERMISSION_DENIED|AUTHENTICATION_FAILED|TOOL_ERROR|pending_op_id|operation_id)\b/gi, '')
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '')
-    .replace(/\s{2,}/g, ' ')
+    .replace(/[^\S\r\n]{2,}/g, ' ')
     .trim()
   return text.slice(0, max)
 }

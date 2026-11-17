@@ -6,6 +6,7 @@ import type { CopilotClarification, CopilotProposal } from '@/features/ai-suppor
 /** Mensajes válidos para el endpoint de streaming. */
 export type AiChatMessage = {
   role: 'user' | 'assistant'
+  requestId?: string
   content: string
   analysis?: AssistantAudioResult
   structured?: AssistantStructuredReply

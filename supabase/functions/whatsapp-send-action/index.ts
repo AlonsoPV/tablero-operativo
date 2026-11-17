@@ -1,4 +1,4 @@
-// @ts-nocheck — Dashboard solo sube index.ts; el bundler Deno exige specifier npm:
+// @ts-nocheck
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 declare const Deno: {
@@ -188,25 +188,39 @@ async function hasOpenSession(supabase: ReturnType<typeof createClient>, waId: s
   return Boolean(data && data.length > 0)
 }
 
-async function graphSendMessage(body: Record<string, unknown>) {
-  const { accessToken, phoneNumberId, graphVersion } = whatsappConfig()
-  const url = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  })
+// Copia del transporte compartido para desplegar este archivo desde el Dashboard.
+async function sendWhatsAppGraphMessage(
+  config: { accessToken: string; phoneNumberId: string; graphVersion: string },
+  body: Record<string, unknown>
+) {
+  const { accessToken, phoneNumberId, graphVersion } = config
+  const response = await fetch(
+    `https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    }
+  )
   const raw = await response.text()
   let json: Record<string, unknown> = {}
   try {
-    json = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
+    const parsed: unknown = raw ? JSON.parse(raw) : {}
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      json = parsed as Record<string, unknown>
+    }
   } catch {
     json = { raw }
   }
   return { ok: response.ok, status: response.status, json, raw }
+}
+
+async function graphSendMessage(body: Record<string, unknown>) {
+  return sendWhatsAppGraphMessage(whatsappConfig(), body)
 }
 
 function interactiveFollowupPayload(to: string, bodyText: string, buttonIdPrefix: string) {

@@ -44,9 +44,9 @@ const FN_DIR = path.join(ROOT, 'supabase', 'functions')
 
 const FUNCTIONS = [
   { slug: 'whatsapp-webhook', files: ['index.ts', 'deno.json'] },
-  { slug: 'whatsapp-send-action', files: ['index.ts', 'deno.json'] },
-  { slug: 'whatsapp-followup-dispatcher', files: ['index.ts', 'deno.json'] },
-  { slug: 'whatsapp-inbox', files: ['index.ts'] },
+  { slug: 'whatsapp-send-action', files: ['index.ts', 'deno.json'], sharedTransport: true },
+  { slug: 'whatsapp-followup-dispatcher', files: ['index.ts', 'deno.json'], sharedTransport: true },
+  { slug: 'whatsapp-inbox', files: ['index.ts'], sharedTransport: true },
 ]
 
 if (!TOKEN.startsWith('sbp_')) {
@@ -82,19 +82,24 @@ async function api(method, urlPath, { json, form } = {}) {
   return parsed
 }
 
-async function deployOne({ slug, files }) {
+async function deployOne({ slug, files, sharedTransport }) {
   const form = new FormData()
   form.append(
     'metadata',
     JSON.stringify({
       name: slug,
-      entrypoint_path: 'index.ts',
+      entrypoint_path: sharedTransport ? `${slug}/index.ts` : 'index.ts',
       verify_jwt: false,
     })
   )
   for (const name of files) {
     const abs = path.join(FN_DIR, slug, name)
     const buf = await readFile(abs)
+    form.append('file', new Blob([buf]), sharedTransport ? `${slug}/${name}` : name)
+  }
+  if (sharedTransport) {
+    const name = '_shared/whatsappTransport.ts'
+    const buf = await readFile(path.join(FN_DIR, name))
     form.append('file', new Blob([buf]), name)
   }
   const result = await api('POST', `/v1/projects/${REF}/functions/deploy?slug=${slug}`, { form })

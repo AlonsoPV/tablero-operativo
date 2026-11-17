@@ -1,5 +1,5 @@
 /** Versión del prompt de voz que esta build espera en Retell. No publica el agente. */
-export const ENVIARDIAN_PROMPT_VERSION = 'enviardian-voz-2026-11-17-dict'
+export const ENVIARDIAN_PROMPT_VERSION = 'enviardian-voz-2026-11-17-dict-intents'
 
 /** Versión del generador del informe posterior. Persistido en el documento JSON v3. */
 export const ENVIARDIAN_REPORT_VERSION = 'enviardian-informe-v3'
@@ -16,7 +16,7 @@ export const ENVIARDIAN_VOICE_CREATE_INSTRUCTION =
 export const ENVIARDIAN_VOICE_ACTION_INSTRUCTION = ENVIARDIAN_VOICE_CREATE_INSTRUCTION
 
 export const ENVIARDIAN_VOICE_WHATSAPP_INSTRUCTION =
-  'work_intent=whatsapp. El usuario entro para PREPARAR un WhatsApp, no para enviar. Prioriza queue_workspace_draft action=prepare channel=whatsapp con purpose y recipient. Si falta destinatario o proposito, UNA pregunta. Confirma en una frase SOLO si la tool ok. No leas el borrador completo. No envies. No crees acciones salvo que lo pida aparte.'
+  'work_intent=whatsapp. El usuario entro para PREPARAR un WhatsApp, no para enviar. Si pide acciones vencidas, usa scrumban con tool=whatsapp_prepare_send, recipient e include_overdue=true. Para otros mensajes prioriza queue_workspace_draft action=prepare channel=whatsapp con purpose y recipient. Si falta destinatario o proposito, UNA pregunta. Confirma en una frase SOLO si la tool ok. No leas el borrador completo. No envies. No crees acciones salvo que lo pida aparte.'
 
 export const ENVIARDIAN_VOICE_EMAIL_INSTRUCTION =
   'work_intent=email. El usuario entro para PREPARAR un correo, no para enviar. Prioriza queue_workspace_draft action=prepare channel=email con purpose y recipient. Si falta destinatario o proposito, UNA pregunta. Confirma en una frase SOLO si la tool ok. No leas el borrador completo. No envies. No crees acciones salvo que lo pida aparte.'

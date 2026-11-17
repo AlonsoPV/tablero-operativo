@@ -10,6 +10,7 @@ export type CopilotActor = {
   rol: string | null
   /** JWT del usuario; necesario para invocar edge functions autenticadas (p. ej. send-notification-email). */
   accessToken?: string
+  requestId?: string
   /** organization = lectura piloto de toda la org (voz por URL). Default: role. */
   boardScope?: CopilotBoardScope
   /** Canal voz Retell: lecturas más cortas y payloads compactos. */
@@ -54,6 +55,7 @@ export async function createPendingOp(
     payload: Record<string, unknown>
     proposal: Omit<CopilotProposal, 'id' | 'expiresAt' | 'tool'> & { tool?: CopilotWriteTool }
     ttlMs?: number
+    requestKey?: string
     sessionId?: string | null
     channel?: string | null
   }
@@ -79,12 +81,27 @@ export async function createPendingOp(
   const sessionId = input.sessionId || actor.guideSessionId || null
   if (sessionId) row.session_id = sessionId
   if (input.channel) row.channel = input.channel
+  if (input.requestKey) row.request_key = input.requestKey
 
   const { data, error } = await actor.supabase
     .from('assistant_pending_ops')
     .insert(row)
     .select('id,expires_at')
     .single()
+  if (error?.code === '23505' && input.requestKey) {
+    const { data: duplicate, error: lookupError } = await actor.supabase
+      .from('assistant_pending_ops')
+      .select('id,expires_at,preview,status')
+      .eq('usuario_id', actor.usuarioId)
+      .eq('tool', input.tool)
+      .eq('request_key', input.requestKey)
+      .maybeSingle()
+    if (lookupError) throw new Error('DATABASE_ERROR: No se pudo recuperar la solicitud anterior.')
+    if (!duplicate || duplicate.status !== 'pending' || Date.parse(duplicate.expires_at) <= Date.now()) {
+      throw new Error('La solicitud ya se procesó. Consulta su estado o inicia una solicitud nueva.')
+    }
+    return { ...duplicate.preview, id: duplicate.id, expiresAt: duplicate.expires_at, tool: input.tool }
+  }
   if (error || !data) {
     throw new Error(
       error?.message?.includes('assistant_pending_ops')

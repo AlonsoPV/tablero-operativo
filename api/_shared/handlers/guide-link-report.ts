@@ -10,12 +10,7 @@ import {
   turnsFromRetellCall,
   type GuideTranscriptTurn,
 } from '../guideInterviewReport.js'
-import {
-  effectiveInviteAccessMode,
-  resolveGuideLinkOwner,
-  verifyGuideAccessGrant,
-  type GuideAccessMode,
-} from '../guideUserLinks.js'
+import { resolveGuideLinkOwner } from '../guideUserLinks.js'
 import { fetchRetellCall } from '../retellCallFetch.js'
 import { shareGuideReport } from '../shareGuideReport.js'
 import { defineApiHandler, readRequestBody } from '../http.js'
@@ -34,6 +29,7 @@ const INVITE_PENDING_TOOLS = [
   'gmail_prepare_send',
   'gmail_prepare_reply',
   'whatsapp_prepare_send',
+  'notify_action_email',
   'calendar_prepare_event',
   'calendar_prepare_update',
   'calendar_prepare_cancel',
@@ -58,7 +54,6 @@ export default defineApiHandler(async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Metodo no permitido.' })
   const body = (await readRequestBody(req)) as {
     guide_token?: unknown
-    access_grant?: unknown
     action?: unknown
     call_id?: unknown
     messages?: unknown
@@ -66,7 +61,6 @@ export default defineApiHandler(async (req, res) => {
     op_id?: unknown
   } | null
   const token = typeof body?.guide_token === 'string' ? body.guide_token.trim() : ''
-  const accessGrant = typeof body?.access_grant === 'string' ? body.access_grant.trim() : ''
   const action = typeof body?.action === 'string' ? body.action : 'status'
   if (!token) return res.status(400).json({ error: 'Falta la liga.' })
 
@@ -124,15 +118,6 @@ export default defineApiHandler(async (req, res) => {
   }
   if (session.guide_link_id && session.guide_link_id !== owner.link_id) {
     return res.status(403).json({ error: 'Esta liga no corresponde a la entrevista.' })
-  }
-
-  let accessMode: GuideAccessMode = effectiveInviteAccessMode(session.access_mode)
-  if (accessGrant) {
-    const verified = verifyGuideAccessGrant(accessGrant, {
-      linkId: owner.link_id,
-      usuarioId: owner.usuario_id,
-    })
-    if (verified.ok) accessMode = effectiveInviteAccessMode(verified.accessMode)
   }
 
   if (action === 'confirm_pending' || action === 'cancel_pending') {

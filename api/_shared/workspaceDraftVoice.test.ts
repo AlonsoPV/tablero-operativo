@@ -100,7 +100,7 @@ function makeActor(store: {
 }
 
 vi.mock('./assistantCommunicationDrafts.js', () => ({
-  queueWhatsappDraft: vi.fn(async (actor: { supabase: { from: Function } }, input: { purpose: string; sessionId: string }) => {
+  queueWhatsappDraft: vi.fn(async (actor: { supabase: { from: Function } }, input: { purpose: string; sessionId: string; idempotencyKey: string; recipient?: string }) => {
     const id = `wa-${Math.random().toString(36).slice(2, 8)}`
     await actor.supabase.from('assistant_pending_ops').insert({
       id,
@@ -108,11 +108,9 @@ vi.mock('./assistantCommunicationDrafts.js', () => ({
       session_id: input.sessionId,
       tool: 'whatsapp_prepare_send',
       status: 'pending',
-      payload: { incomplete: true, purpose: input.purpose, recipient_hint: '' },
+      payload: { incomplete: true, purpose: input.purpose, recipient_hint: input.recipient || '', idempotency_key: input.idempotencyKey },
       preview: { title: 'WhatsApp', summary: input.purpose, workspace: { kind: 'whatsapp', incomplete: true } },
     })
-    // The mock insert above uses our store via makeActor — but queueWhatsappDraft uses createPendingOp.
-    // Override: return a proposal and let stampIdempotencyKey update payload.
     return {
       id,
       tool: 'whatsapp_prepare_send',

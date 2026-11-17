@@ -10,7 +10,7 @@ describe('invokeNotificationEmail', () => {
   it('posts to send-notification-email with auth headers', async () => {
     vi.stubEnv('SUPABASE_URL', 'https://example.supabase.co')
     vi.stubEnv('SUPABASE_ANON_KEY', 'anon-key')
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) =>
       new Response(JSON.stringify({ ok: true, provider: 'gmail', email_id: 'm1' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },

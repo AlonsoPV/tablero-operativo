@@ -65,7 +65,7 @@ export function communicationStatusLabel(input: {
 }): string {
   if (input.lifecycle === 'cancelled') return 'Descartado'
   if (input.lifecycle === 'error' || input.errorMessage) return 'Fallido'
-  if (input.lifecycle === 'executing') return 'Ejecutando'
+  if (input.lifecycle === 'executing') return 'Enviando'
   if (input.lifecycle === 'needs_info' || input.incomplete) {
     return input.incomplete && input.lifecycle !== 'needs_info'
       ? 'Borrador preparado'
@@ -78,7 +78,7 @@ export function communicationStatusLabel(input: {
     if (delivery === 'failed') return 'Fallido'
     return 'Aceptado por el proveedor'
   }
-  return 'Listo para revisar'
+  return 'Pendiente de aprobacion'
 }
 
 /** Mapear estado de UI/ops al ciclo de vida. */

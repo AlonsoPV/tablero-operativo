@@ -101,7 +101,8 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Solicitud invalida.' })
     }
 
-    const { mode, messages, actionContext, okrContext, boardContext } = body as {
+    const { mode, messages, actionContext, okrContext, boardContext, requestId } = body as {
+      requestId?: unknown
       mode?: unknown
       messages?: unknown
       actionContext?: unknown
@@ -156,6 +157,7 @@ export default defineApiHandler(async (req, res) => {
       authUserId: auth.authUserId,
       rol: auth.rol,
       accessToken: auth.token,
+      requestId: typeof requestId === 'string' ? requestId.trim().slice(0, 100) : undefined,
     }
 
     let loopResult: Awaited<ReturnType<typeof runGeminiToolLoop>> | undefined

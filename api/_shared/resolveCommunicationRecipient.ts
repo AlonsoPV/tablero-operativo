@@ -79,25 +79,28 @@ async function loadActivePeople(supabase: SupabaseClient): Promise<NamedPerson[]
 }
 
 async function loadWhatsappPhone(supabase: SupabaseClient, usuarioId: string) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('user_channel_identities')
     .select('external_user_id,status')
     .eq('channel', 'whatsapp')
     .eq('usuario_id', usuarioId)
     .eq('status', 'active')
     .maybeSingle()
+  if (error) throw new Error('DATABASE_ERROR: No se pudo consultar el contacto de WhatsApp.')
   return typeof data?.external_user_id === 'string' ? data.external_user_id : null
 }
 
 async function loadPersonEmail(supabase: SupabaseClient, usuarioId: string) {
-  const { data } = await supabase.rpc('assistant_person_email', { p_usuario_id: usuarioId })
+  const { data, error } = await supabase.rpc('assistant_person_email', { p_usuario_id: usuarioId })
+  if (error) throw new Error('DATABASE_ERROR: No se pudo consultar el correo.')
   return typeof data === 'string' && data.trim() ? data.trim().toLowerCase() : null
 }
 
 export async function resolveCommunicationRecipient(
   supabase: SupabaseClient,
   recipientHint: string,
-  channel: 'whatsapp' | 'email' = 'whatsapp'
+  channel: 'whatsapp' | 'email' = 'whatsapp',
+  options?: { selfId?: string; contactClient?: () => SupabaseClient }
 ): Promise<ResolvedCommunicationRecipient> {
   const hint = recipientHint.trim()
   if (!hint) {
@@ -125,8 +128,16 @@ export async function resolveCommunicationRecipient(
     }
   }
 
-  let matches = await searchActivePeopleByName(supabase, hint)
-  if (matches.length === 0) {
+  let matches: NamedPerson[]
+  if (options?.selfId && /^(yo|mi|a mi|para mi|a mi mismo|a mi misma)$/.test(fold(hint))) {
+    const { data, error } = await supabase.from('usuarios').select('id,nombre')
+      .eq('id', options.selfId).eq('activo', true).maybeSingle()
+    if (error) throw new Error('DATABASE_ERROR: No se pudo consultar tu perfil.')
+    matches = data ? [data as NamedPerson] : []
+  } else {
+    matches = await searchActivePeopleByName(supabase, hint)
+  }
+  if (matches.length === 0 && extractRoleAreaTokens(hint).length) {
     const people = await loadActivePeople(supabase)
     matches = matchByRoleOrArea(people, hint)
   }
@@ -184,7 +195,7 @@ export async function resolveCommunicationRecipient(
     }
   }
 
-  const phone = await loadWhatsappPhone(supabase, toUserId)
+  const phone = await loadWhatsappPhone(options?.contactClient?.() ?? supabase, toUserId)
   if (!phone) {
     return {
       toUserId,

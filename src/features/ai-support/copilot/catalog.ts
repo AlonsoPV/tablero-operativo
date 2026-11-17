@@ -248,6 +248,51 @@ export const COPILOT_FUNCTION_DECLARATIONS: GeminiFunctionDeclaration[] = [
     },
   },
   {
+    name: 'get_whatsapp_operation_status',
+    description: 'Consulta el estado real de un WhatsApp preparado por el asistente. Usa el ID devuelto al preparar el borrador. Aceptado, entregado y leído son estados distintos.',
+    parameters: {
+      type: 'object',
+      properties: { pending_op_id: { type: 'string', description: 'ID de la propuesta de WhatsApp' } },
+      required: ['pending_op_id'],
+    },
+  },
+  {
+    name: 'get_daily_action_summary',
+    description:
+      'Consulta la configuración global de correo diario de acciones. Si piden intentos recientes, pasa include_history. El estado sent del historial refleja aceptación por el proveedor.',
+    parameters: {
+      type: 'object',
+      properties: { include_history: { type: 'boolean', description: 'Incluye el historial reciente de ejecuciones' } },
+    },
+  },
+  {
+    name: 'update_daily_action_summary',
+    description:
+      'Prepara un cambio al resumen diario global de acciones para aprobar. Usa solo si el usuario pide explícitamente cambiar el resumen global. Si pide un recordatorio personal, por destinatario o por acción, aclara el alcance y evita modificar el global.',
+    parameters: {
+      type: 'object',
+      properties: {
+        enabled: { type: 'boolean', description: 'Activar o pausar el resumen diario global' },
+        send_time: { type: 'string', description: 'Hora explícita en formato HH:MM' },
+        timezone: { type: 'string', description: 'Zona horaria IANA, si el usuario solicita cambiarla' },
+      },
+    },
+  },
+  {
+    name: 'whatsapp_prepare_send',
+    description:
+      'Prepara un borrador editable de WhatsApp en Scrumban. Usa para preparar o solicitar un envío. El usuario aprueba en la tarjeta. Para las acciones vencidas de la persona, usa include_overdue y no inventes acciones en body.',
+    parameters: {
+      type: 'object',
+      properties: {
+        recipient: { type: 'string', description: 'Nombre del destinatario o «yo»' },
+        body: { type: 'string', description: 'Mensaje completo o introducción si include_overdue es true' },
+        include_overdue: { type: 'boolean', description: 'Incluye las acciones vencidas asignadas al destinatario' },
+      },
+      required: ['recipient'],
+    },
+  },
+  {
     name: 'notify_action_email',
     description:
       'Propone enviar el correo de notificacion del tablero al responsable de una accion (misma plantilla que el boton Enviar correo del Kanban). NO envia hasta Confirmar. Usa el mailbox de la organizacion, no el Gmail personal del usuario. Para "notifica/comparte/envia esta accion por correo al responsable". Si el usuario quiere un correo libre desde su Gmail, usa gmail_prepare_send.',

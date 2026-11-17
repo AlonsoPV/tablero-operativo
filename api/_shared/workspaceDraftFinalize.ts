@@ -1,3 +1,4 @@
+import { sanitizeRecipientFacingText } from '../../src/features/ai-support/copilot/pendingOpTaxonomy.js'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { parseDueDateHint } from '../../src/features/ai-support/parseWorkFacts.js'
 import {
@@ -319,27 +320,31 @@ export async function persistFilledWorkspaceDrafts(
         asString(payload.recipient_hint, 160),
         'whatsapp'
       )
-      const needsInfo = Boolean(resolved.needsInfoReason)
+      const body = sanitizeRecipientFacingText(item.workspace.body, WHATSAPP_BODY_MAX)
+      const needsInfoReason = resolved.needsInfoReason || (!body ? 'Falta el cuerpo del WhatsApp.' : '')
+      const needsInfo = Boolean(needsInfoReason)
       const workspace: CopilotWorkspacePreview = {
         ...item.workspace,
+        body,
         recipientName: resolved.name || item.workspace.recipientName,
         phone: resolved.phone ? maskPhone(resolved.phone) || undefined : undefined,
         toUserId: resolved.toUserId || undefined,
         needsInfo,
-        needsInfoReason: resolved.needsInfoReason || undefined,
+        needsInfoReason: needsInfoReason || undefined,
       }
       payload = withContentHash({
         ...payload,
+        body,
         to_user_id: resolved.toUserId || '',
         to_phone: resolved.phone || '',
         recipient_hint: resolved.name || asString(payload.recipient_hint, 160),
         needs_info: needsInfo,
-        needs_info_reason: resolved.needsInfoReason || '',
+        needs_info_reason: needsInfoReason,
       })
       preview = {
         title: 'Enviar WhatsApp',
         summary: needsInfo
-          ? `WhatsApp incompleto: ${resolved.needsInfoReason}`
+          ? `WhatsApp incompleto: ${needsInfoReason}`
           : `WhatsApp a ${workspace.recipientName || workspace.phone}. Revisa y confirma; no se envio solo.`,
         fields: [
           { label: 'Para', to: workspace.recipientName || '—' },

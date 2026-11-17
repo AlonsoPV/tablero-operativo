@@ -683,6 +683,7 @@ type WaMessage = {
   timestamp?: string
   type?: string
   text?: { body?: string }
+  context?: { id?: string }
   button?: { payload?: string; text?: string }
   interactive?: {
     type?: string
@@ -2702,6 +2703,40 @@ Deno.serve(async (req) => {
             message.button?.text ||
             message.interactive?.list_reply?.title ||
             null
+
+          // A quoted reply to an assistant communication belongs to its thread,
+          // even when the contact also has an open action or chatbot session.
+          if (message.context?.id && !buttonRaw) {
+            const { data: repliedTo, error: replyLookupError } = await supabase
+              .from('whatsapp_messages')
+              .select('meta_message_id')
+              .eq('meta_message_id', message.context.id)
+              .eq('usuario_id', identity.usuario_id)
+              .eq('direction', 'outbound')
+              .eq('payload->>kind', 'guide_communication')
+              .maybeSingle()
+            if (replyLookupError || repliedTo) {
+              await upsertThreadMessage(supabase, {
+                wa_id: waId,
+                usuario_id: identity.usuario_id,
+                direction: 'inbound',
+                source: 'contact',
+                message_kind: message.type ?? 'unknown',
+                body_text: inboundPreview(message),
+                meta_message_id: message.id ?? null,
+                delivery_status: 'delivered',
+                delivered_at: new Date().toISOString(),
+                payload: {
+                  message,
+                  source: 'webhook_inbound',
+                  flow: 'communication',
+                  route_kind: replyLookupError ? 'quoted_reply_unresolved' : 'communication_reply',
+                  in_reply_to: message.context.id,
+                },
+              })
+              continue
+            }
+          }
 
           // --- Shared: evidencia pendiente (Ops) antes de routers ---
           if (

@@ -321,7 +321,7 @@ export default defineApiHandler(async (req, res) => {
       if (!session.access_mode && !session.guide_link_id) accessMode = 'propose'
       if (session.guide_link_id) accessMode = effectiveInviteAccessMode(session.access_mode || accessMode)
 
-      if (!isGuideWriteAllowed(accessMode) && isRetellWriteTool(parsed.tool)) {
+      if (!isGuideWriteAllowed(accessMode) && isRetellWriteTool(parsed.tool) && parsed.tool !== 'whatsapp_prepare_send') {
         const userMessage =
           'No tienes permiso de escritura en este modo. No inventes que quedo hecho.'
         const entry = consultLogEntry(
@@ -493,11 +493,10 @@ export default defineApiHandler(async (req, res) => {
         (classified.status === 'ok' || classified.status === 'empty') &&
         result.ok
       ) {
-        const wrapped = result.data as { payload?: Record<string, unknown> } | Record<string, unknown> | null
-        const data =
-          wrapped && typeof wrapped === 'object' && 'payload' in wrapped && wrapped.payload
-            ? wrapped.payload
-            : (wrapped as Record<string, unknown> | null)
+        const wrapped = result.data as Record<string, unknown> | null
+        const data = wrapped?.payload && typeof wrapped.payload === 'object'
+          ? wrapped.payload as Record<string, unknown>
+          : wrapped
         const active = buildActiveQueryEntry({
           scope: parseActionQueryScope(data?.scope ?? toolArgs.scope),
           status_group: parseActionQueryStatusGroup(

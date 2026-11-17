@@ -18,6 +18,7 @@ export const RETELL_READ_TOOLS = [
   'get_org_chart',
   'get_module_data',
   'search_board',
+  'get_whatsapp_operation_status',
 ] as const
 
 export const RETELL_WRITE_TOOLS = [
@@ -27,6 +28,8 @@ export const RETELL_WRITE_TOOLS = [
   'update_checklist_item',
   'mark_action_done',
   'verify_action',
+  'whatsapp_prepare_send',
+  'notify_action_email',
   'confirm_pending_op',
   'cancel_pending_op',
 ] as const
@@ -249,8 +252,8 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
   if (result.kind === 'proposal') {
     return withSpoken({
       status: 'needs_confirmation',
-      spoken:
-        'Ya registre la propuesta para que puedas revisarla al terminar. Resume en una frase. No digas que ya quedo hecha.',
+      spoken: result.proposal?.workspace?.needsInfoReason ||
+        'Ya registré la propuesta para que puedas revisarla al terminar.',
       data: {
         pending_op_id: result.proposal?.id ?? null,
         title: result.proposal?.title ?? null,
