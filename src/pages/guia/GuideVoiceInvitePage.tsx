@@ -88,23 +88,51 @@ export function GuideVoiceInvitePage() {
   })
 
   const requestReport = async (
-    action: 'status' | 'finalize' | 'retry' | 'poll-timeout' | 'whatsapp',
-    confirm = false
+    action:
+      | 'status'
+      | 'finalize'
+      | 'retry'
+      | 'poll-timeout'
+      | 'whatsapp'
+      | 'confirm_pending'
+      | 'cancel_pending',
+    confirm = false,
+    opId?: string
   ) => {
     const response = await fetch('/api/guide-link-report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         guide_token: token,
+        access_grant: accessGrant || undefined,
         action,
         call_id: callIdRef.current || undefined,
         confirm,
+        op_id: opId,
         messages: retell.messages.map((message) => ({ role: message.role, content: message.content })),
       }),
     })
-    const payload = (await response.json().catch(() => ({}))) as LinkReport
+    const payload = (await response.json().catch(() => ({}))) as LinkReport & {
+      error?: string
+      result?: { href?: string } | null
+    }
     if (!response.ok) throw new Error(payload.error || 'No se pudo leer el informe.')
     return payload
+  }
+
+  const confirmInviteOp = async (opId: string) => {
+    const payload = await requestReport('confirm_pending', false, opId)
+    if (payload.communications) {
+      setReport((current) => (current ? { ...current, communications: payload.communications } : current))
+    }
+    return { result: payload.result ?? null }
+  }
+
+  const cancelInviteOp = async (opId: string) => {
+    const payload = await requestReport('cancel_pending', false, opId)
+    if (payload.communications) {
+      setReport((current) => (current ? { ...current, communications: payload.communications } : current))
+    }
   }
 
   useEffect(() => {
@@ -258,8 +286,7 @@ export function GuideVoiceInvitePage() {
             const pendingComms = countPendingCommunications(report.communications ?? [])
             return pendingComms > 0 ? (
               <p className="text-sm font-medium text-[#B45309]">
-                {pendingComms} comunicacion{pendingComms === 1 ? '' : 'es'} pendiente
-                {pendingComms === 1 ? '' : 's'}
+                {pendingComms} pendiente{pendingComms === 1 ? '' : 's'} de aprobacion
               </p>
             ) : null
           })()}
@@ -270,7 +297,17 @@ export function GuideVoiceInvitePage() {
             createdAt={report.created_at}
           />
           {report.communications && report.communications.length > 0 ? (
-            <GuideCommunicationsSection ops={report.communications} readOnly />
+            <GuideCommunicationsSection
+              ops={report.communications}
+              confirmOp={confirmInviteOp}
+              cancelOp={cancelInviteOp}
+              disableEdit
+              onResolved={() => {
+                void requestReport('status')
+                  .then((payload) => setReport(payload))
+                  .catch(() => undefined)
+              }}
+            />
           ) : null}
           <GuideReportActions
             topic={report.topic}
@@ -293,7 +330,7 @@ export function GuideVoiceInvitePage() {
             }}
           />
           <p className="text-xs text-muted-foreground">
-            También queda en el historial al{' '}
+            Puedes aprobar las pendientes arriba sin iniciar sesion. El historial completo queda al{' '}
             <Link className="underline underline-offset-4" to={ROUTES.LOGIN} state={guideVoiceLoginState}>
               iniciar sesión
             </Link>{' '}

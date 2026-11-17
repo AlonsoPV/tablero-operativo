@@ -344,6 +344,7 @@ export default defineApiHandler(async (req, res) => {
           boardScope: guideBoardScopeForAccessMode(accessMode),
           voiceChannel: true,
           guideAccessMode: accessMode,
+          guideSessionId: session.id,
         },
         parsed.tool,
         parsed.args

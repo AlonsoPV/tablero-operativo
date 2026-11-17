@@ -35,6 +35,11 @@ type AssistantProposalCardProps = {
   status?: ProposalStatus
   /** Solo lectura: oculta confirmar/editar/cancelar. */
   readOnly?: boolean
+  /** Si se pasa, no usa JWT/assistant-ops (p. ej. liga de voz). */
+  confirmOp?: (opId: string) => Promise<{ result?: { href?: string } | null }>
+  cancelOp?: (opId: string) => Promise<void>
+  /** Oculta editar aunque no sea readOnly (liga sin login). */
+  disableEdit?: boolean
   onResolved?: (status: 'confirmed' | 'cancelled', href?: string) => void
   onUpdated?: (proposal: CopilotProposal) => void
 }
@@ -44,6 +49,9 @@ export function AssistantProposalCard({
   compact = false,
   status: statusProp,
   readOnly = false,
+  confirmOp,
+  cancelOp,
+  disableEdit = false,
   onResolved,
   onUpdated,
 }: AssistantProposalCardProps) {
@@ -56,7 +64,7 @@ export function AssistantProposalCard({
 
   const googleWrite = isGoogleWriteTool(proposal.tool)
   const whatsappWrite = proposal.tool === 'whatsapp_prepare_send'
-  const canEdit = (googleWrite || whatsappWrite) && status === 'pending'
+  const canEdit = !disableEdit && (googleWrite || whatsappWrite) && status === 'pending'
   const view = toActionCardView(proposal, {
     status: busy === 'confirm' || busy === 'cancel' ? 'executing' : status,
     busy,
@@ -65,12 +73,23 @@ export function AssistantProposalCard({
   })
   const tone = actionLifecycleTone(view.status)
   const typeLabel = actionTypeLabel(view.tool, view.kind)
+  const approveLabel =
+    view.kind === 'board'
+      ? 'Aprobar'
+      : view.whatsappPreview?.needsInfo ||
+          proposal.workspace?.needsInfo ||
+          proposal.workspace?.incomplete ||
+          (view.kind === 'email' && !(proposal.workspace?.to && proposal.workspace.to.length > 0))
+        ? 'Completar informacion'
+        : 'Aprobar y enviar'
 
   const confirm = async () => {
     setBusy('confirm')
     setError(null)
     try {
-      const result = await confirmAssistantOp(proposal.id)
+      const result = confirmOp
+        ? await confirmOp(proposal.id)
+        : await confirmAssistantOp(proposal.id)
       setStatus('confirmed')
       const href = result.result?.href || proposal.record?.href
       setResultHref(href)
@@ -80,7 +99,9 @@ export function AssistantProposalCard({
           ? 'WhatsApp aceptado por el proveedor.'
           : googleWrite
             ? 'Listo en Google Workspace.'
-            : 'Operacion ejecutada.'
+            : view.kind === 'board'
+              ? 'Accion creada en el tablero.'
+              : 'Operacion ejecutada.'
       )
     } catch (err) {
       const message = err instanceof Error ? err.message : 'No se pudo confirmar.'
@@ -96,7 +117,8 @@ export function AssistantProposalCard({
     setBusy('cancel')
     setError(null)
     try {
-      await cancelAssistantOp(proposal.id)
+      if (cancelOp) await cancelOp(proposal.id)
+      else await cancelAssistantOp(proposal.id)
       setStatus('cancelled')
       onResolved?.('cancelled')
     } catch (err) {
@@ -284,12 +306,7 @@ export function AssistantProposalCard({
               onClick={() => void confirm()}
             >
               {busy === 'confirm' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-              {view.whatsappPreview?.needsInfo ||
-              proposal.workspace?.needsInfo ||
-              proposal.workspace?.incomplete ||
-              (view.kind === 'email' && !(proposal.workspace?.to && proposal.workspace.to.length > 0))
-                ? 'Completar informacion'
-                : 'Aprobar y enviar'}
+              {approveLabel}
             </Button>
             <Button
               type="button"
