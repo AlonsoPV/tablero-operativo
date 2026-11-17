@@ -65,16 +65,16 @@ describe('guide report presentation', () => {
       '2026-11-10T20:00:00.000Z'
     )
     const titles = presentation.sections.map((section) => section.title)
-    expect(titles).toContain('Situacion')
-    expect(titles).toContain('Diagnostico')
-    expect(titles).toContain('Prioridades')
-    expect(titles).toContain('Proximos pasos')
-    expect(titles).toContain('Aprendizaje')
-    expect(titles).toContain('Intencion')
+    expect(titles[0]).toMatch(/resumen ejecutivo/i)
+    expect(titles.some((title) => /01 · Resultados/i.test(title))).toBe(true)
+    expect(titles.some((title) => /02 · Analisis/i.test(title))).toBe(true)
     expect(titles.join(' ')).not.toMatch(/para aprobar/i)
     expect(presentation.sections.some((section) => /No debe aparecer/i.test(section.body))).toBe(
       false
     )
+    const blob = presentation.sections.map((section) => section.body).join('\n')
+    expect(blob).toMatch(/bloqueos/i)
+    expect(blob).toMatch(/Recomendaciones de Enviardian/i)
   })
 
   it('rejects empty reports without inventing content', () => {
@@ -153,13 +153,18 @@ describe('guide report pdf', () => {
       .join('\n')
     expect(presentation.brand).toBe('Scrumban · Enviardian')
     expect(presentation.sections.map((section) => section.title)).toEqual(
-      expect.arrayContaining(['Lo dicho', 'Lo verificado', 'Lo acordado', 'Recomendaciones', 'Plan de accion'])
+      expect.arrayContaining([
+        'Resumen ejecutivo',
+        '01 · Resultados de la sesion',
+        '02 · Analisis y recomendaciones',
+      ])
     )
     for (const section of presentation.sections) {
       expect(pdfText).toContain(section.title.toUpperCase())
       expect(pdfText).toContain(section.body.split('\n')[0] ?? '')
     }
-    expect(pdfText).toContain('se basa solo en la entrevista')
+    expect(pdfText).toMatch(/conteo se atrasa/i)
+    expect(pdfText).toMatch(/Recomendaciones de Enviardian/i)
     expect(pdfText).not.toContain('responsable inventado')
   })
 
@@ -187,8 +192,11 @@ describe('guide report pdf', () => {
     const html = presentationToPreviewHtml(presentation)
     const lines = presentationToPdfLines(presentation)
     expect(html).toContain('QA visual')
-    expect(html).toContain('Situacion')
+    expect(html).toContain('01 · Resultados de la sesion')
+    expect(html).toContain('02 · Analisis y recomendaciones')
     expect(html).not.toContain('No debe aparecer')
-    expect(lines.some((line) => line.kind === 'heading' && line.text === 'SITUACION')).toBe(true)
+    expect(
+      lines.some((line) => line.kind === 'heading' && /01 · RESULTADOS/i.test(line.text))
+    ).toBe(true)
   })
 })

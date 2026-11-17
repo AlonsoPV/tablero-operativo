@@ -24,10 +24,7 @@ import { ActionDraftList } from '@/features/ai-support/components/ActionDraftLis
 import { groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
 import { GuideReportActions } from '@/features/guide/components/GuideReportActions'
 import { GuideReportBody } from '@/features/guide/components/GuideReportBody'
-import {
-  countPendingCommunications,
-  GuideCommunicationsSection,
-} from '@/features/guide/components/GuideCommunicationsSection'
+import { countPendingCommunications } from '@/features/guide/components/GuideCommunicationsSection'
 import { pendingWorkItems, pendingWorkToAnalysis } from '@/features/guide/pendingWork'
 import { reportPreviewText, reportStatusLabel } from '@/features/guide/reportPreviewText'
 import { listSessionWorkspaceOps } from '@/features/ai-support/services/assistantOpsClient'
@@ -439,30 +436,27 @@ export function AiHistoryPage() {
             ) : null
           })()}
 
-          <GuideReportBody
-            executiveReport={selected.executive_report}
-            summary={selected.summary}
-            topic={selected.topic}
-            createdAt={selected.created_at}
-            sessionId={selected.session_id}
-            createdWork={selected.created_work}
-          />
-
-          {workspaceOps.length > 0 ? (
-            <GuideCommunicationsSection
-              ops={workspaceOps}
-              onUpdated={(next) =>
+          <div className="px-5 sm:px-6">
+            <GuideReportBody
+              executiveReport={selected.executive_report}
+              summary={selected.summary}
+              topic={selected.topic}
+              createdAt={selected.created_at}
+              sessionId={selected.session_id}
+              createdWork={selected.created_work}
+              communications={workspaceOps}
+              onCommunicationUpdated={(next) =>
                 setWorkspaceOps((prev) =>
                   prev.map((row) => (row.id === next.id ? { ...row, ...next } : row))
                 )
               }
-              onResolved={(id, status) =>
+              onCommunicationResolved={(id, status) =>
                 setWorkspaceOps((prev) =>
                   prev.map((row) => (row.id === id ? { ...row, status } : row))
                 )
               }
             />
-          ) : null}
+          </div>
 
           {pendingAnalysis ? (
             <section className="space-y-3" aria-label="Pendiente de aprobar">
