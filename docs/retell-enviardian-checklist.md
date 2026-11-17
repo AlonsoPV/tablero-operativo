@@ -155,7 +155,7 @@ Migración consult_log atómico: `supabase/migrations/20261116120000_append_guid
 
 ### Remoto Retell (publicado)
 
-- Agente Guia `agent_7d29c561f608e3defcfa360acb` **version 22** publicada; siguiente publish debe usar `enviardian-voz-2026-11-17-intents` (`work_intent` consult|action|whatsapp|email).
+- Agente Guia `agent_7d29c561f608e3defcfa360acb` **version 23** publicada (`enviardian-voz-2026-11-17-intents`): `work_intent` consult|action|whatsapp|email.
 - Si el dashboard aún no muestra el apéndice A–D en el prompt global, pegar la sección Comunicaciones de [`docs/prompts/enviardian-voz.md`](./prompts/enviardian-voz.md) (el script no muta `instruction` objeto de nodos).
 - Revisar modelo / STT / TTS / turn-taking en dashboard.
 - Deploy producción del backend cuando el código de resolución/fill esté en `main`.
