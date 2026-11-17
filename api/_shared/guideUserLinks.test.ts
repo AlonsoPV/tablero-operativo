@@ -76,23 +76,23 @@ describe('guideUserLinks helpers', () => {
     expect(normalizeGuideAccessMode(undefined)).toBe('read')
   })
 
-  it('elevates invite links to interview_full_read while the pilot flag is on', () => {
+  it('elevates invite links to interview_full_read with full write while the pilot flag is on', () => {
     process.env.GUIDE_INTERVIEW_FULL_READ = '1'
     expect(interviewFullReadPilotEnabled()).toBe(true)
     expect(effectiveInviteAccessMode('read')).toBe('interview_full_read')
     expect(guideBoardScopeForAccessMode('interview_full_read')).toBe('organization')
-    expect(isGuideWriteAllowed('interview_full_read')).toBe(false)
+    expect(isGuideWriteAllowed('interview_full_read')).toBe(true)
     expect(isGuideWriteAllowed('read')).toBe(false)
     expect(isGuideWriteAllowed('propose')).toBe(true)
     expect(canQueueCommunicationDraft('interview_full_read')).toBe(true)
     expect(canQueueCommunicationDraft('read')).toBe(true)
-    expect(canSendCommunication('interview_full_read')).toBe(false)
+    expect(canSendCommunication('interview_full_read')).toBe(true)
     expect(canSendCommunication('propose')).toBe(true)
 
     process.env.GUIDE_INTERVIEW_FULL_READ = '0'
     expect(interviewFullReadPilotEnabled()).toBe(false)
     expect(effectiveInviteAccessMode('read')).toBe('read')
-    expect(effectiveInviteAccessMode('propose')).toBe('read')
+    expect(effectiveInviteAccessMode('propose')).toBe('propose')
     expect(guideBoardScopeForAccessMode('read')).toBe('role')
   })
 

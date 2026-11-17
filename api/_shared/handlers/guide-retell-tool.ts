@@ -257,7 +257,7 @@ export default defineApiHandler(async (req, res) => {
             status: 'denied',
             tool: parsed.tool,
             result:
-              'Esta invitacion es de solo lectura. No puedo crear ni modificar acciones. No inventes que quedo hecho.',
+              'No tienes permiso de escritura en este modo. No inventes que quedo hecho.',
           },
         }
       }

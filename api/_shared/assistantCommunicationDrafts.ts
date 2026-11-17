@@ -18,6 +18,9 @@ import { maskPhone } from './guideInterviewReport.js'
 import { whatsappPhoneVariants } from './whatsappBidirectional.js'
 import { withContentHash, assertWorkspaceHash } from './workspaceHash.js'
 import { proposalFromPendingRow } from './assistantGoogleTools.js'
+import { resolveWhatsappRecipient } from './resolveCommunicationRecipient.js'
+
+export { resolveCommunicationRecipient, resolveWhatsappRecipient } from './resolveCommunicationRecipient.js'
 
 function asString(value: unknown, max = 400) {
   return typeof value === 'string' ? value.trim().slice(0, max) : ''
@@ -86,83 +89,6 @@ export async function queueWhatsappDraft(
       workspace,
     },
   })
-}
-
-export async function resolveWhatsappRecipient(
-  supabase: SupabaseClient,
-  recipientHint: string
-): Promise<{
-  toUserId: string | null
-  phone: string | null
-  name: string | null
-  ambiguous: boolean
-  needsInfoReason: string | null
-}> {
-  const hint = recipientHint.trim()
-  if (!hint) {
-    return {
-      toUserId: null,
-      phone: null,
-      name: null,
-      ambiguous: false,
-      needsInfoReason: 'Falta el destinatario del WhatsApp.',
-    }
-  }
-
-  const { data: users } = await supabase
-    .from('usuarios')
-    .select('id,nombre,activo')
-    .ilike('nombre', `%${hint.replace(/[%_]/g, '')}%`)
-    .eq('activo', true)
-    .limit(5)
-
-  const matches = (users ?? []).filter((u) => u?.id)
-  if (matches.length === 0) {
-    return {
-      toUserId: null,
-      phone: null,
-      name: null,
-      ambiguous: false,
-      needsInfoReason: `No encontre a "${hint}" en Scrumban con WhatsApp vinculado.`,
-    }
-  }
-  if (matches.length > 1) {
-    return {
-      toUserId: null,
-      phone: null,
-      name: null,
-      ambiguous: true,
-      needsInfoReason: `Hay varias personas que coinciden con "${hint}". Indica el nombre completo.`,
-    }
-  }
-
-  const user = matches[0]
-  const { data: identity } = await supabase
-    .from('user_channel_identities')
-    .select('external_user_id,status')
-    .eq('channel', 'whatsapp')
-    .eq('usuario_id', user.id)
-    .eq('status', 'active')
-    .maybeSingle()
-
-  const phone = typeof identity?.external_user_id === 'string' ? identity.external_user_id : ''
-  if (!phone) {
-    return {
-      toUserId: String(user.id),
-      phone: null,
-      name: typeof user.nombre === 'string' ? user.nombre : hint,
-      ambiguous: false,
-      needsInfoReason: `${user.nombre || hint} no tiene WhatsApp vinculado en Scrumban.`,
-    }
-  }
-
-  return {
-    toUserId: String(user.id),
-    phone,
-    name: typeof user.nombre === 'string' ? user.nombre : hint,
-    ambiguous: false,
-    needsInfoReason: null,
-  }
 }
 
 export async function executeWhatsappWrite(

@@ -5,7 +5,7 @@ export const ENVIARDIAN_PROMPT_VERSION = 'enviardian-voz-2026-11-17-intent'
 export const ENVIARDIAN_REPORT_VERSION = 'enviardian-informe-v3'
 
 export const ENVIARDIAN_VOICE_CONSULT_INSTRUCTION =
-  'Eres Enviardian, asistente de IA empresarial de Scrumban. Los hechos del tablero salen solo de la herramienta scrumban. Si falla o no hay datos, dilo y no inventes cifras, responsables, fechas ni estados. Hecho no es Verificado. Una propuesta no es una accion creada.'
+  'Eres Enviardian, asistente de IA empresarial de Scrumban. Los hechos del tablero salen solo de la herramienta scrumban. Si falla o no hay datos, dilo y no inventes cifras, responsables, fechas ni estados. Hecho no es Verificado. Una propuesta no es una accion creada. Con access_mode propose o interview_full_read puedes proponer y confirmar acciones y encolar comunicaciones; no digas que la sesion es solo lectura en esos modos.'
 
 export const ENVIARDIAN_INTERVIEW_REPORT_PROMPT = `
 Eres el editor del informe ejecutivo de Enviardian para CEOs. Devuelve SOLO JSON valido:

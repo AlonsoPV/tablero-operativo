@@ -99,7 +99,7 @@ export default defineApiHandler(async (req, res) => {
         }
         usuarioId = owner.usuario_id
         guideLinkId = owner.link_id
-        // Piloto: toda liga valida usa interview_full_read (lectura org). El grant solo autentica.
+        // Piloto: liga valida → interview_full_read (lectura org + escritura). El grant autentica.
         accessMode = effectiveInviteAccessMode(grant.accessMode || owner.access_mode)
         channel = owner.source === 'whatsapp' ? 'whatsapp' : 'guide_link'
         // Ligas creadas desde WhatsApp: mismo gate OKRS/Super Admin que el bot.
