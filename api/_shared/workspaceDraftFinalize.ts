@@ -245,7 +245,7 @@ export async function persistFilledWorkspaceDrafts(
       const workspace: CopilotWorkspacePreview = {
         ...item.workspace,
         recipientName: resolved.name || item.workspace.recipientName,
-        phone: resolved.phone ? maskPhone(resolved.phone) : undefined,
+        phone: resolved.phone ? maskPhone(resolved.phone) || undefined : undefined,
         toUserId: resolved.toUserId || undefined,
         needsInfo,
         needsInfoReason: resolved.needsInfoReason || undefined,
