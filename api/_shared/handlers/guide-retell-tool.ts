@@ -30,6 +30,7 @@ import {
   logGuideToolEvent,
   newGuideRequestId,
   statusToErrorCode,
+  type GuideToolPayload,
 } from '../guideToolResult.js'
 
 function asString(value: unknown, max = 80) {
@@ -202,13 +203,7 @@ export default defineApiHandler(async (req, res) => {
     guide_link_id?: string | null
     access_mode?: string | null
   }
-  type ToolResponse = Record<string, unknown> & {
-    status: string
-    tool?: string | null
-    result: string
-    data?: unknown
-    success?: boolean
-  }
+  type ToolResponse = GuideToolPayload
   type WorkDone =
     | {
         early: true
