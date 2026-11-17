@@ -25,6 +25,8 @@ export function OkrKpiStrip({
   canAdd,
   onAdd,
   onOpen,
+  focusLabel,
+  emphasizeIds,
 }: {
   keyResults: KeyResult[]
   objectives: Objective[]
@@ -32,12 +34,17 @@ export function OkrKpiStrip({
   canAdd: boolean
   onAdd: () => void
   onOpen: (kr: KeyResult) => void
+  /** Optional caption when a quick indicator focus is active. */
+  focusLabel?: string | null
+  /** When set, cards outside this set render muted (still listed if in keyResults). */
+  emphasizeIds?: Set<string> | null
 }) {
   const cards = keyResults.slice(0, 8)
   if (!cards.length && !canAdd) return null
 
   return (
     <section
+      id="okr-kpi-strip"
       aria-label="Indicadores clave"
       className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm"
     >
@@ -51,7 +58,9 @@ export function OkrKpiStrip({
               KPIs
             </h2>
             <p className="text-xs text-muted-foreground">
-              {cards.length} resultado{cards.length === 1 ? '' : 's'} clave
+              {focusLabel
+                ? focusLabel
+                : `${cards.length} resultado${cards.length === 1 ? '' : 's'} clave`}
             </p>
           </div>
         </div>
@@ -66,7 +75,9 @@ export function OkrKpiStrip({
       <div className="p-4 sm:p-5">
         {!cards.length ? (
           <p className="text-sm text-muted-foreground">
-            Aún no hay resultados clave para mostrar como indicadores.
+            {focusLabel
+              ? 'No hay resultados clave para este indicador con los filtros actuales.'
+              : 'Aún no hay resultados clave para mostrar como indicadores.'}
           </p>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -82,13 +93,18 @@ export function OkrKpiStrip({
                   ? null
                   : metricText(kr.target_value, kr.unit)
               const updatedLabel = lastMeasurementCaption(updated)
+              const muted =
+                emphasizeIds != null && emphasizeIds.size > 0 && !emphasizeIds.has(kr.id)
 
               return (
                 <button
                   key={kr.id}
                   type="button"
                   onClick={() => onOpen(kr)}
-                  className="group flex min-h-[10rem] min-w-0 flex-col gap-3 rounded-2xl border border-border/70 bg-background p-3.5 text-left outline-none transition-all hover:border-border hover:bg-muted/25 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-ring"
+                  className={cn(
+                    'group flex min-h-[10rem] min-w-0 flex-col gap-3 rounded-2xl border border-border/70 bg-background p-3.5 text-left outline-none transition-all hover:border-border hover:bg-muted/25 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-ring',
+                    muted && 'opacity-40'
+                  )}
                 >
                   <div className="flex items-start gap-2">
                     <StatusSquare tone={tone} />

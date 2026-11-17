@@ -1,5 +1,10 @@
 import { OkrReportHistory } from './OkrReportHistory'
-import { measurementsFor, reportingSummary } from './reporting'
+import { measurementsFor } from './reporting'
+import {
+  krIdsForQuickFocus,
+  okrQuickIndicatorMetrics,
+  type OkrQuickFocus,
+} from './okrQuickIndicators'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -74,6 +79,13 @@ import {
   type Objective,
   type OkrData,
 } from './model'
+
+const QUICK_FOCUS_LABEL: Record<Exclude<OkrQuickFocus, 'cronograma'>, string> = {
+  avance: 'Enfoque: avance medible',
+  en_ruta: 'Enfoque: KRs en ruta',
+  en_riesgo: 'Enfoque: KRs en riesgo',
+  al_dia: 'Enfoque: estado de actualización',
+}
 
 const control =
   'min-h-11 w-full min-w-0 rounded-lg border border-input bg-background px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm'
@@ -155,6 +167,7 @@ export function OkrPage() {
   const [deleting, setDeleting] = useState(false)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [highlightedKrId, setHighlightedKrId] = useState<string | null>(null)
+  const [quickFocus, setQuickFocus] = useState<OkrQuickFocus | null>(null)
   const today = todayWallClockCDMX()
   const hasFilters =
     scope !== 'all' ||
@@ -312,20 +325,23 @@ export function OkrPage() {
   )
   const canCreate =
     data.can_manage_company || data.areas.some((item) => item.can_manage)
-  const report = reportingSummary(filtered, data)
   const filteredKrIds = new Set(filtered.map((item) => item.id))
   const filteredKeyResults = data.keyResults.filter((kr) =>
     filteredKrIds.has(kr.okr_id)
   )
-  const measurableKeyResults = filteredKeyResults.filter(
-    (kr) => krProgress(kr) != null
-  )
-  const onTrackShare = measurableKeyResults.length
-    ? (measurableKeyResults.filter((kr) => (krProgress(kr) ?? 0) >= 70).length /
-        measurableKeyResults.length) *
-      100
-    : null
+  const quickMetrics = okrQuickIndicatorMetrics({
+    objectives: filtered,
+    keyResults: filteredKeyResults,
+    checkIns: data.checkIns,
+    today,
+  })
   const timeline = planTimelineMetrics(filtered, today)
+  const focusKrIds = krIdsForQuickFocus(quickFocus, quickMetrics)
+  const focusKrIdSet = focusKrIds ? new Set(focusKrIds) : null
+  const stripKeyResults =
+    focusKrIdSet != null
+      ? filteredKeyResults.filter((kr) => focusKrIdSet.has(kr.id))
+      : filteredKeyResults
   const focusedObjective =
     filtered.find((item) => item.id === searchParams.get('objective')) ??
     filtered.find((item) => expandedIds.has(item.id)) ??
@@ -387,8 +403,37 @@ export function OkrPage() {
         <OkrExecutionSummary
           daysLeft={timeline.daysLeft}
           timelineProgress={timeline.timelineProgress}
-          averageProgress={report.average}
-          onTrackShare={onTrackShare}
+          averageProgress={quickMetrics.averageProgress}
+          onTrackShare={quickMetrics.onTrackShare}
+          atRiskCount={quickMetrics.atRiskCount}
+          upToDateShare={quickMetrics.upToDateShare}
+          activeFocus={quickFocus}
+          onSelect={(focus) => {
+            setQuickFocus((current) => (current === focus ? null : focus))
+            if (focus === 'cronograma') {
+              document
+                .getElementById('okr-objectives-tree')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              return
+            }
+            const ids = krIdsForQuickFocus(focus, quickMetrics) ?? []
+            if (ids.length) {
+              const firstKr = filteredKeyResults.find((kr) => ids.includes(kr.id))
+              if (firstKr) {
+                setExpandedIds((current) => {
+                  const next = new Set(current)
+                  next.add(firstKr.okr_id)
+                  return next
+                })
+                setHighlightedKrId(firstKr.id)
+              }
+            }
+            requestAnimationFrame(() => {
+              document
+                .getElementById('okr-kpi-strip')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+            })
+          }}
         />
 
         <section
@@ -601,6 +646,7 @@ export function OkrPage() {
         )
         return (
           <section
+            id="okr-objectives-tree"
             aria-label="Árbol de objetivos"
             className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm"
           >
@@ -636,12 +682,22 @@ export function OkrPage() {
         )
       })()}
 
-      {filteredKeyResults.length > 0 && (
+      {(stripKeyResults.length > 0 || filteredKeyResults.length > 0) && (
         <OkrKpiStrip
-          keyResults={filteredKeyResults}
+          keyResults={
+            stripKeyResults.length > 0 ? stripKeyResults : filteredKeyResults
+          }
           objectives={filtered}
           checkIns={data.checkIns}
           canAdd={canCreate}
+          focusLabel={
+            quickFocus && quickFocus !== 'cronograma'
+              ? QUICK_FOCUS_LABEL[quickFocus]
+              : null
+          }
+          emphasizeIds={
+            quickFocus === 'al_dia' ? new Set(quickMetrics.ids.stale) : focusKrIdSet
+          }
           onAdd={() => {
             const target =
               focusedObjective ??
