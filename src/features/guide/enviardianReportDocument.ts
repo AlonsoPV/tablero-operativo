@@ -8,7 +8,25 @@ export const ENVIARDIAN_REPORT_DOC_VERSION = 'enviardian-informe-v3' as const
 
 export type EvidenceKind = 'verified' | 'said' | 'hypothesis' | 'recommendation'
 
-export type ReportCommitmentStatus = 'confirmed' | 'proposal' | 'undefined'
+export type ReportCommitmentStatus = 'confirmed' | 'proposal' | 'pending'
+
+export type ReportDateKind = 'explicit' | 'inferred' | 'missing'
+
+export type EnviardianTechnicalAttention = {
+  code: string
+  message: string
+  tool?: string
+  at?: string
+  retryable?: boolean
+}
+
+export type EnviardianCommunicationDraftRef = {
+  pendingOpId: string
+  channel: 'email' | 'whatsapp' | 'event' | 'other'
+  status: string
+  purpose?: string
+  recipientHint?: string
+}
 
 export type EnviardianKeyFinding = {
   title: string
@@ -37,6 +55,7 @@ export type EnviardianCommitment = {
   action: string
   ownerHint?: string
   dueDateHint?: string
+  dueDateKind?: ReportDateKind
   status: ReportCommitmentStatus
 }
 
@@ -84,10 +103,16 @@ export type EnviardianReportDocument = {
   confirmed_commitments: EnviardianCommitment[]
   session_actions: EnviardianSessionAction[]
   evidence_sources: string[]
+  /** Fallas de tools/integración; no son hallazgos de negocio. */
+  technical_attention?: EnviardianTechnicalAttention[]
+  /** Refs a assistant_pending_ops (fuente de verdad de borradores). */
+  communication_drafts?: EnviardianCommunicationDraftRef[]
   counts?: {
     findings: number
     pendingDecisions: number
     commitments: number
+    technicalAttention?: number
+    communicationDrafts?: number
   }
 }
 
@@ -117,8 +142,29 @@ function asEvidence(value: unknown): EvidenceKind {
 function asCommitmentStatus(value: unknown): ReportCommitmentStatus {
   const raw = asString(value, 40).toLowerCase()
   if (raw === 'confirmed' || raw === 'confirmado') return 'confirmed'
+  if (raw === 'pending' || raw === 'pendiente') return 'pending'
+  if (raw === 'undefined' || raw === 'null' || raw === '') return 'pending'
   if (raw === 'proposal' || raw === 'propuesta') return 'proposal'
-  return 'undefined'
+  return 'proposal'
+}
+
+function asDateKind(value: unknown): ReportDateKind | undefined {
+  const raw = asString(value, 40).toLowerCase()
+  if (raw === 'explicit' || raw === 'inferred' || raw === 'missing') return raw
+  return undefined
+}
+
+const TOOLISH_RE =
+  /\b(get_okr_progress|get_my_actions|queue_workspace_draft|confirm_pending_op|PERMISSION_DENIED|AUTHENTICATION_FAILED)\b/i
+
+function stripToolishPrefix(text: string): string {
+  const m = text.trim().match(/^([a-z0-9_]+)\s*:\s*(.+)$/i)
+  if (m && TOOLISH_RE.test(m[1])) return m[2].trim()
+  return text.trim()
+}
+
+function isTechnicalNarrative(text: string): boolean {
+  return TOOLISH_RE.test(text) || /\b(timeout|tool call|stack trace|ECONNRESET)\b/i.test(text)
 }
 
 function asSessionActionStatus(value: unknown): EnviardianSessionActionStatus {
@@ -209,29 +255,78 @@ export function normalizeReportDocument(
     session_actions?: EnviardianSessionAction[]
   }
 ): EnviardianReportDocument {
-  const findings = (input.key_findings ?? [])
+  const rawFindings = (input.key_findings ?? [])
     .map((item) => ({
-      title: asString(item.title, 120) || 'Hallazgo',
-      detail: asString(item.detail, 600),
+      title: stripToolishPrefix(asString(item.title, 120)) || 'Hallazgo',
+      detail: stripToolishPrefix(asString(item.detail, 600)),
       businessImpact: asString(item.businessImpact, 300) || undefined,
       evidence: asEvidence(item.evidence),
       source: asString(item.source, 200) || undefined,
     }))
     .filter((item) => item.detail || item.title)
+
+  const technicalFromFindings: EnviardianTechnicalAttention[] = []
+  const findings = rawFindings
+    .filter((item) => {
+      if (isTechnicalNarrative(item.title) || isTechnicalNarrative(item.detail)) {
+        technicalFromFindings.push({
+          code: 'TECHNICAL_FINDING',
+          message: (item.detail || item.title).slice(0, 400),
+        })
+        return false
+      }
+      return true
+    })
     .slice(0, 5)
 
   const commitments = (input.confirmed_commitments ?? [])
     .map((item) => ({
-      action: asString(item.action, 200),
+      action: stripToolishPrefix(asString(item.action, 200)),
       ownerHint: asString(item.ownerHint, 80) || undefined,
       dueDateHint: asString(item.dueDateHint, 80) || undefined,
+      dueDateKind: asDateKind((item as EnviardianCommitment).dueDateKind) || (asString(item.dueDateHint, 80) ? 'inferred' as const : 'missing' as const),
       status: asCommitmentStatus(item.status),
     }))
-    .filter((item) => item.action)
+    .filter((item) => item.action && !isTechnicalNarrative(item.action))
     .slice(0, 6)
 
-  const pending = asStringList(input.pending_decisions, 6, 300)
+  const pendingRaw = asStringList(input.pending_decisions, 6, 300)
+  const recommendationsRaw = asStringList(input.recommendations, 3, 400)
+  const pending = pendingRaw.filter((line) => !isTechnicalNarrative(line)).map(stripToolishPrefix)
+  const recommendations = recommendationsRaw
+    .filter((line) => !isTechnicalNarrative(line))
+    .map(stripToolishPrefix)
   const summaryText = clipWords(asString(input.executive_summary?.text, 900) || 'Conversacion breve; se conserva lo esencial.', 120)
+
+  const technicalAttention = [
+    ...technicalFromFindings,
+    ...((input.technical_attention ?? []) as EnviardianTechnicalAttention[]),
+  ]
+    .map((item) => ({
+      code: asString(item.code, 60) || 'UNKNOWN_ERROR',
+      message: asString(item.message, 400),
+      tool: asString(item.tool, 60) || undefined,
+      at: asString(item.at, 40) || undefined,
+      retryable: Boolean(item.retryable),
+    }))
+    .filter((item) => item.message)
+    .slice(0, 12)
+
+  const communicationDrafts = (input.communication_drafts ?? [])
+    .map((item) => ({
+      pendingOpId: asString(item.pendingOpId, 80),
+      channel:
+        item.channel === 'whatsapp' || item.channel === 'event' || item.channel === 'email'
+          ? item.channel
+          : ('other' as const),
+      status: asString(item.status, 40) || 'pending',
+      purpose: asString(item.purpose, 200) || undefined,
+      recipientHint: asString(item.recipientHint, 120) || undefined,
+    }))
+    .filter((item) => item.pendingOpId)
+    .slice(0, 12)
+
+  const evidence = asStringList(input.evidence_sources, 12, 400).map(stripToolishPrefix)
 
   const doc: EnviardianReportDocument = {
     version: ENVIARDIAN_REPORT_DOC_VERSION,
@@ -252,10 +347,12 @@ export function normalizeReportDocument(
     },
     executive_summary: {
       text: summaryText,
-      headlineFinding:
-        asString(input.executive_summary?.headlineFinding, 240) ||
-        findings[0]?.title ||
-        undefined,
+      headlineFinding: (() => {
+        const raw =
+          asString(input.executive_summary?.headlineFinding, 240) || findings[0]?.title || undefined
+        if (!raw || isTechnicalNarrative(raw)) return findings[0]?.title
+        return stripToolishPrefix(raw)
+      })(),
       nextStep:
         asString(input.executive_summary?.nextStep, 240) ||
         commitments.find((c) => c.status === 'confirmed')?.action ||
@@ -280,11 +377,13 @@ export function normalizeReportDocument(
         mitigation: asString(item.mitigation, 240) || undefined,
         opportunity: asString(item.opportunity, 240) || undefined,
       }))
-      .filter((item) => item.risk)
+      .filter((item) => item.risk && !isTechnicalNarrative(item.risk))
       .slice(0, 4),
-    confirmed_decisions: asStringList(input.confirmed_decisions, 6, 300),
+    confirmed_decisions: asStringList(input.confirmed_decisions, 6, 300).filter(
+      (line) => !isTechnicalNarrative(line)
+    ),
     pending_decisions: pending,
-    recommendations: asStringList(input.recommendations, 3, 400),
+    recommendations,
     confirmed_commitments: commitments,
     session_actions: (input.session_actions ?? [])
       .map((item) => ({
@@ -299,20 +398,19 @@ export function normalizeReportDocument(
             ? item.kind
             : undefined,
       }))
-      .filter((item) => item.title)
+      .filter((item) => item.title && !isTechnicalNarrative(item.title))
       .slice(0, 12),
-    evidence_sources: asStringList(input.evidence_sources, 12, 400),
+    evidence_sources: evidence,
+    technical_attention: technicalAttention,
+    communication_drafts: communicationDrafts,
   }
 
-  const findingsCount = doc.key_findings.length
-  const pendingCount = doc.pending_decisions.length
-  const commitCount = doc.confirmed_commitments.filter((c) => c.status === 'confirmed').length
-  if (findingsCount || pendingCount || commitCount) {
-    doc.counts = {
-      findings: findingsCount,
-      pendingDecisions: pendingCount,
-      commitments: commitCount,
-    }
+  doc.counts = {
+    findings: doc.key_findings.length,
+    pendingDecisions: doc.pending_decisions.length,
+    commitments: doc.confirmed_commitments.filter((c) => c.status === 'confirmed').length,
+    technicalAttention: doc.technical_attention?.length ?? 0,
+    communicationDrafts: doc.communication_drafts?.length ?? 0,
   }
   return doc
 }
@@ -382,7 +480,7 @@ export function adaptV2TextToReportDocument(input: {
         const status: ReportCommitmentStatus = /propuesta/i.test(statusRaw)
           ? 'proposal'
           : /por confirmar|por definir/i.test(statusRaw)
-            ? 'undefined'
+            ? 'pending'
             : 'confirmed'
         return {
           action: parts[0] || line,
@@ -391,7 +489,7 @@ export function adaptV2TextToReportDocument(input: {
           status,
         }
       }
-      return { action: line, status: 'undefined' as const }
+      return { action: line, status: 'pending' as const }
     })
 
   return normalizeReportDocument({
@@ -551,17 +649,21 @@ export type BuildReportDocumentInput = {
   sessionActions?: EnviardianSessionAction[] | null
   headlineFinding?: string | null
   nextStep?: string | null
+  technicalAttention?: EnviardianTechnicalAttention[] | null
+  communicationDrafts?: EnviardianCommunicationDraftRef[] | null
+  verifiedMetrics?: EnviardianVerifiedMetric[] | null
 }
 
 /** Ensambla el documento v3: el servidor impone verified / evidence_sources / metrics. */
 export function buildEnviardianReportDocument(input: BuildReportDocumentInput): EnviardianReportDocument {
-  const verifiedLines = asStringList(input.verifiedLines, 12, 400)
+  const verifiedLines = asStringList(input.verifiedLines, 12, 400).map(stripToolishPrefix)
   const findings: EnviardianKeyFinding[] = []
 
   for (const line of verifiedLines.slice(0, 2)) {
+    const detail = stripToolishPrefix(line)
     findings.push({
-      title: clipTitle(line),
-      detail: line.replace(/^[^:]+:\s*/, ''),
+      title: clipTitle(detail),
+      detail,
       evidence: 'verified',
       source: 'Scrumban',
       businessImpact: undefined,
@@ -573,10 +675,10 @@ export function buildEnviardianReportDocument(input: BuildReportDocumentInput): 
     if (findings.length >= 5) break
     const evidence = asEvidence(item.evidence)
     if (evidence === 'verified') continue
-    const detail = asString(item.detail || item.title, 600)
-    if (!detail) continue
+    const detail = stripToolishPrefix(asString(item.detail || item.title, 600))
+    if (!detail || isTechnicalNarrative(detail) || isTechnicalNarrative(asString(item.title, 120))) continue
     findings.push({
-      title: asString(item.title, 120) || clipTitle(detail),
+      title: stripToolishPrefix(asString(item.title, 120)) || clipTitle(detail),
       detail,
       businessImpact: asString(item.businessImpact, 300) || undefined,
       evidence,
@@ -585,26 +687,34 @@ export function buildEnviardianReportDocument(input: BuildReportDocumentInput): 
 
   if (findings.length === 0) {
     for (const line of asStringList(input.said, 5, 400)) {
+      if (isTechnicalNarrative(line)) continue
       findings.push({ title: clipTitle(line), detail: line, evidence: 'said' })
     }
   }
 
   const commitments: EnviardianCommitment[] = []
   for (const item of input.commitments ?? []) {
-    const action = asString(item.action, 200)
-    if (!action) continue
+    const action = stripToolishPrefix(asString(item.action, 200))
+    if (!action || isTechnicalNarrative(action)) continue
     commitments.push({
       action,
       ownerHint: asString(item.ownerHint, 80) || undefined,
       dueDateHint: asString(item.dueDateHint, 80) || undefined,
+      dueDateKind: asString(item.dueDateHint, 80) ? 'inferred' : 'missing',
       status: asCommitmentStatus(item.status ?? 'proposal'),
     })
   }
   for (const step of asStringList(input.nextSteps, 3, 240)) {
     if (commitments.length >= 6) break
+    if (isTechnicalNarrative(step)) continue
     if (commitments.some((c) => c.action === step)) continue
-    commitments.push({ action: step, status: 'undefined' })
+    commitments.push({ action: step, status: 'pending', dueDateKind: 'missing' })
   }
+
+  const metrics =
+    input.verifiedMetrics?.length
+      ? input.verifiedMetrics
+      : metricsFromEvidenceSources(verifiedLines)
 
   return normalizeReportDocument({
     version: ENVIARDIAN_REPORT_DOC_VERSION,
@@ -628,7 +738,7 @@ export function buildEnviardianReportDocument(input: BuildReportDocumentInput): 
         commitments[0]?.action,
     },
     key_findings: findings,
-    verified_metrics: metricsFromEvidenceSources(verifiedLines),
+    verified_metrics: metrics,
     risks: (input.risks ?? [])
       .map((item) => ({
         risk: asString(item.risk, 240),
@@ -650,5 +760,7 @@ export function buildEnviardianReportDocument(input: BuildReportDocumentInput): 
             recommendations: input.recommendations,
           }),
     evidence_sources: verifiedLines,
+    technical_attention: input.technicalAttention ?? [],
+    communication_drafts: input.communicationDrafts ?? [],
   })
 }

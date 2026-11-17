@@ -5,6 +5,7 @@ import { isCommunicationWriteTool } from '../../src/features/ai-support/copilot/
 import { dispatchGoogleTool, executeGoogleWrite } from './assistantGoogleTools.js'
 import { executeWhatsappWrite } from './assistantCommunicationDrafts.js'
 import { createPendingOp, insertAssistantOpLog, type CopilotActor } from './assistantPending.js'
+import { canSendCommunication, normalizeGuideAccessMode } from './guideUserLinks.js'
 import { assertWorkspaceHash } from './workspaceHash.js'
 import {
   evaluatePendingTransition,
@@ -901,6 +902,14 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string) {
   if (isGoogleWriteTool(row.tool) || isCommunicationWriteTool(row.tool)) {
     assertWorkspaceHash(row.payload ?? {})
     const payload = row.payload ?? {}
+    if (isCommunicationWriteTool(row.tool) || String(row.tool).startsWith('gmail_')) {
+      const mode = normalizeGuideAccessMode(actor.guideAccessMode ?? 'propose')
+      if (actor.guideAccessMode != null && !canSendCommunication(mode)) {
+        throw new Error(
+          'PERMISSION_DENIED: Este modo de entrevista no permite enviar comunicaciones. Aprueba el envio con una sesion autorizada.'
+        )
+      }
+    }
     if (payload.incomplete === true) {
       throw new Error(
         'Este borrador aun no esta listo. Espera el cierre de la llamada o completa los datos.'

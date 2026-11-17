@@ -21,6 +21,7 @@ import {
 import { groundVerifiedLines, verifiedFactsFromLog } from './guideRetellTool.js'
 import { readNumberEnv } from './http.js'
 import { persistFilledWorkspaceDrafts } from './workspaceDraftFinalize.js'
+import type { EnviardianCommunicationDraftRef } from '../../src/features/guide/enviardianReportDocument.js'
 
 const JOURNAL_BASE =
   'id,session_id,usuario_id,topic,summary,learning,intention,reflection_question,user_words,agent_inferences,created_at,updated_at'
@@ -63,6 +64,53 @@ async function loadJournal(supabase: SupabaseClient, sessionId: string) {
     return supabase.from('guide_journal_entries').select(JOURNAL_BASE).eq('session_id', sessionId).maybeSingle()
   }
   return full
+}
+
+/** Fuente de verdad de borradores: assistant_pending_ops, no el LLM. */
+async function loadCommunicationDraftRefs(
+  supabase: SupabaseClient,
+  sessionId: string,
+  usuarioId: string
+): Promise<EnviardianCommunicationDraftRef[]> {
+  const { data, error } = await supabase
+    .from('assistant_pending_ops')
+    .select('id,tool,payload,preview,status')
+    .eq('session_id', sessionId)
+    .eq('usuario_id', usuarioId)
+    .in('tool', ['gmail_prepare_send', 'gmail_prepare_reply', 'whatsapp_prepare_send', 'calendar_prepare_event'])
+    .order('created_at', { ascending: true })
+    .limit(12)
+  if (error) {
+    console.error('guide interview communication drafts', error.message)
+    return []
+  }
+  return (data ?? []).map((row) => {
+    const tool = String(row.tool)
+    const payload =
+      row.payload && typeof row.payload === 'object' ? (row.payload as Record<string, unknown>) : {}
+    const preview =
+      row.preview && typeof row.preview === 'object' ? (row.preview as Record<string, unknown>) : {}
+    const channel: EnviardianCommunicationDraftRef['channel'] =
+      tool === 'whatsapp_prepare_send'
+        ? 'whatsapp'
+        : tool.startsWith('calendar_')
+          ? 'event'
+          : tool.startsWith('gmail_')
+            ? 'email'
+            : 'other'
+    return {
+      pendingOpId: String(row.id),
+      channel,
+      status: String(row.status || 'pending'),
+      purpose:
+        (typeof payload.purpose === 'string' && payload.purpose) ||
+        (typeof preview.summary === 'string' && preview.summary) ||
+        undefined,
+      recipientHint:
+        (typeof payload.recipient_hint === 'string' && payload.recipient_hint) ||
+        undefined,
+    }
+  })
 }
 
 async function saveMessages(supabase: SupabaseClient, sessionId: string, turns: GuideTranscriptTurn[]) {
@@ -251,12 +299,26 @@ export async function finalizeGuideInterview(
   const startedAt = session.started_at || null
   const anchorYmd = cdmxYmd(startedAt) || cdmxYmd(closedAt) || ''
 
+  const communicationDrafts = await loadCommunicationDraftRefs(
+    supabase,
+    session.id,
+    session.usuario_id
+  )
+
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 28000)
   try {
     const consultBlock = facts.hadSuccess
       ? facts.lines.join('\n')
       : 'Ninguna consulta exitosa. El informe se basa solo en la entrevista.'
+    const techBlock =
+      facts.technicalAttention.length > 0
+        ? [
+            '',
+            'Errores tecnicos (NO los conviertas en hallazgos, recomendaciones ni compromisos de negocio):',
+            ...facts.technicalAttention.map((item) => `- ${item.code}: ${item.message}`),
+          ].join('\n')
+        : ''
     const raw = await generateGuideText(
       ENVIARDIAN_INTERVIEW_REPORT_PROMPT,
       [
@@ -264,9 +326,12 @@ export async function finalizeGuideInterview(
         `Inicio: ${startedAt || 'no disponible'}.`,
         `Cierre: ${closedAt}.`,
         'Resuelve fechas relativas contra la fecha de la entrevista.',
+        'No inventes fechas de compromiso solo por el dia de la llamada.',
+        'No uses nombres de herramientas (get_okr_progress, etc.) como titulos.',
         '',
-        'Consultas registradas:',
+        'Consultas registradas (hechos verificados, lenguaje de negocio):',
         consultBlock,
+        techBlock,
         facts.hadError && !facts.hadSuccess
           ? 'Una consulta al tablero fallo. No completes ese hueco con cifras.'
           : '',
@@ -356,6 +421,21 @@ export async function finalizeGuideInterview(
           mitigation?: string
           opportunity?: string
         }>,
+        technicalAttention: facts.technicalAttention.map((item) => ({
+          code: item.code,
+          message: item.message,
+          tool: item.tool,
+          at: item.at,
+          retryable: item.retryable,
+        })),
+        communicationDrafts,
+        verifiedMetrics: facts.metrics.map((item) => ({
+          label: item.label,
+          value: item.value,
+          unit: item.unit,
+          asOf: item.asOf,
+          sourceTool: item.sourceTool,
+        })),
       }
     )
     const payload = {

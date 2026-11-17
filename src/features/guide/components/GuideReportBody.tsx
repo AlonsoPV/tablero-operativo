@@ -270,6 +270,28 @@ export function GuideReportBody({
           </section>
         ) : null}
 
+        {(doc.technical_attention?.length ?? 0) > 0 ? (
+          <section className="space-y-3" aria-label="Atencion tecnica">
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold tracking-tight text-slate-800">
+                Solicitudes que requieren atencion tecnica
+              </h3>
+              <p className="text-xs text-slate-500">
+                Fallas de integracion o herramientas. No son hallazgos de negocio.
+              </p>
+            </div>
+            <ul className="space-y-2 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+              {(doc.technical_attention ?? []).map((item) => (
+                <li key={`${item.code}-${item.message}`} className="text-sm leading-6 text-slate-700">
+                  <span className="font-medium text-amber-900">{item.code}</span>
+                  {item.tool ? <span className="text-slate-500"> · {item.tool}</span> : null}
+                  <span className="text-slate-600"> — {item.message}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         {doc.key_findings.length > 0 ? (
           <section className="space-y-3" aria-label="Hallazgos">
             <h3 className="text-sm font-semibold tracking-tight text-slate-800">Hallazgos prioritarios</h3>

@@ -248,22 +248,38 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
     }
   }
   if (result.kind === 'denied') {
+    const detail = typeof result.error === 'string' ? result.error.trim() : ''
+    const permissionSend = /PERMISSION_DENIED|no permite enviar/i.test(detail)
     return {
       status: 'denied',
-      spoken: 'No tengo permiso para consultar eso. No inventes el resultado.',
+      spoken: permissionSend
+        ? 'Este modo no permite enviar comunicaciones. No inventes que se envio.'
+        : detail && detail.length < 160
+          ? detail
+          : 'No tengo permiso para consultar eso. No inventes el resultado.',
       data: null,
     }
   }
   if (result.kind === 'error' || result.ok === false) {
     const writeConfirm = result.tool === 'confirm_pending_op' || result.tool === 'cancel_pending_op'
+    const detail = typeof result.error === 'string' ? result.error.trim() : ''
+    if (writeConfirm && /PERMISSION_DENIED|no permite enviar/i.test(detail)) {
+      return {
+        status: 'denied',
+        spoken: 'Este modo no permite enviar comunicaciones. No inventes que se envio.',
+        data: null,
+      }
+    }
     return {
       status: 'error',
       spoken:
         result.error === 'timeout'
           ? 'No pude recuperar ese dato a tiempo. No inventes cifras; ofrece reintentar o reformular.'
-          : writeConfirm
-            ? 'No pude confirmar ni cancelar esa operacion. No digas que quedo hecha.'
-            : 'No pude consultar el tablero. Prefiero no dar informacion que no pueda confirmar.',
+          : writeConfirm && detail && detail.length < 180
+            ? `${detail} No digas que quedo hecha.`
+            : writeConfirm
+              ? 'No pude confirmar ni cancelar esa operacion. No digas que quedo hecha.'
+              : 'No pude consultar el tablero. Prefiero no dar informacion que no pueda confirmar.',
       data: null,
     }
   }
@@ -399,23 +415,95 @@ export function consultLogEntry(tool: string, status: RetellToolStatus, data: un
   return { tool, status, at, summary: consultSummary(status, data).slice(0, 700) }
 }
 
-export function verifiedFactsFromLog(log: unknown): { lines: string[]; hadError: boolean; hadSuccess: boolean } {
+export type VerifiedFactMetric = {
+  label: string
+  value: string
+  unit?: string
+  sourceTool: string
+  asOf?: string
+}
+
+export type TechnicalLogItem = {
+  code: string
+  message: string
+  tool?: string
+  at?: string
+  retryable?: boolean
+}
+
+export type VerifiedFactsFromLog = {
+  /** Frases humanizadas sin prefijo de tool (para hallazgos/evidence). */
+  lines: string[]
+  /** Metadatos de trazabilidad (no mostrar como título ejecutivo). */
+  sources: Array<{ tool: string; status: string; summary: string; at?: string }>
+  metrics: VerifiedFactMetric[]
+  technicalAttention: TechnicalLogItem[]
+  hadError: boolean
+  hadSuccess: boolean
+}
+
+function humanizeOkSummary(tool: string, summary: string): string {
+  const clean = readableSummary(summary).trim()
+  if (!clean) return ''
+  // Nunca prefijar con el nombre de la herramienta en texto ejecutivo.
+  if (/get_okr_progress/i.test(tool) && !/\d+\s*%/.test(clean)) {
+    return clean
+  }
+  return clean.replace(new RegExp(`^${tool}\\s*:\\s*`, 'i'), '').trim() || clean
+}
+
+function parseMetricHints(tool: string, summary: string, at?: string): VerifiedFactMetric[] {
+  if (!/get_okr_progress|get_dashboard_summary|get_module_data/i.test(tool)) return []
+  const metrics: VerifiedFactMetric[] = []
+  const pct = summary.match(/([\wÁÉÍÓÚáéíóúñÑ][\wÁÉÍÓÚáéíóúñÑ\s/.-]{1,60}?)\s*[:=]?\s*(\d{1,3}(?:[.,]\d+)?)\s*%/)
+  if (pct) {
+    metrics.push({
+      label: pct[1].trim().slice(0, 80),
+      value: pct[2].replace(',', '.'),
+      unit: '%',
+      sourceTool: tool,
+      asOf: at,
+    })
+  }
+  return metrics.slice(0, 4)
+}
+
+export function verifiedFactsFromLog(log: unknown): VerifiedFactsFromLog {
   const rows = Array.isArray(log) ? log : []
   const lines: string[] = []
+  const sources: VerifiedFactsFromLog['sources'] = []
+  const metrics: VerifiedFactMetric[] = []
+  const technicalAttention: TechnicalLogItem[] = []
   let hadError = false
   let hadSuccess = false
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue
-    const item = row as { tool?: unknown; status?: unknown; summary?: unknown }
+    const item = row as { tool?: unknown; status?: unknown; summary?: unknown; at?: unknown }
     const status = typeof item.status === 'string' ? item.status : ''
     const tool = typeof item.tool === 'string' ? item.tool : 'consulta'
-    if (status === 'error' || status === 'denied') hadError = true
+    const at = typeof item.at === 'string' ? item.at : undefined
+    const summaryRaw = typeof item.summary === 'string' ? item.summary : ''
+    const summary = summaryRaw ? readableSummary(summaryRaw) : ''
+
+    if (status === 'error' || status === 'denied') {
+      hadError = true
+      technicalAttention.push({
+        code: status === 'denied' ? 'PERMISSION_DENIED' : 'TOOL_ERROR',
+        message: (summary || `Fallo en ${tool}`).slice(0, 400),
+        tool,
+        at,
+        retryable: status === 'error',
+      })
+      continue
+    }
     if (status !== 'ok') continue
     hadSuccess = true
-    const summary = typeof item.summary === 'string' ? readableSummary(item.summary) : ''
-    if (summary) lines.push(`${tool}: ${summary}`)
+    sources.push({ tool, status, summary: summary.slice(0, 700), at })
+    const human = humanizeOkSummary(tool, summary)
+    if (human) lines.push(human)
+    for (const metric of parseMetricHints(tool, summary, at)) metrics.push(metric)
   }
-  return { lines, hadError, hadSuccess }
+  return { lines, sources, metrics, technicalAttention, hadError, hadSuccess }
 }
 
 /** Lo verificado del informe sale del registro. El texto del modelo no se conserva. */

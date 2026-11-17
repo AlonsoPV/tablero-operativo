@@ -64,8 +64,25 @@ describe('enviardianReportDocument', () => {
       verifiedLines: ['get_okr_progress: Objetivo A'],
     })
     expect(doc.key_findings.some((f) => f.evidence === 'verified')).toBe(true)
-    expect(doc.key_findings.filter((f) => f.evidence === 'verified').every((f) => /Objetivo A|get_okr/i.test(f.detail + f.title))).toBe(
-      true
-    )
+    const verified = doc.key_findings.filter((f) => f.evidence === 'verified')
+    expect(verified.every((f) => /Objetivo A/i.test(f.detail + f.title))).toBe(true)
+    expect(verified.every((f) => !/^get_okr_progress:/i.test(f.title))).toBe(true)
+  })
+
+  it('moves technical narratives out of business findings and bans undefined status', () => {
+    const doc = buildEnviardianReportDocument({
+      summary: 'Resumen',
+      llmFindings: [
+        { title: 'get_okr_progress: fallo', detail: 'PERMISSION_DENIED timeout', evidence: 'said' },
+        { title: 'Avance OKR', detail: 'Capacidad Flexible en 81%', evidence: 'said' },
+      ],
+      commitments: [{ action: 'Revisar indicadores', status: 'undefined' }],
+      technicalAttention: [{ code: 'TOOL_ERROR', message: 'get_okr_progress fallo', tool: 'get_okr_progress' }],
+    })
+    expect(doc.key_findings.every((f) => !/get_okr_progress|PERMISSION_DENIED/i.test(f.title + f.detail))).toBe(true)
+    expect(doc.key_findings.some((f) => /Capacidad Flexible/i.test(f.detail))).toBe(true)
+    expect(doc.confirmed_commitments.every((c) => c.status !== ('undefined' as never))).toBe(true)
+    expect(doc.technical_attention?.some((t) => t.code === 'TOOL_ERROR')).toBe(true)
+    expect(doc.counts?.technicalAttention).toBeGreaterThan(0)
   })
 })
