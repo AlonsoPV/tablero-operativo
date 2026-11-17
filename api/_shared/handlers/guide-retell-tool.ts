@@ -24,11 +24,12 @@ import {
   type ConsultLogEntry,
 } from '../guideRetellTool.js'
 import {
+  classifyDenialReason,
   guideToolFailure,
   guideToolSuccess,
   logGuideToolEvent,
   newGuideRequestId,
-  type GuideToolErrorCode,
+  statusToErrorCode,
 } from '../guideToolResult.js'
 
 function asString(value: unknown, max = 80) {
@@ -41,12 +42,6 @@ function timedOutResult(tool: string) {
     user_message: 'No pude recuperar ese dato a tiempo. No inventes cifras; ofrece reintentar o reformular.',
     tool,
   })
-}
-
-function statusToErrorCode(status: string): GuideToolErrorCode {
-  if (status === 'denied') return 'PERMISSION_DENIED'
-  if (status === 'timeout') return 'TIMEOUT'
-  return 'UNKNOWN_ERROR'
 }
 
 async function appendConsultLog(
@@ -296,7 +291,19 @@ export default defineApiHandler(async (req, res) => {
       if (session.guide_link_id) accessMode = effectiveInviteAccessMode(session.access_mode || accessMode)
 
       if (!isGuideWriteAllowed(accessMode) && isRetellWriteTool(parsed.tool)) {
-        const entry = consultLogEntry(parsed.tool, 'denied', { status: 'denied', reason: 'read_only_invite' })
+        const userMessage =
+          'No tienes permiso de escritura en este modo. No inventes que quedo hecho.'
+        const entry = consultLogEntry(
+          parsed.tool,
+          'denied',
+          { status: 'denied', reason: 'read_only_invite' },
+          undefined,
+          {
+            summaryHint: userMessage,
+            error_code: 'PERMISSION_DENIED',
+            denial_reason: 'permission',
+          }
+        )
         scheduleConsultLog(supabase, session.id, entry)
         return {
           early: true,
@@ -304,8 +311,7 @@ export default defineApiHandler(async (req, res) => {
           accessMode,
           response: guideToolFailure({
             code: 'PERMISSION_DENIED',
-            user_message:
-              'No tienes permiso de escritura en este modo. No inventes que quedo hecho.',
+            user_message: userMessage,
             status: 'denied',
             tool: parsed.tool,
           }),
@@ -349,7 +355,11 @@ export default defineApiHandler(async (req, res) => {
       )
       dispatch_ms = Date.now() - dispatchStarted
       const classified = classifyRetellToolResult(result)
-      const entry = consultLogEntry(parsed.tool, classified.status, classified.data)
+      const entry = consultLogEntry(parsed.tool, classified.status, classified.data, undefined, {
+        summaryHint: classified.spoken,
+        error_code: classified.error_code,
+        denial_reason: classified.denial_reason,
+      })
       scheduleConsultLog(supabase, session.id, entry)
       return {
         early: false,
@@ -434,7 +444,11 @@ export default defineApiHandler(async (req, res) => {
         tool_name: parsed.tool,
         phase: 'early',
         success: done.response.success === true,
-        error_code: statusToErrorCode(String(done.response.status)),
+        error_code: done.response.success === false ? done.response.error.code : null,
+        denial_reason:
+          done.response.success === false
+            ? classifyDenialReason(done.response.error.user_message)
+            : null,
         access_mode: done.accessMode,
         duration_ms: Date.now() - started,
       })
@@ -442,6 +456,9 @@ export default defineApiHandler(async (req, res) => {
     }
 
     const okStatuses = new Set(['ok', 'empty', 'needs_clarification', 'needs_confirmation'])
+    const failureCode =
+      done.classified.error_code ??
+      statusToErrorCode(done.classified.status, done.classified.spoken)
     const payload =
       okStatuses.has(done.classified.status)
         ? guideToolSuccess({
@@ -457,7 +474,7 @@ export default defineApiHandler(async (req, res) => {
                 : null,
           })
         : guideToolFailure({
-            code: statusToErrorCode(done.classified.status),
+            code: failureCode,
             user_message: done.classified.spoken,
             status: done.classified.status === 'denied' ? 'denied' : 'error',
             tool: parsed.tool,
@@ -493,6 +510,9 @@ export default defineApiHandler(async (req, res) => {
       phase: 'complete',
       success: payload.success,
       error_code: payload.success ? null : payload.error.code,
+      denial_reason: payload.success
+        ? null
+        : done.classified.denial_reason ?? classifyDenialReason(done.classified.spoken),
       access_mode: done.accessMode,
       duration_ms: Date.now() - started,
     })

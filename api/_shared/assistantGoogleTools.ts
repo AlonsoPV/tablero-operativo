@@ -14,7 +14,8 @@ import {
   GOOGLE_SCOPES,
 } from './googleUserClient.js'
 import { withContentHash } from './workspaceHash.js'
-import { matchPeopleByName, wrapUntrustedToolData, type NamedPerson } from '../../src/features/ai-support/copilot/matching.js'
+import { wrapUntrustedToolData, type NamedPerson } from '../../src/features/ai-support/copilot/matching.js'
+import { searchActivePeopleByName } from './searchActivePeople.js'
 import type {
   CopilotClarification,
   CopilotProposal,
@@ -107,14 +108,8 @@ async function lookupEmail(actor: CopilotActor, usuarioId: string): Promise<stri
   return typeof data === 'string' ? data.trim().toLowerCase() : ''
 }
 
-async function loadPeople(actor: CopilotActor): Promise<NamedPerson[]> {
-  const { data, error } = await actor.supabase
-    .from('usuarios')
-    .select('id,nombre,rol,area')
-    .eq('activo', true)
-    .limit(80)
-  if (error) throw error
-  return (data ?? []) as NamedPerson[]
+async function loadPeople(actor: CopilotActor, name: string): Promise<NamedPerson[]> {
+  return searchActivePeopleByName(actor.supabase, name)
 }
 
 type ResolvedRecipient =
@@ -142,7 +137,7 @@ async function resolveRecipient(
   }
   const name = asString(args[keys.name], 80)
   if (!name) return { missing: '' }
-  const matches = matchPeopleByName(await loadPeople(actor), name)
+  const matches = await loadPeople(actor, name)
   if (matches.length === 0) {
     return { missing: `No encontré un usuario activo llamado "${name}". Indica el correo; no lo invento.` }
   }

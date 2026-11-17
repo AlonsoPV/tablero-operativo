@@ -3,7 +3,10 @@ import type { AccionDiaria } from '@/types'
 import type { UserProfile } from '@/features/users/types/user.types'
 import type { Priority, Status } from '@/features/catalogs/types/catalogs.types'
 import {
+  isCorporateBlocked,
+  isCorporateOpen,
   isCorporateOverdue,
+  isCorporateVerified,
   isPendingVerification,
 } from '@/features/metrics/corporateActionMetrics'
 import { findPriorityForAccion } from '@/features/operations/utils/resolveAccionPrioridad'
@@ -13,10 +16,6 @@ import {
 } from '@/features/operations/utils/priorityColors'
 
 const DAY_MS = 86_400_000
-const CLOSED_FALLBACK = new Set(['hecho', 'verificado', 'cerrado', 'realizado'])
-/** Cierre operativo para edad/ciclo de rojos: solo Verificado (Hecho sigue abierto). */
-const VERIFIED_FALLBACK = new Set(['verificado'])
-const BLOCKED_FALLBACK = new Set(['bloqueado'])
 
 export type MetricTone = 'green' | 'yellow' | 'red' | 'neutral'
 export type TrendDirection = 'up' | 'down' | 'flat'
@@ -145,23 +144,9 @@ function statusByKey(statuses: Status[]): Map<string, Status> {
   return map
 }
 
-function statusKey(action: AccionDiaria, statusesByKey: Map<string, Status>): string {
-  const status = statusesByKey.get(clean(action.estado))
-  return clean(status?.estado_key ?? status?.nombre ?? action.estado)
-}
-
-function isClosed(action: AccionDiaria, statusesByKey: Map<string, Status>): boolean {
-  const status = statusesByKey.get(clean(action.estado))
-  return Boolean(status?.es_cierre) || CLOSED_FALLBACK.has(clean(action.estado))
-}
-
 /** Solo Verificado cierra el reloj de edad promedio de rojos; Hecho sigue abierto. */
-function isVerified(action: AccionDiaria, statusesByKey: Map<string, Status>): boolean {
-  return VERIFIED_FALLBACK.has(statusKey(action, statusesByKey))
-}
-
-function isBlocked(action: AccionDiaria, statusesByKey: Map<string, Status>): boolean {
-  return BLOCKED_FALLBACK.has(statusKey(action, statusesByKey))
+function isVerifiedForRedAge(action: AccionDiaria): boolean {
+  return isCorporateVerified(action)
 }
 
 function priorityColorForAction(action: AccionDiaria, priorities: Priority[]): PriorityColor {
@@ -229,8 +214,9 @@ export function calculateCoreMetrics(
 ) {
   const usersById = mapById(users)
   const statusesByKey = statusByKey(statuses)
-  const openActions = actions.filter((action) => !isClosed(action, statusesByKey))
-  const closedActions = actions.filter((action) => isClosed(action, statusesByKey))
+  // Abiertas / cerradas / bloqueadas: misma fuente que Kanban (`corporateActionMetrics`).
+  const openActions = actions.filter((action) => isCorporateOpen(action))
+  const closedActions = actions.filter((action) => !isCorporateOpen(action))
   const actionsByPriorityColor = {
     rojo: [] as AccionDiaria[],
     amarillo: [] as AccionDiaria[],
@@ -241,12 +227,12 @@ export function calculateCoreMetrics(
   }
   const redActions = actionsByPriorityColor.rojo
   /** Rojas cerradas para edad: solo Verificado (Hecho sigue contando como abierto). */
-  const redClosedActions = redActions.filter((action) => isVerified(action, statusesByKey))
+  const redClosedActions = redActions.filter((action) => isVerifiedForRedAge(action))
   const otherClosedActions = closedActions.filter((action) => !isRedPriority(action, priorities))
   const overdueActions = actions.filter((action) => isCorporateOverdue(action))
   const pendingVerificationActions = actions.filter((action) => isPendingVerification(action))
-  const blockedActions = openActions.filter((action) => isBlocked(action, statusesByKey))
-  const redOpenActions = redActions.filter((action) => !isVerified(action, statusesByKey))
+  const blockedActions = openActions.filter((action) => isCorporateBlocked(action))
+  const redOpenActions = redActions.filter((action) => !isVerifiedForRedAge(action))
   const otherOpenActions = openActions.filter((action) => !isRedPriority(action, priorities))
   const dueTodayActions = openActions.filter((action) => action.fecha === today)
   const openAgeDays = (action: AccionDiaria) =>
@@ -401,8 +387,7 @@ export function useOperationalDashboardMetrics(input: {
       openActions: current.openActions,
       closedActions: currentPeriodCore.closedActions,
       redClosedActions: currentPeriodActions.filter(
-        (action) =>
-          isRedPriority(action, input.priorities) && isVerified(action, current.statusesByKey)
+        (action) => isRedPriority(action, input.priorities) && isVerifiedForRedAge(action)
       ),
       otherClosedActions: currentPeriodCore.closedActions.filter(
         (action) => !isRedPriority(action, input.priorities)

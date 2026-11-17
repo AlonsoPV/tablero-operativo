@@ -14,6 +14,17 @@ function makeSupabase(
         return {
           select: () => ({
             eq: () => ({
+              ilike: (_col: string, pattern: string) => ({
+                limit: async () => {
+                  const needle = pattern.replace(/^%|%$/g, '').toLowerCase()
+                  const data = people.filter((p) =>
+                    String(p.nombre || '')
+                      .toLowerCase()
+                      .includes(needle)
+                  )
+                  return { data, error: null }
+                },
+              }),
               limit: async () => ({ data: people, error: null }),
             }),
           }),

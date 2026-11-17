@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ROUTES } from '@/constants'
+import { formatTeamScopeLabel } from '@/features/metrics/corporateActionMetrics'
 import { cn } from '@/lib/utils'
 import { TeamAreaSelector } from './components/TeamAreaSelector'
 import { TeamDashboardExecutivePanel } from './components/TeamDashboardExecutivePanel'
@@ -78,6 +79,9 @@ export function TeamDashboardPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Gestión por Equipos</h1>
           <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
             Mide carga, bloqueos y cumplimiento del área activa sin mezclar información de otros equipos.
+          </p>
+          <p className="text-xs font-medium text-muted-foreground">
+            {formatTeamScopeLabel(scope.selectedArea?.nombre)} · no comparable con Dashboard/Kanban corporativo
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px] lg:w-[560px]">

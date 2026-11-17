@@ -52,7 +52,8 @@ import {
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 // import { accionComentariosService } from '@/services/accionComentarios.service'
 
-const DEFAULT_FILTER: AccionesFilter = {}
+/** Misma población operativa que /kanban: sin iniciativas OKR por defecto. */
+const DEFAULT_FILTER: AccionesFilter = { es_okr: false }
 const DEFAULT_TREND_DAYS = 30
 
 type Period = { start: string; end: string }
@@ -308,8 +309,16 @@ function BauDashboard({
           : null,
         periodStart: currentPeriod.start,
         periodEnd: currentPeriod.end,
+        esOkr: filter.es_okr,
       }),
-    [currentPeriod.end, currentPeriod.start, filter.area, filter.responsable, responsableNames]
+    [
+      currentPeriod.end,
+      currentPeriod.start,
+      filter.area,
+      filter.es_okr,
+      filter.responsable,
+      responsableNames,
+    ]
   )
 
   const handleFilterChange = useCallback(

@@ -29,47 +29,12 @@ import {
   GuideCommunicationsSection,
 } from '@/features/guide/components/GuideCommunicationsSection'
 import { pendingWorkItems, pendingWorkToAnalysis } from '@/features/guide/pendingWork'
+import { reportPreviewText, reportStatusLabel } from '@/features/guide/reportPreviewText'
 import { listSessionWorkspaceOps } from '@/features/ai-support/services/assistantOpsClient'
 import type { CopilotProposal } from '@/features/ai-support/copilot/types'
 
 function createdWorkItems(entry: GuideJournalEntry | null | undefined): GuideCreatedWork[] {
   return (entry?.created_work ?? []).filter((item) => item.title && !item.error && !item.pending && item.id)
-}
-
-function reportStatusLabel(status: GuideJournalEntry['report_status']) {
-  if (status === 'processing') return 'Procesando informe'
-  if (status === 'pending') return 'Informe pendiente'
-  if (status === 'failed') return 'Informe no generado'
-  if (status === 'insufficient') return 'Entrevista breve'
-  if (status === 'ready') return 'Informe listo'
-  return null
-}
-
-function previewText(entry: GuideJournalEntry) {
-  if (entry.executive_report?.trim()) {
-    const raw = entry.executive_report.trim()
-    if (raw.startsWith('{')) {
-      try {
-        const parsed = JSON.parse(raw) as {
-          executive_summary?: { text?: string; headlineFinding?: string }
-          metadata?: { topic?: string }
-        }
-        return (
-          parsed.executive_summary?.text ||
-          parsed.executive_summary?.headlineFinding ||
-          parsed.metadata?.topic ||
-          entry.summary ||
-          'Informe listo'
-        )
-      } catch {
-        /* fall through */
-      }
-    }
-    return raw.split('\n').filter(Boolean).slice(0, 2).join(' ')
-  }
-  const status = reportStatusLabel(entry.report_status)
-  if (status && !entry.summary?.trim()) return status
-  return entry.summary?.trim() || entry.agent_inferences?.trim() || status || 'Sesion con Guia lista para revisar.'
 }
 
 function cdmxDateKey(iso: string) {
@@ -670,7 +635,7 @@ export function AiHistoryPage() {
                     />
                   </div>
                   <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
-                    {previewText(entry)}
+                    {reportPreviewText(entry)}
                   </p>
                   {reportStatusLabel(entry.report_status) && !entry.executive_report ? (
                     <span className="inline-flex items-center pt-0.5 text-[11px] font-medium text-muted-foreground">

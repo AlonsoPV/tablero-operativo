@@ -7,8 +7,20 @@
  *
  * send-action / followup-dispatcher son solo Ops. Assistant vive en /api/whatsapp-assistant.
  */
-// @ts-nocheck — Dashboard solo sube index.ts; el bundler Deno exige specifier npm:
+// @ts-nocheck — bundler Deno exige specifier npm:
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import {
+  askFlowClarificationText,
+  askWhichTaskText,
+  classifyWhatsAppIntent,
+  flowForRoute,
+  intentForRoute,
+  parseAiOpButtonId,
+  resolveWhatsAppInboundRoute,
+  type WhatsAppInboundRoute,
+} from '../_shared/whatsappFlowRouting.ts'
+
+const OPS_FALLBACK_WINDOW_MS = 72 * 60 * 60 * 1000
 
 declare const Deno: {
   env: { get(key: string): string | undefined }
@@ -564,12 +576,6 @@ async function replyText(
   }
 }
 
-function parseAiOpButton(raw: string | null | undefined): { opId: string; action: 'confirm' | 'cancel' } | null {
-  const match = /^aiop:([0-9a-fA-F-]{36}):(ok|no)$/i.exec((raw ?? '').trim())
-  if (!match) return null
-  return { opId: match[1], action: match[2].toLowerCase() === 'ok' ? 'confirm' : 'cancel' }
-}
-
 function whatsappAiEnabled() {
   const flag = (Deno.env.get('WHATSAPP_AI_ENABLED') || '').trim().toLowerCase()
   if (flag === '0' || flag === 'false' || flag === 'no') return false
@@ -975,84 +981,17 @@ async function hasActiveAgentSession(
   })
 }
 
-type InboundRoute =
-  | { kind: 'ops_button'; buttonId: string }
-  | { kind: 'agent_aiop'; opId: string; action: 'confirm' | 'cancel' }
-  | { kind: 'mas_info' }
-  | { kind: 'agent_consult' }
-  | { kind: 'agent_channel'; channel: 'text' | 'voice' }
-  | { kind: 'ops_keyword'; action: 'done' | 'progress' | 'support'; text: string }
-  | { kind: 'agent_free_text'; text: string }
-  | { kind: 'ops_help'; text?: string }
-  | { kind: 'ignore' }
+type InboundRoute = WhatsAppInboundRoute
 
-/**
- * Debe espejar `src/lib/whatsappFlowRouting.ts` (anti-drift).
- * Rutas estructuradas no dependen de canUseAi; el texto libre sí.
- */
-/** Etiqueta de hilo para inbound; mas_info cuenta como ops (disparador de gate mixto). */
+/** Etiqueta de hilo; mas_info / ask_flow / cancel → ops por defecto en bandeja. */
 function inboundFlowForRoute(route: InboundRoute): 'ops' | 'agent' {
-  if (
-    route.kind === 'agent_aiop' ||
-    route.kind === 'agent_free_text' ||
-    route.kind === 'agent_consult' ||
-    route.kind === 'agent_channel'
-  ) {
-    return 'agent'
-  }
+  const flow = flowForRoute(route)
+  if (flow) return flow
   return 'ops'
 }
 
-function foldWaText(text: string | null | undefined) {
-  return (text ?? '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[_-]+/g, ' ')
-}
-
-function isConsultaAlBotText(text: string | null | undefined): boolean {
-  const t = foldWaText(text)
-  if (!t) return false
-  if (
-    t === 'consulta al bot' ||
-    t === 'consulta' ||
-    t === '/consulta' ||
-    t === 'iniciar bot' ||
-    t === 'iniciar asistente' ||
-    t === 'hablar con el bot'
-  ) {
-    return true
-  }
-  return (
-    /^\/consulta\b/.test(t) ||
-    /\bconsulta al bot\b/.test(t) ||
-    /\biniciar bot\b/.test(t) ||
-    /\biniciar asistente\b/.test(t) ||
-    /\bhablar con el bot\b/.test(t)
-  )
-}
-
-function parseAiChannelButton(raw: string | null | undefined): 'text' | 'voice' | null {
-  const id = (raw ?? '').trim().toLowerCase()
-  if (id === 'aich:text' || id === 'aich_text') return 'text'
-  if (id === 'aich:voice' || id === 'aich_voice') return 'voice'
-  return null
-}
-
-function inferAiChannelText(text: string | null | undefined): 'text' | 'voice' | null {
-  const t = foldWaText(text)
-  if (!t) return null
-  if (/\b(por voz|hablar por voz|quiero hablar por voz|prefiero voz|llamada de voz)\b/.test(t)) {
-    return 'voice'
-  }
-  if (
-    /\b(por mensaje|prefiero escribir|quiero escribir|hablar por mensaje|seguir por texto)\b/.test(t)
-  ) {
-    return 'text'
-  }
-  return null
+function parseAiOpButton(raw: string | null | undefined) {
+  return parseAiOpButtonId(raw)
 }
 
 /** Botones / media que no requieren RPC can_use_ai. null = hay que resolver texto libre. */
@@ -1068,68 +1007,26 @@ function resolveStructuredInboundRoute(input: {
   const aiOp = parseAiOpButton(buttonId)
   if (aiOp) return { kind: 'agent_aiop', opId: aiOp.opId, action: aiOp.action }
 
-  const channel = parseAiChannelButton(buttonId)
-  if (channel) return { kind: 'agent_channel', channel }
-
-  if (isVerActividadesButton(buttonId, buttonTitle)) return { kind: 'mas_info' }
-
-  if (buttonId && /^(act|chk|tchk):/i.test(buttonId)) {
-    return { kind: 'ops_button', buttonId }
-  }
-
+  const early = resolveWhatsAppInboundRoute({
+    canUseAi: false,
+    buttonId,
+    buttonTitle,
+    messageType,
+    textBody: null,
+  })
+  if (early.kind === 'agent_channel') return early
+  if (early.kind === 'mas_info') return early
+  if (early.kind === 'ops_button') return early
   if (
-    messageType === 'image' ||
-    messageType === 'document' ||
-    messageType === 'audio' ||
-    messageType === 'video'
+    early.kind === 'ignore' &&
+    (messageType === 'image' ||
+      messageType === 'document' ||
+      messageType === 'audio' ||
+      messageType === 'video')
   ) {
-    return { kind: 'ignore' }
+    return early
   }
-
   return null
-}
-
-function resolveInboundRoute(input: {
-  canUseAi: boolean
-  agentSessionActive?: boolean
-  buttonId?: string | null
-  buttonTitle?: string | null
-  textBody?: string | null
-  messageType?: string | null
-}): InboundRoute {
-  const structured = resolveStructuredInboundRoute(input)
-  if (structured) return structured
-
-  const buttonTitle = input.buttonTitle?.trim() || null
-  const textBody = input.textBody?.trim() || null
-  const messageType = input.messageType ?? ''
-  const agentSessionActive = input.agentSessionActive === true
-
-  const freeText =
-    textBody ||
-    (messageType === 'button' || messageType === 'interactive' ? buttonTitle : null) ||
-    null
-  if (!freeText) return { kind: 'ignore' }
-
-  if (isConsultaAlBotText(freeText)) {
-    return { kind: 'agent_consult' }
-  }
-
-  const channelText = inferAiChannelText(freeText)
-  if (channelText) return { kind: 'agent_channel', channel: channelText }
-
-  if (isVerActividadesButton(null, freeText)) {
-    return { kind: 'mas_info' }
-  }
-
-  const action = inferTextAction(freeText)
-  if (action) return { kind: 'ops_keyword', action, text: freeText }
-
-  if (input.canUseAi && agentSessionActive) {
-    return { kind: 'agent_free_text', text: freeText }
-  }
-
-  return { kind: 'ops_help', text: freeText }
 }
 
 async function callWhatsAppAssistant(input: {
@@ -1138,7 +1035,11 @@ async function callWhatsAppAssistant(input: {
   usuarioId: string
   text?: string
   opId?: string
-}): Promise<{ text: string; proposals?: Array<{ id?: string; title?: string; summary?: string }> } | null> {
+}): Promise<{
+  text: string
+  proposals?: Array<{ id?: string; title?: string; summary?: string }>
+  handoff?: string | null
+} | null> {
   const secret = Deno.env.get('WHATSAPP_ASSISTANT_SECRET')?.trim() || ''
   const base = (Deno.env.get('APP_URL') || Deno.env.get('VITE_APP_URL') || '').trim().replace(/\/$/, '')
   if (!secret || !base) {
@@ -1166,14 +1067,16 @@ async function callWhatsAppAssistant(input: {
     const json = (await response.json()) as {
       text?: unknown
       proposals?: Array<{ id?: string; title?: string; summary?: string }>
+      handoff?: unknown
       error?: unknown
     }
     const text = typeof json.text === 'string' ? json.text.trim() : ''
-    if (!text) return { text: 'No pude consultar el tablero ahora.', proposals: [] }
-    return { text, proposals: Array.isArray(json.proposals) ? json.proposals : [] }
+    const handoff = typeof json.handoff === 'string' ? json.handoff : null
+    if (!text) return { text: 'No pude consultar el tablero ahora.', proposals: [], handoff }
+    return { text, proposals: Array.isArray(json.proposals) ? json.proposals : [], handoff }
   } catch (error) {
     console.error('whatsapp-webhook AI call failed', error)
-    return { text: 'No pude consultar el tablero ahora.', proposals: [] }
+    return { text: 'No pude consultar el tablero ahora.', proposals: [], handoff: null }
   } finally {
     clearTimeout(timeout)
   }
@@ -1214,6 +1117,16 @@ async function maybeHandleWhatsAppAi(
   const text = result?.text || 'No pude consultar el tablero ahora.'
   const proposalId = result?.proposals?.[0]?.id
   await replyAi(supabase, input.waId, text, input.usuarioId, proposalId)
+  if (result?.handoff === 'task_update') {
+    await upsertFlowSession(supabase, {
+      phone: normalizePhone(input.waId) || input.waId,
+      usuarioId: input.usuarioId,
+      flowType: 'task_update',
+      status: 'awaiting_clarification',
+      intent: 'TASK_UPDATE',
+      meta: { source: 'agent_handoff' },
+    })
+  }
   return true
 }
 
@@ -1954,21 +1867,126 @@ async function handleEvidence(
   return true
 }
 
-async function resolveFallbackTarget(
+type OpsFallbackTarget =
+  | { kind: 'action'; accionId: string; deliveryId: string; title?: string }
+  | { kind: 'corporate'; checkpointId: string; deliveryId: string; title?: string }
+  | {
+      kind: 'team'
+      teamActionId: string
+      checklistIndex: number
+      deliveryId: string
+      title?: string
+    }
+
+function targetFromDelivery(delivery: {
+  id: string
+  accion_id?: string | null
+  team_action_id?: string | null
+  payload?: unknown
+  created_at?: string
+}): OpsFallbackTarget | null {
+  const payload = (delivery.payload ?? {}) as Record<string, unknown>
+  if (payload.message_type !== 'checkpoint_followup') return null
+  const createdAt = delivery.created_at ? new Date(delivery.created_at).getTime() : 0
+  if (createdAt && Date.now() - createdAt > OPS_FALLBACK_WINDOW_MS) return null
+
+  const request = (payload.request ?? {}) as Record<string, unknown>
+  const interactive = (request.interactive ?? {}) as Record<string, unknown>
+  const actionBlock = (interactive.action ?? {}) as { buttons?: Array<{ reply?: { id?: string } }> }
+  const buttonId = actionBlock.buttons?.[0]?.reply?.id ?? ''
+  const fromButton = parseButtonId(buttonId)
+  const title =
+    typeof payload.titulo === 'string'
+      ? payload.titulo
+      : typeof payload.title === 'string'
+        ? payload.title
+        : undefined
+
+  if (fromButton.kind === 'action' && fromButton.accionId) {
+    return { kind: 'action', accionId: fromButton.accionId, deliveryId: delivery.id, title }
+  }
+  if (fromButton.kind === 'corporate' && fromButton.checkpointId) {
+    return {
+      kind: 'corporate',
+      checkpointId: fromButton.checkpointId,
+      deliveryId: delivery.id,
+      title,
+    }
+  }
+  if (fromButton.kind === 'team' && fromButton.teamActionId != null && fromButton.checklistIndex != null) {
+    return {
+      kind: 'team',
+      teamActionId: fromButton.teamActionId,
+      checklistIndex: fromButton.checklistIndex,
+      deliveryId: delivery.id,
+      title,
+    }
+  }
+
+  if (payload.target_type === 'action' && delivery.accion_id) {
+    return { kind: 'action', accionId: delivery.accion_id as string, deliveryId: delivery.id, title }
+  }
+
+  const checkpointId = typeof payload.checkpoint_id === 'string' ? payload.checkpoint_id : null
+  if (checkpointId) {
+    return { kind: 'corporate', checkpointId, deliveryId: delivery.id, title }
+  }
+  if (delivery.accion_id && (payload.source === 'followup_job' || payload.related_task_id)) {
+    return { kind: 'action', accionId: delivery.accion_id as string, deliveryId: delivery.id, title }
+  }
+
+  if (delivery.team_action_id) {
+    const checklistIndex =
+      typeof payload.checklist_index === 'number'
+        ? payload.checklist_index
+        : Number(payload.checklist_index)
+    if (!Number.isNaN(checklistIndex)) {
+      return {
+        kind: 'team',
+        teamActionId: delivery.team_action_id as string,
+        checklistIndex,
+        deliveryId: delivery.id,
+        title,
+      }
+    }
+  }
+  return null
+}
+
+function dedupeOpsTargets(targets: OpsFallbackTarget[]): OpsFallbackTarget[] {
+  const seen = new Set<string>()
+  const out: OpsFallbackTarget[] = []
+  for (const t of targets) {
+    const key =
+      t.kind === 'action'
+        ? `a:${t.accionId}`
+        : t.kind === 'corporate'
+          ? `c:${t.checkpointId}`
+          : `t:${t.teamActionId}:${t.checklistIndex}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(t)
+  }
+  return out
+}
+
+async function listOpsFallbackCandidates(
   supabase: ReturnType<typeof adminClient>,
   waId: string,
   usuarioId: string
-) {
+): Promise<OpsFallbackTarget[]> {
   const phone = normalizePhone(waId) || waId
   const variants = phoneVariants(phone)
+  const sinceIso = new Date(Date.now() - OPS_FALLBACK_WINDOW_MS).toISOString()
   const { data: byPhone } = await supabase
     .from('action_delivery_log')
     .select('id,accion_id,team_action_id,payload,created_at,external_chat_id,usuario_id')
     .eq('channel', 'whatsapp')
     .eq('delivery_status', 'sent')
+    .gte('created_at', sinceIso)
     .in('external_chat_id', variants.length ? variants : [phone])
     .order('created_at', { ascending: false })
-    .limit(10)
+    .limit(20)
 
   let deliveries = byPhone ?? []
   if (deliveries.length === 0) {
@@ -1978,62 +1996,104 @@ async function resolveFallbackTarget(
       .eq('channel', 'whatsapp')
       .eq('delivery_status', 'sent')
       .eq('usuario_id', usuarioId)
+      .gte('created_at', sinceIso)
       .order('created_at', { ascending: false })
-      .limit(10)
+      .limit(20)
     deliveries = byUser ?? []
   }
 
+  const targets: OpsFallbackTarget[] = []
   for (const delivery of deliveries) {
-    const payload = (delivery.payload ?? {}) as Record<string, unknown>
-    if (payload.message_type !== 'checkpoint_followup') continue
-
-    const request = (payload.request ?? {}) as Record<string, unknown>
-    const interactive = (request.interactive ?? {}) as Record<string, unknown>
-    const actionBlock = (interactive.action ?? {}) as { buttons?: Array<{ reply?: { id?: string } }> }
-    const buttonId = actionBlock.buttons?.[0]?.reply?.id ?? ''
-    const fromButton = parseButtonId(buttonId)
-    if (fromButton.kind === 'action' && fromButton.accionId) {
-      return { kind: 'action' as const, accionId: fromButton.accionId }
-    }
-    if (fromButton.kind === 'corporate' && fromButton.checkpointId) {
-      return { kind: 'corporate' as const, checkpointId: fromButton.checkpointId }
-    }
-    if (fromButton.kind === 'team' && fromButton.teamActionId != null && fromButton.checklistIndex != null) {
-      return {
-        kind: 'team' as const,
-        teamActionId: fromButton.teamActionId,
-        checklistIndex: fromButton.checklistIndex,
-      }
-    }
-
-    if (payload.target_type === 'action' && delivery.accion_id) {
-      return { kind: 'action' as const, accionId: delivery.accion_id as string }
-    }
-
-    const checkpointId =
-      typeof payload.checkpoint_id === 'string' ? payload.checkpoint_id : null
-    if (checkpointId) {
-      return { kind: 'corporate' as const, checkpointId }
-    }
-    if (!checkpointId && delivery.accion_id && payload.source === 'followup_job') {
-      return { kind: 'action' as const, accionId: delivery.accion_id as string }
-    }
-
-    if (delivery.team_action_id) {
-      const checklistIndex =
-        typeof payload.checklist_index === 'number'
-          ? payload.checklist_index
-          : Number(payload.checklist_index)
-      if (!Number.isNaN(checklistIndex)) {
-        return {
-          kind: 'team' as const,
-          teamActionId: delivery.team_action_id as string,
-          checklistIndex,
-        }
-      }
-    }
+    const target = targetFromDelivery(delivery)
+    if (target) targets.push(target)
   }
-  return null
+  return dedupeOpsTargets(targets)
+}
+
+/** Una sola candidata reciente; si 0 o N>1 no asume “última consultada”. */
+async function resolveFallbackTarget(
+  supabase: ReturnType<typeof adminClient>,
+  waId: string,
+  usuarioId: string
+): Promise<
+  | { status: 'one'; target: OpsFallbackTarget }
+  | { status: 'none' }
+  | { status: 'many'; targets: OpsFallbackTarget[] }
+> {
+  const candidates = await listOpsFallbackCandidates(supabase, waId, usuarioId)
+  if (candidates.length === 0) return { status: 'none' }
+  if (candidates.length === 1) return { status: 'one', target: candidates[0] }
+  return { status: 'many', targets: candidates }
+}
+
+async function upsertFlowSession(
+  supabase: ReturnType<typeof adminClient>,
+  input: {
+    phone: string
+    usuarioId: string
+    flowType: 'chatbot_query' | 'task_update'
+    status?: string
+    currentEntityId?: string | null
+    correlationId?: string | null
+    relatedTaskId?: string | null
+    intent?: string | null
+    meta?: Record<string, unknown>
+  }
+) {
+  try {
+    await supabase
+      .from('whatsapp_flow_sessions')
+      .update({ status: 'closed', updated_at: new Date().toISOString() })
+      .eq('phone', input.phone)
+      .eq('flow_type', input.flowType)
+      .in('status', ['active', 'awaiting_clarification'])
+
+    await supabase.from('whatsapp_flow_sessions').insert({
+      phone: input.phone,
+      usuario_id: input.usuarioId,
+      flow_type: input.flowType,
+      status: input.status ?? 'active',
+      current_entity_id: input.currentEntityId ?? null,
+      correlation_id: input.correlationId ?? null,
+      related_task_id: input.relatedTaskId ?? null,
+      intent: input.intent ?? null,
+      meta: input.meta ?? {},
+      expires_at: new Date(Date.now() + OPS_FALLBACK_WINDOW_MS).toISOString(),
+    })
+  } catch (error) {
+    console.error('whatsapp-webhook flow session', error)
+  }
+}
+
+async function hasClarificationSession(
+  supabase: ReturnType<typeof adminClient>,
+  waId: string,
+  usuarioId: string
+): Promise<boolean> {
+  try {
+    const phone = normalizePhone(waId) || waId
+    const { data } = await supabase
+      .from('whatsapp_flow_sessions')
+      .select('id')
+      .eq('usuario_id', usuarioId)
+      .eq('status', 'awaiting_clarification')
+      .gt('expires_at', new Date().toISOString())
+      .or(`phone.eq.${phone}`)
+      .limit(1)
+    return Boolean(data?.[0]?.id)
+  } catch {
+    return false
+  }
+}
+
+function logInboundObs(fields: Record<string, unknown>) {
+  console.log(
+    JSON.stringify({
+      event: 'whatsapp_inbound_route',
+      ...fields,
+      phone: typeof fields.phone === 'string' ? String(fields.phone).replace(/(\d{4})\d+(\d{2})/, '$1***$2') : undefined,
+    })
+  )
 }
 
 Deno.serve(async (req) => {
@@ -2211,6 +2271,8 @@ Deno.serve(async (req) => {
           const structured = resolveStructuredInboundRoute(routeInput)
           let canUseAi = false
           let agentSessionActive = false
+          let clarificationPending = false
+          let correlatedTargetCount: number | undefined
           let route: InboundRoute
           if (
             structured &&
@@ -2222,11 +2284,37 @@ Deno.serve(async (req) => {
           } else {
             canUseAi = await canUseAiWhatsApp(supabase, identity.usuario_id)
             agentSessionActive = canUseAi ? await hasActiveAgentSession(supabase, waId) : false
-            route =
-              structured ??
-              resolveInboundRoute({ canUseAi, agentSessionActive, ...routeInput })
+            clarificationPending = await hasClarificationSession(
+              supabase,
+              waId,
+              identity.usuario_id
+            )
+            const candidates = await listOpsFallbackCandidates(
+              supabase,
+              waId,
+              identity.usuario_id
+            )
+            correlatedTargetCount = candidates.length
+            const classified = classifyWhatsAppIntent({
+              canUseAi,
+              agentSessionActive,
+              clarificationPending,
+              correlatedTargetCount,
+              ...routeInput,
+            })
+            route = structured ?? classified.route
           }
           const inboundFlow = inboundFlowForRoute(route)
+          const intent = intentForRoute(route)
+          logInboundObs({
+            meta_message_id: message.id ?? null,
+            intent,
+            rule: route.kind,
+            flow: inboundFlow,
+            correlatedTargetCount: correlatedTargetCount ?? null,
+            usuario_id: identity.usuario_id,
+            phone: waId,
+          })
 
           await upsertThreadMessage(supabase, {
             wa_id: waId,
@@ -2245,6 +2333,8 @@ Deno.serve(async (req) => {
               source: 'webhook_inbound',
               flow: inboundFlow,
               route_kind: route.kind,
+              intent,
+              correlated_target_count: correlatedTargetCount ?? null,
             },
           })
 
@@ -2354,20 +2444,107 @@ Deno.serve(async (req) => {
           } else if (route.kind === 'ops_keyword') {
             action = route.action
             const fallback = await resolveFallbackTarget(supabase, waId, identity.usuario_id)
-            if (fallback?.kind === 'action') {
-              kind = 'action'
-              accionId = fallback.accionId
-            } else if (fallback?.kind === 'corporate') {
-              kind = 'corporate'
-              checkpointId = fallback.checkpointId
-            } else if (fallback?.kind === 'team') {
-              kind = 'team'
-              teamActionId = fallback.teamActionId
-              checklistIndex = fallback.checklistIndex
+            if (fallback.status === 'one') {
+              const target = fallback.target
+              await upsertFlowSession(supabase, {
+                phone: normalizePhone(waId) || waId,
+                usuarioId: identity.usuario_id,
+                flowType: 'task_update',
+                status: 'active',
+                relatedTaskId:
+                  target.kind === 'action'
+                    ? target.accionId
+                    : target.kind === 'corporate'
+                      ? target.checkpointId
+                      : String(target.teamActionId),
+                correlationId: target.deliveryId,
+                intent: 'TASK_REPLY',
+              })
+              if (target.kind === 'action') {
+                kind = 'action'
+                accionId = target.accionId
+              } else if (target.kind === 'corporate') {
+                kind = 'corporate'
+                checkpointId = target.checkpointId
+              } else {
+                kind = 'team'
+                teamActionId = target.teamActionId
+                checklistIndex = target.checklistIndex
+              }
+            } else if (fallback.status === 'many') {
+              await upsertFlowSession(supabase, {
+                phone: normalizePhone(waId) || waId,
+                usuarioId: identity.usuario_id,
+                flowType: 'task_update',
+                status: 'awaiting_clarification',
+                intent: 'CLARIFICATION',
+                meta: { candidates: fallback.targets.length },
+              })
+              await replyText(
+                supabase,
+                waId,
+                askWhichTaskText(),
+                identity.usuario_id,
+                { flow: 'ops', event: 'ops_clarify_many', intent: 'CLARIFICATION' }
+              )
+              continue
             } else {
               operationalMiss = true
             }
+          } else if (route.kind === 'ops_clarify') {
+            await upsertFlowSession(supabase, {
+              phone: normalizePhone(waId) || waId,
+              usuarioId: identity.usuario_id,
+              flowType: 'task_update',
+              status: 'awaiting_clarification',
+              intent: 'CLARIFICATION',
+              meta: { reason: route.reason, action: route.action },
+            })
+            await replyText(
+              supabase,
+              waId,
+              route.reason === 'many'
+                ? askWhichTaskText()
+                : 'No hay un seguimiento reciente para asociar tu respuesta. Usa el botón del recordatorio o espera el siguiente seguimiento.',
+              identity.usuario_id,
+              { flow: 'ops', event: 'ops_clarify', intent: 'CLARIFICATION' }
+            )
+            continue
+          } else if (route.kind === 'ask_flow') {
+            await replyText(
+              supabase,
+              waId,
+              askFlowClarificationText(),
+              identity.usuario_id,
+              { flow: 'ops', event: 'ask_flow', intent: 'UNKNOWN' }
+            )
+            continue
+          } else if (route.kind === 'cancel') {
+            try {
+              await supabase
+                .from('whatsapp_flow_sessions')
+                .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                .eq('usuario_id', identity.usuario_id)
+                .in('status', ['active', 'awaiting_clarification'])
+            } catch {
+              /* optional table */
+            }
+            await replyText(
+              supabase,
+              waId,
+              'Listo, cancele la actualización pendiente. Puedes consultar con "Consulta al Bot" o usar los botones del recordatorio.',
+              identity.usuario_id,
+              { flow: 'ops', event: 'cancel', intent: 'CANCEL' }
+            )
+            continue
           } else if (route.kind === 'agent_free_text') {
+            await upsertFlowSession(supabase, {
+              phone: normalizePhone(waId) || waId,
+              usuarioId: identity.usuario_id,
+              flowType: 'chatbot_query',
+              status: 'active',
+              intent: 'QUERY',
+            })
             const aiHandled = await maybeHandleWhatsAppAi(supabase, {
               waId,
               usuarioId: identity.usuario_id,

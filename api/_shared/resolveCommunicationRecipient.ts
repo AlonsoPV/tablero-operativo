@@ -4,6 +4,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { matchPeopleByName, type NamedPerson } from '../../src/features/ai-support/copilot/matching.js'
+import { searchActivePeopleByName } from './searchActivePeople.js'
 
 export type ResolvedCommunicationRecipient = {
   toUserId: string | null
@@ -124,9 +125,9 @@ export async function resolveCommunicationRecipient(
     }
   }
 
-  const people = await loadActivePeople(supabase)
-  let matches = matchPeopleByName(people, hint)
+  let matches = await searchActivePeopleByName(supabase, hint)
   if (matches.length === 0) {
+    const people = await loadActivePeople(supabase)
     matches = matchByRoleOrArea(people, hint)
   }
 

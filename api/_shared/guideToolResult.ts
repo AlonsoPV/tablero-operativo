@@ -144,6 +144,8 @@ export function maskEmailForLog(value: unknown): string | undefined {
   return `${head}***@${domain}`
 }
 
+export type DenialReasonClass = 'permission' | 'validation' | 'not_found' | 'other'
+
 export type GuideToolLogFields = {
   request_id: string
   call_id?: string | null
@@ -156,6 +158,8 @@ export type GuideToolLogFields = {
   duration_ms?: number
   success?: boolean
   error_code?: GuideToolErrorCode | string | null
+  /** permission | validation | not_found | other — sin PII. */
+  denial_reason?: DenialReasonClass | string | null
   access_mode?: string | null
   masked_phone?: string
   masked_email?: string
@@ -180,6 +184,7 @@ export function logGuideToolEvent(fields: GuideToolLogFields) {
     duration_ms: fields.duration_ms ?? null,
     success: fields.success ?? null,
     error_code: fields.error_code ?? null,
+    denial_reason: fields.denial_reason ?? null,
     access_mode: fields.access_mode ?? null,
   }
   if (fields.masked_phone) payload.masked_phone = fields.masked_phone
@@ -192,11 +197,48 @@ export function classifyDeniedMessage(message: string): GuideToolErrorCode {
   const m = message.toLowerCase()
   if (/firma|autentic|api.?key|secret/i.test(m)) return 'AUTHENTICATION_FAILED'
   if (/sesion|sesión|session/i.test(m)) return 'SESSION_NOT_FOUND'
-  if (/permiso|solo lectura|no tienes|denied|escritura/i.test(m)) return 'PERMISSION_DENIED'
+  // Not-found / validation BEFORE permission: "No encontré…" must not become PERMISSION_DENIED.
+  if (
+    /no encontr[eé]|no existe|no esta activo|no está activo|indica (un |el |la |una )?(nombre|t[ií]tulo|fecha|correo|email|destinatario)|al menos 3 caracteres|recomendaci[oó]n|varias acciones|fecha de compromiso|formato valido|formato válido/i.test(
+      m
+    )
+  ) {
+    return 'VALIDATION_FAILED'
+  }
+  if (/destinatario|falta|valid|canal|whatsapp o correo/i.test(m)) return 'VALIDATION_FAILED'
+  if (
+    /permiso|solo lectura|no tienes|no puede consultar|no puede crear|permission_denied|no permite enviar|escritura en este modo|read_only|rol analista/i.test(
+      m
+    )
+  ) {
+    return 'PERMISSION_DENIED'
+  }
   if (/organizacion|organización|org context/i.test(m)) return 'ORGANIZATION_CONTEXT_MISSING'
   if (/timeout|a tiempo/i.test(m)) return 'TIMEOUT'
-  if (/destinatario|falta|valid|canal|whatsapp o correo/i.test(m)) return 'VALIDATION_FAILED'
   if (/proveedor|gmail|whatsapp|provider/i.test(m)) return 'PROVIDER_ERROR'
   if (/base de datos|database|supabase|insert|update/i.test(m)) return 'DATABASE_ERROR'
+  return 'UNKNOWN_ERROR'
+}
+
+/** Clasifica la razón de denegación para logs (sin PII). */
+export function classifyDenialReason(message: string): DenialReasonClass {
+  const code = classifyDeniedMessage(message)
+  if (code === 'PERMISSION_DENIED') return 'permission'
+  if (code === 'VALIDATION_FAILED') {
+    return /no encontr[eé]|no existe|no esta activo|no está activo/i.test(message)
+      ? 'not_found'
+      : 'validation'
+  }
+  return 'other'
+}
+
+/** Mapea status Retell (+ detalle opcional) a código tipado. */
+export function statusToErrorCode(status: string, detail?: string | null): GuideToolErrorCode {
+  if (status === 'timeout') return 'TIMEOUT'
+  if (status === 'denied') {
+    if (detail?.trim()) return classifyDeniedMessage(detail)
+    return 'PERMISSION_DENIED'
+  }
+  if (status === 'error' && detail?.trim()) return classifyDeniedMessage(detail)
   return 'UNKNOWN_ERROR'
 }

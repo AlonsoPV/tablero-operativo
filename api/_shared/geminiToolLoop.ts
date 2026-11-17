@@ -1,4 +1,8 @@
-import { COPILOT_FUNCTION_DECLARATIONS } from '../../src/features/ai-support/copilot/catalog.js'
+import {
+  COPILOT_FUNCTION_DECLARATIONS,
+  isCopilotWriteTool,
+  type GeminiFunctionDeclaration,
+} from '../../src/features/ai-support/copilot/catalog.js'
 import type { CopilotClarification, CopilotProposal, CopilotToolResult } from '../../src/features/ai-support/copilot/types.js'
 import {
   dispatchCopilotTool,
@@ -49,6 +53,10 @@ export async function runGeminiToolLoop(input: {
   generationConfig: Record<string, unknown>
   actor: CopilotActor
   timeoutMs: number
+  /** Si se define, solo esas declaraciones; por defecto catálogo completo. */
+  functionDeclarations?: GeminiFunctionDeclaration[]
+  /** Bloquea escrituras aunque el modelo las pida (p. ej. WhatsApp QUERY). */
+  readOnly?: boolean
 }): Promise<{
   text: string
   finishReason?: string
@@ -66,6 +74,7 @@ export async function runGeminiToolLoop(input: {
   let finishReason: string | undefined
   let blockReason: string | undefined
   let text = ''
+  const declarations = input.functionDeclarations ?? COPILOT_FUNCTION_DECLARATIONS
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const controller = new AbortController()
@@ -79,7 +88,7 @@ export async function runGeminiToolLoop(input: {
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: input.systemInstruction }] },
           contents,
-          tools: [{ functionDeclarations: COPILOT_FUNCTION_DECLARATIONS }],
+          tools: [{ functionDeclarations: declarations }],
           toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
           generationConfig: input.generationConfig,
         }),
@@ -113,6 +122,23 @@ export async function runGeminiToolLoop(input: {
     contents.push({ role: 'model', parts })
     const responseParts: GeminiPart[] = []
     for (const call of calls) {
+      if (input.readOnly && isCopilotWriteTool(call.name)) {
+        const blocked: CopilotToolResult = {
+          ok: false,
+          tool: call.name as CopilotToolResult['tool'],
+          kind: 'denied',
+          error:
+            'Esta consulta es solo lectura. Si el usuario quiere modificar una tarea, pregunta si desea actualizarla (handoff task_update).',
+        }
+        toolTrace.push({ tool: call.name, kind: 'blocked_write' })
+        responseParts.push({
+          functionResponse: {
+            name: call.name,
+            response: serializeToolResultForModel(blocked) as Record<string, unknown>,
+          },
+        })
+        continue
+      }
       const result: CopilotToolResult = await dispatchCopilotTool(input.actor, call.name, call.args)
       toolTrace.push({ tool: result.tool, kind: result.kind })
       if (result.proposal) proposals.push(result.proposal)

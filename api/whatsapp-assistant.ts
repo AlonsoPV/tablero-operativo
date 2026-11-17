@@ -23,8 +23,13 @@ import { inferAiConfirmText } from './_shared/whatsappAiConfirm.js'
 import { composeSystemPrompt, sanitizeMessages } from '../src/lib/assistantPrompts.js'
 import type { CopilotProposal } from '../src/features/ai-support/copilot/types.js'
 import { isGoogleWriteTool } from '../src/features/ai-support/copilot/googleWorkspace.js'
+import { COPILOT_FUNCTION_DECLARATIONS, isCopilotReadTool } from '../src/features/ai-support/copilot/catalog.js'
 import { proposalFromPendingRow } from './_shared/assistantGoogleTools.js'
 import { guideAppBaseUrl } from './_shared/guideUserLinks.js'
+
+const WHATSAPP_READ_ONLY_DECLARATIONS = COPILOT_FUNCTION_DECLARATIONS.filter((d) =>
+  isCopilotReadTool(d.name)
+)
 
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
 const DEFAULT_MAX_OUTPUT_TOKENS = 500
@@ -37,17 +42,31 @@ const HISTORY_CHARS = 8000
 const REPLY_CHARS = 900
 
 const WHATSAPP_CHANNEL_RULES = `
-CANAL WHATSAPP:
+CANAL WHATSAPP (SOLO LECTURA):
 - Responde en espanol, corto (maximo 900 caracteres).
 - No uses markdown ni simbolos # *.
 - No inventes telefonos, usuarios ni estados.
-- Tienes un resumen inicial del tablero abajo. Usa herramientas para profundizar: dashboard, OKRs, organigrama, KPIs, gaps, tickets, calendario, kanban por equipos, acciones del equipo y el resto de modulos autorizados.
-- Si no tiene permiso para un modulo, dilo. No inventes cifras ni organigrama.
-- Las escrituras (crear/cambiar acciones) solo se proponen. El usuario confirma con boton o si/no.
-- Correos y eventos de Google: NUNCA se envian con un "si" suelto. El usuario debe pulsar el boton aiop o abrir /asistente-ia.
-- Si Google Workspace no esta conectado, pide que lo conecte en su perfil. No uses la cuenta de administracion.
-- Si ya hay una propuesta pendiente, pide confirmar o cancelar. No crees otra.
+- Solo puedes CONSULTAR el tablero (acciones, OKRs, dashboard, organigrama, busquedas).
+- NO crees ni actualices acciones, checkpoints, correos ni eventos desde este canal.
+- Si el usuario pide modificar/cerrar/actualizar una tarea, responde preguntando: Quieres actualizar esa tarea? y deja claro que use los botones del recordatorio (Realizada / En proceso / Requiero apoyo) o confirme el handoff.
+- Si no tiene permiso para un modulo, dilo. No inventes cifras.
 `.trim()
+
+function detectTaskUpdateHandoff(userText: string, assistantText: string): boolean {
+  const blob = `${userText}\n${assistantText}`
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  const userWantsWrite =
+    /\b(marca|marcar|actualiza|actualizar|cambia|cambiar|cierra|cerrar|completa|completar|pon como hecho|pasala a)\b/.test(
+      blob
+    )
+  const offered =
+    /\bquieres actualizar\b/.test(blob) ||
+    /\bactualizar esa tarea\b/.test(blob) ||
+    /\bbotones del recordatorio\b/.test(blob)
+  return userWantsWrite || offered
+}
 
 const BOARD_SEED_CHARS = 4200
 
@@ -223,6 +242,8 @@ async function runGeminiChat(input: {
         generationConfig,
         actor: input.actor,
         timeoutMs,
+        functionDeclarations: WHATSAPP_READ_ONLY_DECLARATIONS,
+        readOnly: true,
       })
     } catch (error) {
       lastError = error
@@ -407,23 +428,18 @@ export default defineApiHandler(async (req, res) => {
     }
 
     const loopResult = await runGeminiChat({ actor, messages: history })
-    let proposals = loopResult.proposals
-    if (proposals.length > 1) {
-      for (const extra of proposals.slice(1)) {
-        try {
-          await cancelPendingOp(actor, extra.id)
-        } catch (error) {
-          console.error('whatsapp-assistant cancel extra proposal', extra.id, error)
-        }
+    // QUERY read-only: no crear propuestas nuevas desde WhatsApp.
+    for (const extra of loopResult.proposals) {
+      try {
+        await cancelPendingOp(actor, extra.id)
+      } catch (error) {
+        console.error('whatsapp-assistant cancel read-only proposal', extra.id, error)
       }
-      proposals = proposals.slice(0, 1)
     }
 
     const clarification = loopResult.clarification
     let textOut = clipReply(loopResult.text || '')
-    if (proposals[0]) {
-      textOut = proposalToReply(textOut, proposals[0])
-    } else if (clarification) {
+    if (clarification) {
       const options = clarification.options.map((opt) => `- ${opt.label}`).join('\n')
       textOut = clipReply(`${clarification.question}\n${options}`.trim())
     }
@@ -431,10 +447,18 @@ export default defineApiHandler(async (req, res) => {
       textOut = 'No pude consultar el tablero ahora. Intenta de nuevo en un momento.'
     }
 
+    const handoff = detectTaskUpdateHandoff(text, textOut) ? 'task_update' : null
+    if (handoff && !/quieres actualizar/i.test(textOut)) {
+      textOut = clipReply(
+        `${textOut}\n\nSi quieres actualizar esa tarea, usa los botones del recordatorio o responde Realizada / En proceso / Requiero apoyo.`
+      )
+    }
+
     return res.status(200).json({
       text: textOut,
-      proposals,
+      proposals: [],
       clarification: clarification ?? null,
+      handoff,
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Error inesperado.'
