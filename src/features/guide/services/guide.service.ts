@@ -361,7 +361,7 @@ export const guideService = {
 
   async createRetellWebCall(opts?: {
     replaceActive?: boolean
-    intent?: 'consult' | 'create'
+    intent?: 'consult' | 'create' | 'action' | 'whatsapp' | 'email'
     guideToken?: string
     accessGrant?: string
   }): Promise<GuideRetellWebCallResponse> {
@@ -370,12 +370,19 @@ export const guideService = {
     const headers = token
       ? { 'Content-Type': 'application/json' }
       : await authHeaders()
+    const intentRaw = typeof opts?.intent === 'string' ? opts.intent : 'consult'
+    const intent =
+      intentRaw === 'create' || intentRaw === 'action'
+        ? 'action'
+        : intentRaw === 'whatsapp' || intentRaw === 'email'
+          ? intentRaw
+          : 'consult'
     const response = await fetch('/api/guide-retell-web-call', {
       method: 'POST',
       headers,
       body: JSON.stringify({
         replace_active: opts?.replaceActive ?? true,
-        intent: opts?.intent === 'create' ? 'create' : 'consult',
+        intent,
         ...(token
           ? {
               guide_token: token,
@@ -669,10 +676,17 @@ export const guideService = {
 
   async sendTurn(
     session: Pick<GuideSession, 'id' | 'expires_at'>,
-    opts?: { intent?: 'consult' | 'create' }
+    opts?: { intent?: 'consult' | 'create' | 'action' | 'whatsapp' | 'email' }
   ): Promise<GuideChatTurnResponse> {
     const headers = await authHeaders()
     const messages = compactMessages(await this.listMessages(session.id))
+    const intentRaw = typeof opts?.intent === 'string' ? opts.intent : 'consult'
+    const intent =
+      intentRaw === 'create' || intentRaw === 'action'
+        ? 'action'
+        : intentRaw === 'whatsapp' || intentRaw === 'email'
+          ? intentRaw
+          : 'consult'
     const response = await fetch('/api/guide-chat', {
       method: 'POST',
       headers,
@@ -680,7 +694,7 @@ export const guideService = {
         session_id: session.id,
         expires_at: session.expires_at,
         messages,
-        intent: opts?.intent === 'create' ? 'create' : 'consult',
+        intent,
       }),
     })
     const payload = (await response.json().catch(() => ({}))) as GuideChatTurnResponse & {
@@ -711,10 +725,17 @@ export const guideService = {
   async closeSession(
     session: Pick<GuideSession, 'id' | 'expires_at'>,
     reason: GuideCloseReason = 'user_requested',
-    opts?: { messages?: GuideCompactMessage[]; intent?: 'consult' | 'create' }
+    opts?: { messages?: GuideCompactMessage[]; intent?: 'consult' | 'create' | 'action' | 'whatsapp' | 'email' }
   ): Promise<GuideChatCloseResponse> {
     const headers = await authHeaders()
     const messages = opts?.messages ?? compactMessages(await this.listMessages(session.id))
+    const intentRaw = typeof opts?.intent === 'string' ? opts.intent : 'consult'
+    const intent =
+      intentRaw === 'create' || intentRaw === 'action'
+        ? 'action'
+        : intentRaw === 'whatsapp' || intentRaw === 'email'
+          ? intentRaw
+          : 'consult'
     const response = await fetch('/api/guide-chat', {
       method: 'POST',
       headers,
@@ -724,7 +745,7 @@ export const guideService = {
         reason,
         expires_at: session.expires_at,
         messages,
-        intent: opts?.intent === 'create' ? 'create' : 'consult',
+        intent,
       }),
     })
     const payload = (await response.json().catch(() => ({}))) as GuideChatCloseResponse & {

@@ -92,7 +92,11 @@ describe('guideWork', () => {
 
   it('usa una sola instruccion que detecta crear en la conversacion', () => {
     expect(guideOpening('create')).toMatch(/accion o iniciativa|aprobar/i)
-    expect(guideWorkInstructions('create')).toMatch(/Modo Crear activo/i)
+    expect(guideOpening('whatsapp')).toMatch(/WhatsApp/i)
+    expect(guideOpening('email')).toMatch(/correo/i)
+    expect(guideWorkInstructions('create')).toMatch(/Modo Accion activo/i)
+    expect(guideWorkInstructions('whatsapp')).toMatch(/queue_workspace_draft/i)
+    expect(guideWorkInstructions('email')).toMatch(/channel=email/i)
     expect(guideWorkInstructions('consult')).toMatch(/No pidas que elijan/i)
     expect(guideWorkInstructions('consult')).toMatch(/arma UNA accion/i)
     expect(guideWorkInstructions()).toMatch(/queue_workspace_draft/)

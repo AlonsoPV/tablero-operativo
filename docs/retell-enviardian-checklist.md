@@ -99,7 +99,7 @@ Estado en repo (código + script listos; remoto solo tras OK):
 | L | Cancelar propuesta / confirmar duplicado | `cancel_pending_op` no escribe; confirm idempotente |
 | M | Email preview en ActionCard | Destinatario/asunto/cuerpo; envío solo tras confirm |
 | N | Informe sección Acciones | Ejecutadas / pendientes / recomendaciones no ejecutadas |
-| O1 | Toggle Crear antes de voz | `work_intent=create` en web-call; agente prioriza `create_action` |
+| O1 | Toggle Accion/WhatsApp/Correo antes de voz | `work_intent=action|whatsapp|email`; tools `create_action` o `queue_workspace_draft` |
 | O | Pedir WhatsApp/correo/ambos en voz | `queue_workspace_draft` action=prepare encola; no envía |
 | P | Colgar + `call_analyzed` | Borradores rellenados; visibles en historial / invite (solo lectura) |
 | Q | Aprobar envío autenticado / piloto | Gmail/Meta ok; `interview_full_read` puede enviar; `read` puro no |
@@ -155,7 +155,7 @@ Migración consult_log atómico: `supabase/migrations/20261116120000_append_guid
 
 ### Remoto Retell (publicado)
 
-- Agente Guia `agent_7d29c561f608e3defcfa360acb` **version 22** publicada (`enviardian-voz-2026-11-17-create`): `scrumban`, `get_session_state`, `queue_workspace_draft` → Vercel; steering `work_intent`/Crear.
+- Agente Guia `agent_7d29c561f608e3defcfa360acb` **version 22** publicada; siguiente publish debe usar `enviardian-voz-2026-11-17-intents` (`work_intent` consult|action|whatsapp|email).
 - Si el dashboard aún no muestra el apéndice A–D en el prompt global, pegar la sección Comunicaciones de [`docs/prompts/enviardian-voz.md`](./prompts/enviardian-voz.md) (el script no muta `instruction` objeto de nodos).
 - Revisar modelo / STT / TTS / turn-taking en dashboard.
 - Deploy producción del backend cuando el código de resolución/fill esté en `main`.

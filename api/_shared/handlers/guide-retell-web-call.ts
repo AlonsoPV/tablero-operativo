@@ -17,6 +17,7 @@ import { enableSystemCaCertificates } from '../enableSystemCa.js'
 import {
   ENVIARDIAN_PROMPT_VERSION,
   enviardianVoiceWorkInstruction,
+  normalizeEnviardianWorkIntent,
 } from '../enviardianPrompt.js'
 import {
   guideAppBaseUrl,
@@ -75,7 +76,7 @@ export default defineApiHandler(async (req, res) => {
     const replaceActive = Boolean(payload.replace_active)
     const guideToken = typeof payload.guide_token === 'string' ? payload.guide_token.trim() : ''
     const accessGrant = typeof payload.access_grant === 'string' ? payload.access_grant.trim() : ''
-    const workIntent = payload.intent === 'create' ? 'create' : 'consult'
+    const workIntent = normalizeEnviardianWorkIntent(payload.intent)
 
     let usuarioId = ''
     let guideLinkId = ''

@@ -722,23 +722,50 @@ export function inferGuideWorkIntentFromMessages(messages: Array<{ role?: string
   return inferGuideWorkIntent(userText)
 }
 
-export function guideOpening(intent: 'consult' | 'create' = 'consult') {
-  if (intent === 'create') {
+export type GuideSessionWorkIntent = 'consult' | 'create' | 'action' | 'whatsapp' | 'email'
+
+function normalizeSessionWorkIntent(intent: GuideSessionWorkIntent = 'consult') {
+  if (intent === 'create') return 'action'
+  return intent
+}
+
+export function guideOpening(intent: GuideSessionWorkIntent = 'consult') {
+  const mode = normalizeSessionWorkIntent(intent)
+  if (mode === 'action') {
     return 'Hola. Soy Guia. Vamos a dejar una accion o iniciativa lista para aprobar. Que hay que lograr?'
+  }
+  if (mode === 'whatsapp') {
+    return 'Hola. Soy Guia. Preparamos un WhatsApp para revisar al terminar. Para quien y sobre que?'
+  }
+  if (mode === 'email') {
+    return 'Hola. Soy Guia. Preparamos un correo para revisar al terminar. Para quien y sobre que?'
   }
   return 'Hola. Soy Guia. En quince minutos revisamos tu tablero. Que quieres atacar primero?'
 }
 
-export function guideWorkInstructions(intent: 'consult' | 'create' = 'consult') {
+export function guideWorkInstructions(intent: GuideSessionWorkIntent = 'consult') {
+  const mode = normalizeSessionWorkIntent(intent)
   const createBias =
-    intent === 'create'
+    mode === 'action'
       ? `
-Modo Crear activo (el usuario lo eligio antes de empezar): asume que quiere registrar trabajo.
+Modo Accion activo (el usuario lo eligio antes de empezar): asume que quiere registrar trabajo.
 No preguntes si prefiere consultar o crear. Abre creando: pide o confirma titulo, fecha y evidencia.
 Usa create_action (o initiative) en cuanto tengas titulo util; confirma con confirm_pending_op tras el "si".
 Solo cambia a consulta pura si pide expresamente un diagnostico del tablero sin pendiente.
 `
-      : `
+      : mode === 'whatsapp'
+        ? `
+Modo WhatsApp activo: prioriza queue_workspace_draft action=prepare channel=whatsapp.
+Pide destinatario y proposito si faltan (una pregunta). No envies. No leas el borrador completo.
+No armes acciones salvo pedido explicito.
+`
+        : mode === 'email'
+          ? `
+Modo Correo activo: prioriza queue_workspace_draft action=prepare channel=email.
+Pide destinatario y proposito/asunto si faltan (una pregunta). No envies. No leas el borrador completo.
+No armes acciones salvo pedido explicito.
+`
+          : `
 No pidas que elijan consultar o crear. Lees la conversacion y cambias sola.
 Si quieren entender el tablero: informa, prioriza y diagnostica. No empujes a crear.
 `
@@ -746,7 +773,7 @@ Si quieren entender el tablero: informa, prioriza y diagnostica. No empujes a cr
   return `
 ${createBias.trim()}
 
-Apertura: "${guideOpening(intent)}"
+Apertura: "${guideOpening(mode)}"
 
 Si piden registrar trabajo, o dictan un pendiente (crea, anota, ponme, hay que + tarea o fecha, compromiso, accion, iniciativa): arma UNA accion sin anunciar "modo crear".
 Flujo corto, una pregunta a la vez, solo si falta:

@@ -538,7 +538,7 @@ Tu objetivo es que cada conversación ayude al usuario a entender qué importa, 
 
 ## Apendice de canal (voz)
 
-Version de esta copia: `enviardian-voz-2026-11-17-create`.
+Version de esta copia: `enviardian-voz-2026-11-17-intents`.
 
 Esta copia es el prompt global del conversation flow del agente Guia. Guardar este archivo no publica ni modifica Retell. Publicar el agente exige autorizacion explicita (`GUIDE_RETELL_PUBLISH_OK=1` + checklist).
 
@@ -553,8 +553,9 @@ En la llamada:
 - Flujo de escritura autenticada: propone → resume → ¿confirmas? → `confirm_pending_op` → «Listo» solo tras ok. Cancelar con `cancel_pending_op`.
 - Con `propose` o `interview_full_read` puedes proponer/confirmar acciones del tablero y encolar comunicaciones. Con `read` puro: solo consulta.
 - Con `interview_full_read` (piloto de liga) consultas toda la organizacion y también puedes escribir; sin inventar cifras.
-- Variables dinamicas del servidor: `work_intent` (`consult`|`create`), `consult_instruction` / `work_instruction` (sesgo de sesion), `prompt_version`.
-- Si `work_intent=create` o `consult_instruction` indica Modo Crear: prioriza registrar UNA accion/iniciativa con `create_action`, sin anunciar "modo crear". Una pregunta a la vez solo si falta titulo, fecha o evidencia. Confirma y usa `confirm_pending_op`.
+- Variables dinamicas del servidor: `work_intent` (`consult`|`action`|`whatsapp`|`email`; `create` legacy = `action`), `consult_instruction` / `work_instruction`, `prompt_version`.
+- Si `work_intent=action`: prioriza UNA accion/iniciativa con `create_action` + `confirm_pending_op`.
+- Si `work_intent=whatsapp` o `email`: prioriza `queue_workspace_draft` prepare con ese canal; no envies; no armes acciones salvo pedido aparte.
 - La variable `prompt_version` que manda el servidor debe coincidir con esta version.
 
 ### Comunicaciones WhatsApp / correo (interpretar intencion)
