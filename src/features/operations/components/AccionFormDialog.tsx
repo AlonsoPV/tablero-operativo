@@ -40,6 +40,10 @@ import {
 import { usersAdminService } from '@/features/users/services/users.service'
 import { usersQueryKey } from '@/features/users/hooks/useUsers'
 import { notificacionesService, sendNotificationEmail } from '@/services/notificaciones.service'
+import {
+  ACCION_SHARE_EMAIL_TITLE,
+  buildAccionEmailPayload,
+} from '@/lib/accionNotificationEmail'
 import { EVIDENCIA_ACCEPTED_FORMATS_LABEL, EVIDENCIA_REJECTED_MESSAGE } from '@/lib/evidenciaFileTypes'
 import {
   accionEvidenciasService,
@@ -261,26 +265,17 @@ export function AccionFormDialog({
     checklist?: string[]
     titulo?: string
   }): Record<string, unknown> {
-    const fechaCompromiso = [input.fecha, input.horaLimite?.slice(0, 5)].filter(Boolean).join(' ')
     const responsableNombre =
       userNameById(input.responsableId) ||
       (input.responsableId ? responsableNames[input.responsableId] : '') ||
       ''
 
-    return {
-      titulo: input.titulo ?? 'Te asignaron como responsable',
-      titulo_accion: input.tituloAccion.trim() || undefined,
-      descripcion_accion: flattenDescripcionForForm(input.descripcionAccion ?? '').trim().slice(0, 2000) || undefined,
-      responsable_id: input.responsableId ?? null,
-      responsable_nombre: responsableNombre || undefined,
-      fecha_compromiso: fechaCompromiso || undefined,
-      checklist: input.checklist?.map((item) => item.trim()).filter(Boolean) ?? [],
-      creador_id: input.creadorId ?? null,
-      creador_nombre: input.creadorNombre ?? null,
-      accion_id: input.accionId,
-      asignador_id: currentUser?.id ?? null,
-      asignador_nombre: currentUser?.nombre ?? null,
-    }
+    return buildAccionEmailPayload({
+      ...input,
+      responsableNombre,
+      asignadorId: currentUser?.id ?? null,
+      asignadorNombre: currentUser?.nombre ?? null,
+    })
   }
 
   async function notifyResponsable(
@@ -394,7 +389,7 @@ export function AccionFormDialog({
             creadorId: accion.created_by ?? null,
             creadorNombre: userNameById(accion.created_by),
             checklist: checkpoints,
-            titulo: 'Te compartieron una accion',
+            titulo: ACCION_SHARE_EMAIL_TITLE,
           }),
           fecha_envio_manual: new Date().toISOString(),
         },

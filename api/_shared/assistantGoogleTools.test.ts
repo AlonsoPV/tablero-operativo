@@ -55,7 +55,7 @@ function actor() {
           return {
             select: () => ({
               eq: () => ({
-                limit: async () => ({ data: people, error: null }),
+                ilike: () => ({ limit: async () => ({ data: people, error: null }) }),
                 maybeSingle: async () => ({ data: people[0], error: null }),
               }),
             }),

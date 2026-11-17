@@ -18,6 +18,7 @@ import {
   isAssistantMode,
   sanitizeMessages,
 } from '../src/lib/assistantPrompts.js'
+import { buildAssistantUiFromToolResults } from '../src/features/ai-support/chatViews/buildViewsFromToolResults.js'
 
 type GeminiContent = {
   role: 'user' | 'model'
@@ -100,7 +101,8 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Solicitud invalida.' })
     }
 
-    const { mode, messages, actionContext, okrContext, boardContext } = body as {
+    const { mode, messages, actionContext, okrContext, boardContext, requestId } = body as {
+      requestId?: unknown
       mode?: unknown
       messages?: unknown
       actionContext?: unknown
@@ -154,6 +156,8 @@ export default defineApiHandler(async (req, res) => {
       usuarioId: auth.usuarioId,
       authUserId: auth.authUserId,
       rol: auth.rol,
+      accessToken: auth.token,
+      requestId: typeof requestId === 'string' ? requestId.trim().slice(0, 100) : undefined,
     }
 
     let loopResult: Awaited<ReturnType<typeof runGeminiToolLoop>> | undefined
@@ -242,12 +246,14 @@ export default defineApiHandler(async (req, res) => {
         ? `${text}\n\nNota: la respuesta se corto por limite de longitud. Puedes pedirme que continue.`
         : text || 'Revisa la propuesta o las opciones para continuar.'
     const content = cleanAssistantText(rawContent)
+    const ui = buildAssistantUiFromToolResults(loopResult.toolReads)
 
     return res.status(200).json({
       answer: content,
       proposals: loopResult.proposals,
       clarification: loopResult.clarification,
       toolTrace: loopResult.toolTrace,
+      ui,
     })
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {

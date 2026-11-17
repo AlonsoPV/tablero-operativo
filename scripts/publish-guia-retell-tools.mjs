@@ -10,23 +10,26 @@
  * Publicar remoto exige GUIDE_RETELL_PUBLISH_OK=1 (autorización explícita).
  * Sin esa variable: dry-run (imprime el payload y sale 0).
  */
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { loadDotenv } from './_load-dotenv.mjs'
 
 loadDotenv(import.meta.url)
 
 const API = 'https://api.retellai.com'
-const APP = 'https://scrumbanemx.vercel.app'
+const configuredApp = process.env.GUIDE_RETELL_APP_URL?.trim()
+const appUrl = new URL(configuredApp || 'https://sandbox.example.com')
+if (appUrl.protocol !== 'https:' || appUrl.pathname !== '/' || appUrl.search ||
+    appUrl.hash || appUrl.username || appUrl.password) {
+  throw new Error('GUIDE_RETELL_APP_URL debe ser un origen HTTPS, sin ruta ni credenciales.')
+}
+const APP = appUrl.origin
 const key = process.env.RETELL_API_KEY
 const agentId = process.env.RETELL_GUIDE_AGENT_ID
 const toolSecret = process.env.GUIDE_RETELL_TOOL_SECRET
 const publishOk = process.env.GUIDE_RETELL_PUBLISH_OK === '1'
-const PROMPT_VERSION = 'enviardian-voz-2026-11-17-intents'
+const PROMPT_VERSION = 'enviardian-voz-2026-11-17-dict-intents'
 
-if (!key || !agentId || !toolSecret) {
-  console.error('Faltan RETELL_API_KEY, RETELL_GUIDE_AGENT_ID o GUIDE_RETELL_TOOL_SECRET')
+if (publishOk && (!configuredApp || !key || !agentId || !toolSecret)) {
+  console.error('Para publicar define GUIDE_RETELL_APP_URL, RETELL_API_KEY, RETELL_GUIDE_AGENT_ID y GUIDE_RETELL_TOOL_SECRET.')
   process.exit(1)
 }
 
@@ -64,10 +67,11 @@ const SCRUMBAN = {
     'Consulta o propone cambios en el tablero Scrumban del usuario de esta sesion. ' +
     'Prefiere tool=get_my_actions|get_okr_progress|get_dashboard_summary|get_action_details|' +
     'get_team_actions|get_pending_verifications|search_people. ' +
+    'Para WhatsApp con acciones vencidas usa whatsapp_prepare_send con recipient e include_overdue=true. Para estado usa get_whatsapp_operation_status. Para correo de una acción al responsable usa notify_action_email. El envío se aprueba en la app. ' +
     'Evita search_board y get_module_data amplios salvo peticion explicita del usuario. ' +
     'Escrituras: create_action|update_action|add_action_comment|update_checklist_item|mark_action_done|verify_action. ' +
-    'Tras una propuesta (needs_confirmation), resume y pregunta; si el usuario confirma usa confirm_pending_op con pending_op_id; si cancela usa cancel_pending_op. ' +
-    'Nunca digas que quedo hecha sin confirm_pending_op ok. No inventes cifras: si falla o viene vacio, dilo. No envies usuario_id ni session_id.',
+    'Para cambios de tablero que admiten confirmación verbal, usa confirm_pending_op con pending_op_id tras un sí explícito. Para comunicaciones, indica que el borrador se revisa en la app autenticada. ' +
+    'Anuncia éxito solo si la herramienta lo confirma. Si falta un dato o hay error, comunica el resultado y continúa. No envíes usuario_id ni session_id.',
   url: `${APP}/api/guide-retell-tool`,
   method: 'POST',
   parameter_type: 'json',
@@ -93,6 +97,9 @@ const SCRUMBAN = {
       },
       filter: { type: 'string', description: 'Filtro opcional (open, done, etc.).' },
       query: { type: 'string', description: 'Texto de busqueda.' },
+      recipient: { type: 'string', description: 'Nombre de la persona o yo para whatsapp_prepare_send.' },
+      body: { type: 'string', description: 'Mensaje o introducción para whatsapp_prepare_send.' },
+      include_overdue: { type: 'boolean', description: 'Agrega acciones vencidas asignadas al destinatario.' },
       action_id: { type: 'string', description: 'Id de accion cuando aplique.' },
       title: { type: 'string', description: 'Titulo para create_action u otras escrituras.' },
       comment: { type: 'string', description: 'Comentario cuando aplique.' },
@@ -104,7 +111,7 @@ const SCRUMBAN = {
       description: { type: 'string', description: 'Descripcion opcional.' },
       pending_op_id: {
         type: 'string',
-        description: 'Id de propuesta pendiente para confirm_pending_op o cancel_pending_op.',
+        description: 'ID de propuesta para consultar estado WhatsApp o confirmar o descartar una operación de tablero.',
       },
     },
   },
@@ -132,7 +139,7 @@ const QUEUE_WORKSPACE_DRAFT = {
   query_params: {},
   parameters: {
     type: 'object',
-    required: ['action', 'channel', 'purpose'],
+    required: ['action', 'channel'],
     properties: {
       action: {
         type: 'string',
@@ -142,7 +149,7 @@ const QUEUE_WORKSPACE_DRAFT = {
         type: 'string',
         description: 'email | whatsapp | both | event',
       },
-      purpose: { type: 'string', description: 'Proposito breve del mensaje o evento.' },
+      purpose: { type: 'string', description: 'Propósito del mensaje o evento. Requerido para preparar o actualizar.' },
       recipient: { type: 'string', description: 'Nombre o pista del destinatario.' },
       pending_op_id: {
         type: 'string',
@@ -166,25 +173,15 @@ const QUEUE_WORKSPACE_DRAFT = {
 
 const COMMS_STEERING = `
 Comunicaciones (prompt_version=${PROMPT_VERSION}): interpreta intencion, no solo keywords.
-A explicita → queue_workspace_draft action=prepare. B contextual → update + pending_op_id. C mencion informativa → NO tool; soft intent pregunta "Quieres que te deje preparado el mensaje?". D cancel/mod → cancel|update; "otro" = prepare nuevo.
+A explícita → queue_workspace_draft action=prepare. Si es WhatsApp con acciones vencidas, usa scrumban tool=whatsapp_prepare_send con recipient e include_overdue=true. Los envíos se aprueban en la app. B contextual → update + pending_op_id. C mencion informativa → NO tool; soft intent pregunta "Quieres que te deje preparado el mensaje?". D cancel/mod → cancel|update; "otro" = prepare nuevo.
 Canal ambiguo: pregunta WhatsApp o correo antes de encolar. Confirma solo si tool ok. No envies ni leas borradores largos en la llamada.
 work_intent: consult|action|whatsapp|email (create legacy = action).
-action → create_action + confirm_pending_op. whatsapp/email → queue_workspace_draft channel=whatsapp|email (prepare, no envio).
+Reserva confirm_pending_op para cambios de tablero que admiten aprobación verbal. La aprobación de envíos se hace en la app autenticada.
+Para correo de una acción al responsable usa scrumban tool=notify_action_email con action_id o query.
+Para consultar el estado de un WhatsApp usa scrumban tool=get_whatsapp_operation_status con pending_op_id.
+Si la herramienta pide aclarar o devuelve error, dilo en una frase y sigue la conversación.
 Variables: work_intent, consult_instruction, work_instruction, prompt_version.
 `.trim()
-
-function loadCommsAppendix() {
-  try {
-    const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-    const md = readFileSync(join(root, 'docs', 'prompts', 'enviardian-voz.md'), 'utf8')
-    const marker = '### Comunicaciones WhatsApp / correo'
-    const at = md.indexOf(marker)
-    if (at < 0) return COMMS_STEERING
-    return md.slice(at).trim().slice(0, 3500)
-  } catch {
-    return COMMS_STEERING
-  }
-}
 
 if (!publishOk) {
   console.log(
@@ -193,22 +190,13 @@ if (!publishOk) {
         dry_run: true,
         reason: 'Falta GUIDE_RETELL_PUBLISH_OK=1. No se publica ni se crea draft remoto.',
         prompt_version: PROMPT_VERSION,
-        queue_workspace_draft: {
-          url: QUEUE_WORKSPACE_DRAFT.url,
-          args_at_root: QUEUE_WORKSPACE_DRAFT.args_at_root,
-          parameters: Object.keys(QUEUE_WORKSPACE_DRAFT.parameters.properties),
-        },
-        after: {
-          speak_during_execution: SCRUMBAN.speak_during_execution,
-          execution_message_type: SCRUMBAN.execution_message_type,
-          execution_message_description: SCRUMBAN.execution_message_description,
-          speak_after_execution: SCRUMBAN.speak_after_execution,
-          timeout_ms: SCRUMBAN.timeout_ms,
-          args_at_root: SCRUMBAN.args_at_root,
-          description_steering: 'prefer get_my_actions|get_okr_progress|get_dashboard_summary',
-        },
-        how_to_publish:
-          'Autoriza y corre: GUIDE_RETELL_PUBLISH_OK=1 node scripts/publish-guia-retell-tools.mjs',
+        app_url: APP,
+        webhook_url: APP + '/api/guide-retell-webhook',
+        tools: [SCRUMBAN, QUEUE_WORKSPACE_DRAFT].map(({ headers, ...tool }) => ({
+          ...tool,
+          header_names: Object.keys(headers),
+        })),
+        global_prompt_appendix: COMMS_STEERING,
       },
       null,
       2
@@ -273,32 +261,34 @@ const nextQueue = {
   ...QUEUE_WORKSPACE_DRAFT,
   tool_id: existingQueue?.tool_id || QUEUE_WORKSPACE_DRAFT.tool_id,
 }
-const tools = [...otherTools, nextClock, SCRUMBAN, nextQueue]
+const existingScrumban = (flow.tools || []).find((t) => t.name === 'scrumban')
+const nextScrumban = { ...SCRUMBAN, tool_id: existingScrumban?.tool_id || SCRUMBAN.tool_id }
+const tools = [...otherTools, nextClock, nextScrumban, nextQueue]
 
 const nodeIdsWithClock = new Set(
   (flow.nodes || [])
-    .filter((n) => Array.isArray(n.tool_ids) && n.tool_ids.includes('tool_get_session_state'))
+    .filter((n) => Array.isArray(n.tool_ids) && n.tool_ids.includes(clock.tool_id))
     .map((n) => n.id)
 )
 
 const nodes = (flow.nodes || []).map((node) => {
   if (!nodeIdsWithClock.has(node.id) && node.type !== 'conversation') return node
   const ids = Array.isArray(node.tool_ids) ? [...node.tool_ids] : []
-  if (nodeIdsWithClock.has(node.id) || ids.includes('tool_get_session_state') || node.type === 'conversation') {
-    if (!ids.includes('tool_scrumban')) ids.push('tool_scrumban')
+  if (nodeIdsWithClock.has(node.id) || ids.includes(clock.tool_id) || node.type === 'conversation') {
+    if (!ids.includes(nextScrumban.tool_id)) ids.push(nextScrumban.tool_id)
     if (!ids.includes(nextQueue.tool_id)) ids.push(nextQueue.tool_id)
   }
   // No mutar node.instruction: en Retell es objeto estructurado, no string.
   return { ...node, tool_ids: ids }
 })
 
-const flowPatch = { tools, nodes }
-const commsAppendix = loadCommsAppendix()
-if (typeof flow.global_prompt === 'string') {
-  const gp = flow.global_prompt.includes(PROMPT_VERSION)
-    ? flow.global_prompt
-    : `${flow.global_prompt.trim()}\n\n${commsAppendix}`.trim()
-  flowPatch.global_prompt = gp
+const currentPrompt = typeof flow.global_prompt === 'string' ? flow.global_prompt : ''
+const flowPatch = {
+  tools,
+  nodes,
+  global_prompt: currentPrompt.includes(COMMS_STEERING)
+    ? currentPrompt
+    : [currentPrompt.trim(), COMMS_STEERING].filter(Boolean).join('\n\n'),
 }
 
 console.log('PATCH flow', flowId, 'version', draftVersion)

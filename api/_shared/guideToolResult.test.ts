@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   classifyDenialReason,
   classifyDeniedMessage,
+  ensureSpokenText,
   guideToolFailure,
   guideToolSuccess,
   maskEmailForLog,
@@ -35,6 +36,14 @@ describe('guideToolResult', () => {
     expect(payload.error.retryable).toBe(false)
     expect(payload.result).toBe(payload.error.user_message)
     expect(payload.status).toBe('denied')
+  })
+
+  it('never returns empty spoken text', () => {
+    expect(ensureSpokenText('')).toMatch(/continuar/i)
+    expect(guideToolSuccess({ message: '   ', status: 'ok' }).result).toMatch(/propuesta|continuar/i)
+    expect(
+      guideToolFailure({ code: 'TIMEOUT', user_message: '' }).result
+    ).toMatch(/continuar|completar/i)
   })
 
   it('masks phone and email for logs', () => {

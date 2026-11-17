@@ -244,18 +244,21 @@ export function userBelongsToArea(
 }
 
 /**
- * Super Admin ve el tablero completo: todas las acciones y todos los OKRs.
+ * Super Admin y Dirección ven el tablero completo: todas las acciones y todos los OKRs.
  */
 export function canViewAllBoardData(
   rol?: string | null,
   appRole?: string | null
 ): boolean {
-  return isSuperAdminByRole(rol) || isAppSuperAdminByAppRole(appRole)
+  return (
+    isSuperAdminByRole(rol) ||
+    isAppSuperAdminByAppRole(appRole) ||
+    isDirectionByRole(rol)
+  )
 }
 
 /**
- * OKRs (/okrs y pestaña del dashboard): solo área OKRS.
- * Super Admin conserva acceso para soporte y ve todos los objetivos.
+ * OKRs (/okrs y pestaña del dashboard): área OKRS, Super Admin o Dirección.
  */
 export function canAccessOkrs(
   rol?: string | null,

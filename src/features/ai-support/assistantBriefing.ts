@@ -56,6 +56,15 @@ export function actionRecordLink(id: string, title: string): AssistantRecordLink
   }
 }
 
+export function okrRecordLink(id: string, title: string): AssistantRecordLink {
+  return {
+    id,
+    title,
+    kind: 'okr',
+    href: `${ROUTES.OKRS}?objective=${encodeURIComponent(id)}`,
+  }
+}
+
 export function buildAssistantBriefing(input: {
   userName?: string | null
   snapshot: OperationalSnapshot | null

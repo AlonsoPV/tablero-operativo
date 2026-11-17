@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { looksLikeCreateWork, looksLikeDraftCorrection, resolveWriteIntent } from './writeIntent'
+import {
+  classifyCreateKind,
+  looksLikeCommsPrepare,
+  looksLikeCreateWork,
+  looksLikeDraftCorrection,
+  resolveWriteIntent,
+} from './writeIntent'
 
 describe('writeIntent', () => {
   it('detecta pedidos de crear accion o iniciativa', () => {
@@ -11,9 +17,27 @@ describe('writeIntent', () => {
     expect(looksLikeCreateWork('Que conviene priorizar hoy?')).toBe(false)
   })
 
+  it('clasifica Kanban vs iniciativa vía diccionario', () => {
+    expect(classifyCreateKind('Crea una tarea para cerrar OTIF')).toBe('kanban')
+    expect(classifyCreateKind('Registra una iniciativa de OTIF')).toBe('initiative')
+    expect(classifyCreateKind('Genera una accion para el objetivo de ventas')).toBe('clarify')
+  })
+
   it('respeta Crear aunque el texto no lo pida', () => {
     expect(resolveWriteIntent('revisa el tablero', 'create')).toBe('create')
     expect(resolveWriteIntent('revisa el tablero', 'consult')).toBe('consult')
+  })
+
+  it('prioriza WhatsApp/correo sobre el toggle Crear', () => {
+    expect(looksLikeCommsPrepare('Prepara un WhatsApp para Jorge con el resumen')).toBe(true)
+    expect(looksLikeCommsPrepare('Mandale eso a Carlos por WhatsApp')).toBe(true)
+    expect(looksLikeCommsPrepare('Enviale un correo a Lucia')).toBe(true)
+    expect(looksLikeCommsPrepare('Tenemos que mejorar la comunicacion por WhatsApp')).toBe(false)
+    expect(looksLikeCreateWork('Generame un WhatsApp para Ana')).toBe(false)
+    expect(resolveWriteIntent('Prepara un WhatsApp para Jorge', 'create')).toBe('consult')
+    expect(resolveWriteIntent('Mandale el resumen a Jorge por WhatsApp', 'create')).toBe('consult')
+    // Accion + aviso WhatsApp sigue siendo create
+    expect(resolveWriteIntent('Crea una accion y avisale por WhatsApp', 'consult')).toBe('create')
   })
 
   it('detecta correccion de fecha sobre un borrador', () => {

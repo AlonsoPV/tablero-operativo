@@ -163,7 +163,12 @@ export function AssistantLaneSwitch({ lane, compact = false, onChange }: Assista
   ]
   return (
     <div
-      className="grid grid-cols-2 gap-1 rounded-2xl bg-muted/40 p-1 ring-1 ring-border/50"
+      className={cn(
+        'grid grid-cols-2 gap-0.5 rounded-2xl p-1',
+        compact
+          ? 'rounded-full bg-foreground/[0.06] ring-1 ring-foreground/10'
+          : 'rounded-2xl bg-muted/40 ring-1 ring-border/50 gap-1'
+      )}
       role="tablist"
       aria-label="Vía del asistente"
     >
@@ -177,29 +182,34 @@ export function AssistantLaneSwitch({ lane, compact = false, onChange }: Assista
             role="tab"
             aria-selected={active}
             onClick={() => onChange(option.id)}
+            title={option.hint}
             className={cn(
-              'relative flex min-w-0 items-center justify-center gap-2 rounded-xl transition duration-200',
+              'relative flex min-w-0 items-center justify-center gap-1.5 transition duration-200',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              compact ? 'min-h-10 px-2 py-1.5' : 'min-h-11 px-3 py-2',
+              compact ? 'h-7 rounded-full px-2.5' : 'min-h-11 rounded-xl px-3 py-2',
               active
-                ? 'bg-primary text-primary-foreground shadow-sm'
+                ? compact
+                  ? 'bg-foreground text-background shadow-sm'
+                  : 'bg-primary text-primary-foreground shadow-sm'
                 : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
             )}
           >
             <Icon className={cn('shrink-0', compact ? 'h-3.5 w-3.5' : 'h-4 w-4')} aria-hidden />
-            <span className="min-w-0 text-left leading-tight">
-              <span className={cn('block font-semibold tracking-tight', compact ? 'text-[12px]' : 'text-xs')}>
-                {option.label}
+            {compact ? (
+              <span className="truncate text-[12px] font-semibold tracking-tight">{option.label}</span>
+            ) : (
+              <span className="min-w-0 text-left leading-tight">
+                <span className="block text-xs font-semibold tracking-tight">{option.label}</span>
+                <span
+                  className={cn(
+                    'block truncate text-[10px]',
+                    active ? 'text-primary-foreground/80' : 'text-muted-foreground/85'
+                  )}
+                >
+                  {option.hint}
+                </span>
               </span>
-              <span
-                className={cn(
-                  'block truncate text-[10px]',
-                  active ? 'text-primary-foreground/80' : 'text-muted-foreground/85'
-                )}
-              >
-                {option.hint}
-              </span>
-            </span>
+            )}
           </button>
         )
       })}

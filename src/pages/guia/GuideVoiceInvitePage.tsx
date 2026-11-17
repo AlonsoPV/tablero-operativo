@@ -117,21 +117,6 @@ export function GuideVoiceInvitePage() {
     return payload
   }
 
-  const confirmInviteOp = async (opId: string) => {
-    const payload = await requestReport('confirm_pending', false, opId)
-    if (payload.communications) {
-      setReport((current) => (current ? { ...current, communications: payload.communications } : current))
-    }
-    return { result: payload.result ?? null }
-  }
-
-  const cancelInviteOp = async (opId: string) => {
-    const payload = await requestReport('cancel_pending', false, opId)
-    if (payload.communications) {
-      setReport((current) => (current ? { ...current, communications: payload.communications } : current))
-    }
-  }
-
   useEffect(() => {
     if (retell.status !== 'ended') return
     if (finalizedRef.current) return
@@ -293,14 +278,8 @@ export function GuideVoiceInvitePage() {
             topic={report.topic}
             createdAt={report.created_at}
             communications={report.communications}
-            confirmOp={confirmInviteOp}
-            cancelOp={cancelInviteOp}
-            disableEditCommunications
-            onCommunicationResolved={() => {
-              void requestReport('status')
-                .then((payload) => setReport(payload))
-                .catch(() => undefined)
-            }}
+            communicationsReadOnly
+            showLoginCta
           />
           <GuideReportActions
             topic={report.topic}
@@ -339,11 +318,11 @@ export function GuideVoiceInvitePage() {
             }}
           />
           <p className="text-xs text-muted-foreground">
-            Puedes aprobar las pendientes arriba sin iniciar sesion. El historial completo queda al{' '}
+            Esta liga es solo lectura. Para editar, aprobar o descartar,{' '}
             <Link className="underline underline-offset-4" to={ROUTES.LOGIN} state={guideVoiceLoginState}>
-              iniciar sesión
+              inicia sesion
             </Link>{' '}
-            con este perfil.
+            como el dueno.
           </p>
         </section>
       ) : null}

@@ -102,6 +102,28 @@ function redirectNode(res: ServerResponse, location: string) {
   res.end()
 }
 
+function oauthErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof GoogleUserError || error instanceof Error) return error.message
+  if (
+    error &&
+    typeof error === 'object' &&
+    'message' in error &&
+    typeof (error as { message: unknown }).message === 'string'
+  ) {
+    return (error as { message: string }).message
+  }
+  return fallback
+}
+
+function isMissingGoogleConnectionsTable(error: unknown) {
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code: unknown }).code || '')
+      : ''
+  if (code === '42P01' || code === 'PGRST205') return true
+  return /user_google_connections/i.test(oauthErrorMessage(error, ''))
+}
+
 async function handleStart(req: VercelRequestLike, res: JsonResponse) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Metodo no permitido.' })
@@ -111,7 +133,7 @@ async function handleStart(req: VercelRequestLike, res: JsonResponse) {
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error })
 
   try {
-    const meta = await googleConnectionMeta(auth.usuarioId)
+    const meta = await googleConnectionMeta(auth.usuarioId, auth.supabase)
     const redirectUri = googleOAuthRedirectUri(requestOrigin(req))
     const state = signOAuthState({
       uid: auth.usuarioId,
@@ -126,12 +148,14 @@ async function handleStart(req: VercelRequestLike, res: JsonResponse) {
     })
     return res.status(200).json({ url })
   } catch (error) {
-    const message =
-      error instanceof GoogleUserError
-        ? error.message
-        : error instanceof Error
-          ? error.message
-          : 'No se pudo iniciar Google Workspace.'
+    const message = oauthErrorMessage(error, 'No se pudo iniciar Google Workspace.')
+    console.error('google-oauth-start', message)
+    if (isMissingGoogleConnectionsTable(error)) {
+      return res.status(503).json({
+        error:
+          'Falta la tabla user_google_connections. Aplica supabase/migrations/20261110140000_user_google_connections.sql.',
+      })
+    }
     return res.status(500).json({ error: message.slice(0, 240) })
   }
 }
@@ -144,18 +168,28 @@ async function handleStatus(req: VercelRequestLike, res: JsonResponse) {
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error })
 
   try {
-    const meta = await googleConnectionMeta(auth.usuarioId)
+    // JWT del usuario: no requiere SUPABASE_SERVICE_ROLE_KEY ni columna cifrada.
+    const meta = await googleConnectionMeta(auth.usuarioId, auth.supabase)
     return res.status(200).json({
       ...meta,
       scope_labels: googleScopeLabels(meta.scopes),
     })
   } catch (error) {
-    const message =
-      error instanceof GoogleUserError
-        ? error.message
-        : error instanceof Error
-          ? error.message
-          : 'No se pudo leer el estado de Google.'
+    const message = oauthErrorMessage(error, 'No se pudo leer el estado de Google.')
+    console.error('google-oauth-status', message)
+    if (isMissingGoogleConnectionsTable(error)) {
+      return res.status(503).json({
+        error:
+          'Falta la tabla user_google_connections. Aplica supabase/migrations/20261110140000_user_google_connections.sql.',
+        connected: false,
+        google_email: null,
+        scopes: [],
+        scope_labels: [],
+        status: 'disconnected',
+        connected_at: null,
+        updated_at: null,
+      })
+    }
     return res.status(500).json({ error: message.slice(0, 240) })
   }
 }

@@ -402,6 +402,7 @@ Deno.serve(async (req) => {
   const summary = { sent: 0, omitted_no_pending: 0, skipped: 0, errors: 0 }
   for (const user of users) {
     const baseLog = { run_id: runId, settings_id: SETTINGS_ID, execution_started_at: startedAt.toISOString(), target_date: local.date, usuario_id: user.id, is_test: isTest }
+    let attemptId: string | null = null
     try {
       if (!user.activo || !user.user_id) {
         await admin.from('daily_action_summary_logs').insert({ ...baseLog, status: 'skipped_inactive' })
@@ -409,7 +410,7 @@ Deno.serve(async (req) => {
         continue
       }
       if (!isTest) {
-        const { data: duplicate } = await admin.from('daily_action_summary_logs').select('id').eq('settings_id', SETTINGS_ID).eq('usuario_id', user.id).eq('target_date', local.date).eq('is_test', false).in('status', ['sent', 'omitted_no_pending', 'skipped_no_email', 'skipped_inactive']).maybeSingle()
+        const { data: duplicate } = await admin.from('daily_action_summary_logs').select('id').eq('settings_id', SETTINGS_ID).eq('usuario_id', user.id).eq('target_date', local.date).eq('is_test', false).in('status', ['sending', 'unconfirmed', 'sent', 'omitted_no_pending', 'skipped_no_email', 'skipped_inactive']).maybeSingle()
         if (duplicate) {
           await admin.from('daily_action_summary_logs').insert({ ...baseLog, status: 'skipped_duplicate' })
           summary.skipped += 1
@@ -442,11 +443,40 @@ Deno.serve(async (req) => {
         url: `${baseUrl}/disciplina`,
         isTest,
       })
+      const { data: attempt, error: claimError } = await admin
+        .from('daily_action_summary_logs')
+        .insert({ ...baseLog, email, status: 'sending', counts })
+        .select('id')
+        .single()
+      if (claimError?.code === '23505' && !isTest) {
+        await admin.from('daily_action_summary_logs').insert({ ...baseLog, status: 'skipped_duplicate' })
+        summary.skipped += 1
+        continue
+      }
+      if (claimError || !attempt) throw new Error('No se pudo reservar el envío diario.')
+      attemptId = String(attempt.id)
+
       const sent = await sendEmail(email, built.subject, built.html, built.text)
-      await admin.from('daily_action_summary_logs').insert({ ...baseLog, email, status: 'sent', counts, provider: sent.provider, email_id: sent.id })
+      if (!sent.id) throw new Error('Gmail no devolvió un identificador para el envío.')
+      const { error: resultError } = await admin.from('daily_action_summary_logs')
+        .update({ status: 'sent', provider: sent.provider, email_id: sent.id })
+        .eq('id', attemptId)
+        .eq('status', 'sending')
+      if (resultError) throw new Error('No se pudo guardar el resultado del envío diario.')
       summary.sent += 1
     } catch (error) {
-      await admin.from('daily_action_summary_logs').insert({ ...baseLog, status: 'error', error_message: (error instanceof Error ? error.message : 'Error desconocido').slice(0, 1000) })
+      if (attemptId) {
+        await admin.from('daily_action_summary_logs')
+          .update({ status: 'unconfirmed', error_message: 'El intento no tiene un resultado de entrega confirmado.' })
+          .eq('id', attemptId)
+          .eq('status', 'sending')
+      } else {
+        await admin.from('daily_action_summary_logs').insert({
+          ...baseLog,
+          status: 'error',
+          error_message: (error instanceof Error ? error.message : 'Error desconocido').slice(0, 1000),
+        })
+      }
       summary.errors += 1
     }
   }

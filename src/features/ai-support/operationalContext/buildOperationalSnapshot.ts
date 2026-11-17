@@ -12,7 +12,9 @@ import type { AccionDiaria } from '@/types'
 import type { OperationalActionItem, OperationalSnapshot } from './types'
 
 const STALE_DAYS = 3
-const MAX_MINE = 14
+const MAX_MINE = 40
+const MAX_CREATED = 40
+const MAX_BOARD = 60
 const MAX_VERIFY = 8
 const MAX_TEAM = 10
 
@@ -56,8 +58,10 @@ function toItem(
   priorities: Priority[],
   today: string,
   nowMs: number,
-  usuarioId: string
+  usuarioId: string,
+  nameById?: Record<string, string>
 ): OperationalActionItem {
+  const responsableId = action.responsable || ''
   return {
     id: action.id,
     titulo: action.titulo_accion || action.descripcion_accion || 'Accion sin titulo',
@@ -72,6 +76,9 @@ function toItem(
     daysSinceUpdate: daysSinceIso(action.updated_at, nowMs),
     dueBucket: dueBucket(action, today, new Date(nowMs)),
     mine: action.responsable === usuarioId,
+    createdByMe: action.created_by === usuarioId,
+    responsableId,
+    responsableNombre: (responsableId && nameById?.[responsableId]) || '',
   }
 }
 
@@ -125,35 +132,45 @@ export function buildOperationalSnapshot(input: {
   today: string
   fetchedAt?: string
   nowMs?: number
+  /** Mapa usuarios.id → nombre para filtrar «acciones de Jorge». */
+  usuarioNombreById?: Record<string, string>
 }): OperationalSnapshot {
   const nowMs = input.nowMs ?? Date.now()
   const now = new Date(nowMs)
   const fetchedAt = input.fetchedAt ?? new Date(nowMs).toISOString()
+  const names = input.usuarioNombreById
   const open = input.openActions.filter(isOpen)
-  const mineOpen = input.seesAllBoard
-    ? open.filter((action) => action.responsable === input.usuarioId)
-    : open
+  // Personal = responsable; board-wide solo con permiso. Antes counts usaba el tablero y
+  // la lista solo "mias", por eso "9 en rojo" con "Mostrando 3 de 3".
+  const mineOpen = open.filter((action) => action.responsable === input.usuarioId)
+  const createdOpen = open.filter((action) => action.created_by === input.usuarioId)
   const scopeActions = input.seesAllBoard ? open : mineOpen
 
   const weekEnd = addDays(input.today, 7)
-  const overdue = scopeActions.filter((a) => isCorporateOverdue(a, now))
-  const dueThisWeek = scopeActions.filter(
+  const mineOverdue = mineOpen.filter((a) => isCorporateOverdue(a, now))
+  const mineDueThisWeek = mineOpen.filter(
     (a) =>
       !isCorporateOverdue(a, now) &&
       a.fecha &&
       a.fecha >= input.today &&
       a.fecha <= weekEnd
   )
-  const blocked = scopeActions.filter((a) => isCorporateBlocked(a))
-  const red = scopeActions.filter(
-    (a) => isCorporateOverdue(a, now) || actionColor(a, input.priorities) === 'rojo'
+  const mineBlocked = mineOpen.filter((a) => isCorporateBlocked(a))
+  const mineRed = mineOpen.filter(
+    (a) =>
+      isCorporateOverdue(a, now) ||
+      a.estado === 'Retraso' ||
+      actionColor(a, input.priorities) === 'rojo'
   )
-  const stale = scopeActions.filter((a) => isStale(a, nowMs))
-  const taggedOkr = scopeActions.filter((a) => a.es_okr === true)
+  const mineStale = mineOpen.filter((a) => isStale(a, nowMs))
+  const mineTaggedOkr = mineOpen.filter((a) => a.es_okr === true)
+
+  const asItem = (a: AccionDiaria) =>
+    toItem(a, input.priorities, input.today, nowMs, input.usuarioId, names)
 
   const pendingVerification = (input.pendingVerificationActions ?? [])
     .filter((a) => isPendingVerification(a, input.usuarioId))
-    .map((a) => toItem(a, input.priorities, input.today, nowMs, input.usuarioId))
+    .map(asItem)
 
   const teamPool = input.seesAllBoard
     ? open.filter((a) => a.responsable !== input.usuarioId)
@@ -169,14 +186,15 @@ export function buildOperationalSnapshot(input: {
           actionColor(a, input.priorities) === 'rojo' ||
           isStale(a, nowMs)
       )
-      .map((a) => toItem(a, input.priorities, input.today, nowMs, input.usuarioId))
+      .map(asItem)
   ).slice(0, MAX_TEAM)
 
-  const mine = sortHot(
-    (input.seesAllBoard ? mineOpen : scopeActions).map((a) =>
-      toItem(a, input.priorities, input.today, nowMs, input.usuarioId)
-    )
-  ).slice(0, MAX_MINE)
+  const mineItems = sortHot(mineOpen.map(asItem))
+  const createdItems = sortHot(createdOpen.map(asItem))
+  const boardItems = input.seesAllBoard ? sortHot(scopeActions.map(asItem)) : mineItems
+  const mine = mineItems.slice(0, MAX_MINE)
+  const created = createdItems.slice(0, MAX_CREATED)
+  const boardOpenItems = boardItems.slice(0, MAX_BOARD)
 
   const board = buildBoardAssistantContext(
     scopeActions,
@@ -188,6 +206,9 @@ export function buildOperationalSnapshot(input: {
 
   const truncated =
     input.listsTruncated === true ||
+    mineOpen.length > MAX_MINE ||
+    createdOpen.length > MAX_CREATED ||
+    (input.seesAllBoard && scopeActions.length > MAX_BOARD) ||
     input.openActions.length >= 1000 ||
     (input.pendingVerificationActions?.length ?? 0) >= 40
 
@@ -204,18 +225,22 @@ export function buildOperationalSnapshot(input: {
       canSeeTeam: input.seesAllBoard,
     },
     counts: {
-      open: scopeActions.length,
-      overdue: overdue.length,
-      dueThisWeek: dueThisWeek.length,
-      blocked: blocked.length,
-      red: red.length,
-      stale: stale.length,
+      open: mineOpen.length,
+      overdue: mineOverdue.length,
+      dueThisWeek: mineDueThisWeek.length,
+      blocked: mineBlocked.length,
+      red: mineRed.length,
+      stale: mineStale.length,
       pendingVerification: pendingVerification.length,
-      taggedOkr: taggedOkr.length,
+      taggedOkr: mineTaggedOkr.length,
+      createdOpen: createdOpen.length,
+      boardOpen: scopeActions.length,
       teamOverdue: teamOverdue.length,
       teamBlocked: teamBlocked.length,
     },
     mine,
+    created,
+    boardOpenItems,
     pendingVerification: sortHot(pendingVerification).slice(0, MAX_VERIFY),
     teamHot,
     board,

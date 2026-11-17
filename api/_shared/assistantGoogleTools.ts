@@ -13,7 +13,7 @@ import {
   GoogleUserError,
   GOOGLE_SCOPES,
 } from './googleUserClient.js'
-import { withContentHash } from './workspaceHash.js'
+import { hashWorkspacePayload, withContentHash } from './workspaceHash.js'
 import { wrapUntrustedToolData, type NamedPerson } from '../../src/features/ai-support/copilot/matching.js'
 import { searchActivePeopleByName } from './searchActivePeople.js'
 import type {
@@ -764,6 +764,7 @@ export async function listSessionGoogleOps(actor: CopilotActor, sessionId: strin
       'calendar_prepare_update',
       'calendar_prepare_cancel',
       'whatsapp_prepare_send',
+      'notify_action_email',
     ])
     .order('created_at', { ascending: true })
   if (error) throw error
@@ -807,6 +808,7 @@ export async function queueWorkspaceDraft(
     utteredAt?: string
     timeAnchor?: string
     sessionId?: string | null
+    idempotencyKey?: string
     contentInstructions?: string
     conversationContext?: string
   }
@@ -835,6 +837,7 @@ export async function queueWorkspaceDraft(
   const payload = withContentHash({
     incomplete: true,
     draft_kind: input.type,
+    idempotency_key: input.idempotencyKey || '',
     recipient_hint: input.recipient || '',
     attendees_hint: input.attendees ?? [],
     purpose,
@@ -855,6 +858,7 @@ export async function queueWorkspaceDraft(
     payload,
     ttlMs: GOOGLE_WRITE_TTL_MS,
     sessionId: input.sessionId,
+    requestKey: input.idempotencyKey ? hashWorkspacePayload({ session: input.sessionId, key: input.idempotencyKey }) : undefined,
     channel: 'retell',
     proposal: proposalFromPreview(tool, workspace, title, summary),
   })

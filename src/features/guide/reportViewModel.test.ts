@@ -61,11 +61,12 @@ describe('reportViewModel', () => {
 
     expect(vm).not.toBeNull()
     expect(vm!.block2.recommendations.map((r) => r.text)).toEqual(['Priorizar evidencias'])
-    expect(vm!.block3.boardProposals.map((i) => i.title)).toEqual(['Avisar lider'])
     expect(vm!.block3.executed.map((i) => i.title)).toEqual(['Corte OTIF'])
-    expect(vm!.block3.orphanCommitments).toEqual([])
-    expect(vm!.block3.pendingDecisions).toEqual(['Definir responsable'])
-    expect(vm!.hero.pendingReviewCount).toBe(3)
+    expect(vm!.block3.communicationOps.map((i) => i.id)).toEqual(['op1'])
+    expect(vm!.block3.boardOps).toEqual([])
+    // Contador solo desde ops persistidas (no decisiones/compromisos narrativos).
+    expect(vm!.hero.pendingReviewCount).toBe(1)
+    expect(vm!.block3.narrativeNotes.pendingDecisions).toEqual(['Definir responsable'])
     expect(vm!.stats.some((s) => /solicitud/i.test(s.text))).toBe(true)
     expect(vm!.document.session_actions.every((a) => a.status !== 'recommendation')).toBe(true)
   })

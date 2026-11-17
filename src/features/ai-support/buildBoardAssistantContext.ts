@@ -65,6 +65,7 @@ export type BoardAssistantContextPayload = {
     keyResults: number
     initiatives: number
     items: Array<{
+      id: string
       nombre: string
       scope: string
       periodStatus: string
@@ -146,6 +147,7 @@ export function buildBoardAssistantContext(
             const initiatives = okrData.initiatives.filter((item) => krIds.has(item.key_result_id))
             const progress = objectiveProgress(keyResults)
             return {
+              id: objective.id,
               nombre: objective.nombre_okr,
               scope: objective.scope,
               periodStatus: objectivePeriod(objective, today),

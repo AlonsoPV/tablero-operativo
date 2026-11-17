@@ -29,6 +29,7 @@ export default defineApiHandler(async (req, res) => {
       usuarioId: auth.usuarioId,
       authUserId: auth.authUserId,
       rol: auth.rol,
+      accessToken: auth.token,
     }
 
     if (req.method === 'GET') {
@@ -51,6 +52,7 @@ export default defineApiHandler(async (req, res) => {
     const payload = body as {
       action?: unknown
       op_id?: unknown
+      recipientName?: unknown
       subject?: unknown
       body?: unknown
       title?: unknown
@@ -70,6 +72,7 @@ export default defineApiHandler(async (req, res) => {
       const tool = typeof opRow?.tool === 'string' ? opRow.tool : ''
       const proposal = isCommunicationWriteTool(tool)
         ? await editWhatsappPendingOp(actor, opId, {
+            recipientName: typeof payload.recipientName === 'string' ? payload.recipientName : undefined,
             body: typeof payload.body === 'string' ? payload.body : undefined,
           })
         : await editGooglePendingOp(actor, opId, {
@@ -93,7 +96,14 @@ export default defineApiHandler(async (req, res) => {
     return res.status(200).json(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'No se pudo completar la operacion.'
-    const conflict = /cambio despues|expiro|cancelada/i.test(message)
-    return res.status(conflict ? 409 : 400).json({ error: message.slice(0, 240) })
+    const code = /^([A-Z_]+):/.exec(message)?.[1]
+    const conflict = /cambi[oó] despu[eé]s|expir[oó]|cancelada|en ejecuci[oó]n/i.test(message)
+    const status = conflict ? 409
+      : code === 'PERMISSION_DENIED' ? 403
+        : code === 'RATE_LIMITED' ? 429
+          : code === 'DATABASE_ERROR' || code === 'CONFIGURATION_ERROR' ? 500
+            : code === 'PROVIDER_ERROR' ? 502
+              : code === 'TIMEOUT' ? 504 : 400
+    return res.status(status).json({ error: message.slice(0, 240), code })
   }
 })

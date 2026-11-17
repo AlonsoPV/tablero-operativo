@@ -22,7 +22,12 @@ export type OperationalActionItem = {
   area: string
   daysSinceUpdate: number | null
   dueBucket: 'overdue' | 'today' | 'week' | 'later' | 'unknown'
+  /** responsable === viewer */
   mine: boolean
+  /** created_by === viewer */
+  createdByMe: boolean
+  responsableId: string
+  responsableNombre: string
 }
 
 export type OperationalSnapshot = {
@@ -38,6 +43,7 @@ export type OperationalSnapshot = {
     canSeeTeam: boolean
   }
   counts: {
+    /** Abiertas asignadas al viewer (responsable). */
     open: number
     overdue: number
     dueThisWeek: number
@@ -46,10 +52,18 @@ export type OperationalSnapshot = {
     stale: number
     pendingVerification: number
     taggedOkr: number
+    /** Abiertas creadas por el viewer (created_by). */
+    createdOpen: number
+    /** Abiertas del tablero completo cuando scope=board; si no, igual a open. */
+    boardOpen: number
     teamOverdue: number
     teamBlocked: number
   }
   mine: OperationalActionItem[]
+  /** Abiertas que el viewer creo (pueden estar asignadas a otros). */
+  created: OperationalActionItem[]
+  /** Muestra de abiertas del tablero (solo si canSeeTeam). */
+  boardOpenItems: OperationalActionItem[]
   pendingVerification: OperationalActionItem[]
   teamHot: OperationalActionItem[]
   board: BoardAssistantContextPayload

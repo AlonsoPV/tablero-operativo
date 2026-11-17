@@ -112,7 +112,29 @@ describe('retell tool bridge', () => {
       data: { filter: 'open', items: [] },
     })
     expect(result.status).toBe('empty')
-    expect(result.spoken).toMatch(/no encontro/i)
+    expect(result.spoken).toMatch(/no encontro|total 0/i)
+  })
+
+  it('speaks get_my_actions total so the agent does not invent counts', () => {
+    const result = classifyRetellToolResult({
+      ok: true,
+      tool: 'get_my_actions',
+      kind: 'read',
+      data: {
+        notice: 'DATA',
+        payload: {
+          scope: 'assigned_to_me',
+          visual: 'board_red',
+          total: 6,
+          returned: 6,
+          population: 'responsable_actual',
+          items: [{ id: '1', title: 'Cerrar OTIF', estado: 'Retraso' }],
+        },
+      },
+    })
+    expect(result.status).toBe('ok')
+    expect(result.spoken).toMatch(/total\s*6/i)
+    expect(result.spoken).toMatch(/no inventes/i)
   })
 
   it('turns a tool failure into an error the agent must not fill in', () => {
@@ -216,7 +238,7 @@ describe('retell tool bridge', () => {
     }
     const result = classifyRetellToolResult(proposal)
     expect(result.status).toBe('needs_confirmation')
-    expect(result.spoken).toMatch(/confirm_pending_op/i)
+    expect(result.spoken).toMatch(/propuesta|revisarla|no digas que ya quedo/i)
     expect(result.data).toMatchObject({ pending_op_id: 'op-1' })
     const entry = consultLogEntry('create_action', result.status, result.data, '2026-11-13T18:00:00.000Z')
     expect(entry.summary).toBe('Propuesta pendiente: Revisar inventario')

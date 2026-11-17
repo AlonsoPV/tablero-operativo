@@ -149,13 +149,103 @@ describe('operational assistant context', () => {
   })
 
   it('builds role-aware counts without inventing records', () => {
-    expect(snapshot.counts.open).toBe(4)
+    // Conteos personales = asignadas al viewer; boardOpen conserva el tablero.
+    expect(snapshot.counts.open).toBe(3)
+    expect(snapshot.counts.boardOpen).toBe(4)
     expect(snapshot.counts.overdue).toBeGreaterThan(0)
     expect(snapshot.counts.blocked).toBe(1)
     expect(snapshot.counts.pendingVerification).toBe(1)
     expect(snapshot.counts.teamOverdue).toBe(1)
     expect(snapshot.mine.some((item) => item.titulo === 'Cerrar POD')).toBe(true)
+    expect(snapshot.mine.some((item) => item.titulo === 'Ruta externa')).toBe(false)
     expect(snapshot.pendingVerification[0]?.titulo).toBe('Checklist calidad')
+  })
+
+  it('answers red-list questions with personal counts matching the list', () => {
+    const reply = tryFactualAssistantReply(
+      'Puedes enlistar las acciones en rojo que tengo',
+      snapshot,
+      'pending'
+    )
+    expect(reply?.structured.finding).toContain(`${snapshot.counts.red}`)
+    const list = reply?.ui.views.find((view) => view.type === 'action_list')
+    expect(list?.type).toBe('action_list')
+    if (list?.type !== 'action_list') throw new Error('expected action_list')
+    expect(list.total).toBe(snapshot.counts.red)
+    expect(list.actions.length).toBe(snapshot.counts.red)
+  })
+
+  it('answers assigned-by-me and board totals without collapsing to mine', () => {
+    const named = buildOperationalSnapshot({
+      usuarioId: 'u1',
+      rol: 'Operativo',
+      areas: ['Operaciones'],
+      seesAllBoard: true,
+      canSeeOkrs: false,
+      openActions: [
+        action({
+          id: '1',
+          titulo_accion: 'Mia',
+          responsable: 'u1',
+          created_by: 'u1',
+          estado: 'Pendiente',
+          fecha: '2026-11-01',
+        }),
+        action({
+          id: '2',
+          titulo_accion: 'De Jorge',
+          responsable: 'u2',
+          created_by: 'u1',
+          estado: 'Pendiente',
+          fecha: '2026-11-02',
+        }),
+        action({
+          id: '3',
+          titulo_accion: 'Ajena',
+          responsable: 'u3',
+          created_by: 'u3',
+          estado: 'Pendiente',
+          fecha: '2026-11-03',
+        }),
+      ],
+      priorities: [],
+      okrData: null,
+      today: '2026-11-03',
+      nowMs,
+      usuarioNombreById: {
+        u1: 'Ana',
+        u2: 'Jorge Perez',
+        u3: 'Lucia',
+      },
+    })
+
+    const assignedByMe = tryFactualAssistantReply('cuales he asignado yo', named, 'pending')
+    expect(assignedByMe?.structured.finding).toContain('2')
+    const createdList = assignedByMe?.ui.views.find((view) => view.type === 'action_list')
+    expect(createdList?.type).toBe('action_list')
+    if (createdList?.type !== 'action_list') throw new Error('expected action_list')
+    expect(createdList.actions.map((row) => row.title).sort()).toEqual(['De Jorge', 'Mia'])
+
+    const board = tryFactualAssistantReply(
+      'cuantas acciones en total hay en el tablero',
+      named,
+      'general'
+    )
+    expect(board?.structured.finding).toContain('3')
+
+    const followUp = tryFactualAssistantReply('enlistalas', named, 'general', {
+      priorUserMessages: ['cuantas acciones en total hay en el tablero'],
+    })
+    const boardList = followUp?.ui.views.find((view) => view.type === 'action_list')
+    expect(boardList?.type).toBe('action_list')
+    if (boardList?.type !== 'action_list') throw new Error('expected action_list')
+    expect(boardList.total).toBe(3)
+
+    const jorge = tryFactualAssistantReply('cuales tiene jorge', named, 'general')
+    const jorgeList = jorge?.ui.views.find((view) => view.type === 'action_list')
+    expect(jorgeList?.type).toBe('action_list')
+    if (jorgeList?.type !== 'action_list') throw new Error('expected action_list')
+    expect(jorgeList.actions.map((row) => row.title)).toEqual(['De Jorge'])
   })
 
   it('answers pending questions factually without Gemini', () => {
@@ -165,6 +255,37 @@ describe('operational assistant context', () => {
     expect(reply?.content).toContain('Hallazgo:')
     expect(reply?.content).toContain('Cerrar POD')
     expect(reply?.structured.record?.title).toBe('Cerrar POD')
+    expect(reply?.ui.views.some((view) => view.type === 'action_list' || view.type === 'brief' || view.type === 'operational_summary')).toBe(
+      true
+    )
+  })
+
+  it('answers OKR list questions with structured cards and no Hallazgo wall', () => {
+    const reply = tryFactualAssistantReply('Que OKRs tengo', snapshot, 'okrs')
+    expect(reply).toBeTruthy()
+    expect(reply?.content).not.toMatch(/Hallazgo:|Evidencia:/)
+    expect(reply?.content).toMatch(/OKR/i)
+    const list = reply?.ui.views.find((view) => view.type === 'okr_list')
+    expect(list?.type).toBe('okr_list')
+  })
+
+  it('answers list requests with structured action rows', () => {
+    const reply = tryFactualAssistantReply('Muestra todas', snapshot, 'general')
+    expect(reply).toBeTruthy()
+    const list = reply?.ui.views.find((view) => view.type === 'action_list')
+    expect(list?.type).toBe('action_list')
+    if (list?.type !== 'action_list') throw new Error('expected action_list')
+    expect(list.actions.length).toBeGreaterThan(0)
+    expect(list.actions[0]?.href).toContain('accion=')
+    expect(list.total).toBe(list.actions.length)
+  })
+
+  it('answers overdue count as a brief metric', () => {
+    const reply = tryFactualAssistantReply('Cuantas acciones tengo vencidas?', snapshot, 'pending')
+    expect(reply).toBeTruthy()
+    expect(reply?.ui.views.some((view) => view.type === 'brief' || view.type === 'action_list')).toBe(
+      true
+    )
   })
 
   it('refuses team delay facts for users without board scope', () => {

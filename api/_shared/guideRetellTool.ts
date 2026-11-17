@@ -18,6 +18,7 @@ export const RETELL_READ_TOOLS = [
   'get_org_chart',
   'get_module_data',
   'search_board',
+  'get_whatsapp_operation_status',
 ] as const
 
 export const RETELL_WRITE_TOOLS = [
@@ -27,6 +28,8 @@ export const RETELL_WRITE_TOOLS = [
   'update_checklist_item',
   'mark_action_done',
   'verify_action',
+  'whatsapp_prepare_send',
+  'notify_action_email',
   'confirm_pending_op',
   'cancel_pending_op',
 ] as const
@@ -231,6 +234,14 @@ export function compactVoiceToolData(data: unknown): unknown {
   return compactVoiceNode(data, true)
 }
 
+function withSpoken<T extends { spoken: string }>(row: T): T {
+  const spoken = typeof row.spoken === 'string' ? row.spoken.trim() : ''
+  return {
+    ...row,
+    spoken: spoken || 'Listo. Podemos continuar con la conversacion.',
+  }
+}
+
 export function classifyRetellToolResult(result: CopilotToolResult): {
   status: RetellToolStatus
   spoken: string
@@ -239,23 +250,23 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
   denial_reason?: DenialReasonClass | null
 } {
   if (result.kind === 'proposal') {
-    return {
+    return withSpoken({
       status: 'needs_confirmation',
-      spoken:
-        'Propuse el cambio. Resume en una frase y pregunta si lo confirmas. No digas que ya quedo hecho hasta que confirm_pending_op responda ok.',
+      spoken: result.proposal?.workspace?.needsInfoReason ||
+        'Ya registré la propuesta para que puedas revisarla al terminar.',
       data: {
         pending_op_id: result.proposal?.id ?? null,
         title: result.proposal?.title ?? null,
         summary: result.proposal?.summary ?? null,
       },
-    }
+    })
   }
   if (result.kind === 'clarification') {
-    return {
+    return withSpoken({
       status: 'needs_clarification',
       spoken: result.clarification?.question || 'Hay mas de una coincidencia. Pide aclaracion y no elijas.',
       data: result.clarification ?? null,
-    }
+    })
   }
   if (result.kind === 'denied') {
     const detail = typeof result.error === 'string' ? result.error.trim() : ''
@@ -263,7 +274,7 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
     const denial_reason = classifyDenialReason(detail || 'denied')
     if (error_code === 'PERMISSION_DENIED') {
       const permissionSend = /PERMISSION_DENIED|no permite enviar/i.test(detail)
-      return {
+      return withSpoken({
         status: 'denied',
         spoken: permissionSend
           ? 'Este modo no permite enviar comunicaciones. No inventes que se envio.'
@@ -273,39 +284,39 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
         data: null,
         error_code,
         denial_reason,
-      }
+      })
     }
     const brief =
       detail && detail.length < 160
         ? detail
         : 'No pude completar esa solicitud por un problema de validacion.'
-    return {
+    return withSpoken({
       status: 'error',
       spoken: `${brief} Podemos continuar con la conversacion.`,
       data: null,
       error_code,
       denial_reason,
-    }
+    })
   }
   if (result.kind === 'error' || result.ok === false) {
     const writeConfirm = result.tool === 'confirm_pending_op' || result.tool === 'cancel_pending_op'
     const detail = typeof result.error === 'string' ? result.error.trim() : ''
     if (writeConfirm && /PERMISSION_DENIED|no permite enviar/i.test(detail)) {
-      return {
+      return withSpoken({
         status: 'denied',
         spoken: 'Este modo no permite enviar comunicaciones. No inventes que se envio.',
         data: null,
         error_code: 'PERMISSION_DENIED',
         denial_reason: 'permission',
-      }
+      })
     }
     const error_code =
       result.error === 'timeout' ? ('TIMEOUT' as const) : detail ? classifyDeniedMessage(detail) : 'UNKNOWN_ERROR'
-    return {
+    return withSpoken({
       status: 'error',
       spoken:
         result.error === 'timeout'
-          ? 'No pude recuperar ese dato a tiempo. No inventes cifras; ofrece reintentar o reformular.'
+          ? 'No pude recuperar ese dato a tiempo. No inventes cifras; ofrece reintentar o continuar.'
           : writeConfirm && detail && detail.length < 180
             ? `${detail} No digas que quedo hecha.`
             : writeConfirm
@@ -314,38 +325,81 @@ export function classifyRetellToolResult(result: CopilotToolResult): {
       data: null,
       error_code,
       denial_reason: detail ? classifyDenialReason(detail) : 'other',
-    }
+    })
   }
   if (result.tool === 'confirm_pending_op') {
     const hint =
       result.data && typeof result.data === 'object' && 'spoken_hint' in result.data
         ? String((result.data as { spoken_hint?: unknown }).spoken_hint || '')
         : ''
-    return {
+    return withSpoken({
       status: 'ok',
       spoken: hint || 'Listo, quedo registrada. Confirma en una frase corta sin leer IDs ni URLs.',
       data: compactVoiceToolData(serializeToolResultForModel(result)),
-    }
+    })
   }
   if (result.tool === 'cancel_pending_op') {
-    return {
+    return withSpoken({
       status: 'ok',
       spoken: 'Cancelado. No se ejecuto nada.',
       data: compactVoiceToolData(serializeToolResultForModel(result)),
-    }
+    })
   }
-  if (payloadIsEmpty(result.data)) {
-    return {
+  const serialized = serializeToolResultForModel(result)
+  const unwrapped =
+    serialized &&
+    typeof serialized === 'object' &&
+    !Array.isArray(serialized) &&
+    'payload' in (serialized as object)
+      ? (serialized as { payload?: unknown }).payload
+      : serialized
+
+  if (payloadIsEmpty(unwrapped ?? result.data)) {
+    const totalZero =
+      unwrapped &&
+      typeof unwrapped === 'object' &&
+      typeof (unwrapped as { total?: unknown }).total === 'number'
+        ? (unwrapped as { total: number }).total
+        : null
+    return withSpoken({
       status: 'empty',
-      spoken: 'La consulta no encontro registros visibles para este usuario. No inventes filas.',
-      data: result.data ?? null,
+      spoken:
+        totalZero === 0
+          ? 'Total 0 segun la consulta. No inventes filas ni diagnostiques.'
+          : 'La consulta no encontro registros visibles para este usuario. No inventes filas.',
+      data: compactVoiceToolData(serialized),
+    })
+  }
+
+  if (result.tool === 'get_my_actions' && unwrapped && typeof unwrapped === 'object') {
+    const row = unwrapped as {
+      total?: unknown
+      spoken_hint?: unknown
+      scope?: unknown
+      visual?: unknown
     }
+    const total = typeof row.total === 'number' ? row.total : null
+    const hint = typeof row.spoken_hint === 'string' ? row.spoken_hint.trim() : ''
+    return withSpoken({
+      status: 'ok',
+      spoken:
+        hint ||
+        (total != null
+          ? `Consulta hecha. Di el total ${total} del campo total; no inventes cifras.`
+          : 'Consulta hecha. Responde solo con estos datos; di el campo total.'),
+      data: compactVoiceToolData(serialized),
+    })
   }
-  return {
+
+  const hint =
+    unwrapped && typeof unwrapped === 'object' && typeof (unwrapped as { spoken_hint?: unknown }).spoken_hint === 'string'
+      ? String((unwrapped as { spoken_hint?: string }).spoken_hint || '').trim()
+      : ''
+  return withSpoken({
     status: 'ok',
-    spoken: 'Consulta hecha. Responde solo con estos datos.',
-    data: compactVoiceToolData(serializeToolResultForModel(result)),
-  }
+    spoken: hint || 'Consulta hecha. Responde solo con estos datos.',
+    data: compactVoiceToolData(serialized),
+  })
 }
 
 export type RetellToolPhaseMetrics = {
@@ -364,6 +418,8 @@ export type RetellToolPhaseMetrics = {
   payload_bytes: number
   ms: number
   ignored_model_user: boolean
+  /** Tool original si el gate reescribió dashboard/team → get_my_actions. */
+  rewrote_from?: string | null
 }
 
 export function buildRetellToolMetrics(

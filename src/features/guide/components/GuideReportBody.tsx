@@ -55,6 +55,7 @@ export function GuideReportBody({
   confirmOp,
   cancelOp,
   disableEditCommunications = false,
+  showLoginCta = false,
   onCommunicationUpdated,
   onCommunicationResolved,
   agentInferences: _agentInferences,
@@ -73,6 +74,8 @@ export function GuideReportBody({
   confirmOp?: (opId: string) => Promise<{ result?: { href?: string } | null }>
   cancelOp?: (opId: string) => Promise<void>
   disableEditCommunications?: boolean
+  /** Liga pública: CTA de login junto a borradores en solo lectura. */
+  showLoginCta?: boolean
   onCommunicationUpdated?: (proposal: CopilotProposal) => void
   onCommunicationResolved?: (id: string, status: 'confirmed' | 'cancelled') => void
   agentInferences?: string | null
@@ -388,9 +391,11 @@ export function GuideReportBody({
             subtitle="Que necesita tu revision para continuar."
             icon={Target}
           >
-            {(communications?.length ?? 0) > 0 ? (
+            {block3.communicationOps.length > 0 ? (
               <GuideCommunicationsSection
-                ops={communications ?? []}
+                ops={(communications ?? []).filter((op) =>
+                  block3.communicationOps.some((row) => row.id === op.id)
+                )}
                 readOnly={communicationsReadOnly}
                 confirmOp={confirmOp}
                 cancelOp={cancelOp}
@@ -398,81 +403,49 @@ export function GuideReportBody({
                 onUpdated={onCommunicationUpdated}
                 onResolved={onCommunicationResolved}
                 showPendingChip
+                showLoginCta={showLoginCta}
+                title="Comunicaciones"
+                subtitle="WhatsApp, correo y eventos preparados en la sesion."
               />
             ) : null}
 
-            {block3.boardProposals.length > 0 ? (
-              <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-slate-800">Tareas e iniciativas propuestas</h4>
-                <ul className="space-y-2">
-                  {block3.boardProposals.map((item) => (
-                    <li key={item.key}>
-                      <FollowUpCard
-                        item={item}
-                        kindLabel={item.kind === 'board' ? 'Propuesta de tablero' : 'Propuesta'}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </div>
+            {block3.boardOps.length > 0 ? (
+              <GuideCommunicationsSection
+                ops={(communications ?? []).filter((op) =>
+                  block3.boardOps.some((row) => row.id === op.id)
+                )}
+                readOnly={communicationsReadOnly}
+                confirmOp={confirmOp}
+                cancelOp={cancelOp}
+                disableEdit={disableEditCommunications}
+                onUpdated={onCommunicationUpdated}
+                onResolved={onCommunicationResolved}
+                showPendingChip
+                showLoginCta={showLoginCta && block3.communicationOps.length === 0}
+                title="Tareas e iniciativas"
+                subtitle="Propuestas de tablero listas para revisar."
+              />
             ) : null}
 
-            {block3.orphanCommitments.length > 0 ? (
-              <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-slate-800">Compromisos registrados</h4>
-                <ul className="space-y-2">
-                  {block3.orphanCommitments.map((item) => (
-                    <li key={item.key}>
-                      <FollowUpCard item={item} kindLabel="Compromiso" />
-                    </li>
-                  ))}
-                </ul>
-              </div>
+            {block3.historyOps.length > 0 ? (
+              <GuideCommunicationsSection
+                ops={(communications ?? []).filter((op) =>
+                  block3.historyOps.some((row) => row.id === op.id)
+                )}
+                readOnly
+                showPendingChip={false}
+                title="Historial de operaciones"
+                subtitle="Ejecutadas, descartadas o con conflicto en esta sesion."
+              />
             ) : null}
 
-            {block3.pendingDecisions.length > 0 ? (
+            {block3.executed.length > 0 ? (
               <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-slate-800">Decisiones pendientes</h4>
-                <ul className="space-y-2">
-                  {block3.pendingDecisions.map((item) => (
-                    <li key={item}>
-                      <FollowUpCard
-                        item={{
-                          key: `decision:${item}`,
-                          kind: 'decision',
-                          title: item,
-                          statusLabel: 'Por confirmar',
-                          statusTone: 'decision',
-                        }}
-                        kindLabel="Decision"
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {block3.executed.length > 0 || block3.confirmedDecisions.length > 0 ? (
-              <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-slate-800">Operaciones ejecutadas</h4>
+                <h4 className="text-sm font-semibold text-slate-800">Trabajo creado en Scrumban</h4>
                 <ul className="space-y-2">
                   {block3.executed.map((item) => (
                     <li key={item.key}>
                       <FollowUpCard item={item} kindLabel="Ejecutada" />
-                    </li>
-                  ))}
-                  {block3.confirmedDecisions.map((item) => (
-                    <li key={item}>
-                      <FollowUpCard
-                        item={{
-                          key: `confirmed:${item}`,
-                          kind: 'decision',
-                          title: item,
-                          statusLabel: 'Confirmada',
-                          statusTone: 'executed',
-                        }}
-                        kindLabel="Decision confirmada"
-                      />
                     </li>
                   ))}
                 </ul>

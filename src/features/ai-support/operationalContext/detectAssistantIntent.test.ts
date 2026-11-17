@@ -6,6 +6,8 @@ describe('detectAssistantIntent', () => {
     expect(detectAssistantIntent('Que tengo pendiente?')).toBe('pending')
     expect(detectAssistantIntent('Que deberia priorizar?')).toBe('prioritize')
     expect(detectAssistantIntent('Como van mis OKRs?')).toBe('okrs')
+    expect(detectAssistantIntent('que OKRs de equipo tengo abiertos')).toBe('okrs')
+    expect(detectAssistantIntent('Que OKRs tengo')).toBe('okrs')
     expect(detectAssistantIntent('Que esta retrasando al equipo?')).toBe('team_delay')
   })
 

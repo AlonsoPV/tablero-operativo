@@ -322,10 +322,10 @@ async function prepareOne(
       recipient: input.recipient,
       utteredAt: input.utteredAt,
       sessionId: input.sessionId,
+      idempotencyKey: input.idempotencyKey,
       contentInstructions: input.contentInstructions,
       conversationContext: input.conversationContext,
     })
-    await stampIdempotencyKey(actor, proposal.id, input.idempotencyKey)
     return proposal
   }
   if (input.channel === 'event') {
@@ -337,10 +337,10 @@ async function prepareOne(
       utteredAt: input.utteredAt,
       timeAnchor: input.timeAnchor,
       sessionId: input.sessionId,
+      idempotencyKey: input.idempotencyKey,
       contentInstructions: input.contentInstructions,
       conversationContext: input.conversationContext,
     })
-    await stampIdempotencyKey(actor, proposal.id, input.idempotencyKey)
     return proposal
   }
   const proposal = await queueWorkspaceDraft(actor, {
@@ -350,25 +350,11 @@ async function prepareOne(
     utteredAt: input.utteredAt,
     timeAnchor: input.timeAnchor,
     sessionId: input.sessionId,
+    idempotencyKey: input.idempotencyKey,
     contentInstructions: input.contentInstructions,
     conversationContext: input.conversationContext,
   })
-  await stampIdempotencyKey(actor, proposal.id, input.idempotencyKey)
   return proposal
-}
-
-async function stampIdempotencyKey(actor: CopilotActor, opId: string, key: string) {
-  const { data } = await actor.supabase
-    .from('assistant_pending_ops')
-    .select('payload')
-    .eq('id', opId)
-    .maybeSingle()
-  const payload =
-    data?.payload && typeof data.payload === 'object'
-      ? (data.payload as Record<string, unknown>)
-      : {}
-  const next = withContentHash({ ...payload, idempotency_key: key })
-  await actor.supabase.from('assistant_pending_ops').update({ payload: next }).eq('id', opId)
 }
 
 export type VoiceDraftMutationResult = {
@@ -503,7 +489,7 @@ export async function mutateVoiceWorkspaceDraft(
       const created = await prepareOne(actor, {
         channel: nextChannel,
         purpose,
-        recipient: input.recipient,
+        recipient: input.recipient || asString(target.payload.recipient_hint, 160),
         utteredAt: input.utteredAt,
         timeAnchor: input.timeAnchor,
         attendees: input.attendees,

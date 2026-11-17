@@ -255,28 +255,51 @@ export async function loadGoogleConnection(
   }
 }
 
+/**
+ * Metadatos visibles al usuario (sin refresh_token_enc).
+ * Puede usar el JWT del usuario: RLS + GRANT de columnas en la migracion.
+ */
 export async function googleConnectionMeta(
   usuarioId: string,
   supabase?: SupabaseClient
 ): Promise<GoogleConnectionMeta> {
-  const row = await loadGoogleConnection(usuarioId, supabase)
-  if (!row || row.status === 'revoked' || !row.refresh_token_enc) {
+  const client = supabase ?? createServiceRoleClient()
+  const { data, error } = await client
+    .from('user_google_connections')
+    .select('google_email,scopes,status,connected_at,updated_at')
+    .eq('usuario_id', usuarioId)
+    .maybeSingle()
+  if (error) throw error
+  if (!data) {
     return {
       connected: false,
-      google_email: row?.google_email ?? null,
-      scopes: row?.scopes ?? [],
-      status: row?.status === 'needs_reauth' ? 'needs_reauth' : 'disconnected',
-      connected_at: row?.connected_at ?? null,
-      updated_at: row?.updated_at ?? null,
+      google_email: null,
+      scopes: [],
+      status: 'disconnected',
+      connected_at: null,
+      updated_at: null,
     }
   }
+
+  const status = (data.status as GoogleConnectionStatus) || 'active'
+  if (status === 'revoked') {
+    return {
+      connected: false,
+      google_email: (data.google_email as string | null) ?? null,
+      scopes: Array.isArray(data.scopes) ? (data.scopes as string[]) : [],
+      status: 'disconnected',
+      connected_at: data.connected_at ? String(data.connected_at) : null,
+      updated_at: data.updated_at ? String(data.updated_at) : null,
+    }
+  }
+
   return {
-    connected: row.status === 'active',
-    google_email: row.google_email,
-    scopes: row.scopes,
-    status: row.status,
-    connected_at: row.connected_at,
-    updated_at: row.updated_at,
+    connected: status === 'active',
+    google_email: (data.google_email as string | null) ?? null,
+    scopes: Array.isArray(data.scopes) ? (data.scopes as string[]) : [],
+    status,
+    connected_at: data.connected_at ? String(data.connected_at) : null,
+    updated_at: data.updated_at ? String(data.updated_at) : null,
   }
 }
 

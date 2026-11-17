@@ -24,15 +24,42 @@ export const COPILOT_FUNCTION_DECLARATIONS: GeminiFunctionDeclaration[] = [
   {
     name: 'get_my_actions',
     description:
-      'Consulta acciones corporativas autorizadas del usuario. overdue usa la columna Retraso (fecha y hora en CDMX) y no incluye Bloqueado. verification son acciones en Hecho, que no equivalen a Verificado. Si truncated es true, la lista está recortada.',
+      'Consulta MIS acciones del usuario autenticado (identidad de sesion; nunca por nombre). Default scope=assigned_to_me (responsable=yo). created_by_me = las que cree/solicite. team_authorized/board_authorized solo con permiso o boardScope organization; NUNCA como default de "mis/tengo/responsable". visual=board_red = prioridad roja O vencida/Retraso (mismo criterio del tablero); priority_red solo prioridad; overdue solo vencidas. Devuelve total/count/returned/truncated/population/filters_applied/as_of. Di el campo total; no inventes. overdue status_group usa isCorporateOverdue (CDMX). verification = Hecho, no Verificado. boardScope organization NO cambia el default personal de esta tool.',
     parameters: {
       type: 'object',
       properties: {
+        scope: {
+          type: 'string',
+          enum: [
+            'assigned_to_me',
+            'created_by_me',
+            'assigned_to_me_or_created',
+            'team_authorized',
+            'board_authorized',
+          ],
+          description: 'Alcance. Default assigned_to_me para "mis/tengo/responsable".',
+        },
+        status_group: {
+          type: 'string',
+          enum: ['open', 'overdue', 'due_week', 'stale', 'blocked', 'verification'],
+          description: 'Grupo de estado. Alias legacy: filter.',
+        },
         filter: {
           type: 'string',
           enum: ['open', 'overdue', 'due_week', 'stale', 'blocked', 'verification'],
+          description: 'Alias de status_group (compat).',
         },
-        limit: { type: 'number', description: 'Maximo 12.' },
+        visual: {
+          type: 'string',
+          enum: ['none', 'priority_red', 'overdue', 'board_red'],
+          description:
+            'Filtro visual. Si el usuario dice "en rojo" sin aclarar: board_red. priority_red = solo prioridad roja.',
+        },
+        include_count: {
+          type: 'boolean',
+          description: 'Default true. Incluye total/count en la respuesta.',
+        },
+        limit: { type: 'number', description: 'Maximo 12 items listados; total sigue siendo el conteo filtrado.' },
       },
     },
   },
@@ -81,7 +108,7 @@ export const COPILOT_FUNCTION_DECLARATIONS: GeminiFunctionDeclaration[] = [
   {
     name: 'get_dashboard_summary',
     description:
-      'Resumen del dashboard BAU de acciones corporativas. Vencida, bloqueada, Hecho (pendiente de verificar) y Verificado son conteos distintos. El avance puede venir null cuando faltan datos. Incluye alcance, zona horaria y truncated si el lote de 400 filas se llenó. Solo si el usuario puede ver /dashboard.',
+      'Resumen del dashboard BAU / tablero corporativo (NO "mis acciones"). Solo con peticion explicita de alcance amplio: tablero, organizacion, dashboard, todas las de la org. Nunca uses esta tool para "tengo/mis/responsable/me asignaron". Vencida, bloqueada, Hecho y Verificado son conteos distintos. Incluye truncated si el lote se llenó. Solo si el usuario puede ver /dashboard.',
     parameters: { type: 'object', properties: {} },
   },
   {
@@ -218,6 +245,71 @@ export const COPILOT_FUNCTION_DECLARATIONS: GeminiFunctionDeclaration[] = [
     parameters: {
       type: 'object',
       properties: actionQueryProps,
+    },
+  },
+  {
+    name: 'get_whatsapp_operation_status',
+    description: 'Consulta el estado real de un WhatsApp preparado por el asistente. Usa el ID devuelto al preparar el borrador. Aceptado, entregado y leído son estados distintos.',
+    parameters: {
+      type: 'object',
+      properties: { pending_op_id: { type: 'string', description: 'ID de la propuesta de WhatsApp' } },
+      required: ['pending_op_id'],
+    },
+  },
+  {
+    name: 'get_daily_action_summary',
+    description:
+      'Consulta la configuración global de correo diario de acciones. Si piden intentos recientes, pasa include_history. El estado sent del historial refleja aceptación por el proveedor.',
+    parameters: {
+      type: 'object',
+      properties: { include_history: { type: 'boolean', description: 'Incluye el historial reciente de ejecuciones' } },
+    },
+  },
+  {
+    name: 'update_daily_action_summary',
+    description:
+      'Prepara un cambio al resumen diario global de acciones para aprobar. Usa solo si el usuario pide explícitamente cambiar el resumen global. Si pide un recordatorio personal, por destinatario o por acción, aclara el alcance y evita modificar el global.',
+    parameters: {
+      type: 'object',
+      properties: {
+        enabled: { type: 'boolean', description: 'Activar o pausar el resumen diario global' },
+        send_time: { type: 'string', description: 'Hora explícita en formato HH:MM' },
+        timezone: { type: 'string', description: 'Zona horaria IANA, si el usuario solicita cambiarla' },
+      },
+    },
+  },
+  {
+    name: 'whatsapp_prepare_send',
+    description:
+      'Prepara un borrador editable de WhatsApp en Scrumban. Usa para preparar o solicitar un envío. El usuario aprueba en la tarjeta. Para las acciones vencidas de la persona, usa include_overdue y no inventes acciones en body.',
+    parameters: {
+      type: 'object',
+      properties: {
+        recipient: { type: 'string', description: 'Nombre del destinatario o «yo»' },
+        body: { type: 'string', description: 'Mensaje completo o introducción si include_overdue es true' },
+        include_overdue: { type: 'boolean', description: 'Incluye las acciones vencidas asignadas al destinatario' },
+      },
+      required: ['recipient'],
+    },
+  },
+  {
+    name: 'notify_action_email',
+    description:
+      'Propone enviar el correo de notificacion del tablero al responsable de una accion (misma plantilla que el boton Enviar correo del Kanban). NO envia hasta Confirmar. Usa el mailbox de la organizacion, no el Gmail personal del usuario. Para "notifica/comparte/envia esta accion por correo al responsable". Si el usuario quiere un correo libre desde su Gmail, usa gmail_prepare_send.',
+    parameters: {
+      type: 'object',
+      properties: {
+        ...actionQueryProps,
+        mensaje: {
+          type: 'string',
+          description: 'Nota corta opcional para el correo (aparece como Mensaje).',
+        },
+        prioridad: {
+          type: 'string',
+          enum: ['Normal', 'Alta', 'Urgente'],
+          description: 'Prioridad de la notificacion. Default Normal.',
+        },
+      },
     },
   },
   {

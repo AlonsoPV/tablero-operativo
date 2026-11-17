@@ -1,7 +1,7 @@
 # Auditoría Enviardián — flujo, causas raíz y remediación
 
-Fecha de remediación en repo: 2026-11-17.  
-Política vigente: **piloto full-write** en ligas (`interview_full_read` puede encolar, confirmar y enviar como dueño). Riesgo documentado abajo.
+Fecha de remediación en repo: 2026-11-17 (aprobaciones + silencios + consultas operativas).  
+Política vigente: **liga pública = solo lectura**. Encolar durante la llamada sigue permitido según `access_mode`; **aprobar / editar / descartar / enviar** requiere sesión autenticada del dueño en la app. El piloto full-write de confirm desde la URL pública queda **retirado**.
 
 ## Diagrama real
 
@@ -74,19 +74,30 @@ Implementación: [`api/_shared/guideToolResult.ts`](../api/_shared/guideToolResu
 | Retell remoto | Posible drift schema/URL | Publish no automático | Checklist | Lista verificación dashboard | `retell-enviardian-checklist.md` | manual | BLOQUEADO POR CONFIGURACIÓN EXTERNA |
 | Proveedores | Envío real WA/Gmail | Credenciales / ventana 24h | Ops | No probado en esta pasada | — | — | PENDIENTE |
 | Aprobación E2E | Escenario 10 envío real | Requiere destinatarios autorizados | Brief | Mocks only | `enviardianAuditScenarios.test.ts` | mocks | CORREGIDO PENDIENTE DE PRUEBA REAL |
+| Informe UI | Solo Descartar útil | Aprobar disabled + `disableEdit` en liga | `AssistantProposalCard` | needs_info → Completar info; liga readOnly + login CTA | `AssistantProposalCard.tsx`, `GuideVoiceInvitePage.tsx` | unit + manual | CORREGIDO PENDIENTE DE PRUEBA REAL |
+| Informe UI | WA/correo como “tareas” | Sección única sin split por tool | `GuideCommunicationsSection` | Split Comunicaciones / Tablero / Historial | `pendingOpTaxonomy.ts`, `GuideReportBody.tsx` | `pendingOpTaxonomy.test`, `reportViewModel.test` | CORREGIDO Y VERIFICADO |
+| Informe UI | Contador inflado | Sumaba decisiones/compromisos narrativos | `reportViewModel` | Contador solo `assistant_pending_ops` accionables | `reportViewModel.ts` | `reportViewModel.test` | CORREGIDO Y VERIFICADO |
+| Auth liga | Confirm sin JWT | Piloto full-write | `guide-link-report` | `confirm_pending`/`cancel_pending` → 403 `LOGIN_REQUIRED` | `guide-link-report.ts` | API unit/manual | CORREGIDO PENDIENTE DE PRUEBA REAL |
+| Ops | Descarte sin motivo | Update sin actor/razón | `cancelPendingOp` | `error_message` prefijado + log | `assistantOpsRuntime.ts` | unit | CORREGIDO Y VERIFICADO |
+| Voz | Silencio post-tool | Timeout 3s / spoken vacío | `guide-retell-tool` | Spoken garantizado; timeout write 8s; mensaje recuperable | `guideToolResult.ts`, `guideRetellTool.ts`, `guide-retell-tool.ts` | `guideToolResult.test` | CORREGIDO PENDIENTE DE PRUEBA REAL |
+| Preview | JSON/tools en body | Body crudo | preview | `sanitizeRecipientFacingText` | `pendingOpTaxonomy.ts`, `actionLifecycle.ts` | `pendingOpTaxonomy.test` | CORREGIDO Y VERIFICADO |
+| Consultas voz | «53 abiertas en rojo» corporativo + follow-up «Todas» | Tool choice a dashboard (~48); `get_my_actions` sin total/rojo; sin `active_query` | Prompt + runtime + gate | Contrato `scope`/`visual`/`total`; `board_red`; `active_query`+merge; **gate** dashboard/team→`get_my_actions` en follow-up personal (`rewrote_from`); «Todas» no abre board | `actionQueryContract.ts`, `guide-retell-tool.ts`, `catalog.ts`, `enviardian-voz.md` | matriz A–J + gate en `actionQueryContract.test` | VERIFICADO UNITARIO; pendiente voz real / publish Retell |
+| Semántica | Glosarios/intents dispersos por canal | Sin SSOT; create no distinguía Kanban vs iniciativa | Prompt + código | Diccionario `ops-dict-2026-11-17-mvp` + `interpretOperationalMessage`; chat/voz/WA aliases | `operationalSemantics/`, `operationalInterpret.ts` | `operationalInterpret.test` | VERIFICADO UNITARIO; pendiente publish Retell |
 
-## Riesgos de seguridad (piloto full-write)
+## Riesgos de seguridad (liga pública)
 
-- Quien tenga la URL activa actúa con alcance de escritura/envío del dueño.
-- Mitigaciones: TTL de liga, revocación, `GUIDE_INTERVIEW_FULL_READ=0` para restringir, no exponer service_role al cliente, no desactivar RLS.
-- Confirm de comunicaciones valida `canSendCommunication` cuando `guideAccessMode` está presente.
+- La URL activa **no** confirma ni envía; solo consulta informe y lista ops.
+- Escritura/envío: historial autenticado del dueño + `canSendCommunication` / JWT.
+- Mitigaciones: TTL de liga, revocación, no exponer service_role al cliente, no desactivar RLS.
 
 ## Configuración externa pendiente
 
-- Dashboard Retell: URLs, schema `queue_workspace_draft`, timeouts, prompt “no afirmar éxito si success=false”.
-- Vercel env: `RETELL_API_KEY`, `GUIDE_RETELL_TOOL_SECRET`, WhatsApp/Gmail del dueño.
+- Dashboard Retell: URLs, schema `queue_workspace_draft`, timeouts, prompt “no afirmar éxito si success=false” **y hablar siempre `result`**.
+- Vercel env: `RETELL_API_KEY`, `GUIDE_RETELL_TOOL_SECRET`, WhatsApp/Gmail del dueño; opcional `GUIDE_RETELL_TOOL_WRITE_TIMEOUT_MS`.
 - Publish Retell solo con `GUIDE_RETELL_PUBLISH_OK=1` y autorización explícita.
 - Deploy producción: no sin OK.
+- E2E voz real (secuencia OKR→tarea→WA→email→cancel→fin): pendiente en staging.
+- Consultas operativas: validar en llamada real «¿cuántas tengo en rojo?» → «Todas» sin reabrir dashboard; publish prompt `enviardian-voz-2026-11-17-queries` solo con OK.
 
 ## Migraciones
 
@@ -104,7 +115,8 @@ Sin migración nueva en esta pasada. Dependencias ya existentes: consult_log, ac
 ```text
 vitest: guideToolResult, guideReportSanitize, guideRetellTool,
         enviardianAuditScenarios, enviardianReportDocument,
-        workspaceDraftFinalize, guideUserLinks, guideWork, workspaceDraftVoice
+        workspaceDraftFinalize, guideUserLinks, guideWork, workspaceDraftVoice,
+        actionQueryContract, operationalInterpret
 ```
 
 No se ejecutaron envíos reales ni creación productiva de acciones/iniciativas.

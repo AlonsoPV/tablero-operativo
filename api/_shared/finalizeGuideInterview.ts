@@ -77,7 +77,7 @@ async function loadCommunicationDraftRefs(
     .select('id,tool,payload,preview,status')
     .eq('session_id', sessionId)
     .eq('usuario_id', usuarioId)
-    .in('tool', ['gmail_prepare_send', 'gmail_prepare_reply', 'whatsapp_prepare_send', 'calendar_prepare_event'])
+    .in('tool', ['gmail_prepare_send', 'gmail_prepare_reply', 'whatsapp_prepare_send', 'notify_action_email', 'calendar_prepare_event'])
     .order('created_at', { ascending: true })
     .limit(12)
   if (error) {
@@ -95,7 +95,7 @@ async function loadCommunicationDraftRefs(
         ? 'whatsapp'
         : tool.startsWith('calendar_')
           ? 'event'
-          : tool.startsWith('gmail_')
+          : tool === 'notify_action_email' || tool.startsWith('gmail_')
             ? 'email'
             : 'other'
     return {
