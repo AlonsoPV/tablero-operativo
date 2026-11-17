@@ -30,13 +30,31 @@ import type {
   CopilotToolResult,
 } from '../../src/features/ai-support/copilot/types.js'
 import { dispatchBoardReadTool } from './assistantBoardReads.js'
+import {
+  actionMatchesStatusGroup,
+  actionMatchesVisual,
+  canUseWideActionScope,
+  parseActionQueryScope,
+  parseActionQueryStatusGroup,
+  parseActionQueryVisual,
+  populationLabel,
+  type ActionQueryScope,
+  type ActionQueryStatusGroup,
+  type PriorityCatalogRow,
+} from './actionQueryContract.js'
+import { invokeNotificationEmail } from './invokeNotificationEmail.js'
+import {
+  ACCION_SHARE_EMAIL_TITLE,
+  buildAccionEmailPayload,
+} from '../../src/lib/accionNotificationEmail.js'
 
 export type { CopilotActor } from './assistantPending.js'
 
 const OPEN_STATES = ['Pendiente', 'Hoy', 'En_Ejecucion', 'Bloqueado', 'Retraso']
 const ACTION_COLS =
-  'id,fecha,titulo_accion,descripcion_accion,responsable,created_by,hora_limite,evidencia_esperada,evidencia_cargada,estado,prioridad,area,updated_at,verificador_dato,verificador_gobierno'
+  'id,fecha,titulo_accion,descripcion_accion,responsable,created_by,hora_limite,evidencia_esperada,evidencia_cargada,estado,prioridad,prioridad_id,area,updated_at,verificador_dato,verificador_gobierno'
 const STALE_DAYS = 3
+const MY_ACTIONS_READ_LIMIT = 200
 
 type ActionRow = {
   id: string
@@ -50,6 +68,7 @@ type ActionRow = {
   evidencia_cargada?: boolean | null
   estado?: string | null
   prioridad?: string | null
+  prioridad_id?: string | null
   area?: string | null
   updated_at?: string | null
   verificador_dato?: string | null
@@ -131,6 +150,67 @@ async function loadOpenActions(actor: CopilotActor, allBoard: boolean) {
   const { data, error } = await q.order('fecha', { ascending: true }).limit(80)
   if (error) throw error
   return (data ?? []) as ActionRow[]
+}
+
+async function loadPriorityCatalog(actor: CopilotActor): Promise<PriorityCatalogRow[]> {
+  const { data, error } = await actor.supabase
+    .from('priorities')
+    .select('id,nombre,color,activo')
+    .eq('activo', true)
+    .limit(80)
+  if (error) {
+    console.warn('loadPriorityCatalog', error.message)
+    return []
+  }
+  return (data ?? []) as PriorityCatalogRow[]
+}
+
+async function loadActionsForScope(
+  actor: CopilotActor,
+  scope: ActionQueryScope,
+  statusGroup: ActionQueryStatusGroup
+): Promise<{ rows: ActionRow[]; loadTruncated: boolean }> {
+  const uid = actor.usuarioId
+  if (statusGroup === 'verification') {
+    let q = actor.supabase.from('acciones_diarias').select(ACTION_COLS).eq('estado', 'Hecho')
+    if (scope === 'assigned_to_me') {
+      q = q.or(
+        `responsable.eq.${uid},verificador_dato.eq.${uid},verificador_gobierno.eq.${uid}`
+      )
+    } else if (scope === 'created_by_me') {
+      q = q.eq('created_by', uid)
+    } else if (scope === 'assigned_to_me_or_created') {
+      q = q.or(
+        `responsable.eq.${uid},created_by.eq.${uid},verificador_dato.eq.${uid},verificador_gobierno.eq.${uid}`
+      )
+    } else {
+      // team/board: verification relacionadas al actor siguen acotadas a su vínculo
+      q = q.or(
+        `responsable.eq.${uid},verificador_dato.eq.${uid},verificador_gobierno.eq.${uid},created_by.eq.${uid}`
+      )
+    }
+    const { data, error } = await q.order('fecha', { ascending: true }).limit(MY_ACTIONS_READ_LIMIT)
+    if (error) throw error
+    const rows = (data ?? []) as ActionRow[]
+    return { rows, loadTruncated: readWasTruncated(rows.length, MY_ACTIONS_READ_LIMIT) }
+  }
+
+  let q = actor.supabase.from('acciones_diarias').select(ACTION_COLS).in('estado', OPEN_STATES)
+  if (scope === 'assigned_to_me') {
+    q = q.eq('responsable', uid)
+  } else if (scope === 'created_by_me') {
+    q = q.eq('created_by', uid)
+  } else if (scope === 'assigned_to_me_or_created') {
+    q = q.or(`responsable.eq.${uid},created_by.eq.${uid}`)
+  }
+  // team_authorized / board_authorized: sin filtro de persona (autorización previa)
+  const { data, error } = await q.order('fecha', { ascending: true }).limit(MY_ACTIONS_READ_LIMIT)
+  if (error) throw error
+  let rows = (data ?? []) as ActionRow[]
+  if (scope === 'team_authorized') {
+    rows = rows.filter((row) => row.responsable !== uid)
+  }
+  return { rows, loadTruncated: readWasTruncated((data ?? []).length, MY_ACTIONS_READ_LIMIT) }
 }
 
 async function loadAction(actor: CopilotActor, id: string) {
@@ -235,46 +315,65 @@ function readOk(tool: CopilotToolName, data: unknown): CopilotToolResult {
 }
 
 async function toolGetMyActions(actor: CopilotActor, args: Record<string, unknown>): Promise<CopilotToolResult> {
-  const filter = asString(args.filter, 32) || 'open'
+  const scope = parseActionQueryScope(args.scope)
+  const status_group = parseActionQueryStatusGroup(args.status_group, args.filter)
+  const visual = parseActionQueryVisual(args.visual)
+  const includeCount = args.include_count !== false
   const today = todayWallClockCDMX()
   const weekEnd = addDays(today, 7)
   const now = Date.now()
-  if (filter === 'verification') {
-    const { data, error } = await actor.supabase
-      .from('acciones_diarias')
-      .select(ACTION_COLS)
-      .eq('estado', 'Hecho')
-      .or(
-        `responsable.eq.${actor.usuarioId},verificador_dato.eq.${actor.usuarioId},verificador_gobierno.eq.${actor.usuarioId},created_by.eq.${actor.usuarioId}`
-      )
-      .limit(20)
-    if (error) throw error
-    return readOk('get_my_actions', {
-      filter,
-      items: ((data ?? []) as ActionRow[]).map(summarizeAction),
-    })
+  const asOf = new Date().toISOString()
+
+  if (!canUseWideActionScope(scope, { rol: actor.rol, boardScope: actor.boardScope })) {
+    return denied(
+      'get_my_actions',
+      'No tienes vista de tablero completo. Usa scope assigned_to_me o created_by_me.'
+    )
   }
-  const rows = await loadOpenActions(actor, false)
+
+  const [{ rows, loadTruncated }, priorities] = await Promise.all([
+    loadActionsForScope(actor, scope, status_group),
+    visual === 'none' ? Promise.resolve([] as PriorityCatalogRow[]) : loadPriorityCatalog(actor),
+  ])
+
   const filtered = rows.filter((row) => {
-    const action = row.id && row.estado && row.fecha
-      ? { id: row.id, estado: row.estado, fecha: row.fecha, hora_limite: row.hora_limite }
-      : null
-    if (filter === 'overdue') return action != null && isCorporateOverdue(action)
-    if (filter === 'due_week') return Boolean(row.fecha && row.fecha >= today && row.fecha <= weekEnd && !(action && isCorporateOverdue(action)))
-    if (filter === 'blocked') return action != null && isCorporateBlocked(action)
-    if (filter === 'stale') {
-      const t = row.updated_at ? Date.parse(row.updated_at) : NaN
-      return Number.isFinite(t) && now - t >= STALE_DAYS * 86_400_000
+    if (
+      !actionMatchesStatusGroup(row, status_group, {
+        today,
+        weekEnd,
+        now,
+        staleDays: STALE_DAYS,
+      })
+    ) {
+      return false
     }
-    return true
+    return actionMatchesVisual(row, visual, priorities, now)
   })
-  const items = clipList(filtered.map(summarizeAction), asNumber(args.limit) ?? 10)
+
+  const limit = asNumber(args.limit) ?? (includeCount ? 10 : 10)
+  const items = clipList(filtered.map(summarizeAction), limit)
+  const total = filtered.length
+  const filters_applied = { status_group, visual }
+  const population = populationLabel(scope)
+
   return readOk('get_my_actions', {
-    filter,
+    scope,
+    filters_applied,
+    filter: status_group,
+    status_group,
+    visual,
     today,
-    population: 'acciones_corporativas',
-    truncated: readWasTruncated(rows.length, 80) || filtered.length > items.length,
+    as_of: asOf,
+    population,
+    total,
+    count: total,
+    returned: items.length,
+    truncated: loadTruncated || filtered.length > items.length,
     items,
+    spoken_hint:
+      includeCount
+        ? `Di el total del campo total (${total}). No inventes cifras ni diagnostiques sin pedir recomendacion.`
+        : undefined,
   })
 }
 
@@ -634,6 +733,117 @@ async function proposeVerify(actor: CopilotActor, args: Record<string, unknown>)
   return { ok: true, tool: 'verify_action', kind: 'proposal', proposal }
 }
 
+async function loadUsuarioNames(actor: CopilotActor, ids: Array<string | null | undefined>) {
+  const unique = [...new Set(ids.filter((id): id is string => Boolean(id && id.trim())))]
+  if (unique.length === 0) return new Map<string, string>()
+  const { data } = await actor.supabase.from('usuarios').select('id,nombre').in('id', unique)
+  const map = new Map<string, string>()
+  for (const row of data ?? []) {
+    const id = typeof row.id === 'string' ? row.id : ''
+    const nombre = typeof row.nombre === 'string' ? row.nombre.trim() : ''
+    if (id && nombre) map.set(id, nombre)
+  }
+  return map
+}
+
+async function proposeNotifyActionEmail(
+  actor: CopilotActor,
+  args: Record<string, unknown>
+): Promise<CopilotToolResult> {
+  const resolved = await resolveAction(actor, args)
+  if ('missing' in resolved) return denied('notify_action_email', resolved.missing)
+  if ('question' in resolved) return clarification('notify_action_email', resolved)
+  if (!resolved.responsable) {
+    return denied(
+      'notify_action_email',
+      'La accion necesita un responsable para enviar el correo.'
+    )
+  }
+
+  const { data: checkpoints } = await actor.supabase
+    .from('accion_checkpoints')
+    .select('texto')
+    .eq('accion_id', resolved.id)
+    .eq('activo', true)
+    .order('orden', { ascending: true })
+
+  const names = await loadUsuarioNames(actor, [
+    resolved.responsable,
+    resolved.created_by,
+    actor.usuarioId,
+  ])
+  const mensaje = asString(args.mensaje, 500)
+  const prioridadRaw = asString(args.prioridad, 20)
+  const prioridad =
+    prioridadRaw === 'Alta' || prioridadRaw === 'Urgente' ? prioridadRaw : ('Normal' as const)
+
+  const emailPayload = {
+    ...buildAccionEmailPayload({
+      accionId: resolved.id,
+      tituloAccion: resolved.titulo_accion ?? '',
+      descripcionAccion: resolved.descripcion_accion ?? '',
+      responsableId: resolved.responsable,
+      responsableNombre: names.get(resolved.responsable) ?? null,
+      fecha: resolved.fecha,
+      horaLimite: resolved.hora_limite,
+      creadorId: resolved.created_by ?? null,
+      creadorNombre: resolved.created_by ? names.get(resolved.created_by) ?? null : null,
+      checklist: (checkpoints ?? [])
+        .map((row) => (typeof row.texto === 'string' ? row.texto : ''))
+        .filter(Boolean),
+      titulo: ACCION_SHARE_EMAIL_TITLE,
+      asignadorId: actor.usuarioId,
+      asignadorNombre: names.get(actor.usuarioId) ?? null,
+    }),
+    ...(mensaje ? { mensaje } : {}),
+    fecha_envio_manual: new Date().toISOString(),
+  }
+
+  const responsableNombre = names.get(resolved.responsable) || 'Responsable'
+  const fechaCompromiso = String(emailPayload.fecha_compromiso ?? '') || 'Sin fecha'
+  const proposal = await createPendingOp(actor, {
+    tool: 'notify_action_email',
+    resourceId: resolved.id,
+    expectedUpdatedAt: resolved.updated_at,
+    payload: {
+      usuario_id: resolved.responsable,
+      tipo: 'responsable',
+      prioridad,
+      email_payload: emailPayload,
+    },
+    proposal: {
+      title: 'Correo de accion (tablero)',
+      summary: `Se enviara la notificacion del tablero a ${responsableNombre} sobre "${actionTitle(resolved)}".`,
+      fields: [
+        { label: 'Destinatario', to: responsableNombre },
+        { label: 'Asunto', to: ACCION_SHARE_EMAIL_TITLE },
+        { label: 'Fecha compromiso', to: fechaCompromiso },
+        ...(mensaje ? [{ label: 'Mensaje', to: mensaje }] : []),
+      ],
+      record: {
+        id: resolved.id,
+        title: actionTitle(resolved),
+        href: actionHref(resolved.id),
+      },
+      workspace: {
+        kind: 'email',
+        to: [responsableNombre],
+        subject: ACCION_SHARE_EMAIL_TITLE,
+        body: [
+          `Accion: ${actionTitle(resolved)}`,
+          `Responsable: ${responsableNombre}`,
+          `Fecha compromiso: ${fechaCompromiso}`,
+          mensaje ? `Mensaje: ${mensaje}` : '',
+          'Remitente: correo de notificaciones del tablero (organizacion).',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      },
+    },
+  })
+  return { ok: true, tool: 'notify_action_email', kind: 'proposal', proposal }
+}
+
 export async function dispatchCopilotTool(
   actor: CopilotActor,
   name: string,
@@ -668,6 +878,8 @@ export async function dispatchCopilotTool(
         return await proposeDone(actor, args)
       case 'verify_action':
         return await proposeVerify(actor, args)
+      case 'notify_action_email':
+        return await proposeNotifyActionEmail(actor, args)
       case 'confirm_pending_op':
         return await toolConfirmPendingOp(actor, args)
       case 'cancel_pending_op':
@@ -853,6 +1065,44 @@ async function executePayload(actor: CopilotActor, tool: string, payload: Record
     if (count === 0) throw new Error('No se pudo verificar. Revisa permisos.')
     return { id: payload.action_id, href: actionHref(String(payload.action_id)), estado: 'Verificado' }
   }
+  if (tool === 'notify_action_email') {
+    const usuarioId = asString(payload.usuario_id, 80)
+    const emailPayload =
+      payload.email_payload && typeof payload.email_payload === 'object'
+        ? (payload.email_payload as Record<string, unknown>)
+        : null
+    if (!usuarioId || !emailPayload) {
+      throw new Error('Falta el destinatario o el contenido del correo de accion.')
+    }
+    const prioridadRaw = asString(payload.prioridad, 20)
+    const prioridad =
+      prioridadRaw === 'Alta' || prioridadRaw === 'Urgente' ? prioridadRaw : ('Normal' as const)
+    const result = await invokeNotificationEmail(actor.accessToken || '', {
+      usuario_id: usuarioId,
+      tipo: asString(payload.tipo, 40) || 'responsable',
+      prioridad,
+      payload: emailPayload,
+    })
+    if (result.skipped === true) {
+      const detail = [result.reason, result.message ?? result.error].filter(Boolean).join(': ')
+      throw new Error(detail || 'El correo de notificacion fue omitido.')
+    }
+    if (result.ok === false) {
+      throw new Error(
+        [result.reason, result.message ?? result.error].filter(Boolean).join(': ') ||
+          'No se pudo enviar el correo de notificacion.'
+      )
+    }
+    const actionId = asString(emailPayload.accion_id, 80)
+    return {
+      id: actionId || usuarioId,
+      href: actionId ? actionHref(actionId) : undefined,
+      title: asString(emailPayload.titulo_accion, 120) || ACCION_SHARE_EMAIL_TITLE,
+      provider: result.provider ?? 'gmail',
+      email_id: result.email_id ?? null,
+      notified_usuario_id: usuarioId,
+    }
+  }
   if (isGoogleWriteTool(tool)) {
     return executeGoogleWrite(actor, tool, payload)
   }
@@ -988,7 +1238,11 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string) {
   }
 }
 
-export async function cancelPendingOp(actor: CopilotActor, opId: string) {
+export async function cancelPendingOp(
+  actor: CopilotActor,
+  opId: string,
+  opts?: { reason?: string | null }
+) {
   const { data, error } = await actor.supabase
     .from('assistant_pending_ops')
     .select('id,usuario_id,tool,resource_id,status')
@@ -998,9 +1252,20 @@ export async function cancelPendingOp(actor: CopilotActor, opId: string) {
   if (data.usuario_id !== actor.usuarioId) throw new Error('Esa operación no te pertenece.')
   if (data.status === 'confirmed') throw new Error('La operación ya se ejecutó.')
   if (data.status === 'cancelled') return { status: 'cancelled' as const }
+  if (data.status === 'expired' || data.status === 'conflict') {
+    throw new Error('Esta operación ya no se puede descartar.')
+  }
+  const reason =
+    typeof opts?.reason === 'string' && opts.reason.trim()
+      ? `discarded: ${opts.reason.trim().slice(0, 180)}`
+      : `discarded_by:${actor.usuarioId}`
   const { error: updateError } = await actor.supabase
     .from('assistant_pending_ops')
-    .update({ status: 'cancelled', decided_at: new Date().toISOString() })
+    .update({
+      status: 'cancelled',
+      decided_at: new Date().toISOString(),
+      error_message: reason.slice(0, 220),
+    })
     .eq('id', opId)
     .in('status', ['pending', 'executing'])
   if (updateError) throw updateError
@@ -1009,6 +1274,7 @@ export async function cancelPendingOp(actor: CopilotActor, opId: string) {
     result: 'cancelled',
     pendingOpId: opId,
     resourceId: data.resource_id as string | null,
+    summary: reason.slice(0, 120),
   })
   return { status: 'cancelled' as const }
 }

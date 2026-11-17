@@ -15,6 +15,12 @@ import {
   type EnviardianVerifiedMetric,
   type EvidenceKind,
 } from '@/features/guide/enviardianReportDocument'
+import {
+  countActionablePendingOps,
+  isBoardPendingTool,
+  isCommunicationPendingTool,
+  splitPendingOpsByPresentation,
+} from '@/features/ai-support/copilot/pendingOpTaxonomy'
 import type { GuideCreatedWork } from '@/features/guide/types'
 
 const CDMX_TZ = 'America/Mexico_City'
@@ -102,12 +108,30 @@ export type EnviardianReportViewModel = {
     recommendations: ReportRecommendationView[]
   }
   block3: {
+    /** Ops de comunicación (WA/email/evento) accionables. */
+    communicationOps: ReportLiveOp[]
+    /** Ops de tablero accionables. */
+    boardOps: ReportLiveOp[]
+    /** confirmed / cancelled / expired / conflict. */
+    historyOps: ReportLiveOp[]
+    /** created_work ejecutado (sin duplicar ops). */
+    executed: ReportFollowUpItem[]
+    /**
+     * Narrativa IA (no cuenta como pendiente accionable).
+     * Se conserva para referencia; la UI del bloque 3 no la trata como aprobación.
+     */
+    narrativeNotes: {
+      pendingDecisions: string[]
+      confirmedDecisions: string[]
+      orphanCommitments: ReportFollowUpItem[]
+    }
+    /** @deprecated usar communicationOps + boardOps */
+    communications: ReportLiveOp[]
+    /** @deprecated no inflar pendientes con session_actions sin op */
     boardProposals: ReportFollowUpItem[]
     pendingDecisions: string[]
-    executed: ReportFollowUpItem[]
     confirmedDecisions: string[]
     orphanCommitments: ReportFollowUpItem[]
-    communications: ReportLiveOp[]
   }
 }
 
@@ -163,11 +187,6 @@ function commitmentStatusLabel(status: EnviardianCommitment['status']) {
   if (status === 'confirmed') return 'Confirmado'
   if (status === 'proposal') return 'Propuesta'
   return 'Por confirmar'
-}
-
-function isPendingOp(op: ReportLiveOp) {
-  const status = op.status || 'pending'
-  return status !== 'confirmed' && status !== 'cancelled'
 }
 
 function buildKeyPoints(doc: EnviardianReportDocument): string[] {
@@ -261,6 +280,11 @@ export function buildReportViewModel(input: {
   if (!document) return null
 
   const communications = (input.communications ?? []).filter((op) => op.id)
+  const split = splitPendingOpsByPresentation(communications)
+  const communicationOps = split.communications
+  const boardOps = [...split.board, ...split.other]
+  const historyOps = split.history
+
   const sessionActions =
     document.session_actions?.length > 0
       ? document.session_actions.filter((a) => a.status !== 'recommendation' && a.kind !== 'recommendation')
@@ -278,29 +302,24 @@ export function buildReportViewModel(input: {
     if (op.title) claim(op.title)
   }
 
-  const boardProposals: ReportFollowUpItem[] = []
+  /** Solo trabajo ya ejecutado en tablero; pendientes viven en boardOps (pending_ops). */
   const executed: ReportFollowUpItem[] = []
+  const boardProposals: ReportFollowUpItem[] = []
 
   for (const action of sessionActions) {
+    if (action.status !== 'executed') continue
     if (!claim(action.title)) continue
-    const item: ReportFollowUpItem = {
+    executed.push({
       key: action.id || `action:${normTitle(action.title)}`,
-      kind: action.status === 'executed' ? 'executed' : 'board',
+      kind: 'executed',
       title: action.title,
       ownerHint: action.ownerHint,
       dueDateHint: action.dueDateHint,
       statusLabel: sessionActionStatusLabel(action.status),
-      statusTone:
-        action.status === 'executed'
-          ? 'executed'
-          : action.status === 'pending_confirmation'
-            ? 'pending'
-            : 'proposal',
+      statusTone: 'executed',
       href: action.href,
       id: action.id,
-    }
-    if (action.status === 'executed') executed.push(item)
-    else boardProposals.push(item)
+    })
   }
 
   const orphanCommitments: ReportFollowUpItem[] = []
@@ -325,11 +344,8 @@ export function buildReportViewModel(input: {
   const pendingDecisions = document.pending_decisions.filter((line) => claim(line))
   const confirmedDecisions = document.confirmed_decisions.filter((line) => claim(`decision:${line}`))
 
-  const pendingReviewCount =
-    communications.filter(isPendingOp).length +
-    boardProposals.length +
-    orphanCommitments.filter((c) => c.statusTone !== 'executed').length +
-    pendingDecisions.length
+  /** Contador exclusivo de ops persistidas, únicas y accionables. */
+  const pendingReviewCount = countActionablePendingOps(communications)
 
   const recommendations = document.recommendations.map(parseRecommendationText).filter((r) => r.text)
 
@@ -376,12 +392,20 @@ export function buildReportViewModel(input: {
       recommendations,
     },
     block3: {
+      communicationOps,
+      boardOps,
+      historyOps,
+      executed,
+      narrativeNotes: {
+        pendingDecisions,
+        confirmedDecisions,
+        orphanCommitments,
+      },
+      communications,
       boardProposals,
       pendingDecisions,
-      executed,
       confirmedDecisions,
       orphanCommitments,
-      communications,
     },
   }
 }
@@ -397,11 +421,17 @@ export function countPendingReview(vm: EnviardianReportViewModel) {
 export function hasFollowUpContent(vm: EnviardianReportViewModel) {
   const b = vm.block3
   return (
-    b.boardProposals.length > 0 ||
-    b.pendingDecisions.length > 0 ||
-    b.executed.length > 0 ||
-    b.confirmedDecisions.length > 0 ||
-    b.orphanCommitments.length > 0 ||
-    b.communications.length > 0
+    b.communicationOps.length > 0 ||
+    b.boardOps.length > 0 ||
+    b.historyOps.length > 0 ||
+    b.executed.length > 0
   )
+}
+
+export function isCommunicationOp(op: ReportLiveOp) {
+  return isCommunicationPendingTool(op.tool)
+}
+
+export function isBoardOp(op: ReportLiveOp) {
+  return isBoardPendingTool(op.tool)
 }

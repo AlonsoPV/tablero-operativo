@@ -64,11 +64,14 @@ export async function runGeminiToolLoop(input: {
   proposals: CopilotProposal[]
   clarification?: CopilotClarification
   toolTrace: Array<{ tool: string; kind: string }>
+  /** Resultados de lectura/error para proyectar UI estructurada en el cliente. */
+  toolReads: Array<{ tool: string; kind: string; data?: unknown; error?: string }>
   usage?: GeminiResponse['usageMetadata']
 }> {
   const contents = [...input.contents]
   const proposals: CopilotProposal[] = []
   const toolTrace: Array<{ tool: string; kind: string }> = []
+  const toolReads: Array<{ tool: string; kind: string; data?: unknown; error?: string }> = []
   let clarification: CopilotClarification | undefined
   let lastUsage: GeminiResponse['usageMetadata']
   let finishReason: string | undefined
@@ -141,6 +144,14 @@ export async function runGeminiToolLoop(input: {
       }
       const result: CopilotToolResult = await dispatchCopilotTool(input.actor, call.name, call.args)
       toolTrace.push({ tool: result.tool, kind: result.kind })
+      if (result.kind === 'read' || result.kind === 'denied' || result.kind === 'error') {
+        toolReads.push({
+          tool: result.tool,
+          kind: result.kind,
+          data: result.data,
+          error: result.error,
+        })
+      }
       if (result.proposal) proposals.push(result.proposal)
       if (result.clarification && !clarification) clarification = result.clarification
       responseParts.push({
@@ -160,6 +171,7 @@ export async function runGeminiToolLoop(input: {
     proposals,
     clarification,
     toolTrace,
+    toolReads,
     usage: lastUsage,
   }
 }

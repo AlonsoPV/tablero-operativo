@@ -23,7 +23,7 @@ const key = process.env.RETELL_API_KEY
 const agentId = process.env.RETELL_GUIDE_AGENT_ID
 const toolSecret = process.env.GUIDE_RETELL_TOOL_SECRET
 const publishOk = process.env.GUIDE_RETELL_PUBLISH_OK === '1'
-const PROMPT_VERSION = 'enviardian-voz-2026-11-17-intents'
+const PROMPT_VERSION = 'enviardian-voz-2026-11-17-dict'
 
 if (!key || !agentId || !toolSecret) {
   console.error('Faltan RETELL_API_KEY, RETELL_GUIDE_AGENT_ID o GUIDE_RETELL_TOOL_SECRET')

@@ -3,7 +3,7 @@
  */
 
 const TOOL_NAME_RE =
-  /\b(get_okr_progress|get_my_actions|get_team_actions|get_action_details|get_dashboard_summary|get_module_data|get_org_chart|search_board|search_people|get_pending_verifications|create_action|update_action|confirm_pending_op|cancel_pending_op|queue_workspace_draft|gmail_prepare_send|whatsapp_prepare_send|scrumban)\b/i
+  /\b(get_okr_progress|get_my_actions|get_team_actions|get_action_details|get_dashboard_summary|get_module_data|get_org_chart|search_board|search_people|get_pending_verifications|create_action|update_action|confirm_pending_op|cancel_pending_op|queue_workspace_draft|gmail_prepare_send|whatsapp_prepare_send|notify_action_email|scrumban)\b/i
 
 const TECH_PHRASE_RE =
   /\b(timeout|timed out|PERMISSION_DENIED|AUTHENTICATION_FAILED|SESSION_NOT_FOUND|VALIDATION_FAILED|DATABASE_ERROR|PROVIDER_ERROR|firma de retell|tool call|http\s*[45]\d\d|stack trace|ECONNRESET|fetch failed|no pude guardar el borrador|no afirmo que se (haya )?enviado|no inventes que se envio)\b/i

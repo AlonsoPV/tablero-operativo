@@ -8,6 +8,8 @@ export type CopilotActor = {
   usuarioId: string
   authUserId: string
   rol: string | null
+  /** JWT del usuario; necesario para invocar edge functions autenticadas (p. ej. send-notification-email). */
+  accessToken?: string
   /** organization = lectura piloto de toda la org (voz por URL). Default: role. */
   boardScope?: CopilotBoardScope
   /** Canal voz Retell: lecturas más cortas y payloads compactos. */

@@ -64,6 +64,7 @@ export function AssistantProposalCard({
 
   const googleWrite = isGoogleWriteTool(proposal.tool)
   const whatsappWrite = proposal.tool === 'whatsapp_prepare_send'
+  const boardNotifyEmail = proposal.tool === 'notify_action_email'
   const canEdit = !disableEdit && (googleWrite || whatsappWrite) && status === 'pending'
   const view = toActionCardView(proposal, {
     status: busy === 'confirm' || busy === 'cancel' ? 'executing' : status,
@@ -73,15 +74,13 @@ export function AssistantProposalCard({
   })
   const tone = actionLifecycleTone(view.status)
   const typeLabel = actionTypeLabel(view.tool, view.kind)
+  const needsInfo =
+    Boolean(view.whatsappPreview?.needsInfo) ||
+    Boolean(proposal.workspace?.needsInfo) ||
+    Boolean(proposal.workspace?.incomplete) ||
+    (view.kind === 'email' && !(proposal.workspace?.to && proposal.workspace.to.length > 0))
   const approveLabel =
-    view.kind === 'board'
-      ? 'Aprobar'
-      : view.whatsappPreview?.needsInfo ||
-          proposal.workspace?.needsInfo ||
-          proposal.workspace?.incomplete ||
-          (view.kind === 'email' && !(proposal.workspace?.to && proposal.workspace.to.length > 0))
-        ? 'Completar informacion'
-        : 'Aprobar y enviar'
+    view.kind === 'board' ? 'Aprobar y ejecutar' : needsInfo ? 'Completar informacion' : 'Aprobar y enviar'
 
   const confirm = async () => {
     setBusy('confirm')
@@ -97,11 +96,13 @@ export function AssistantProposalCard({
       toast.success(
         whatsappWrite
           ? 'WhatsApp aceptado por el proveedor.'
-          : googleWrite
-            ? 'Listo en Google Workspace.'
-            : view.kind === 'board'
-              ? 'Accion creada en el tablero.'
-              : 'Operacion ejecutada.'
+          : boardNotifyEmail
+            ? 'Correo de accion enviado al responsable.'
+            : googleWrite
+              ? 'Listo en Google Workspace.'
+              : view.kind === 'board'
+                ? 'Accion creada en el tablero.'
+                : 'Operacion ejecutada.'
       )
     } catch (err) {
       const message = err instanceof Error ? err.message : 'No se pudo confirmar.'
@@ -288,50 +289,73 @@ export function AssistantProposalCard({
           <p className="text-[12px] text-slate-500">Descartado.</p>
         ) : readOnly ? (
           <p className="text-[12px] text-slate-500">
-            Pendiente de revision. Inicia sesion como el dueno para aprobar y enviar.
+            Pendiente de revision. Inicia sesion como el dueno para editar, aprobar o descartar.
           </p>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              className="h-8 rounded-full px-3"
-              disabled={
-                busy !== null ||
-                Boolean(view.whatsappPreview?.needsInfo) ||
-                Boolean(proposal.workspace?.needsInfo) ||
-                Boolean(proposal.workspace?.incomplete) ||
-                (view.kind === 'email' && !(proposal.workspace?.to && proposal.workspace.to.length > 0))
-              }
-              onClick={() => void confirm()}
-            >
-              {busy === 'confirm' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-              {approveLabel}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-8 rounded-full px-3"
-              disabled={busy !== null}
-              onClick={() => void cancel()}
-            >
-              {busy === 'cancel' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-              Descartar
-            </Button>
-            {canEdit ? (
+          <div className="space-y-2">
+            {needsInfo ? (
+              <p className="text-[11px] text-amber-800">
+                Faltan datos indispensables.
+                {view.whatsappPreview?.needsInfoReason
+                  ? ` ${view.whatsappPreview.needsInfoReason}`
+                  : proposal.workspace?.needsInfoReason
+                    ? ` ${proposal.workspace.needsInfoReason}`
+                    : ' Completa la informacion antes de aprobar.'}
+              </p>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {needsInfo && canEdit ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 rounded-full px-3"
+                  disabled={busy !== null}
+                  onClick={() => setEditOpen(true)}
+                >
+                  <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden />
+                  Completar informacion
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 rounded-full px-3"
+                  disabled={busy !== null || needsInfo}
+                  onClick={() => void confirm()}
+                >
+                  {busy === 'confirm' ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden />
+                  ) : null}
+                  {approveLabel}
+                </Button>
+              )}
+              {canEdit && !needsInfo ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 rounded-full px-3"
+                  disabled={busy !== null}
+                  onClick={() => setEditOpen(true)}
+                >
+                  <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden />
+                  Editar
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 size="sm"
-                variant="outline"
+                variant="ghost"
                 className="h-8 rounded-full px-3"
                 disabled={busy !== null}
-                onClick={() => setEditOpen(true)}
+                onClick={() => void cancel()}
               >
-                <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden />
-                Editar
+                {busy === 'cancel' ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden />
+                ) : null}
+                Descartar
               </Button>
-            ) : null}
+            </div>
           </div>
         )}
       </div>

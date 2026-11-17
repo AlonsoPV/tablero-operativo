@@ -29,6 +29,7 @@ export default defineApiHandler(async (req, res) => {
       usuarioId: auth.usuarioId,
       authUserId: auth.authUserId,
       rol: auth.rol,
+      accessToken: auth.token,
     }
 
     if (req.method === 'GET') {

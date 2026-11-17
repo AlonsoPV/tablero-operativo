@@ -1,10 +1,9 @@
 /**
  * Estado, informe y WhatsApp de una entrevista abierta con liga personal.
  * Auth: el token de la liga (no se acepta un id de otra persona).
- * Confirm/cancel de pending ops: guide_token + op de la misma sesión (sin JWT de app).
+ * Confirm/cancel desde la liga publica estan deshabilitados (LOGIN_REQUIRED).
  */
 import { createServiceRoleClient } from '../assistantAuth.js'
-import { cancelPendingOp, confirmPendingOp } from '../assistantOpsRuntime.js'
 import { finalizeGuideInterview } from '../finalizeGuideInterview.js'
 import {
   retellCallEndedAt,
@@ -13,8 +12,6 @@ import {
 } from '../guideInterviewReport.js'
 import {
   effectiveInviteAccessMode,
-  guideBoardScopeForAccessMode,
-  isGuideWriteAllowed,
   resolveGuideLinkOwner,
   verifyGuideAccessGrant,
   type GuideAccessMode,
@@ -23,7 +20,6 @@ import { fetchRetellCall } from '../retellCallFetch.js'
 import { shareGuideReport } from '../shareGuideReport.js'
 import { defineApiHandler, readRequestBody } from '../http.js'
 import { proposalFromPendingRow } from '../assistantGoogleTools.js'
-import type { CopilotActor } from '../assistantPending.js'
 
 const PUBLIC_JOURNAL =
   'id,usuario_id,topic,summary,learning,intention,reflection_question,user_words,agent_inferences,executive_report,created_at'
@@ -72,7 +68,6 @@ export default defineApiHandler(async (req, res) => {
   const token = typeof body?.guide_token === 'string' ? body.guide_token.trim() : ''
   const accessGrant = typeof body?.access_grant === 'string' ? body.access_grant.trim() : ''
   const action = typeof body?.action === 'string' ? body.action : 'status'
-  const opId = typeof body?.op_id === 'string' ? body.op_id.trim() : ''
   if (!token) return res.status(400).json({ error: 'Falta la liga.' })
 
   let supabase: ReturnType<typeof createServiceRoleClient>
@@ -141,67 +136,12 @@ export default defineApiHandler(async (req, res) => {
   }
 
   if (action === 'confirm_pending' || action === 'cancel_pending') {
-    if (!opId) return res.status(400).json({ error: 'Falta op_id.' })
-    if (!isGuideWriteAllowed(accessMode)) {
-      return res.status(403).json({
-        error: 'Este modo de liga no permite aprobar acciones. Usa una liga con permiso de escritura.',
-      })
-    }
-    const { data: opRow, error: opError } = await supabase
-      .from('assistant_pending_ops')
-      .select('id,usuario_id,session_id,tool,status')
-      .eq('id', opId)
-      .maybeSingle()
-    if (opError || !opRow) {
-      return res.status(404).json({ error: 'No encontré esa operación pendiente.' })
-    }
-    if (opRow.usuario_id !== owner.usuario_id) {
-      return res.status(403).json({ error: 'Esa operación no pertenece a esta liga.' })
-    }
-    if (!opRow.session_id || opRow.session_id !== session.id) {
-      return res.status(403).json({ error: 'Esa operación no pertenece a esta entrevista.' })
-    }
-    if (!INVITE_PENDING_TOOLS.includes(String(opRow.tool) as (typeof INVITE_PENDING_TOOLS)[number])) {
-      return res.status(403).json({ error: 'Esta operación no se puede aprobar desde la liga.' })
-    }
-
-    const { data: usuario, error: userError } = await supabase
-      .from('usuarios')
-      .select('id,user_id,rol,activo')
-      .eq('id', owner.usuario_id)
-      .maybeSingle()
-    if (userError || !usuario?.id || usuario.activo === false || !usuario.user_id) {
-      return res.status(403).json({ error: 'El dueño de la liga no puede ejecutar operaciones ahora.' })
-    }
-
-    const actor: CopilotActor = {
-      supabase,
-      usuarioId: String(usuario.id),
-      authUserId: String(usuario.user_id),
-      rol: typeof usuario.rol === 'string' ? usuario.rol : null,
-      boardScope: guideBoardScopeForAccessMode(accessMode),
-      voiceChannel: true,
-      guideAccessMode: accessMode,
-    }
-
-    try {
-      if (action === 'cancel_pending') {
-        const result = await cancelPendingOp(actor, opId)
-        const communications = await loadSessionPendingOps(supabase, session.id, owner.usuario_id)
-        return res.status(200).json({ ...result, communications })
-      }
-      const result = await confirmPendingOp(actor, opId)
-      const communications = await loadSessionPendingOps(supabase, session.id, owner.usuario_id)
-      return res.status(200).json({
-        status: result.status,
-        result: result.result,
-        communications,
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo completar la operacion.'
-      const conflict = /cambio despues|expiro|cancelada/i.test(message)
-      return res.status(conflict ? 409 : 400).json({ error: message.slice(0, 240) })
-    }
+    // Política: la liga pública es solo lectura. Aprobar/descartar requiere sesión del dueño en la app.
+    return res.status(403).json({
+      error:
+        'La liga publica solo permite consultar el informe. Inicia sesion como el dueno para editar, aprobar o descartar.',
+      code: 'LOGIN_REQUIRED',
+    })
   }
 
   const POLL_TIMEOUT_MS = 90_000

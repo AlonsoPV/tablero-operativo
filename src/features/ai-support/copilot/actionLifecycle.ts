@@ -2,6 +2,7 @@
  * Ciclo de vida unificado de acciones Enviardian (pending ops + workspace drafts).
  */
 import type { CopilotProposal } from '@/features/ai-support/copilot/types'
+import { sanitizeRecipientFacingText } from '@/features/ai-support/copilot/pendingOpTaxonomy'
 
 export type ActionLifecycleStatus =
   | 'preparing'
@@ -46,11 +47,11 @@ export type ActionCardView = {
 }
 
 export function actionStatusLabel(status: ActionLifecycleStatus): string {
-  if (status === 'preparing') return 'Preparando'
+  if (status === 'preparing') return 'Borrador preparado'
   if (status === 'needs_info') return 'Requiere informacion'
-  if (status === 'pending_confirmation') return 'Pendiente de aprobacion'
-  if (status === 'executing') return 'Enviando'
-  if (status === 'completed') return 'Aceptado por el proveedor'
+  if (status === 'pending_confirmation') return 'Listo para revisar'
+  if (status === 'executing') return 'Ejecutando'
+  if (status === 'completed') return 'Ejecutado'
   if (status === 'error') return 'Fallido'
   return 'Descartado'
 }
@@ -64,20 +65,20 @@ export function communicationStatusLabel(input: {
 }): string {
   if (input.lifecycle === 'cancelled') return 'Descartado'
   if (input.lifecycle === 'error' || input.errorMessage) return 'Fallido'
-  if (input.lifecycle === 'executing') return 'Enviando'
+  if (input.lifecycle === 'executing') return 'Ejecutando'
   if (input.lifecycle === 'needs_info' || input.incomplete) {
     return input.incomplete && input.lifecycle !== 'needs_info'
-      ? 'Borrador en preparacion'
+      ? 'Borrador preparado'
       : 'Requiere informacion'
   }
-  if (input.lifecycle === 'preparing') return 'Borrador en preparacion'
+  if (input.lifecycle === 'preparing') return 'Borrador preparado'
   if (input.lifecycle === 'completed') {
     const delivery = (input.deliveryStatus || '').toLowerCase()
     if (delivery === 'delivered' || delivery === 'read') return 'Entregado'
     if (delivery === 'failed') return 'Fallido'
     return 'Aceptado por el proveedor'
   }
-  return 'Pendiente de aprobacion'
+  return 'Listo para revisar'
 }
 
 /** Mapear estado de UI/ops al ciclo de vida. */
@@ -108,7 +109,9 @@ export function toActionCardView(
   const kind: ActionCardView['kind'] =
     workspace?.kind === 'whatsapp' || proposal.tool === 'whatsapp_prepare_send'
       ? 'whatsapp'
-      : workspace?.kind === 'email' || proposal.tool.startsWith('gmail_')
+      : workspace?.kind === 'email' ||
+          proposal.tool.startsWith('gmail_') ||
+          proposal.tool === 'notify_action_email'
         ? 'email'
         : workspace?.kind === 'event' || proposal.tool.startsWith('calendar_')
           ? 'event'
@@ -136,7 +139,7 @@ export function toActionCardView(
             to: workspace?.to ?? [],
             cc: workspace?.cc,
             subject: workspace?.subject,
-            body: workspace?.body,
+            body: sanitizeRecipientFacingText(workspace?.body),
           }
         : undefined,
     eventPreview:
@@ -153,7 +156,7 @@ export function toActionCardView(
         ? {
             recipientName: workspace?.recipientName,
             phone: workspace?.phone,
-            body: workspace?.body,
+            body: sanitizeRecipientFacingText(workspace?.body),
             needsInfo: workspace?.needsInfo,
             needsInfoReason: workspace?.needsInfoReason,
           }
@@ -218,6 +221,7 @@ export function actionLifecycleTone(status: ActionLifecycleStatus): {
 
 export function actionTypeLabel(tool: string, kind: ActionCardView['kind']): string {
   if (kind === 'whatsapp') return 'WhatsApp'
+  if (tool === 'notify_action_email') return 'Correo de accion'
   if (kind === 'email') return 'Correo'
   if (kind === 'event') return 'Evento'
   if (tool === 'create_action') return 'Crear accion'

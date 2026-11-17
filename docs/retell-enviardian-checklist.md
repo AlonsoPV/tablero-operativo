@@ -67,9 +67,9 @@ No editar el agente de entrevistas (`RETELL_AGENT_ID`).
 | `scrumban.execution_message_description` | (ausente) | `Un momento, consulto el tablero.` |
 | `scrumban.speak_after_execution` | `true` | `true` (sin cambio) |
 | `scrumban.timeout_ms` | `30000` | `30000` (backend tipa ~3s con `GUIDE_RETELL_TOOL_TIMEOUT_MS`) |
-| `scrumban` descripción | lista plana de tools | prefer `get_my_actions` / `get_okr_progress` / `get_dashboard_summary`; evitar `search_board` / `get_module_data` amplios |
+| `scrumban` descripción | prefer my+okr+dashboard al mismo nivel | mis/tengo/responsable → **solo** `get_my_actions`; `get_okr_progress` personal; `get_dashboard_summary`/`get_team_actions` solo alcance explícito (tablero/equipo/org); servidor reescribe follow-up personal si el LLM elige dashboard |
 | `get_session_state.speak_during_execution` | según draft | `true` + mensaje `Un segundo.` |
-| Prompt version | `enviardian-voz-2026-11-16-comms` | `enviardian-voz-2026-11-17-intent` (taxonomía A–D comunicaciones; sin publish hasta OK) |
+| Prompt version | `enviardian-voz-2026-11-17-queries` | `enviardian-voz-2026-11-17-dict` (SSOT ops-dict; Kanban≠OKR; sin publish hasta OK) |
 | `confirm_pending_op` / `cancel_pending_op` | ausente | en `RETELL_WRITE_TOOLS` + steering `scrumban` (solo `access_mode=propose`) |
 
 Estado en repo (código + script listos; remoto solo tras OK):
@@ -141,9 +141,10 @@ Hasta completar A–Z contra una URL real, la integracion de voz no esta cerrada
 2. URL de `queue_workspace_draft` → `https://<vercel>/api/guide-queue-workspace-draft`.
 3. URL de board tools → `/api/guide-retell-tool` (o bridge).
 4. JSON Schema: `action`, `channel`, `purpose`, `recipient`, `pending_op_id`, `content_instructions`, `conversation_context`, `uttered_at`.
-5. Timeout custom function ≥ latencia p95 del backend (hoy `GUIDE_RETELL_TOOL_TIMEOUT_MS` default 3000; Retell dashboard aparte).
+5. Timeout custom function ≥ latencia p95 del backend (`GUIDE_RETELL_TOOL_TIMEOUT_MS` default 3000 lectura; `GUIDE_RETELL_TOOL_WRITE_TIMEOUT_MS` default 8000 escritura; Retell dashboard aparte).
 6. Prompt: no afirmar éxito si la tool responde `success: false`.
-7. Publicar solo con `GUIDE_RETELL_PUBLISH_OK=1`.
+7. Prompt: **siempre hablar** el campo `result` / `error.user_message` de la tool; nunca quedarse en silencio tras un tool call.
+8. Publicar solo con `GUIDE_RETELL_PUBLISH_OK=1`.
 
 ## Observabilidad
 

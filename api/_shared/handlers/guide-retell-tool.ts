@@ -32,28 +32,51 @@ import {
   statusToErrorCode,
   type GuideToolPayload,
 } from '../guideToolResult.js'
+import {
+  buildActiveQueryEntry,
+  mergeActionQueryArgs,
+  maybeRewriteWideToolToMyActions,
+  parseActionQueryScope,
+  parseActionQueryStatusGroup,
+  parseActionQueryVisual,
+  readLatestActiveQuery,
+  type ActionActiveQuery,
+} from '../actionQueryContract.js'
+import {
+  interpretOperationalMessage,
+  shouldClarifyCreate,
+} from '../operationalInterpret.js'
 
 function asString(value: unknown, max = 80) {
   return typeof value === 'string' ? value.trim().slice(0, max) : ''
 }
 
 function timedOutResult(tool: string) {
+  const writeTool =
+    /queue_workspace|prepare_send|prepare_event|create_action|confirm_pending|cancel_pending/i.test(
+      tool
+    )
   return guideToolFailure({
     code: 'TIMEOUT',
-    user_message: 'No pude recuperar ese dato a tiempo. No inventes cifras; ofrece reintentar o reformular.',
+    user_message: writeTool
+      ? 'Estoy registrando la solicitud. Al terminar la llamada podras revisarla en el informe. No digas que ya se envio ni que fallo.'
+      : 'No pude recuperar ese dato a tiempo. No inventes cifras; ofrece reintentar o continuar sin ese dato.',
     tool,
+    retryable: true,
   })
 }
+
+type ConsultLogPayload = ConsultLogEntry | ActionActiveQuery
 
 async function appendConsultLog(
   supabase: ReturnType<typeof createServiceRoleClient>,
   sessionId: string,
-  entry: ConsultLogEntry
+  entry: ConsultLogPayload
 ) {
   const rpc = await supabase.rpc('append_guide_consult_log', {
     p_session_id: sessionId,
     p_entry: entry,
-    p_max: 16,
+    p_max: 24,
   })
   if (!rpc.error) return
 
@@ -66,8 +89,8 @@ async function appendConsultLog(
     console.error('guide-retell-tool log read', error.message)
     return
   }
-  const current = Array.isArray(data?.consult_log) ? (data.consult_log as ConsultLogEntry[]) : []
-  const next = [...current, entry].slice(-16)
+  const current = Array.isArray(data?.consult_log) ? (data.consult_log as ConsultLogPayload[]) : []
+  const next = [...current, entry].slice(-24)
   const updated = await supabase.from('guide_sessions').update({ consult_log: next }).eq('id', sessionId)
   if (updated.error) console.error('guide-retell-tool log write', updated.error.message)
 }
@@ -75,7 +98,7 @@ async function appendConsultLog(
 function scheduleConsultLog(
   supabase: ReturnType<typeof createServiceRoleClient>,
   sessionId: string,
-  entry: ConsultLogEntry
+  entry: ConsultLogPayload
 ) {
   const logStarted = Date.now()
   void appendConsultLog(supabase, sessionId, entry)
@@ -97,7 +120,8 @@ export default defineApiHandler(async (req, res) => {
   const authStarted = Date.now()
   const apiKey = readStringEnv('RETELL_API_KEY')
   const toolSecret = readStringEnv('GUIDE_RETELL_TOOL_SECRET')
-  const toolTimeoutMs = readNumberEnv('GUIDE_RETELL_TOOL_TIMEOUT_MS', 3000)
+  const toolTimeoutMsDefault = readNumberEnv('GUIDE_RETELL_TOOL_TIMEOUT_MS', 3000)
+  const toolTimeoutMsWrite = readNumberEnv('GUIDE_RETELL_TOOL_WRITE_TIMEOUT_MS', 8000)
   const rawBody = typeof req.rawBody === 'string' ? req.rawBody : ''
   const signature = readHeader(req, 'x-retell-signature')
   const guideSecret = readHeader(req, 'x-guide-tool-secret')
@@ -202,6 +226,7 @@ export default defineApiHandler(async (req, res) => {
     status?: string
     guide_link_id?: string | null
     access_mode?: string | null
+    consult_log?: unknown
   }
   type ToolResponse = GuideToolPayload
   type WorkDone =
@@ -217,6 +242,8 @@ export default defineApiHandler(async (req, res) => {
         accessMode: GuideAccessMode
         usuario: { id: string }
         classified: ReturnType<typeof classifyRetellToolResult>
+        tool: string
+        rewrote_from: string | null
       }
 
   try {
@@ -226,15 +253,22 @@ export default defineApiHandler(async (req, res) => {
       const sessionStarted = Date.now()
       let sessionQuery = await supabase
         .from('guide_sessions')
-        .select('id,usuario_id,provider,status,guide_link_id,access_mode')
+        .select('id,usuario_id,provider,status,guide_link_id,access_mode,consult_log')
         .eq('id', parsed.sessionId)
         .maybeSingle()
-      if (sessionQuery.error && /access_mode|guide_link_id/i.test(sessionQuery.error.message ?? '')) {
+      if (sessionQuery.error && /access_mode|guide_link_id|consult_log/i.test(sessionQuery.error.message ?? '')) {
         sessionQuery = await supabase
           .from('guide_sessions')
-          .select('id,usuario_id,provider,status')
+          .select('id,usuario_id,provider,status,guide_link_id,access_mode')
           .eq('id', parsed.sessionId)
           .maybeSingle()
+        if (sessionQuery.error && /access_mode|guide_link_id/i.test(sessionQuery.error.message ?? '')) {
+          sessionQuery = await supabase
+            .from('guide_sessions')
+            .select('id,usuario_id,provider,status')
+            .eq('id', parsed.sessionId)
+            .maybeSingle()
+        }
       }
       session_ms = Date.now() - sessionStarted
       const raw = sessionQuery.data as {
@@ -244,6 +278,7 @@ export default defineApiHandler(async (req, res) => {
         status?: string
         guide_link_id?: string | null
         access_mode?: string | null
+        consult_log?: unknown
       } | null
       if (sessionQuery.error || !raw?.id || raw.provider !== 'retell' || !raw.usuario_id) {
         return {
@@ -264,6 +299,7 @@ export default defineApiHandler(async (req, res) => {
         status: raw.status,
         guide_link_id: raw.guide_link_id ?? null,
         access_mode: raw.access_mode ?? null,
+        consult_log: raw.consult_log,
       }
       if (session.status !== 'active' && session.status !== 'closing') {
         return {
@@ -335,6 +371,101 @@ export default defineApiHandler(async (req, res) => {
       }
 
       const dispatchStarted = Date.now()
+      let toolName = parsed.tool
+      let toolArgs = { ...parsed.args }
+      const previous = readLatestActiveQuery(session.consult_log)
+      const utterance =
+        asString(toolArgs.utterance, 240) ||
+        asString(toolArgs.user_utterance, 240) ||
+        asString(toolArgs.follow_up, 240) ||
+        asString(toolArgs.request, 240) ||
+        null
+      let rewrote_from: string | null = null
+
+      // Capa semántica: Kanban vs iniciativa — aclarar sin despachar create.
+      if (
+        (toolName === 'create_action' || /create_initiative|create_okr/i.test(toolName)) &&
+        utterance
+      ) {
+        const interpreted = interpretOperationalMessage(utterance, { activeQuery: previous })
+        if (shouldClarifyCreate(interpreted)) {
+          const question =
+            interpreted.ambiguity?.question ||
+            '¿La registramos como tarea del Kanban o como iniciativa del OKR?'
+          return {
+            early: true,
+            session,
+            accessMode,
+            response: guideToolSuccess({
+              message: question,
+              status: 'needs_clarification',
+              tool: toolName,
+              data: {
+                clarify: 'kanban_vs_initiative',
+                dictionary_version: interpreted.dictionaryVersion,
+              },
+            }),
+          }
+        }
+        if (interpreted.intent === 'propose_create_initiative' && toolName === 'create_action') {
+          return {
+            early: true,
+            session,
+            accessMode,
+            response: guideToolSuccess({
+              message:
+                'Eso suena a iniciativa OKR, no a una tarea Kanban. Confirma si quieres una iniciativa o una accion operativa.',
+              status: 'needs_clarification',
+              tool: toolName,
+              data: {
+                clarify: 'initiative_not_kanban',
+                dictionary_version: interpreted.dictionaryVersion,
+                toolHint: interpreted.toolHint,
+              },
+            }),
+          }
+        }
+      }
+
+      const rewritten = maybeRewriteWideToolToMyActions({
+        tool: toolName,
+        args: toolArgs,
+        previous,
+        utterance,
+      })
+      if (rewritten.rewrote) {
+        toolName = rewritten.tool
+        toolArgs = rewritten.args
+        rewrote_from = rewritten.rewrote_from ?? parsed.tool
+      }
+      if (toolName === 'get_my_actions') {
+        const interpreted = utterance
+          ? interpretOperationalMessage(utterance, { activeQuery: previous })
+          : null
+        const merged = mergeActionQueryArgs(
+          {
+            ...toolArgs,
+            ...(interpreted?.filters?.scope ? { scope: interpreted.filters.scope } : {}),
+            ...(interpreted?.filters?.status_group
+              ? { status_group: interpreted.filters.status_group }
+              : {}),
+            ...(interpreted?.filters?.visual ? { visual: interpreted.filters.visual } : {}),
+          },
+          previous,
+          utterance
+        )
+        toolArgs = {
+          ...toolArgs,
+          scope: merged.scope,
+          status_group: merged.status_group,
+          visual: merged.visual,
+          include_count: toolArgs.include_count !== false,
+        }
+        if (merged.limit != null) toolArgs.limit = merged.limit
+        delete toolArgs.utterance
+        delete toolArgs.user_utterance
+        delete toolArgs.follow_up
+      }
       const result = await dispatchCopilotTool(
         {
           supabase,
@@ -346,25 +477,54 @@ export default defineApiHandler(async (req, res) => {
           guideAccessMode: accessMode,
           guideSessionId: session.id,
         },
-        parsed.tool,
-        parsed.args
+        toolName,
+        toolArgs
       )
       dispatch_ms = Date.now() - dispatchStarted
       const classified = classifyRetellToolResult(result)
-      const entry = consultLogEntry(parsed.tool, classified.status, classified.data, undefined, {
+      const entry = consultLogEntry(toolName, classified.status, classified.data, undefined, {
         summaryHint: classified.spoken,
         error_code: classified.error_code,
         denial_reason: classified.denial_reason,
       })
       scheduleConsultLog(supabase, session.id, entry)
+      if (
+        toolName === 'get_my_actions' &&
+        (classified.status === 'ok' || classified.status === 'empty') &&
+        result.ok
+      ) {
+        const wrapped = result.data as { payload?: Record<string, unknown> } | Record<string, unknown> | null
+        const data =
+          wrapped && typeof wrapped === 'object' && 'payload' in wrapped && wrapped.payload
+            ? wrapped.payload
+            : (wrapped as Record<string, unknown> | null)
+        const active = buildActiveQueryEntry({
+          scope: parseActionQueryScope(data?.scope ?? toolArgs.scope),
+          status_group: parseActionQueryStatusGroup(
+            data?.status_group ?? toolArgs.status_group,
+            toolArgs.filter
+          ),
+          visual: parseActionQueryVisual(data?.visual ?? toolArgs.visual ?? 'none'),
+        })
+        // Persistencia tipada para follow-ups («todas», «cuáles», «en rojo»).
+        scheduleConsultLog(supabase, session.id, active)
+      }
       return {
         early: false,
         session,
         accessMode,
         usuario: { id: String(usuario.id) },
         classified,
+        tool: toolName,
+        rewrote_from,
       }
     }
+
+    const isWriteTool =
+      /queue_workspace|prepare_send|prepare_event|create_action|update_action|confirm_pending|cancel_pending/i.test(
+        parsed.tool
+      )
+    const toolTimeoutMs = isWriteTool ? toolTimeoutMsWrite : toolTimeoutMsDefault
 
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined
     const raced = await Promise.race([
@@ -452,6 +612,7 @@ export default defineApiHandler(async (req, res) => {
     }
 
     const okStatuses = new Set(['ok', 'empty', 'needs_clarification', 'needs_confirmation'])
+    const effectiveTool = done.tool || parsed.tool
     const failureCode =
       done.classified.error_code ??
       statusToErrorCode(done.classified.status, done.classified.spoken)
@@ -460,7 +621,7 @@ export default defineApiHandler(async (req, res) => {
         ? guideToolSuccess({
             message: done.classified.spoken,
             status: done.classified.status,
-            tool: parsed.tool,
+            tool: effectiveTool,
             data: done.classified.data,
             operation_id:
               done.classified.data &&
@@ -473,7 +634,7 @@ export default defineApiHandler(async (req, res) => {
             code: failureCode,
             user_message: done.classified.spoken,
             status: done.classified.status === 'denied' ? 'denied' : 'error',
-            tool: parsed.tool,
+            tool: effectiveTool,
             data: done.classified.data,
           })
     console.info(
@@ -483,7 +644,7 @@ export default defineApiHandler(async (req, res) => {
           call_id: callId,
           session: asString(done.session.id),
           invitation_id: done.session.guide_link_id ?? null,
-          tool: parsed.tool,
+          tool: effectiveTool,
           status: done.classified.status,
           access_mode: done.accessMode,
           auth_ms,
@@ -494,6 +655,7 @@ export default defineApiHandler(async (req, res) => {
           payload_bytes: estimatePayloadBytes(payload),
           ms: Date.now() - started,
           ignored_model_user: Boolean(parsed.modelUsuarioId && parsed.modelUsuarioId !== done.usuario.id),
+          rewrote_from: done.rewrote_from,
         })
       )
     )
@@ -501,7 +663,7 @@ export default defineApiHandler(async (req, res) => {
       request_id: requestId,
       call_id: callId,
       session_id: done.session.id,
-      tool_name: parsed.tool,
+      tool_name: effectiveTool,
       operation_id: payload.operation_id,
       phase: 'complete',
       success: payload.success,

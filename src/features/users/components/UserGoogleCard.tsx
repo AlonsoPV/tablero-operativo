@@ -22,9 +22,10 @@ export function UserGoogleCard() {
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: statusKey,
     queryFn: fetchGoogleConnectionStatus,
+    retry: 1,
   })
 
   useEffect(() => {
@@ -71,6 +72,12 @@ export function UserGoogleCard() {
       <SectionCardBody className="space-y-3 p-4 sm:p-5">
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Cargando conexion…</p>
+        ) : isError ? (
+          <p className="text-sm text-destructive">
+            {error instanceof Error
+              ? error.message
+              : 'No se pudo consultar Google Workspace.'}
+          </p>
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-2">

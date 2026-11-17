@@ -67,6 +67,15 @@ export function isRetryableToolError(code: GuideToolErrorCode) {
   return RETRYABLE.has(code)
 }
 
+/** Texto hablable mínimo para Retell; nunca vacío. */
+export function ensureSpokenText(
+  value: unknown,
+  fallback = 'Listo. Podemos continuar con la conversacion.'
+): string {
+  const text = typeof value === 'string' ? value.trim() : ''
+  return text || fallback
+}
+
 export function guideToolSuccess(input: {
   message: string
   status: string
@@ -79,6 +88,10 @@ export function guideToolSuccess(input: {
   data?: unknown
 }): GuideToolSuccessPayload {
   const operation_id = input.operation_id ?? input.pending_op_id ?? null
+  const message = ensureSpokenText(
+    input.message,
+    'Ya registre la propuesta para que puedas revisarla al terminar.'
+  )
   return {
     success: true,
     ok: true,
@@ -86,8 +99,8 @@ export function guideToolSuccess(input: {
     status: input.status,
     entity_type: input.entity_type,
     entity_id: input.entity_id ?? null,
-    message: input.message,
-    result: input.message,
+    message,
+    result: message,
     pending_op_id: input.pending_op_id ?? operation_id,
     pending_op_ids: input.pending_op_ids ?? (operation_id ? [operation_id] : []),
     tool: input.tool ?? null,
@@ -108,6 +121,10 @@ export function guideToolFailure(input: {
   retryable?: boolean
 }): GuideToolFailurePayload {
   const operation_id = input.operation_id ?? input.pending_op_id ?? null
+  const user_message = ensureSpokenText(
+    input.user_message,
+    'No pude completar esa solicitud. Podemos continuar.'
+  )
   return {
     success: false,
     ok: false,
@@ -116,9 +133,9 @@ export function guideToolFailure(input: {
     error: {
       code: input.code,
       retryable: input.retryable ?? isRetryableToolError(input.code),
-      user_message: input.user_message,
+      user_message,
     },
-    result: input.user_message,
+    result: user_message,
     pending_op_id: input.pending_op_id ?? null,
     pending_op_ids: input.pending_op_ids ?? [],
     tool: input.tool ?? null,

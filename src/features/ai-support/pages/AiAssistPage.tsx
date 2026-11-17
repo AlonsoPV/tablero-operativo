@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   Bot,
   Check,
@@ -26,7 +26,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { UNIFIED_ASSISTANT_MODE, assistantProfile } from '@/lib/assistantModes'
+import { UNIFIED_ASSISTANT_MODE } from '@/lib/assistantModes'
 import type { AiChatMessage } from '@/features/ai-support/types'
 import type { BoardAssistantContextPayload } from '@/features/ai-support/buildBoardAssistantContext'
 import {
@@ -40,6 +40,11 @@ import {
   sliceContextForIntent,
   tryFactualAssistantReply,
 } from '@/features/ai-support/operationalContext'
+import {
+  runConversationTurn,
+  type ConversationQueryState,
+} from '@/features/ai-support/conversation'
+import type { NamedPerson } from '@/features/ai-support/copilot/matching'
 import { assistantOperationalContextService } from '@/features/ai-support/services/assistantOperationalContext.service'
 import {
   buildAssistantBriefing,
@@ -48,6 +53,7 @@ import {
 } from '@/features/ai-support/assistantBriefing'
 import { AssistantBriefingPanel } from '@/features/ai-support/components/AssistantBriefingPanel'
 import { StructuredAssistantReply } from '@/features/ai-support/components/StructuredAssistantReply'
+import { AssistantReplyViews } from '@/features/ai-support/chatViews'
 import { AssistantProposalCard } from '@/features/ai-support/components/AssistantProposalCard'
 import { AssistantClarificationChips } from '@/features/ai-support/components/AssistantClarificationChips'
 import { ActionDraftList } from '@/features/ai-support/components/ActionDraftList'
@@ -61,6 +67,7 @@ import { useSpeechRecognition } from '@/features/ai-support/useSpeechRecognition
 import { getAssistantAuthHeaders } from '@/lib/assistantApiAuth'
 import { requestAssistantTextAnalysis } from '@/lib/assistantAudioClient'
 import {
+  looksLikeCommsPrepare,
   looksLikeCreateWork,
   looksLikeDraftCorrection,
   resolveWriteIntent,
@@ -90,11 +97,18 @@ const OPEN_ACTION_STATES = ['Pendiente', 'Hoy', 'En_Ejecucion', 'Bloqueado', 'Re
 const ANALYSIS_PROMPT =
   'Analiza mis acciones abiertas y OKRs. Dime que conviene optimizar primero y dame 3 recomendaciones ejecutivas.'
 const PORTFOLIO_PROMPTS = [
-  'Que tengo pendiente?',
+  'Que acciones tengo abiertas?',
+  'Cuales he asignado yo?',
+  'Cuantas hay en el tablero?',
   'Que deberia priorizar hoy?',
   'Como van mis OKRs?',
-  'Que esta retrasando al equipo?',
-  ANALYSIS_PROMPT,
+]
+const CONVERSATION_FILTER_CHIPS = [
+  'Asignadas a mi',
+  'Asignadas por mi',
+  'Tablero',
+  'Vencidas',
+  'Enlistalas',
 ]
 const ACTION_PROMPTS = [
   'Valida si esta accion esta lista para cerrarse y dime que falta.',
@@ -140,6 +154,7 @@ type GeminiChatResponse = {
   error?: string
   proposals?: AiChatMessage['proposals']
   clarification?: AiChatMessage['clarification']
+  ui?: AiChatMessage['ui']
 }
 
 async function readChatResponse(response: Response): Promise<GeminiChatResponse> {
@@ -203,6 +218,7 @@ async function sendMessage({
     answer: data.answer || 'No pude generar una respuesta en este momento.',
     proposals: data.proposals,
     clarification: data.clarification,
+    ui: data.ui ?? undefined,
   }
 }
 
@@ -279,6 +295,7 @@ function FilterMultiSelect({
   onChange,
   disabled,
   className,
+  tone = 'default',
 }: {
   label: string
   emptyLabel: string
@@ -288,7 +305,11 @@ function FilterMultiSelect({
   onChange: (next: string[]) => void
   disabled?: boolean
   className?: string
+  /** `focus` = dropdown de contexto (distinto al switch Hablar/Escribir). */
+  tone?: 'default' | 'focus'
 }) {
+  const hasSelection = values.length > 0
+  const isFocus = tone === 'focus'
   const summary =
     values.length === 0
       ? emptyLabel
@@ -301,25 +322,91 @@ function FilterMultiSelect({
       <DropdownMenuTrigger asChild disabled={disabled || options.length === 0}>
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           disabled={disabled || options.length === 0}
           className={cn(
-            'h-8 w-full justify-between rounded-xl bg-background/80 px-2 text-[11px] font-normal',
+            'group h-9 w-full justify-between gap-2 px-2.5 text-[12px] font-medium transition duration-200',
+            'focus-visible:ring-2 focus-visible:ring-ring',
+            'disabled:translate-y-0 disabled:opacity-50',
+            isFocus
+              ? [
+                  'rounded-lg border border-dashed border-border/70 bg-background text-muted-foreground shadow-none',
+                  'hover:border-border hover:bg-muted/40 hover:text-foreground',
+                  hasSelection &&
+                    'border-solid border-border bg-muted/50 text-foreground hover:bg-muted/70',
+                ]
+              : [
+                  'rounded-2xl border border-border/50 bg-background/70 shadow-[0_10px_24px_-22px_rgba(15,23,42,0.45)] backdrop-blur-sm',
+                  'hover:-translate-y-px hover:border-primary/35 hover:bg-background hover:shadow-[0_14px_28px_-22px_rgba(15,23,42,0.4)]',
+                  hasSelection &&
+                    'border-primary/30 bg-primary/[0.08] text-foreground shadow-[0_12px_28px_-22px_hsl(var(--primary)/0.45)] hover:bg-primary/[0.12]',
+                ],
             className
           )}
         >
-          <span className="flex min-w-0 items-center gap-1">
-            {icon}
-            <span className="truncate">{summary}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            {icon ? (
+              <span
+                className={cn(
+                  'inline-flex shrink-0 items-center justify-center transition',
+                  isFocus
+                    ? cn(
+                        'h-5 w-5 rounded-md',
+                        hasSelection ? 'text-foreground' : 'text-muted-foreground'
+                      )
+                    : cn(
+                        'h-6 w-6 rounded-xl',
+                        hasSelection
+                          ? 'bg-primary/15 text-primary'
+                          : 'bg-muted/80 text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary'
+                      )
+                )}
+              >
+                {icon}
+              </span>
+            ) : null}
+            <span className="truncate tracking-tight">{summary}</span>
           </span>
-          <ChevronDown className="h-3 w-3 shrink-0 opacity-60" aria-hidden />
+          <span className="flex shrink-0 items-center gap-1.5">
+            {values.length > 1 ? (
+              <span
+                className={cn(
+                  'inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+                  isFocus
+                    ? 'bg-foreground/10 text-foreground'
+                    : hasSelection
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground'
+                )}
+              >
+                {values.length}
+              </span>
+            ) : null}
+            <ChevronDown
+              className={cn(
+                'h-3.5 w-3.5 shrink-0 transition duration-200',
+                isFocus
+                  ? 'text-muted-foreground/80'
+                  : hasSelection
+                    ? 'text-primary/80'
+                    : 'text-muted-foreground/70',
+                'group-data-[state=open]:rotate-180'
+              )}
+              aria-hidden
+            />
+          </span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-64 w-[min(20rem,var(--radix-dropdown-menu-trigger-width))] overflow-y-auto">
-        <DropdownMenuLabel className="text-[11px]">{label}</DropdownMenuLabel>
-        <DropdownMenuSeparator />
+      <DropdownMenuContent
+        align="start"
+        className="max-h-64 w-[min(20rem,var(--radix-dropdown-menu-trigger-width))] overflow-y-auto rounded-2xl border-border/60 p-1.5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.55)]"
+      >
+        <DropdownMenuLabel className="px-2 py-1.5 text-[11px] font-semibold tracking-tight text-muted-foreground">
+          {label}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator className="mx-1" />
         {options.length === 0 ? (
-          <p className="px-2 py-1.5 text-[11px] text-muted-foreground">Sin opciones</p>
+          <p className="px-2 py-2 text-[11px] text-muted-foreground">Sin opciones</p>
         ) : (
           options.map((option) => {
             const checked = values.includes(option.value)
@@ -329,10 +416,10 @@ function FilterMultiSelect({
                 checked={checked}
                 onSelect={(event) => event.preventDefault()}
                 onCheckedChange={() => onChange(toggleId(values, option.value))}
-                className="text-[11px]"
+                className="rounded-xl text-[12px]"
               >
                 <span className="flex items-center gap-1.5">
-                  {checked ? <Check className="h-3 w-3 shrink-0" aria-hidden /> : null}
+                  {checked ? <Check className="h-3 w-3 shrink-0 text-primary" aria-hidden /> : null}
                   <span className="truncate">{option.label}</span>
                 </span>
               </DropdownMenuCheckboxItem>
@@ -355,6 +442,54 @@ function normalizeAssistantLine(line: string) {
     .replace(/^#+\s+/, '')
     .replace(/\*\*/g, '')
     .trim()
+}
+
+/** Inline markdown seguro: negritas y enlaces http(s)/rutas internas. Sin HTML arbitrario. */
+function renderInlineSafe(text: string): ReactNode {
+  const parts: ReactNode[] = []
+  const pattern = /(\*\*([^*]+)\*\*|\[([^\]]+)\]\((\/[^)\s]*|https?:\/\/[^)\s]+)\))/g
+  let last = 0
+  let match: RegExpExecArray | null
+  let key = 0
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > last) {
+      parts.push(text.slice(last, match.index))
+    }
+    if (match[2]) {
+      parts.push(
+        <strong key={`b-${key++}`} className="font-semibold text-foreground">
+          {match[2]}
+        </strong>
+      )
+    } else if (match[3] && match[4]) {
+      const href = match[4]
+      const isInternal = href.startsWith('/')
+      parts.push(
+        isInternal ? (
+          <Link
+            key={`a-${key++}`}
+            to={href}
+            className="font-medium text-primary underline-offset-2 hover:underline"
+          >
+            {match[3]}
+          </Link>
+        ) : (
+          <a
+            key={`a-${key++}`}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-primary underline-offset-2 hover:underline"
+          >
+            {match[3]}
+          </a>
+        )
+      )
+    }
+    last = match.index + match[0].length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts.length ? parts : text
 }
 
 function isAssistantHeading(line: string) {
@@ -460,7 +595,7 @@ function AssistantMessageBody({
                   <span className="mt-0.5 inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
                     {itemIndex + 1}
                   </span>
-                  <span className="min-w-0">{item}</span>
+                  <span className="min-w-0">{renderInlineSafe(item)}</span>
                 </li>
               ))}
             </ul>
@@ -468,7 +603,7 @@ function AssistantMessageBody({
         }
         return (
           <p key={`p-${index}`} className="text-foreground/90">
-            {block.text}
+            {renderInlineSafe(block.text)}
           </p>
         )
       })}
@@ -506,6 +641,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
   const [okrContextEnabled, setOkrContextEnabled] = useState(true)
   const [focusKind, setFocusKind] = useState<FocusKind>('portfolio')
   const [messages, setMessages] = useState<AiChatMessage[]>([])
+  const [conversationState, setConversationState] = useState<ConversationQueryState | null>(null)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -640,6 +776,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
       canSeeOkrs,
       openActions,
       pendingVerificationActions: operationalLoad.data?.pendingVerificationActions ?? [],
+      usuarioNombreById: operationalLoad.data?.usuarioNombreById,
       priorities,
       okrData: canSeeOkrs ? okrDashboard.data : null,
       today: todayWallClockCDMX(),
@@ -655,6 +792,10 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     userOpenActions,
   ])
   const boardContext = operationalSnapshot?.board ?? null
+  const conversationPeople = useMemo((): NamedPerson[] => {
+    const map = operationalLoad.data?.usuarioNombreById ?? {}
+    return Object.entries(map).map(([id, nombre]) => ({ id, nombre }))
+  }, [operationalLoad.data?.usuarioNombreById])
   const voiceContext = useMemo(
     () =>
       serializeAssistantKanbanContext(
@@ -667,7 +808,9 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     ? [...OKR_PROMPTS, PORTFOLIO_PROMPTS[0]]
     : activeActionContext
       ? [...ACTION_PROMPTS, PORTFOLIO_PROMPTS[0]]
-      : PORTFOLIO_PROMPTS
+      : conversationState?.entity === 'kanban_action'
+        ? CONVERSATION_FILTER_CHIPS
+        : PORTFOLIO_PROMPTS
 
   const briefing = useMemo(
     () =>
@@ -720,6 +863,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
 
   const clearChat = () => {
     setMessages([])
+    setConversationState(null)
     setInput('')
   }
 
@@ -819,6 +963,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     const isCorrection = Boolean(
       previousAnalysis &&
         !looksLikeCreateWork(trimmed) &&
+        !looksLikeCommsPrepare(trimmed) &&
         (looksLikeDraftCorrection(trimmed) || writeIntent === 'create')
     )
     const intent = isCorrection ? 'create' : resolveWriteIntent(trimmed, writeIntent)
@@ -861,7 +1006,38 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         const hasExplicitFocus = activeActionContext || activeOkrContext
 
         if (operationalSnapshot) {
-          const factual = tryFactualAssistantReply(trimmed, operationalSnapshot, intent)
+          const turn = runConversationTurn({
+            message: trimmed,
+            previous: conversationState,
+            snapshot: operationalSnapshot,
+            people: conversationPeople,
+          })
+          if (turn.handled) {
+            setConversationState(turn.reply.state)
+            setMessages(
+              [
+                ...nextMessages,
+                {
+                  role: 'assistant' as const,
+                  content: turn.reply.content,
+                  ui: turn.reply.ui,
+                  clarification: turn.reply.clarification,
+                },
+              ].slice(-MAX_MESSAGES)
+            )
+            return
+          }
+          // handoff: limpiar pending clarify y seguir a Gemini/tools
+          setConversationState(turn.state.entity === 'none' ? null : turn.state)
+        }
+
+        if (operationalSnapshot && (intent === 'okrs' || intent === 'team_delay')) {
+          const priorUserMessages = nextMessages
+            .filter((row) => row.role === 'user')
+            .map((row) => row.content)
+          const factual = tryFactualAssistantReply(trimmed, operationalSnapshot, intent, {
+            priorUserMessages,
+          })
           if (factual) {
             setMessages(
               [
@@ -869,7 +1045,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                 {
                   role: 'assistant' as const,
                   content: factual.content,
-                  structured: factual.structured,
+                  ui: factual.ui,
                 },
               ].slice(-MAX_MESSAGES)
             )
@@ -909,6 +1085,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               content: reply.answer,
               proposals: reply.proposals,
               clarification: reply.clarification,
+              ui: reply.ui,
             },
           ].slice(-MAX_MESSAGES)
         )
@@ -1029,7 +1206,13 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               )}
             >
               {message.role === 'assistant' ? (
-                message.structured ? (
+                message.ui?.views?.length ? (
+                  <AssistantReplyViews
+                    ui={message.ui}
+                    narrative={message.structured ? undefined : message.content}
+                    compact={isPopup}
+                  />
+                ) : message.structured ? (
                   <StructuredAssistantReply reply={message.structured} compact={isPopup} />
                 ) : (
                   <AssistantMessageBody content={message.content} compact={isPopup} />
@@ -1130,11 +1313,11 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
             <WorkIntentToggle value={writeIntent} onChange={setWriteIntent} />
             <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
               <div className="flex w-max gap-1">
-                {suggestionChips.slice(0, 3).map((suggestion, index) => (
+                {suggestionChips.slice(0, conversationState ? 5 : 3).map((suggestion, index) => (
                   <button
                     key={`${suggestion}-${index}`}
                     type="button"
-                    onClick={() => setInput(suggestion)}
+                    onClick={() => void handleSend(suggestion)}
                     className={cn(
                       'max-w-[11rem] shrink-0 truncate rounded-full px-2 py-1 text-[10px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       activeOkrContext
@@ -1384,11 +1567,11 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                 }))}
               />
               {selectedObjectives.length > 0 ? (
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-2 gap-2">
                   <FilterMultiSelect
                     label="KRs"
                     emptyLabel="Todos los KR"
-                    className="h-7 rounded-lg"
+                    className="h-8 rounded-xl"
                     values={selectedKrIds}
                     onChange={(ids) => {
                       setSelectedKrIds(ids)
@@ -1412,7 +1595,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                     emptyLabel={
                       objectiveInitiatives.length > 0 ? 'Iniciativas' : 'Sin iniciativas'
                     }
-                    className="h-7 rounded-lg"
+                    className="h-8 rounded-xl"
                     values={selectedInitiativeIds}
                     onChange={setSelectedInitiativeIds}
                     disabled={objectiveInitiatives.length === 0}
@@ -1445,28 +1628,193 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     )
   }
 
-  return (
-    <div className="-m-4 flex h-[calc(100%+2rem)] min-h-0 w-[calc(100%+2rem)] max-w-none flex-col gap-3 overflow-hidden p-3 sm:gap-3 sm:p-4">
-      <header className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0 space-y-0.5">
-          <div className="flex items-center gap-2.5">
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-[0_12px_24px_-14px_hsl(var(--primary)/0.7)]">
-              <Bot className="h-4 w-4" aria-hidden />
+  const writeContextExtras =
+    lane === 'write' &&
+    (selectedObjectives.length > 0 || selectedActions.length > 0) ? (
+      <div className="relative shrink-0 space-y-1.5 border-b border-border/40 px-3 py-2 sm:px-4">
+        {selectedObjectives.length > 0 ? (
+          <div className="grid grid-cols-2 gap-2">
+            <FilterMultiSelect
+              label="KRs"
+              emptyLabel="Todos los KR"
+              className="h-8 rounded-xl"
+              values={selectedKrIds}
+              onChange={(ids) => {
+                setSelectedKrIds(ids)
+                setSelectedInitiativeIds((prev) =>
+                  prev.filter((id) => {
+                    const initiative = objectiveInitiatives.find((item) => item.id === id)
+                    return Boolean(
+                      initiative &&
+                        (ids.length === 0 || ids.includes(initiative.key_result_id))
+                    )
+                  })
+                )
+              }}
+              options={objectiveKeyResults.map((kr) => ({
+                value: kr.id,
+                label: kr.title,
+              }))}
+            />
+            <FilterMultiSelect
+              label="Iniciativas"
+              emptyLabel={
+                objectiveInitiatives.length > 0 ? 'Iniciativa' : 'Sin iniciativas'
+              }
+              className="h-8 rounded-xl"
+              values={selectedInitiativeIds}
+              onChange={setSelectedInitiativeIds}
+              disabled={objectiveInitiatives.length === 0}
+              options={objectiveInitiatives.map((initiative) => {
+                const actionId = initiative.action_id ?? initiative.team_action_id
+                const option = (okrActions.data ?? []).find((action) => action.id === actionId)
+                return {
+                  value: initiative.id,
+                  label: option?.title || 'Iniciativa sin titulo',
+                }
+              })}
+            />
+          </div>
+        ) : null}
+
+        {selectedActions.length === 1 ? (
+          <div className="flex min-w-0 items-center gap-1.5 truncate rounded-lg bg-background/60 px-2 py-1 text-[11px]">
+            <AccionPriorityBadge
+              prioridad={selectedActions[0]!.prioridad}
+              catalogColor={findPriorityForAccion(selectedActions[0]!, priorities)?.color}
+              compact
+            />
+            <span className="truncate text-muted-foreground">
+              {selectedActions[0]!.estado}
+              {' · '}
+              Checklist{' '}
+              {checkpointsLoading ? '…' : `${checklistDone}/${selectedCheckpoints.length}`}
             </span>
-            <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">Asistente</h2>
           </div>
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            {lane === 'talk'
-              ? 'Habla con Guia 15 minutos: prioriza, crea trabajo y cierra con reporte.'
-              : lane === 'write'
-                ? 'Copiloto operativo: entiende tu situacion y te propone el siguiente paso.'
-                : 'Elige Hablar con Guia o Escribir para operar tu tablero.'}
+        ) : selectedActions.length > 1 ? (
+          <p className="truncate rounded-lg bg-background/60 px-2 py-1 text-[11px] text-muted-foreground">
+            {selectedActions.length} acciones en contexto
           </p>
-        </div>
+        ) : null}
+      </div>
+    ) : null
+
+  return (
+    <div className="-m-4 flex h-[calc(100%+2rem)] min-h-0 w-[calc(100%+2rem)] max-w-none flex-col gap-2 overflow-hidden p-3 sm:p-4">
+      <header className="flex shrink-0 items-center gap-2 sm:gap-2.5">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+          <Bot className="h-3.5 w-3.5" aria-hidden />
+        </span>
+        <h2 className="min-w-0 shrink truncate text-base font-semibold tracking-tight">
+          Asistente
+        </h2>
+
         {lane ? (
-          <div className="w-full shrink-0 sm:max-w-sm">
-            <AssistantLaneSwitch lane={lane} onChange={setLane} />
-          </div>
+          <>
+            <div className="hidden h-5 w-px shrink-0 bg-border/70 sm:block" aria-hidden />
+            <div
+              className={cn(
+                'w-[10.75rem] shrink-0 sm:w-[11.5rem]',
+                lane !== 'write' && 'ml-auto'
+              )}
+            >
+              <AssistantLaneSwitch lane={lane} compact onChange={setLane} />
+            </div>
+          </>
+        ) : null}
+
+        {lane === 'write' ? (
+          <>
+            <div
+              className={cn(
+                'ml-auto flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2',
+                'max-w-xl'
+              )}
+              role="group"
+              aria-label="Foco del copiloto"
+            >
+              <span className="hidden shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/80 sm:inline">
+                Foco
+              </span>
+              <div
+                className={cn(
+                  'grid min-w-0 flex-1 gap-1.5',
+                  canSeeOkrs ? 'grid-cols-2' : 'grid-cols-1'
+                )}
+              >
+                <FilterMultiSelect
+                  tone="focus"
+                  label="Acciones"
+                  emptyLabel={
+                    actionsLoading
+                      ? 'Cargando...'
+                      : selectableActions.length > 0
+                        ? 'Accion'
+                        : 'Sin acciones'
+                  }
+                  icon={<ListChecks className="h-3.5 w-3.5" aria-hidden />}
+                  values={selectedActionIds}
+                  onChange={setActionSelection}
+                  disabled={actionsLoading || selectableActions.length === 0}
+                  options={selectableActions.map((action) => ({
+                    value: action.id,
+                    label: formatActionOption(action),
+                  }))}
+                  className="h-8"
+                />
+                {canSeeOkrs ? (
+                  <FilterMultiSelect
+                    tone="focus"
+                    label="Objetivos"
+                    emptyLabel={
+                      okrDashboard.isLoading
+                        ? 'Cargando...'
+                        : (okrDashboard.data?.objectives.length ?? 0) > 0
+                          ? 'OKR'
+                          : 'Sin OKRs'
+                    }
+                    icon={<Target className="h-3.5 w-3.5" aria-hidden />}
+                    values={selectedObjectiveIds}
+                    onChange={setObjectiveSelection}
+                    disabled={
+                      okrDashboard.isLoading ||
+                      (okrDashboard.data?.objectives.length ?? 0) === 0
+                    }
+                    options={(okrDashboard.data?.objectives ?? []).map((objective) => ({
+                      value: objective.id,
+                      label: objective.nombre_okr,
+                    }))}
+                    className="h-8"
+                  />
+                ) : null}
+              </div>
+            </div>
+
+            {(selectedActions.length > 0 || selectedObjectives.length > 0) && (
+              <CompactToggle
+                active={
+                  selectedActions.length > 0 ? actionContextEnabled : okrContextEnabled
+                }
+                onToggle={() =>
+                  selectedActions.length > 0
+                    ? setActionContextEnabled((value) => !value)
+                    : setOkrContextEnabled((value) => !value)
+                }
+              />
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={clearFiltersOrChat}
+              disabled={loading || (!hasActiveFilters && messages.length === 0)}
+              className="h-8 w-8 shrink-0 rounded-full"
+              aria-label={hasActiveFilters ? 'Limpiar filtros' : 'Limpiar chat'}
+              title={hasActiveFilters ? 'Limpiar filtros' : 'Limpiar chat'}
+            >
+              <Trash2 className="h-3.5 w-3.5" aria-hidden />
+            </Button>
+          </>
         ) : null}
       </header>
 
@@ -1481,169 +1829,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
       ) : (
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] shadow-[0_28px_70px_-40px_rgba(15,23,42,0.45)] ring-1 ring-border/40 bg-[radial-gradient(120%_80%_at_50%_-10%,hsl(var(--primary)/0.12),transparent_55%),linear-gradient(180deg,hsl(var(--muted)/0.35)_0%,hsl(var(--background))_46%)]">
           <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-[radial-gradient(ellipse_at_top,hsl(var(--primary)/0.1),transparent_70%)]" aria-hidden />
-
-          <div className="relative shrink-0 space-y-1.5 px-3 pb-1.5 pt-3 sm:px-4">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-                <Bot className="h-3.5 w-3.5" aria-hidden />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold tracking-tight">{assistantProfile.title}</p>
-                <p className="truncate text-[11px] text-muted-foreground">
-                  {activeActionContext
-                    ? selectedActions.length === 1
-                      ? selectedActions[0]?.titulo_accion || 'Enfocando accion'
-                      : `${selectedActions.length} acciones`
-                    : activeOkrContext
-                      ? selectedObjectives.length === 1
-                        ? selectedObjectives[0]?.nombre_okr || 'Enfocando OKR'
-                        : `${selectedObjectives.length} OKRs`
-                      : `${userOpenActions.length} abiertas · tablero`}
-                </p>
-              </div>
-              {(selectedActions.length > 0 || selectedObjectives.length > 0) && (
-                <CompactToggle
-                  active={
-                    selectedActions.length > 0 ? actionContextEnabled : okrContextEnabled
-                  }
-                  onToggle={() =>
-                    selectedActions.length > 0
-                      ? setActionContextEnabled((value) => !value)
-                      : setOkrContextEnabled((value) => !value)
-                  }
-                />
-              )}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={clearFiltersOrChat}
-                disabled={loading || (!hasActiveFilters && messages.length === 0)}
-                className="h-8 w-8 shrink-0 rounded-full"
-                aria-label={hasActiveFilters ? 'Limpiar filtros' : 'Limpiar chat'}
-                title={hasActiveFilters ? 'Limpiar filtros' : 'Limpiar chat'}
-              >
-                <Trash2 className="h-3.5 w-3.5" aria-hidden />
-              </Button>
-            </div>
-
-            <div className={cn('grid gap-1.5', canSeeOkrs ? 'grid-cols-2' : 'grid-cols-1')}>
-              <div className="min-w-0">
-                <FilterMultiSelect
-                  label="Acciones"
-                  emptyLabel={
-                    actionsLoading
-                      ? 'Cargando...'
-                      : selectableActions.length > 0
-                        ? 'Accion'
-                        : 'Sin acciones'
-                  }
-                  icon={<ListChecks className="h-3 w-3 text-muted-foreground" aria-hidden />}
-                  values={selectedActionIds}
-                  onChange={setActionSelection}
-                  disabled={actionsLoading || selectableActions.length === 0}
-                  options={selectableActions.map((action) => ({
-                    value: action.id,
-                    label: formatActionOption(action),
-                  }))}
-                />
-              </div>
-
-              {canSeeOkrs ? (
-                <div className="min-w-0">
-                  <FilterMultiSelect
-                    label="Objetivos"
-                    emptyLabel={
-                      okrDashboard.isLoading
-                        ? 'Cargando...'
-                        : (okrDashboard.data?.objectives.length ?? 0) > 0
-                          ? 'OKR'
-                          : 'Sin OKRs'
-                    }
-                    icon={<Target className="h-3 w-3 text-muted-foreground" aria-hidden />}
-                    values={selectedObjectiveIds}
-                    onChange={setObjectiveSelection}
-                    disabled={
-                      okrDashboard.isLoading ||
-                      (okrDashboard.data?.objectives.length ?? 0) === 0
-                    }
-                    options={(okrDashboard.data?.objectives ?? []).map((objective) => ({
-                      value: objective.id,
-                      label: objective.nombre_okr,
-                    }))}
-                  />
-                </div>
-              ) : null}
-            </div>
-
-            {selectedObjectives.length > 0 ? (
-              <div className="grid grid-cols-2 gap-1.5">
-                <FilterMultiSelect
-                  label="KRs"
-                  emptyLabel="Todos los KR"
-                  className="h-7 rounded-lg bg-background/70"
-                  values={selectedKrIds}
-                  onChange={(ids) => {
-                    setSelectedKrIds(ids)
-                    setSelectedInitiativeIds((prev) =>
-                      prev.filter((id) => {
-                        const initiative = objectiveInitiatives.find((item) => item.id === id)
-                        return Boolean(
-                          initiative &&
-                            (ids.length === 0 || ids.includes(initiative.key_result_id))
-                        )
-                      })
-                    )
-                  }}
-                  options={objectiveKeyResults.map((kr) => ({
-                    value: kr.id,
-                    label: kr.title,
-                  }))}
-                />
-                <FilterMultiSelect
-                  label="Iniciativas"
-                  emptyLabel={
-                    objectiveInitiatives.length > 0 ? 'Iniciativa' : 'Sin iniciativas'
-                  }
-                  className="h-7 rounded-lg bg-background/70"
-                  values={selectedInitiativeIds}
-                  onChange={setSelectedInitiativeIds}
-                  disabled={objectiveInitiatives.length === 0}
-                  options={objectiveInitiatives.map((initiative) => {
-                    const actionId = initiative.action_id ?? initiative.team_action_id
-                    const option = (okrActions.data ?? []).find(
-                      (action) => action.id === actionId
-                    )
-                    return {
-                      value: initiative.id,
-                      label: option?.title || 'Iniciativa sin titulo',
-                    }
-                  })}
-                />
-              </div>
-            ) : null}
-
-            {selectedActions.length === 1 ? (
-              <div className="flex min-w-0 items-center gap-1.5 truncate rounded-lg bg-background/60 px-2 py-1 text-[11px]">
-                <AccionPriorityBadge
-                  prioridad={selectedActions[0]!.prioridad}
-                  catalogColor={findPriorityForAccion(selectedActions[0]!, priorities)?.color}
-                  compact
-                />
-                <span className="truncate text-muted-foreground">
-                  {selectedActions[0]!.estado}
-                  {' · '}
-                  Checklist{' '}
-                  {checkpointsLoading ? '…' : `${checklistDone}/${selectedCheckpoints.length}`}
-                </span>
-              </div>
-            ) : selectedActions.length > 1 ? (
-              <p className="truncate rounded-lg bg-background/60 px-2 py-1 text-[11px] text-muted-foreground">
-                {selectedActions.length} acciones en contexto
-              </p>
-            ) : null}
-          </div>
-
+          {writeContextExtras}
           {chatThread}
           {composer}
         </div>

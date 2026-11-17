@@ -1,17 +1,22 @@
+import {
+  classifyCreateWorkKind,
+  looksLikeCommsPrepare,
+  resolveCreateWriteIntent,
+  type CreateWorkKind,
+} from './operationalSemantics/classifyCreateWork'
+
 export type AssistantLane = 'talk' | 'write'
 export type WriteIntent = 'consult' | 'create'
+export type { CreateWorkKind }
+export { looksLikeCommsPrepare }
 
 export function looksLikeCreateWork(text: string) {
-  const normalized = text.toLowerCase()
-  const asksCreate =
-    /\b(crea(?:r|me)?|genera(?:r|me)?|agrega(?:r|me)?|registra(?:r)?|anota(?:r)?|arma(?:r|me)?|propon(?:e|me|er)?)\b/.test(
-      normalized
-    )
-  const namesWork =
-    /\b(acci[oó]n(?:es)?|iniciativa(?:s)?|pendiente(?:s)?|tarea(?:s)?|plan(?:es)?|okrs?|objetivo(?:s)?|krs?|resultado(?:s)?\s+clave|medici[oó]n(?:es)?|kpi)\b/.test(
-      normalized
-    )
-  return asksCreate && namesWork
+  return classifyCreateWorkKind(text) !== 'none'
+}
+
+/** Kanban vs iniciativa (diccionario semántico). */
+export function classifyCreateKind(text: string): CreateWorkKind {
+  return classifyCreateWorkKind(text)
 }
 
 export function looksLikeDraftCorrection(text: string) {
@@ -40,6 +45,5 @@ export function looksLikeDraftCorrection(text: string) {
 }
 
 export function resolveWriteIntent(text: string, selected: WriteIntent): WriteIntent {
-  if (selected === 'create') return 'create'
-  return looksLikeCreateWork(text) ? 'create' : 'consult'
+  return resolveCreateWriteIntent(text, selected)
 }

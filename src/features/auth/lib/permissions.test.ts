@@ -118,20 +118,20 @@ describe('role route permissions', () => {
     expect(canEditActionGeneralByRole('Operativo')).toBe(false)
   })
 
-  it('lets Super Admin see all actions and OKRs', () => {
+  it('lets Super Admin and Direccion see all actions and OKRs', () => {
     expect(canViewAllBoardData('super_admin')).toBe(true)
     expect(canViewAllBoardData('Super Admin')).toBe(true)
     expect(canViewAllBoardData('Operativo', 'super_admin')).toBe(true)
     expect(canViewAllBoardData('Operativo')).toBe(false)
-    expect(canViewAllBoardData('Direccion')).toBe(false)
+    expect(canViewAllBoardData('Direccion')).toBe(true)
     expect(canAccessOkrs('super_admin', null, 'Comercial')).toBe(true)
     expect(canAccessOkrs('Operativo', 'super_admin', 'Comercial')).toBe(true)
-    expect(canAccessOkrs('Direccion', null, 'Comercial')).toBe(false)
+    expect(canAccessOkrs('Direccion', null, 'Comercial')).toBe(true)
     expect(canAccessOkrs('Direccion', null, 'OKRS')).toBe(true)
   })
 
-  it('limits Asistente IA and WhatsApp to OKRS area or Super Admin', () => {
-    expect(canAccessAiAssistAndWhatsApp('Direccion', null, 'Comercial')).toBe(false)
+  it('limits Asistente IA and WhatsApp to OKRS area, Direccion or Super Admin', () => {
+    expect(canAccessAiAssistAndWhatsApp('Direccion', null, 'Comercial')).toBe(true)
     expect(canAccessAiAssistAndWhatsApp('Direccion', null, 'OKRS')).toBe(true)
     expect(canAccessAiAssistAndWhatsApp('Operativo', null, 'OKRS')).toBe(true)
     expect(canAccessAiAssistAndWhatsApp('Operativo', null, 'Operaciones')).toBe(false)

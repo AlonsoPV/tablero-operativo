@@ -3,6 +3,7 @@
  * No usa service role; solo datos autorizados para la sesion actual.
  */
 import { accionesService } from '@/services/acciones.service'
+import { usuariosService } from '@/services/usuarios.service'
 import { supabase } from '@/lib/supabase/client'
 import type { AccionDiaria } from '@/types'
 
@@ -12,6 +13,7 @@ const MAX_VERIFY_ROWS = 40
 export type AssistantOperationalLoad = {
   openActions: AccionDiaria[]
   pendingVerificationActions: AccionDiaria[]
+  usuarioNombreById: Record<string, string>
   fetchedAt: string
 }
 
@@ -45,10 +47,18 @@ export const assistantOperationalContextService = {
   }): Promise<AssistantOperationalLoad> {
     const fetchedAt = new Date().toISOString()
     const openActions = await accionesService.list({
-      ...(input.seesAllBoard ? {} : { responsable: input.usuarioId }),
+      // Board: todas. Propio: asignadas O creadas (para «las que yo creé»).
+      ...(input.seesAllBoard ? {} : { involved_user_id: input.usuarioId }),
       estado: [...OPEN_STATES],
     })
     const pendingVerificationActions = await listHechoPendingVerification(input.usuarioId)
-    return { openActions, pendingVerificationActions, fetchedAt }
+    let usuarioNombreById: Record<string, string> = {}
+    try {
+      const people = await usuariosService.list()
+      usuarioNombreById = Object.fromEntries(people.map((person) => [person.id, person.nombre]))
+    } catch {
+      usuarioNombreById = {}
+    }
+    return { openActions, pendingVerificationActions, usuarioNombreById, fetchedAt }
   },
 }
