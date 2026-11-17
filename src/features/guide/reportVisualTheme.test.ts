@@ -34,7 +34,7 @@ describe('reportVisualTheme semantics', () => {
   it('maps commitment and PDF section kinds', () => {
     expect(toneForCommitment('confirmed')).toBe('green')
     expect(toneForCommitment('proposal')).toBe('violet')
-    expect(toneForCommitment('undefined')).toBe('amber')
+    expect(toneForCommitment('pending')).toBe('amber')
     expect(pdfToneForSectionKind('lead')).toBe('navy')
     expect(pdfToneForSectionKind('finding')).toBe('blue')
     expect(pdfToneForSectionKind('metric')).toBe('teal')
