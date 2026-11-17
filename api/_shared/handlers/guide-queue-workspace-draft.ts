@@ -139,7 +139,10 @@ export default defineApiHandler(async (req, res) => {
     if (session.guide_link_id) accessMode = effectiveInviteAccessMode(session.access_mode || accessMode)
 
     const isComm =
-      resolvedChannel === 'email' || resolvedChannel === 'whatsapp' || resolvedChannel === 'both'
+      resolvedChannel === 'email' ||
+      resolvedChannel === 'whatsapp' ||
+      resolvedChannel === 'both' ||
+      resolvedChannel === 'unspecified'
     if (isComm) {
       if (!canQueueCommunicationDraft(accessMode)) {
         return res.status(200).json({
@@ -178,6 +181,17 @@ export default defineApiHandler(async (req, res) => {
       asString(body.id, 160) ||
       undefined
 
+    if (action === 'prepare' && resolvedChannel === 'unspecified') {
+      return res.status(200).json({
+        result: '¿Lo prefieres por WhatsApp o correo? Dime el canal y lo dejo anotado.',
+        ok: false,
+        ask_channel: true,
+        pending_op_ids: [],
+        pending_op_id: null,
+        action,
+      })
+    }
+
     const result = await mutateVoiceWorkspaceDraft(actor, {
       action,
       channel: resolvedChannel,
@@ -189,6 +203,8 @@ export default defineApiHandler(async (req, res) => {
       sessionId,
       pendingOpId: asString(args.pending_op_id, 80) || undefined,
       idempotencyKey: toolCallId,
+      contentInstructions: asString(args.content_instructions, 500) || undefined,
+      conversationContext: asString(args.conversation_context, 800) || undefined,
     })
 
     return res.status(200).json({

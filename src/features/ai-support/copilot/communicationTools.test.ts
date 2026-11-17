@@ -10,6 +10,8 @@ describe('communicationTools', () => {
     expect(normalizeCommunicationChannel('ambos')).toBe('both')
     expect(normalizeCommunicationChannel('correo')).toBe('email')
     expect(normalizeCommunicationChannel('event')).toBe('event')
+    expect(normalizeCommunicationChannel('mensaje')).toBe('unspecified')
+    expect(normalizeCommunicationChannel('')).toBe('unspecified')
   })
 
   it('recognizes whatsapp_prepare_send as a communication write tool', () => {

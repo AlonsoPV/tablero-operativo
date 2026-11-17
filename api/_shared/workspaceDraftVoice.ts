@@ -40,13 +40,13 @@ function asString(value: unknown, max = 400) {
   return typeof value === 'string' ? value.trim().slice(0, max) : ''
 }
 
-function toolForChannel(channel: Exclude<CommunicationChannel, 'both'>): string {
+function toolForChannel(channel: Exclude<CommunicationChannel, 'both' | 'unspecified'>): string {
   if (channel === 'whatsapp') return 'whatsapp_prepare_send'
   if (channel === 'event') return 'calendar_prepare_event'
   return 'gmail_prepare_send'
 }
 
-function channelForTool(tool: string): Exclude<CommunicationChannel, 'both'> {
+function channelForTool(tool: string): Exclude<CommunicationChannel, 'both' | 'unspecified'> {
   if (tool === 'whatsapp_prepare_send') return 'whatsapp'
   if (tool === 'calendar_prepare_event') return 'event'
   return 'email'
@@ -128,7 +128,7 @@ async function loadPendingDraft(
 async function findLatestPendingByChannel(
   actor: CopilotActor,
   sessionId: string,
-  channel: Exclude<CommunicationChannel, 'both'>
+  channel: Exclude<CommunicationChannel, 'both' | 'unspecified'>
 ): Promise<PendingDraftRow | null> {
   const tool = toolForChannel(channel)
   const { data, error } = await actor.supabase
@@ -171,7 +171,12 @@ async function cancelDraftRow(actor: CopilotActor, opId: string) {
 async function patchDraftRow(
   actor: CopilotActor,
   row: PendingDraftRow,
-  patch: { recipient?: string; purpose?: string }
+  patch: {
+    recipient?: string
+    purpose?: string
+    contentInstructions?: string
+    conversationContext?: string
+  }
 ): Promise<CopilotProposal> {
   const purpose = (patch.purpose || asString(row.payload.purpose, 500) || '').trim()
   const recipient =
@@ -183,6 +188,14 @@ async function patchDraftRow(
     incomplete: true,
     purpose,
     recipient_hint: recipient,
+    content_instructions:
+      patch.contentInstructions !== undefined
+        ? patch.contentInstructions
+        : asString(row.payload.content_instructions, 500),
+    conversation_context:
+      patch.conversationContext !== undefined
+        ? patch.conversationContext
+        : asString(row.payload.conversation_context, 800),
     to: row.tool === 'gmail_prepare_send' ? [] : row.payload.to,
     to_phone: '',
     to_user_id: '',
@@ -247,7 +260,7 @@ async function patchDraftRow(
 async function prepareOne(
   actor: CopilotActor,
   input: {
-    channel: Exclude<CommunicationChannel, 'both'>
+    channel: Exclude<CommunicationChannel, 'both' | 'unspecified'>
     purpose: string
     recipient?: string
     utteredAt?: string
@@ -255,6 +268,8 @@ async function prepareOne(
     attendees?: string[]
     sessionId: string
     idempotencyKey: string
+    contentInstructions?: string
+    conversationContext?: string
   }
 ): Promise<CopilotProposal> {
   const existing = await findByIdempotencyKey(actor, input.sessionId, input.idempotencyKey)
@@ -282,6 +297,8 @@ async function prepareOne(
       recipient: input.recipient,
       utteredAt: input.utteredAt,
       sessionId: input.sessionId,
+      contentInstructions: input.contentInstructions,
+      conversationContext: input.conversationContext,
     })
     await stampIdempotencyKey(actor, proposal.id, input.idempotencyKey)
     return proposal
@@ -295,6 +312,8 @@ async function prepareOne(
       utteredAt: input.utteredAt,
       timeAnchor: input.timeAnchor,
       sessionId: input.sessionId,
+      contentInstructions: input.contentInstructions,
+      conversationContext: input.conversationContext,
     })
     await stampIdempotencyKey(actor, proposal.id, input.idempotencyKey)
     return proposal
@@ -306,6 +325,8 @@ async function prepareOne(
     utteredAt: input.utteredAt,
     timeAnchor: input.timeAnchor,
     sessionId: input.sessionId,
+    contentInstructions: input.contentInstructions,
+    conversationContext: input.conversationContext,
   })
   await stampIdempotencyKey(actor, proposal.id, input.idempotencyKey)
   return proposal
@@ -346,16 +367,28 @@ export async function mutateVoiceWorkspaceDraft(
     sessionId: string
     pendingOpId?: string
     idempotencyKey?: string
+    contentInstructions?: string
+    conversationContext?: string
   }
 ): Promise<VoiceDraftMutationResult> {
   const purpose = input.purpose.trim()
   const channel = normalizeCommunicationChannel(input.channel)
 
+  if (input.action === 'prepare' && channel === 'unspecified') {
+    return {
+      ok: false,
+      spoken: '¿Lo prefieres por WhatsApp o correo? Dime el canal y lo dejo anotado.',
+      pending_op_ids: [],
+      pending_op_id: null,
+      action: 'prepare',
+    }
+  }
+
   if (input.action === 'cancel') {
     let target: PendingDraftRow | null = null
     if (input.pendingOpId) {
       target = await loadPendingDraft(actor, input.sessionId, input.pendingOpId)
-    } else if (channel !== 'both') {
+    } else if (channel !== 'both' && channel !== 'unspecified') {
       target = await findLatestPendingByChannel(actor, input.sessionId, channel)
     } else {
       const email = await findLatestPendingByChannel(actor, input.sessionId, 'email')
@@ -418,7 +451,7 @@ export async function mutateVoiceWorkspaceDraft(
     let target: PendingDraftRow | null = null
     if (input.pendingOpId) {
       target = await loadPendingDraft(actor, input.sessionId, input.pendingOpId)
-    } else if (channel !== 'both') {
+    } else if (channel !== 'both' && channel !== 'unspecified') {
       target = await findLatestPendingByChannel(actor, input.sessionId, channel)
     }
     if (!target) {
@@ -432,7 +465,8 @@ export async function mutateVoiceWorkspaceDraft(
     }
 
     const currentChannel = channelForTool(target.tool)
-    const nextChannel = channel === 'both' ? currentChannel : channel
+    const nextChannel =
+      channel === 'both' || channel === 'unspecified' ? currentChannel : channel
     if (nextChannel !== currentChannel) {
       await cancelDraftRow(actor, target.id)
       const key = buildVoiceDraftIdempotencyKey({
@@ -450,6 +484,8 @@ export async function mutateVoiceWorkspaceDraft(
         attendees: input.attendees,
         sessionId: input.sessionId,
         idempotencyKey: key,
+        contentInstructions: input.contentInstructions,
+        conversationContext: input.conversationContext,
       })
       return {
         ok: true,
@@ -463,6 +499,8 @@ export async function mutateVoiceWorkspaceDraft(
     const updated = await patchDraftRow(actor, target, {
       recipient: input.recipient,
       purpose,
+      contentInstructions: input.contentInstructions,
+      conversationContext: input.conversationContext,
     })
     return {
       ok: true,
@@ -485,7 +523,17 @@ export async function mutateVoiceWorkspaceDraft(
     }
   }
 
-  const channels: Array<Exclude<CommunicationChannel, 'both'>> =
+  if (channel === 'unspecified') {
+    return {
+      ok: false,
+      spoken: '¿Lo prefieres por WhatsApp o correo? Dime el canal y lo dejo anotado.',
+      pending_op_ids: [],
+      pending_op_id: null,
+      action: 'prepare',
+    }
+  }
+
+  const channels: Array<Exclude<CommunicationChannel, 'both' | 'unspecified'>> =
     channel === 'both' ? ['email', 'whatsapp'] : [channel]
   const ids: string[] = []
   const labels: string[] = []
@@ -508,6 +556,8 @@ export async function mutateVoiceWorkspaceDraft(
       attendees: input.attendees,
       sessionId: input.sessionId,
       idempotencyKey: key,
+      contentInstructions: input.contentInstructions,
+      conversationContext: input.conversationContext,
     })
     ids.push(proposal.id)
     labels.push(ch === 'whatsapp' ? 'WhatsApp' : ch === 'event' ? 'evento' : 'correo')

@@ -12,13 +12,24 @@ export function isCommunicationWriteTool(name: string): name is CommunicationWri
   return (COMMUNICATION_WRITE_TOOLS as readonly string[]).includes(name)
 }
 
-export type CommunicationChannel = 'email' | 'whatsapp' | 'event' | 'both'
+export type CommunicationChannel = 'email' | 'whatsapp' | 'event' | 'both' | 'unspecified'
 
 export function normalizeCommunicationChannel(raw: unknown): CommunicationChannel {
   const value = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
-  if (value === 'whatsapp' || value === 'wa') return 'whatsapp'
+  if (value === 'whatsapp' || value === 'wa' || value === 'wasap') return 'whatsapp'
   if (value === 'both' || value === 'ambos') return 'both'
   if (value === 'event' || value === 'calendar') return 'event'
   if (value === 'email' || value === 'correo' || value === 'mail') return 'email'
+  if (
+    value === 'unspecified' ||
+    value === 'mensaje' ||
+    value === 'message' ||
+    value === 'unknown' ||
+    value === ''
+  ) {
+    return 'unspecified'
+  }
+  // type legacy sin canal claro
+  if (value === 'message' || value === 'msg') return 'unspecified'
   return 'email'
 }

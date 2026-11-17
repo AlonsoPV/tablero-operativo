@@ -44,10 +44,14 @@ export async function queueWhatsappDraft(
     recipient?: string
     utteredAt?: string
     sessionId?: string | null
+    contentInstructions?: string
+    conversationContext?: string
   }
 ): Promise<CopilotProposal> {
   const purpose = input.purpose.trim().slice(0, 500)
   if (!purpose) throw new Error('Indica el proposito del WhatsApp.')
+  const contentInstructions = (input.contentInstructions || '').trim().slice(0, 500)
+  const conversationContext = (input.conversationContext || '').trim().slice(0, 800)
   const workspace: CopilotWorkspacePreview = {
     kind: 'whatsapp',
     recipientName: input.recipient?.trim() || undefined,
@@ -59,6 +63,8 @@ export async function queueWhatsappDraft(
     draft_kind: 'whatsapp',
     recipient_hint: input.recipient || '',
     purpose,
+    content_instructions: contentInstructions,
+    conversation_context: conversationContext,
     uttered_at: input.utteredAt || new Date().toISOString(),
     body: '',
     to_user_id: '',
