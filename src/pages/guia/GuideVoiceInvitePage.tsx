@@ -14,6 +14,11 @@ import {
 } from '@/features/guide/components/GuidePresence'
 import { GuideReportActions } from '@/features/guide/components/GuideReportActions'
 import { GuideReportBody } from '@/features/guide/components/GuideReportBody'
+import {
+  countPendingCommunications,
+  GuideCommunicationsSection,
+} from '@/features/guide/components/GuideCommunicationsSection'
+import type { CopilotProposal } from '@/features/ai-support/copilot/types'
 import { useRetellGuideCall } from '@/features/guide/hooks/useRetellGuideCall'
 import { guideService } from '@/features/guide/services/guide.service'
 import { guideVoiceLoginState } from '@/features/guide/voiceLogin'
@@ -30,6 +35,7 @@ type LinkReport = {
   agent_inferences?: string | null
   executive_report?: string | null
   created_at?: string | null
+  communications?: Array<CopilotProposal & { status?: string; errorMessage?: string | null }>
   ok?: boolean
   code?: string
   preview?: string
@@ -248,12 +254,24 @@ export function GuideVoiceInvitePage() {
 
       {report && reportReady ? (
         <section className="relative z-10 mx-auto w-full max-w-lg space-y-4 px-5 pb-2 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500">
+          {(() => {
+            const pendingComms = countPendingCommunications(report.communications ?? [])
+            return pendingComms > 0 ? (
+              <p className="text-sm font-medium text-[#B45309]">
+                {pendingComms} comunicacion{pendingComms === 1 ? '' : 'es'} pendiente
+                {pendingComms === 1 ? '' : 's'}
+              </p>
+            ) : null
+          })()}
           <GuideReportBody
             executiveReport={report.executive_report}
             summary={report.summary}
             topic={report.topic}
             createdAt={report.created_at}
           />
+          {report.communications && report.communications.length > 0 ? (
+            <GuideCommunicationsSection ops={report.communications} readOnly />
+          ) : null}
           <GuideReportActions
             topic={report.topic}
             dateLabel="Entrevista por liga"

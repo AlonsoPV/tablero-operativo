@@ -13,6 +13,7 @@ import { resolveGuideLinkOwner } from '../guideUserLinks.js'
 import { fetchRetellCall } from '../retellCallFetch.js'
 import { shareGuideReport } from '../shareGuideReport.js'
 import { defineApiHandler, readRequestBody } from '../http.js'
+import { proposalFromPendingRow } from '../assistantGoogleTools.js'
 
 const PUBLIC_JOURNAL =
   'id,usuario_id,topic,summary,learning,intention,reflection_question,user_words,agent_inferences,executive_report,created_at'
@@ -149,7 +150,8 @@ export default defineApiHandler(async (req, res) => {
         ms: Date.now() - started,
       })
     )
-    return res.status(200).json(publicPayload(result.status, result.journal))
+    const communications = await loadSessionCommunications(supabase, session.id, owner.usuario_id)
+    return res.status(200).json(publicPayload(result.status, result.journal, communications))
   }
 
   if (action === 'whatsapp') {
@@ -181,10 +183,47 @@ export default defineApiHandler(async (req, res) => {
   const status =
     session.report_status ||
     (journal?.executive_report ? 'ready' : 'pending')
-  return res.status(200).json(publicPayload(String(status), journal))
+  const communications = await loadSessionCommunications(supabase, session.id, owner.usuario_id)
+  return res.status(200).json(publicPayload(String(status), journal, communications))
 })
 
-function publicPayload(status: string, journal: Record<string, unknown> | null) {
+async function loadSessionCommunications(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  sessionId: string,
+  usuarioId: string
+) {
+  const { data } = await supabase
+    .from('assistant_pending_ops')
+    .select('id,tool,preview,status,expires_at,error_message')
+    .eq('session_id', sessionId)
+    .eq('usuario_id', usuarioId)
+    .in('tool', [
+      'gmail_prepare_send',
+      'gmail_prepare_reply',
+      'whatsapp_prepare_send',
+      'calendar_prepare_event',
+      'calendar_prepare_update',
+      'calendar_prepare_cancel',
+    ])
+    .order('created_at', { ascending: true })
+  return (data ?? []).map((row) => ({
+    ...proposalFromPendingRow({
+      id: String(row.id),
+      tool: String(row.tool),
+      preview: (row.preview ?? {}) as Record<string, unknown>,
+      expires_at: String(row.expires_at),
+      status: String(row.status),
+    }),
+    status: String(row.status),
+    errorMessage: typeof row.error_message === 'string' ? row.error_message : null,
+  }))
+}
+
+function publicPayload(
+  status: string,
+  journal: Record<string, unknown> | null,
+  communications: unknown[] = []
+) {
   return {
     report_status: status,
     entry_id: typeof journal?.id === 'string' ? journal.id : null,
@@ -197,5 +236,6 @@ function publicPayload(status: string, journal: Record<string, unknown> | null) 
     agent_inferences: journal?.agent_inferences ?? null,
     executive_report: journal?.executive_report ?? null,
     created_at: journal?.created_at ?? null,
+    communications,
   }
 }

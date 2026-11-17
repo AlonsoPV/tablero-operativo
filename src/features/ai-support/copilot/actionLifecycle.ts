@@ -22,7 +22,7 @@ export type ActionCardView = {
   fields: Array<{ label: string; from?: string; to?: string }>
   resultHref?: string
   errorMessage?: string | null
-  kind: 'board' | 'email' | 'event'
+  kind: 'board' | 'email' | 'event' | 'whatsapp'
   emailPreview?: {
     from?: string
     to: string[]
@@ -36,16 +36,48 @@ export type ActionCardView = {
     end?: string
     attendees?: string[]
   }
+  whatsappPreview?: {
+    recipientName?: string
+    phone?: string
+    body?: string
+    needsInfo?: boolean
+    needsInfoReason?: string
+  }
 }
 
 export function actionStatusLabel(status: ActionLifecycleStatus): string {
   if (status === 'preparing') return 'Preparando'
   if (status === 'needs_info') return 'Requiere informacion'
-  if (status === 'pending_confirmation') return 'Pendiente de confirmacion'
-  if (status === 'executing') return 'Ejecutando'
-  if (status === 'completed') return 'Completado'
-  if (status === 'error') return 'Error'
-  return 'Cancelado'
+  if (status === 'pending_confirmation') return 'Pendiente de aprobacion'
+  if (status === 'executing') return 'Enviando'
+  if (status === 'completed') return 'Aceptado por el proveedor'
+  if (status === 'error') return 'Fallido'
+  return 'Descartado'
+}
+
+/** Etiqueta de comunicacion: no confundir aceptado con entregado. */
+export function communicationStatusLabel(input: {
+  lifecycle: ActionLifecycleStatus
+  deliveryStatus?: string | null
+  incomplete?: boolean
+  errorMessage?: string | null
+}): string {
+  if (input.lifecycle === 'cancelled') return 'Descartado'
+  if (input.lifecycle === 'error' || input.errorMessage) return 'Fallido'
+  if (input.lifecycle === 'executing') return 'Enviando'
+  if (input.lifecycle === 'needs_info' || input.incomplete) {
+    return input.incomplete && input.lifecycle !== 'needs_info'
+      ? 'Borrador en preparacion'
+      : 'Requiere informacion'
+  }
+  if (input.lifecycle === 'preparing') return 'Borrador en preparacion'
+  if (input.lifecycle === 'completed') {
+    const delivery = (input.deliveryStatus || '').toLowerCase()
+    if (delivery === 'delivered' || delivery === 'read') return 'Entregado'
+    if (delivery === 'failed') return 'Fallido'
+    return 'Aceptado por el proveedor'
+  }
+  return 'Pendiente de aprobacion'
 }
 
 /** Mapear estado de UI/ops al ciclo de vida. */
@@ -74,22 +106,28 @@ export function toActionCardView(
   const lifecycle = mapProposalStatusToLifecycle(opts?.status, opts?.busy)
   const workspace = proposal.workspace
   const kind: ActionCardView['kind'] =
-    workspace?.kind === 'email' || proposal.tool.startsWith('gmail_')
-      ? 'email'
-      : workspace?.kind === 'event' || proposal.tool.startsWith('calendar_')
-        ? 'event'
-        : 'board'
+    workspace?.kind === 'whatsapp' || proposal.tool === 'whatsapp_prepare_send'
+      ? 'whatsapp'
+      : workspace?.kind === 'email' || proposal.tool.startsWith('gmail_')
+        ? 'email'
+        : workspace?.kind === 'event' || proposal.tool.startsWith('calendar_')
+          ? 'event'
+          : 'board'
+
+  const needsInfo = Boolean(workspace?.needsInfo || workspace?.incomplete)
+  const statusForView =
+    needsInfo && lifecycle === 'pending_confirmation' ? ('needs_info' as const) : opts?.status
 
   return {
     id: proposal.id,
     tool: proposal.tool,
     title: proposal.title,
     summary: proposal.summary,
-    status: lifecycle,
-    statusLabel: actionStatusLabel(lifecycle),
+    status: mapProposalStatusToLifecycle(statusForView, opts?.busy),
+    statusLabel: actionStatusLabel(mapProposalStatusToLifecycle(statusForView, opts?.busy)),
     fields: proposal.fields ?? [],
     resultHref: opts?.resultHref || proposal.record?.href,
-    errorMessage: opts?.errorMessage ?? null,
+    errorMessage: opts?.errorMessage ?? workspace?.needsInfoReason ?? null,
     kind,
     emailPreview:
       kind === 'email'
@@ -108,6 +146,16 @@ export function toActionCardView(
             start: workspace?.start,
             end: workspace?.end,
             attendees: workspace?.attendees,
+          }
+        : undefined,
+    whatsappPreview:
+      kind === 'whatsapp'
+        ? {
+            recipientName: workspace?.recipientName,
+            phone: workspace?.phone,
+            body: workspace?.body,
+            needsInfo: workspace?.needsInfo,
+            needsInfoReason: workspace?.needsInfoReason,
           }
         : undefined,
   }
@@ -169,6 +217,7 @@ export function actionLifecycleTone(status: ActionLifecycleStatus): {
 }
 
 export function actionTypeLabel(tool: string, kind: ActionCardView['kind']): string {
+  if (kind === 'whatsapp') return 'WhatsApp'
   if (kind === 'email') return 'Correo'
   if (kind === 'event') return 'Evento'
   if (tool === 'create_action') return 'Crear accion'

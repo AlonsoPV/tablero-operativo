@@ -18,6 +18,13 @@ export type GuideReportSource = {
   intention?: string | null
   agent_inferences?: string | null
   reflection_question?: string | null
+  /** Resumen de borradores de comunicación al momento del export (sin botones). */
+  communications?: Array<{
+    channel?: string
+    title?: string
+    status?: string
+    recipient?: string
+  }> | null
 }
 
 export type GuideReportSection = {
@@ -241,6 +248,22 @@ export function buildGuideReportPresentation(
   })
 
   const sections = document ? sectionFromDocument(document) : []
+  if (source.communications?.length) {
+    const insertAt = Math.min(2, sections.length)
+    sections.splice(insertAt, 0, {
+      title: 'Comunicaciones',
+      body: [
+        'Estado al momento de generar este PDF. La aprobacion y el envio se hacen en la app.',
+        ...source.communications.map((item) => {
+          const channel = item.channel || 'mensaje'
+          const status = item.status || 'pendiente'
+          const who = item.recipient ? ` → ${item.recipient}` : ''
+          return `- [${status}] ${channel}: ${item.title || 'Borrador'}${who}`
+        }),
+      ].join('\n'),
+      kind: 'action',
+    })
+  }
   const limitations: string[] = []
   if (!source.executive_report?.trim() && source.summary?.trim()) {
     limitations.push('El informe usa el resumen almacenado; no hay reporte ejecutivo estructurado.')

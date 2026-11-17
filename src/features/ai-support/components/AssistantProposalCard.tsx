@@ -33,6 +33,8 @@ type AssistantProposalCardProps = {
   proposal: CopilotProposal
   compact?: boolean
   status?: ProposalStatus
+  /** Solo lectura: oculta confirmar/editar/cancelar. */
+  readOnly?: boolean
   onResolved?: (status: 'confirmed' | 'cancelled', href?: string) => void
   onUpdated?: (proposal: CopilotProposal) => void
 }
@@ -41,6 +43,7 @@ export function AssistantProposalCard({
   proposal: initial,
   compact = false,
   status: statusProp,
+  readOnly = false,
   onResolved,
   onUpdated,
 }: AssistantProposalCardProps) {
@@ -52,7 +55,8 @@ export function AssistantProposalCard({
   const [editOpen, setEditOpen] = useState(false)
 
   const googleWrite = isGoogleWriteTool(proposal.tool)
-  const canEdit = googleWrite && status === 'pending'
+  const whatsappWrite = proposal.tool === 'whatsapp_prepare_send'
+  const canEdit = (googleWrite || whatsappWrite) && status === 'pending'
   const view = toActionCardView(proposal, {
     status: busy === 'confirm' || busy === 'cancel' ? 'executing' : status,
     busy,
@@ -71,7 +75,13 @@ export function AssistantProposalCard({
       const href = result.result?.href || proposal.record?.href
       setResultHref(href)
       onResolved?.('confirmed', href)
-      toast.success(googleWrite ? 'Listo en Google Workspace.' : 'Operacion ejecutada.')
+      toast.success(
+        whatsappWrite
+          ? 'WhatsApp aceptado por el proveedor.'
+          : googleWrite
+            ? 'Listo en Google Workspace.'
+            : 'Operacion ejecutada.'
+      )
     } catch (err) {
       const message = err instanceof Error ? err.message : 'No se pudo confirmar.'
       setError(message)
@@ -124,8 +134,31 @@ export function AssistantProposalCard({
           </p>
         </div>
 
-        {view.kind === 'email' && view.emailPreview ? (
-          <dl className="space-y-1 rounded-xl border border-white/70 bg-white/90 p-2.5 text-[12px] leading-5">
+        {view.kind === 'whatsapp' && view.whatsappPreview ? (
+          <div className="space-y-2 rounded-xl border border-emerald-200/70 bg-emerald-50/80 p-2.5 text-[12px] leading-5">
+            <div className="flex gap-2">
+              <span className="w-24 shrink-0 text-emerald-800/70">Para</span>
+              <span className="font-medium text-emerald-950">
+                {view.whatsappPreview.recipientName || '—'}
+                {view.whatsappPreview.phone ? ` · ${view.whatsappPreview.phone}` : ''}
+              </span>
+            </div>
+            {view.whatsappPreview.needsInfo ? (
+              <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-amber-900">
+                Completar informacion
+                {view.whatsappPreview.needsInfoReason
+                  ? `: ${view.whatsappPreview.needsInfoReason}`
+                  : '.'}
+              </p>
+            ) : null}
+            {view.whatsappPreview.body ? (
+              <div className="ml-auto max-w-[92%] rounded-2xl rounded-br-md bg-emerald-600 px-3 py-2 text-white whitespace-pre-wrap">
+                {view.whatsappPreview.body}
+              </div>
+            ) : null}
+          </div>
+        ) : view.kind === 'email' && view.emailPreview ? (
+          <dl className="space-y-1 rounded-xl border border-blue-200/70 bg-blue-50/70 p-2.5 text-[12px] leading-5">
             {view.emailPreview.from ? (
               <div className="flex gap-2">
                 <dt className="w-24 shrink-0 text-slate-500">De</dt>
@@ -201,7 +234,9 @@ export function AssistantProposalCard({
 
         {status === 'confirmed' ? (
           <p className="text-[12px] text-slate-800">
-            Completado.
+            {whatsappWrite
+              ? 'Aceptado por el proveedor (no implica entrega al destinatario).'
+              : 'Completado.'}
             {resultHref ? (
               <>
                 {' '}
@@ -228,18 +263,33 @@ export function AssistantProposalCard({
             ) : null}
           </p>
         ) : status === 'cancelled' ? (
-          <p className="text-[12px] text-slate-500">Operacion cancelada.</p>
+          <p className="text-[12px] text-slate-500">Descartado.</p>
+        ) : readOnly ? (
+          <p className="text-[12px] text-slate-500">
+            Pendiente de revision. Inicia sesion como el dueno para aprobar y enviar.
+          </p>
         ) : (
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               size="sm"
               className="h-8 rounded-full px-3"
-              disabled={busy !== null}
+              disabled={
+                busy !== null ||
+                Boolean(view.whatsappPreview?.needsInfo) ||
+                Boolean(proposal.workspace?.needsInfo) ||
+                Boolean(proposal.workspace?.incomplete) ||
+                (view.kind === 'email' && !(proposal.workspace?.to && proposal.workspace.to.length > 0))
+              }
               onClick={() => void confirm()}
             >
               {busy === 'confirm' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-              Confirmar
+              {view.whatsappPreview?.needsInfo ||
+              proposal.workspace?.needsInfo ||
+              proposal.workspace?.incomplete ||
+              (view.kind === 'email' && !(proposal.workspace?.to && proposal.workspace.to.length > 0))
+                ? 'Completar informacion'
+                : 'Aprobar y enviar'}
             </Button>
             <Button
               type="button"
@@ -250,7 +300,7 @@ export function AssistantProposalCard({
               onClick={() => void cancel()}
             >
               {busy === 'cancel' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-              Cancelar
+              Descartar
             </Button>
             {canEdit ? (
               <Button
@@ -313,7 +363,8 @@ function EditWorkspaceDialog({
   onSave: (patch: { subject?: string; body?: string; title?: string; start?: string; end?: string }) => Promise<void>
 }) {
   const workspace = proposal.workspace
-  const isEmail = workspace?.kind === 'email' || proposal.tool.startsWith('gmail_')
+  const isWhatsapp = workspace?.kind === 'whatsapp' || proposal.tool === 'whatsapp_prepare_send'
+  const isEmail = !isWhatsapp && (workspace?.kind === 'email' || proposal.tool.startsWith('gmail_'))
   const [subject, setSubject] = useState(workspace?.subject ?? '')
   const [body, setBody] = useState(workspace?.body ?? '')
   const [title, setTitle] = useState(workspace?.title ?? '')
@@ -324,19 +375,23 @@ function EditWorkspaceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[min(92dvh,40rem)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{isEmail ? 'Editar correo' : 'Editar evento'}</DialogTitle>
+          <DialogTitle>
+            {isWhatsapp ? 'Editar WhatsApp' : isEmail ? 'Editar correo' : 'Editar evento'}
+          </DialogTitle>
           <DialogDescription>
             Los cambios actualizan el borrador. Debes volver a confirmar antes de enviarlo.
           </DialogDescription>
         </DialogHeader>
-        {isEmail ? (
+        {isWhatsapp || isEmail ? (
           <div className="space-y-3">
+            {isEmail ? (
+              <label className="space-y-1 text-xs font-medium">
+                Asunto
+                <Input value={subject} onChange={(event) => setSubject(event.target.value)} />
+              </label>
+            ) : null}
             <label className="space-y-1 text-xs font-medium">
-              Asunto
-              <Input value={subject} onChange={(event) => setSubject(event.target.value)} />
-            </label>
-            <label className="space-y-1 text-xs font-medium">
-              Cuerpo
+              {isWhatsapp ? 'Mensaje' : 'Cuerpo'}
               <textarea
                 className="min-h-32 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 value={body}
@@ -368,7 +423,9 @@ function EditWorkspaceDialog({
             type="button"
             disabled={busy}
             onClick={() =>
-              void onSave(isEmail ? { subject, body } : { title, start, end })
+              void onSave(
+                isWhatsapp ? { body } : isEmail ? { subject, body } : { title, start, end }
+              )
             }
           >
             {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}

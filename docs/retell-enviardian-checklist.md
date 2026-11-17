@@ -48,7 +48,7 @@ URL token → validate-guide-user-link
 | `get_okr_progress` | read | Gate OKR; con service role puede ser mas amplio que RLS JWT (riesgo documentado) |
 | `search_people` | read | Usuarios activos (matching por nombre) |
 | `create_action` / `update_*` / `mark_action_done` / `verify_action` | write | Solo si `access_mode=propose`; denegado en `read` e `interview_full_read` |
-| `queue_workspace_draft` | write | Identidad de sesion; denegado fuera de `propose` |
+| `queue_workspace_draft` | write (cola) | Identidad de sesion; **comunicaciones** permitidas en `propose` y ligas `read`/`interview_full_read` (`canQueueCommunicationDraft`). Envío/confirm **no** permitido desde invite (`canSendCommunication`). Calendario sigue gated por `isGuideWriteAllowed`. |
 
 Con `interview_full_read`, las lecturas usan `boardScope=organization` (sin filtro por area/equipo del participante).
 
@@ -99,8 +99,29 @@ Estado en repo (código + script listos; remoto solo tras OK):
 | L | Cancelar propuesta / confirmar duplicado | `cancel_pending_op` no escribe; confirm idempotente |
 | M | Email preview en ActionCard | Destinatario/asunto/cuerpo; envío solo tras confirm |
 | N | Informe sección Acciones | Ejecutadas / pendientes / recomendaciones no ejecutadas |
+| O | Pedir WhatsApp/correo/ambos en voz | `queue_workspace_draft` action=prepare encola; no envía |
+| P | Colgar + `call_analyzed` | Borradores rellenados; visibles en historial / invite (solo lectura) |
+| Q | Aprobar envío autenticado | Gmail/Meta ok; invite no puede enviar |
+| R | Destinatario ambiguo / sin WA / ventana 24h | needs_info o error claro; sin “enviado” falso |
+| S | Webhook duplicado | No duplica envío (`guide-comm:{op_id}`) |
+| T | Cambiar destinatario en voz | `action=update` + `pending_op_id`; un solo borrador |
+| U | Cancelar en voz | `action=cancel`; no reaparece en fill |
+| V | Reintento tool misma idempotency_key | No duplica pending op |
+| W | Dos mensajes mismo canal | Dos prepare con keys distintas → dos ops |
+| X | Editar destinatario WA en UI | Re-resuelve teléfono; needs_info si falla |
+| Y | Confirm sin destinatario | Rechazado (email/WA) |
+| Z | Estado post-envío | “Aceptado por el proveedor”; “Entregado” solo con delivery webhook |
 
-Hasta completar A–N contra una URL real, la integracion de voz no esta cerrada.
+Hasta completar A–Z contra una URL real, la integracion de voz no esta cerrada.
+
+## Comunicaciones post-entrevista (correo + WhatsApp)
+
+- Persistencia: `assistant_pending_ops` (`gmail_prepare_send`, `whatsapp_prepare_send`).
+- Cola Retell: `POST /api/guide-queue-workspace-draft` con `action=prepare|update|cancel`, `channel=email|whatsapp|both`, `pending_op_id`, `idempotency_key`.
+- Ligas: pueden **encolar** borradores; no pueden **enviar**. Migración: `20261117010000_whatsapp_prepare_pending_ops.sql`.
+- UI: `GuideCommunicationsSection` (“Comunicaciones por aprobar”) + chip `N comunicaciones pendientes` en historial e invite (read-only).
+- Config externa requerida para envío real: `WHATSAPP_*`, Gmail OAuth del dueño, ventana 24h WhatsApp, publish Retell del schema de `queue_workspace_draft`.
+- Sin publish Retell / deploy prod sin OK.
 
 ## Informe ejecutivo v3 (web + PDF)
 

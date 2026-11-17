@@ -2,6 +2,8 @@ import { defineApiHandler, readRequestBody } from './_shared/http.js'
 import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth.js'
 import { cancelPendingOp, confirmPendingOp } from './_shared/assistantOpsRuntime.js'
 import { editGooglePendingOp, listSessionGoogleOps } from './_shared/assistantGoogleTools.js'
+import { editWhatsappPendingOp } from './_shared/assistantCommunicationDrafts.js'
+import { isCommunicationWriteTool } from '../src/features/ai-support/copilot/communicationTools.js'
 
 const RATE_LIMIT = 30
 const RATE_WINDOW_MS = 60_000
@@ -60,13 +62,23 @@ export default defineApiHandler(async (req, res) => {
     if (!opId) return res.status(400).json({ error: 'Falta op_id.' })
 
     if (action === 'edit') {
-      const proposal = await editGooglePendingOp(actor, opId, {
-        subject: typeof payload.subject === 'string' ? payload.subject : undefined,
-        body: typeof payload.body === 'string' ? payload.body : undefined,
-        title: typeof payload.title === 'string' ? payload.title : undefined,
-        start: typeof payload.start === 'string' ? payload.start : undefined,
-        end: typeof payload.end === 'string' ? payload.end : undefined,
-      })
+      const { data: opRow } = await actor.supabase
+        .from('assistant_pending_ops')
+        .select('tool')
+        .eq('id', opId)
+        .maybeSingle()
+      const tool = typeof opRow?.tool === 'string' ? opRow.tool : ''
+      const proposal = isCommunicationWriteTool(tool)
+        ? await editWhatsappPendingOp(actor, opId, {
+            body: typeof payload.body === 'string' ? payload.body : undefined,
+          })
+        : await editGooglePendingOp(actor, opId, {
+            subject: typeof payload.subject === 'string' ? payload.subject : undefined,
+            body: typeof payload.body === 'string' ? payload.body : undefined,
+            title: typeof payload.title === 'string' ? payload.title : undefined,
+            start: typeof payload.start === 'string' ? payload.start : undefined,
+            end: typeof payload.end === 'string' ? payload.end : undefined,
+          })
       return res.status(200).json({ status: 'pending', proposal })
     }
     if (action === 'cancel') {

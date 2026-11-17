@@ -35,7 +35,7 @@ export const GOOGLE_OAUTH_SCOPES = [
 
 export const CDMX_TZ = 'America/Mexico_City'
 
-export type CopilotWorkspaceKind = 'email' | 'event'
+export type CopilotWorkspaceKind = 'email' | 'event' | 'whatsapp'
 
 export type CopilotWorkspacePreview = {
   kind: CopilotWorkspaceKind
@@ -51,6 +51,12 @@ export type CopilotWorkspacePreview = {
   attendees?: string[]
   location?: string
   incomplete?: boolean
+  /** WhatsApp */
+  recipientName?: string
+  phone?: string
+  toUserId?: string
+  needsInfo?: boolean
+  needsInfoReason?: string
 }
 
 export function isGoogleReadTool(name: string): name is GoogleReadTool {

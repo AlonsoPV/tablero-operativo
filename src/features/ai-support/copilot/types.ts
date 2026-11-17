@@ -3,6 +3,7 @@ import {
   GOOGLE_WRITE_TOOLS,
   type CopilotWorkspacePreview,
 } from './googleWorkspace'
+import { COMMUNICATION_WRITE_TOOLS } from './communicationTools'
 
 export const COPILOT_READ_TOOLS = [
   'get_my_actions',
@@ -27,6 +28,7 @@ export const COPILOT_WRITE_TOOLS = [
   'verify_action',
   'confirm_pending_op',
   'cancel_pending_op',
+  ...COMMUNICATION_WRITE_TOOLS,
   ...GOOGLE_WRITE_TOOLS,
 ] as const
 

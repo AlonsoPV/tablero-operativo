@@ -1,17 +1,22 @@
 /**
- * Custom function de Retell: encola un borrador de correo/evento.
+ * Custom function de Retell: encola / actualiza / cancela borradores de correo/WhatsApp/evento.
  * No envia nada. Al colgar, finalizeGuideInterview rellena el borrador.
  * La identidad sale de guide_sessions, no de metadata.usuario_id del modelo.
  */
 import { createServiceRoleClient } from '../assistantAuth.js'
-import { queueWorkspaceDraft } from '../assistantGoogleTools.js'
 import { defineApiHandler, readHeader, readRequestBody, readStringEnv } from '../http.js'
 import { verifyRetellSignature } from '../guideInterviewReport.js'
 import {
+  canQueueCommunicationDraft,
   effectiveInviteAccessMode,
   isGuideWriteAllowed,
   normalizeGuideAccessMode,
 } from '../guideUserLinks.js'
+import { normalizeCommunicationChannel } from '../../../src/features/ai-support/copilot/communicationTools.js'
+import {
+  mutateVoiceWorkspaceDraft,
+  normalizeVoiceDraftAction,
+} from '../workspaceDraftVoice.js'
 
 type RetellCall = {
   call_id?: unknown
@@ -42,6 +47,8 @@ export default defineApiHandler(async (req, res) => {
     args?: unknown
     arguments?: unknown
     call?: RetellCall
+    tool_call_id?: unknown
+    id?: unknown
   } | null
   if (!body || typeof body !== 'object') {
     return res.status(400).json({ error: 'Solicitud invalida.' })
@@ -60,7 +67,8 @@ export default defineApiHandler(async (req, res) => {
   const sessionId = asString(metadata.guide_session_id, 80)
   if (!sessionId) {
     return res.status(200).json({
-      result: 'No pude anotar el borrador porque falta la sesion. Sigue la conversacion; no afirmo que se envio.',
+      result:
+        'No pude anotar el borrador porque falta la sesion. Sigue la conversacion; no afirmo que se envio. ¿Lo reintentamos?',
     })
   }
 
@@ -72,19 +80,22 @@ export default defineApiHandler(async (req, res) => {
         : body
   ) as Record<string, unknown>
 
-  const typeRaw = asString(args.type, 12).toLowerCase()
-  const type = typeRaw === 'event' ? 'event' : 'email'
-  const purpose = asString(args.purpose, 500)
-  if (!purpose) {
-    return res.status(200).json({
-      result: 'Necesito el proposito del correo o evento para dejar el borrador. No envio nada ahora.',
-    })
-  }
+  const action = normalizeVoiceDraftAction(args.action)
+  const channel = normalizeCommunicationChannel(args.channel || args.type)
+  const typeFromLegacy = asString(args.type, 12).toLowerCase()
+  const resolvedChannel =
+    channel === 'email' && (typeFromLegacy === 'event' || typeFromLegacy === 'calendar')
+      ? 'event'
+      : channel
 
+  const purpose = asString(args.purpose, 500)
   const attendees = Array.isArray(args.attendees)
     ? args.attendees.map((item) => String(item).trim()).filter(Boolean)
     : asString(args.attendees, 300)
-      ? asString(args.attendees, 300).split(/[,;]+/).map((item) => item.trim()).filter(Boolean)
+      ? asString(args.attendees, 300)
+          .split(/[,;]+/)
+          .map((item) => item.trim())
+          .filter(Boolean)
       : undefined
 
   try {
@@ -111,7 +122,7 @@ export default defineApiHandler(async (req, res) => {
     } | null
     if (sessionQuery.error || !session?.id || session.provider !== 'retell' || !session.usuario_id) {
       return res.status(200).json({
-        result: 'No pude asociar el borrador a la sesion. No afirmo que se envio.',
+        result: 'No pude asociar el borrador a la sesion. No afirmo que se envio. ¿Lo reintentamos?',
       })
     }
     if (session.status !== 'active' && session.status !== 'closing') {
@@ -126,10 +137,19 @@ export default defineApiHandler(async (req, res) => {
     }
     if (!session.access_mode && !session.guide_link_id) accessMode = 'propose'
     if (session.guide_link_id) accessMode = effectiveInviteAccessMode(session.access_mode || accessMode)
-    if (!isGuideWriteAllowed(accessMode)) {
+
+    const isComm =
+      resolvedChannel === 'email' || resolvedChannel === 'whatsapp' || resolvedChannel === 'both'
+    if (isComm) {
+      if (!canQueueCommunicationDraft(accessMode)) {
+        return res.status(200).json({
+          result: 'No puedo dejar borradores de comunicacion en este modo. No inventes que se envio.',
+        })
+      }
+    } else if (!isGuideWriteAllowed(accessMode)) {
       return res.status(200).json({
         result:
-          'Esta invitacion es de solo lectura. No puedo dejar borradores de correo o calendario. No inventes que se envio.',
+          'Esta invitacion es de solo lectura. No puedo dejar borradores de calendario. No inventes que se envio.',
       })
     }
 
@@ -140,33 +160,49 @@ export default defineApiHandler(async (req, res) => {
       .eq('id', usuarioId)
       .maybeSingle()
     if (error || !usuario?.id || usuario.activo === false || !usuario.user_id) {
-      return res.status(200).json({ result: 'No pude anotar el borrador para este usuario.' })
+      return res.status(200).json({
+        result: 'No pude anotar el borrador para este usuario. ¿Lo reintentamos?',
+      })
     }
-    const proposal = await queueWorkspaceDraft(
-      {
-        supabase,
-        usuarioId,
-        authUserId: String(usuario.user_id),
-        rol: typeof usuario.rol === 'string' ? usuario.rol : null,
-      },
-      {
-        type,
-        recipient: asString(args.recipient, 160) || undefined,
-        attendees,
-        purpose,
-        utteredAt: asString(args.uttered_at, 40) || new Date().toISOString(),
-        timeAnchor: asString(args.time_anchor, 80) || undefined,
-        sessionId,
-      }
-    )
+
+    const actor = {
+      supabase,
+      usuarioId,
+      authUserId: String(usuario.user_id),
+      rol: typeof usuario.rol === 'string' ? usuario.rol : null,
+    }
+
+    const toolCallId =
+      asString(args.idempotency_key, 160) ||
+      asString(body.tool_call_id, 160) ||
+      asString(body.id, 160) ||
+      undefined
+
+    const result = await mutateVoiceWorkspaceDraft(actor, {
+      action,
+      channel: resolvedChannel,
+      purpose,
+      recipient: asString(args.recipient, 160) || undefined,
+      utteredAt: asString(args.uttered_at, 40) || new Date().toISOString(),
+      timeAnchor: asString(args.time_anchor, 80) || undefined,
+      attendees,
+      sessionId,
+      pendingOpId: asString(args.pending_op_id, 80) || undefined,
+      idempotencyKey: toolCallId,
+    })
+
     return res.status(200).json({
-      result: `Deje un borrador de ${type === 'event' ? 'evento' : 'correo'} para revisar al terminar. No se envio. Id ${proposal.id}.`,
-      pending_op_id: proposal.id,
+      result: result.spoken,
+      pending_op_ids: result.pending_op_ids,
+      pending_op_id: result.pending_op_id,
+      action: result.action,
+      ok: result.ok,
     })
   } catch (error) {
     console.error('guide-queue-workspace-draft', error instanceof Error ? error.message : error)
     return res.status(200).json({
-      result: 'No pude guardar el borrador ahora. Sigue; no afirmo que se haya enviado.',
+      result: 'No pude guardar el borrador ahora. No afirmo que se haya enviado. ¿Lo reintentamos?',
+      ok: false,
     })
   }
 })

@@ -8,6 +8,8 @@ import {
   effectiveInviteAccessMode,
   guideBoardScopeForAccessMode,
   interviewFullReadPilotEnabled,
+  canQueueCommunicationDraft,
+  canSendCommunication,
   isGuideWriteAllowed,
   issueGuideAccessGrant,
   normalizeGuideAccessMode,
@@ -82,6 +84,10 @@ describe('guideUserLinks helpers', () => {
     expect(isGuideWriteAllowed('interview_full_read')).toBe(false)
     expect(isGuideWriteAllowed('read')).toBe(false)
     expect(isGuideWriteAllowed('propose')).toBe(true)
+    expect(canQueueCommunicationDraft('interview_full_read')).toBe(true)
+    expect(canQueueCommunicationDraft('read')).toBe(true)
+    expect(canSendCommunication('interview_full_read')).toBe(false)
+    expect(canSendCommunication('propose')).toBe(true)
 
     process.env.GUIDE_INTERVIEW_FULL_READ = '0'
     expect(interviewFullReadPilotEnabled()).toBe(false)

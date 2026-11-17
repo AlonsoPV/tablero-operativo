@@ -9,7 +9,10 @@ import {
   formatAbsoluteCdmx,
   type CopilotWorkspacePreview,
 } from '../../src/features/ai-support/copilot/googleWorkspace.js'
+import { WHATSAPP_BODY_MAX } from '../../src/features/ai-support/copilot/communicationTools.js'
 import { withContentHash } from './workspaceHash.js'
+import { resolveWhatsappRecipient } from './assistantCommunicationDrafts.js'
+import { maskPhone } from './guideInterviewReport.js'
 
 export type WorkspaceDraftRow = {
   id: string
@@ -54,7 +57,13 @@ export function fillWorkspaceDraftsFromTranscript(input: {
   for (const draft of input.drafts) {
     const payload = { ...draft.payload }
     if (payload.incomplete !== true) continue
-    const kind = asString(payload.draft_kind, 12) || (draft.tool.startsWith('calendar_') ? 'event' : 'email')
+    const kind =
+      asString(payload.draft_kind, 12) ||
+      (draft.tool === 'whatsapp_prepare_send'
+        ? 'whatsapp'
+        : draft.tool.startsWith('calendar_')
+          ? 'event'
+          : 'email')
     const purpose = asString(payload.purpose, 500)
     const utteredAt = asString(payload.uttered_at, 40) || (input.now ?? new Date()).toISOString()
     const anchor = asString(payload.time_anchor, 80)
@@ -64,6 +73,42 @@ export function fillWorkspaceDraftsFromTranscript(input: {
     const attendeeHint = Array.isArray(payload.attendees_hint)
       ? payload.attendees_hint.map((item) => String(item))
       : []
+
+    if (kind === 'whatsapp') {
+      // Recipient resolution is async in persistFilledWorkspaceDrafts; here we only draft body.
+      const body = clipText(context || purpose, WHATSAPP_BODY_MAX) || purpose
+      const workspace: CopilotWorkspacePreview = {
+        kind: 'whatsapp',
+        recipientName: recipientHint || undefined,
+        body,
+        incomplete: false,
+        needsInfo: !recipientHint,
+        needsInfoReason: recipientHint ? undefined : 'Falta el destinatario del WhatsApp.',
+      }
+      const nextPayload = withContentHash({
+        ...payload,
+        incomplete: false,
+        body,
+        recipient_hint: recipientHint,
+        needs_info: !recipientHint,
+        needs_info_reason: recipientHint ? '' : 'Falta el destinatario del WhatsApp.',
+      })
+      filled.push({
+        id: draft.id,
+        payload: nextPayload,
+        workspace,
+        preview: {
+          title: 'Enviar WhatsApp',
+          summary: `WhatsApp a ${recipientHint || '(destinatario por confirmar)'}. Revisa y confirma; no se envio solo.`,
+          fields: [
+            { label: 'Para', to: recipientHint || '—' },
+            { label: 'Mensaje', to: clipText(body, 280) },
+          ],
+          workspace,
+        },
+      })
+      continue
+    }
 
     if (kind === 'event') {
       const parsed = parseDueDateHint(anchor || context, today)
@@ -159,6 +204,7 @@ export async function persistFilledWorkspaceDrafts(
   transcript: string,
   report?: string
 ) {
+  // Solo pending: canceladas/confirmadas no reaparecen ni se inventan desde transcript.
   const { data, error } = await supabase
     .from('assistant_pending_ops')
     .select('id,tool,payload,preview,status')
@@ -169,8 +215,10 @@ export async function persistFilledWorkspaceDrafts(
     return 0
   }
   const drafts = (data ?? []).flatMap((row) => {
+    if (String(row.status) !== 'pending') return []
     const payload =
       row.payload && typeof row.payload === 'object' ? (row.payload as Record<string, unknown>) : {}
+    // Ya rellenados: no-op ante webhook duplicado.
     if (payload.incomplete !== true) return []
     return [
       {
@@ -184,10 +232,49 @@ export async function persistFilledWorkspaceDrafts(
     ]
   })
   const filled = fillWorkspaceDraftsFromTranscript({ drafts, transcript, report })
+
   for (const item of filled) {
+    let payload = item.payload
+    let preview = item.preview
+    if (item.workspace.kind === 'whatsapp') {
+      const resolved = await resolveWhatsappRecipient(
+        supabase,
+        asString(payload.recipient_hint, 160)
+      )
+      const needsInfo = Boolean(resolved.needsInfoReason)
+      const workspace: CopilotWorkspacePreview = {
+        ...item.workspace,
+        recipientName: resolved.name || item.workspace.recipientName,
+        phone: resolved.phone ? maskPhone(resolved.phone) : undefined,
+        toUserId: resolved.toUserId || undefined,
+        needsInfo,
+        needsInfoReason: resolved.needsInfoReason || undefined,
+      }
+      payload = withContentHash({
+        ...payload,
+        to_user_id: resolved.toUserId || '',
+        to_phone: resolved.phone || '',
+        recipient_hint: resolved.name || asString(payload.recipient_hint, 160),
+        needs_info: needsInfo,
+        needs_info_reason: resolved.needsInfoReason || '',
+      })
+      preview = {
+        title: 'Enviar WhatsApp',
+        summary: needsInfo
+          ? `WhatsApp incompleto: ${resolved.needsInfoReason}`
+          : `WhatsApp a ${workspace.recipientName || workspace.phone}. Revisa y confirma; no se envio solo.`,
+        fields: [
+          { label: 'Para', to: workspace.recipientName || '—' },
+          { label: 'Numero', to: workspace.phone || '—' },
+          { label: 'Mensaje', to: clipText(asString(payload.body, WHATSAPP_BODY_MAX), 280) },
+        ],
+        workspace,
+      }
+    }
+
     const { error: updateError } = await supabase
       .from('assistant_pending_ops')
-      .update({ payload: item.payload, preview: item.preview })
+      .update({ payload, preview })
       .eq('id', item.id)
       .eq('status', 'pending')
     if (updateError) console.error('workspace draft fill', updateError.message)

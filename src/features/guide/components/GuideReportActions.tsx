@@ -32,6 +32,7 @@ export function GuideReportActions({
   createdAt,
   entryId,
   sessionId,
+  communications,
   onShare,
 }: {
   topic?: string | null
@@ -44,6 +45,7 @@ export function GuideReportActions({
   createdAt?: string | null
   entryId?: string | null
   sessionId?: string | null
+  communications?: GuideReportSource['communications']
   onShare: (confirm: boolean) => Promise<ShareResult>
 }) {
   const [preview, setPreview] = useState<ShareResult | null>(null)
@@ -62,6 +64,7 @@ export function GuideReportActions({
         summary,
         learning,
         intention,
+        communications,
       }
       const result = downloadGuideReportPdf(source)
       if (result.warnings.length) {

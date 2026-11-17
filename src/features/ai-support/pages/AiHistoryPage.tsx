@@ -24,8 +24,11 @@ import { ActionDraftList } from '@/features/ai-support/components/ActionDraftLis
 import { groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
 import { GuideReportActions } from '@/features/guide/components/GuideReportActions'
 import { GuideReportBody } from '@/features/guide/components/GuideReportBody'
+import {
+  countPendingCommunications,
+  GuideCommunicationsSection,
+} from '@/features/guide/components/GuideCommunicationsSection'
 import { pendingWorkItems, pendingWorkToAnalysis } from '@/features/guide/pendingWork'
-import { AssistantProposalCard } from '@/features/ai-support/components/AssistantProposalCard'
 import { listSessionWorkspaceOps } from '@/features/ai-support/services/assistantOpsClient'
 import type { CopilotProposal } from '@/features/ai-support/copilot/types'
 
@@ -399,6 +402,22 @@ export function AiHistoryPage() {
                   createdAt={selected.created_at}
                   entryId={selected.id}
                   sessionId={selected.session_id}
+                  communications={workspaceOps.map((op) => ({
+                    channel:
+                      op.tool === 'whatsapp_prepare_send'
+                        ? 'WhatsApp'
+                        : op.tool.startsWith('gmail_')
+                          ? 'Correo'
+                          : op.tool.startsWith('calendar_')
+                            ? 'Evento'
+                            : 'Mensaje',
+                    title: op.title,
+                    status: op.status,
+                    recipient:
+                      op.workspace?.recipientName ||
+                      op.workspace?.to?.join(', ') ||
+                      op.workspace?.phone,
+                  }))}
                   onShare={async (confirm) => {
                     const headers = await (async () => {
                       const { data } = await import('@/lib/supabase/client').then((mod) =>
@@ -445,6 +464,16 @@ export function AiHistoryPage() {
             )}
           </section>
 
+          {(() => {
+            const pendingComms = countPendingCommunications(workspaceOps)
+            return pendingComms > 0 ? (
+              <p className="px-5 text-sm font-medium text-[#B45309] sm:px-6">
+                {pendingComms} comunicacion{pendingComms === 1 ? '' : 'es'} pendiente
+                {pendingComms === 1 ? '' : 's'}
+              </p>
+            ) : null
+          })()}
+
           <GuideReportBody
             executiveReport={selected.executive_report}
             summary={selected.summary}
@@ -455,49 +484,19 @@ export function AiHistoryPage() {
           />
 
           {workspaceOps.length > 0 ? (
-            <section className="space-y-3" aria-label="Acciones preparadas por Shaman">
-              <div className="space-y-1">
-                <h2 className="text-base font-semibold tracking-tight">Acciones preparadas por Shaman</h2>
-                <p className="text-sm text-muted-foreground">
-                  Correos y eventos listos para revisar, editar, aprobar o descartar. No se envian solos.
-                </p>
-              </div>
-              <ul className="space-y-2">
-                {workspaceOps.map((item) => (
-                  <li key={item.id}>
-                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {item.status === 'confirmed'
-                        ? 'Enviado'
-                        : item.status === 'cancelled'
-                          ? 'Descartado'
-                          : item.status === 'expired'
-                            ? 'Expiro'
-                            : 'Pendiente'}
-                    </p>
-                    <AssistantProposalCard
-                      proposal={item}
-                      status={
-                        item.status === 'confirmed'
-                          ? 'confirmed'
-                          : item.status === 'cancelled'
-                            ? 'cancelled'
-                            : 'pending'
-                      }
-                      onUpdated={(next) =>
-                        setWorkspaceOps((prev) =>
-                          prev.map((row) => (row.id === next.id ? { ...row, ...next } : row))
-                        )
-                      }
-                      onResolved={(status) =>
-                        setWorkspaceOps((prev) =>
-                          prev.map((row) => (row.id === item.id ? { ...row, status } : row))
-                        )
-                      }
-                    />
-                  </li>
-                ))}
-              </ul>
-            </section>
+            <GuideCommunicationsSection
+              ops={workspaceOps}
+              onUpdated={(next) =>
+                setWorkspaceOps((prev) =>
+                  prev.map((row) => (row.id === next.id ? { ...row, ...next } : row))
+                )
+              }
+              onResolved={(id, status) =>
+                setWorkspaceOps((prev) =>
+                  prev.map((row) => (row.id === id ? { ...row, status } : row))
+                )
+              }
+            />
           ) : null}
 
           {pendingAnalysis ? (

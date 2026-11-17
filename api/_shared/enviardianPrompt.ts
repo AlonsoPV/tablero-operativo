@@ -1,5 +1,5 @@
 /** Versión del prompt de voz que esta build espera en Retell. No publica el agente. */
-export const ENVIARDIAN_PROMPT_VERSION = 'enviardian-voz-2026-11-16-actions'
+export const ENVIARDIAN_PROMPT_VERSION = 'enviardian-voz-2026-11-16-comms'
 
 /** Versión del generador del informe posterior. Persistido en el documento JSON v3. */
 export const ENVIARDIAN_REPORT_VERSION = 'enviardian-informe-v3'
