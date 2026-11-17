@@ -17,6 +17,14 @@ import {
   mutateVoiceWorkspaceDraft,
   normalizeVoiceDraftAction,
 } from '../workspaceDraftVoice.js'
+import {
+  guideToolFailure,
+  guideToolSuccess,
+  logGuideToolEvent,
+  maskEmailForLog,
+  maskPhoneForLog,
+  newGuideRequestId,
+} from '../guideToolResult.js'
 
 type RetellCall = {
   call_id?: unknown
@@ -32,14 +40,36 @@ export default defineApiHandler(async (req, res) => {
     return res.status(405).json({ error: 'Metodo no permitido.' })
   }
 
+  const requestId = newGuideRequestId('queue')
+  const started = Date.now()
   const apiKey = readStringEnv('RETELL_API_KEY')
   const rawBody = typeof req.rawBody === 'string' ? req.rawBody : ''
   const signature = readHeader(req, 'x-retell-signature')
   if (!apiKey) {
-    return res.status(503).json({ error: 'Falta RETELL_API_KEY.' })
+    return res.status(503).json(
+      guideToolFailure({
+        code: 'AUTHENTICATION_FAILED',
+        user_message: 'Falta configurar la voz.',
+        tool: 'queue_workspace_draft',
+      })
+    )
   }
   if (!rawBody || !verifyRetellSignature(rawBody, apiKey, signature)) {
-    return res.status(401).json({ error: 'Firma de Retell invalida.' })
+    logGuideToolEvent({
+      request_id: requestId,
+      tool_name: 'queue_workspace_draft',
+      phase: 'auth',
+      success: false,
+      error_code: 'AUTHENTICATION_FAILED',
+      duration_ms: Date.now() - started,
+    })
+    return res.status(401).json(
+      guideToolFailure({
+        code: 'AUTHENTICATION_FAILED',
+        user_message: 'Firma de Retell invalida.',
+        tool: 'queue_workspace_draft',
+      })
+    )
   }
 
   const body = (await readRequestBody(req)) as {
@@ -51,25 +81,51 @@ export default defineApiHandler(async (req, res) => {
     id?: unknown
   } | null
   if (!body || typeof body !== 'object') {
-    return res.status(400).json({ error: 'Solicitud invalida.' })
+    return res.status(400).json(
+      guideToolFailure({
+        code: 'RESPONSE_FORMAT_ERROR',
+        user_message: 'Solicitud invalida.',
+        tool: 'queue_workspace_draft',
+      })
+    )
   }
 
   const call = (body.call ?? {}) as RetellCall
+  const callId = asString(call.call_id, 80) || null
   const metadata = (call.metadata ?? {}) as {
     guide_session_id?: unknown
     usuario_id?: unknown
     product?: unknown
   }
   if (metadata.product && metadata.product !== 'guide') {
-    return res.status(200).json({ result: 'Ignorado: no es una llamada de Guia.' })
+    return res.status(200).json(
+      guideToolFailure({
+        code: 'VALIDATION_FAILED',
+        user_message: 'Ignorado: no es una llamada de Guia.',
+        tool: 'queue_workspace_draft',
+      })
+    )
   }
 
   const sessionId = asString(metadata.guide_session_id, 80)
   if (!sessionId) {
-    return res.status(200).json({
-      result:
-        'No pude anotar el borrador porque falta la sesion. Sigue la conversacion; no afirmo que se envio. ¿Lo reintentamos?',
+    logGuideToolEvent({
+      request_id: requestId,
+      call_id: callId,
+      tool_name: 'queue_workspace_draft',
+      phase: 'session',
+      success: false,
+      error_code: 'SESSION_NOT_FOUND',
+      duration_ms: Date.now() - started,
     })
+    return res.status(200).json(
+      guideToolFailure({
+        code: 'SESSION_NOT_FOUND',
+        user_message:
+          'No pude anotar el borrador porque falta la sesion. Sigue la conversacion; no afirmo que se envio. ¿Lo reintentamos?',
+        tool: 'queue_workspace_draft',
+      })
+    )
   }
 
   const args = (
@@ -121,14 +177,32 @@ export default defineApiHandler(async (req, res) => {
       access_mode?: string | null
     } | null
     if (sessionQuery.error || !session?.id || session.provider !== 'retell' || !session.usuario_id) {
-      return res.status(200).json({
-        result: 'No pude asociar el borrador a la sesion. No afirmo que se envio. ¿Lo reintentamos?',
+      logGuideToolEvent({
+        request_id: requestId,
+        call_id: callId,
+        session_id: sessionId,
+        tool_name: 'queue_workspace_draft',
+        phase: 'session',
+        success: false,
+        error_code: 'SESSION_NOT_FOUND',
+        duration_ms: Date.now() - started,
       })
+      return res.status(200).json(
+        guideToolFailure({
+          code: 'SESSION_NOT_FOUND',
+          user_message: 'No pude asociar el borrador a la sesion. No afirmo que se envio. ¿Lo reintentamos?',
+          tool: 'queue_workspace_draft',
+        })
+      )
     }
     if (session.status !== 'active' && session.status !== 'closing') {
-      return res.status(200).json({
-        result: 'La sesion de voz ya no esta abierta. No anote el borrador.',
-      })
+      return res.status(200).json(
+        guideToolFailure({
+          code: 'SESSION_NOT_FOUND',
+          user_message: 'La sesion de voz ya no esta abierta. No anote el borrador.',
+          tool: 'queue_workspace_draft',
+        })
+      )
     }
 
     let accessMode = normalizeGuideAccessMode(session.access_mode)
@@ -145,15 +219,36 @@ export default defineApiHandler(async (req, res) => {
       resolvedChannel === 'unspecified'
     if (isComm) {
       if (!canQueueCommunicationDraft(accessMode)) {
-        return res.status(200).json({
-          result: 'No puedo dejar borradores de comunicacion en este modo. No inventes que se envio.',
+        logGuideToolEvent({
+          request_id: requestId,
+          call_id: callId,
+          session_id: sessionId,
+          tool_name: 'queue_workspace_draft',
+          phase: 'permission',
+          success: false,
+          error_code: 'PERMISSION_DENIED',
+          access_mode: accessMode,
+          duration_ms: Date.now() - started,
         })
+        return res.status(200).json(
+          guideToolFailure({
+            code: 'PERMISSION_DENIED',
+            user_message: 'No puedo dejar borradores de comunicacion en este modo. No inventes que se envio.',
+            status: 'denied',
+            tool: 'queue_workspace_draft',
+          })
+        )
       }
     } else if (!isGuideWriteAllowed(accessMode)) {
-      return res.status(200).json({
-        result:
-          'Esta invitacion es de solo lectura. No puedo dejar borradores de calendario. No inventes que se envio.',
-      })
+      return res.status(200).json(
+        guideToolFailure({
+          code: 'PERMISSION_DENIED',
+          user_message:
+            'Esta invitacion es de solo lectura. No puedo dejar borradores de calendario. No inventes que se envio.',
+          status: 'denied',
+          tool: 'queue_workspace_draft',
+        })
+      )
     }
 
     const usuarioId = String(session.usuario_id)
@@ -163,9 +258,14 @@ export default defineApiHandler(async (req, res) => {
       .eq('id', usuarioId)
       .maybeSingle()
     if (error || !usuario?.id || usuario.activo === false || !usuario.user_id) {
-      return res.status(200).json({
-        result: 'No pude anotar el borrador para este usuario. ¿Lo reintentamos?',
-      })
+      return res.status(200).json(
+        guideToolFailure({
+          code: 'PERMISSION_DENIED',
+          user_message: 'No pude anotar el borrador para este usuario. ¿Lo reintentamos?',
+          status: 'denied',
+          tool: 'queue_workspace_draft',
+        })
+      )
     }
 
     const actor = {
@@ -173,6 +273,7 @@ export default defineApiHandler(async (req, res) => {
       usuarioId,
       authUserId: String(usuario.user_id),
       rol: typeof usuario.rol === 'string' ? usuario.rol : null,
+      guideAccessMode: accessMode,
     }
 
     const toolCallId =
@@ -182,14 +283,15 @@ export default defineApiHandler(async (req, res) => {
       undefined
 
     if (action === 'prepare' && resolvedChannel === 'unspecified') {
-      return res.status(200).json({
-        result: '¿Lo prefieres por WhatsApp o correo? Dime el canal y lo dejo anotado.',
-        ok: false,
-        ask_channel: true,
-        pending_op_ids: [],
-        pending_op_id: null,
-        action,
-      })
+      return res.status(200).json(
+        guideToolFailure({
+          code: 'CHANNEL_UNSPECIFIED',
+          user_message: '¿Lo prefieres por WhatsApp o correo? Dime el canal y lo dejo anotado.',
+          tool: 'queue_workspace_draft',
+          ask_channel: true,
+          retryable: false,
+        })
+      )
     }
 
     const result = await mutateVoiceWorkspaceDraft(actor, {
@@ -207,18 +309,77 @@ export default defineApiHandler(async (req, res) => {
       conversationContext: asString(args.conversation_context, 800) || undefined,
     })
 
-    return res.status(200).json({
-      result: result.spoken,
-      pending_op_ids: result.pending_op_ids,
-      pending_op_id: result.pending_op_id,
-      action: result.action,
-      ok: result.ok,
+    const recipient = asString(args.recipient, 160)
+    logGuideToolEvent({
+      request_id: requestId,
+      call_id: callId,
+      session_id: sessionId,
+      tool_name: 'queue_workspace_draft',
+      operation_id: result.pending_op_id,
+      draft_id: result.pending_op_id,
+      phase: action,
+      success: result.ok,
+      error_code: result.ok ? null : 'VALIDATION_FAILED',
+      access_mode: accessMode,
+      duration_ms: Date.now() - started,
+      masked_phone: maskPhoneForLog(recipient),
+      masked_email: maskEmailForLog(recipient),
     })
+
+    if (!result.ok) {
+      return res.status(200).json(
+        guideToolFailure({
+          code: action === 'prepare' && resolvedChannel === 'unspecified' ? 'CHANNEL_UNSPECIFIED' : 'VALIDATION_FAILED',
+          user_message: result.spoken,
+          operation_id: result.pending_op_id,
+          pending_op_id: result.pending_op_id,
+          pending_op_ids: result.pending_op_ids,
+          tool: 'queue_workspace_draft',
+          ask_channel: /whatsapp o correo/i.test(result.spoken),
+        })
+      )
+    }
+
+    const status =
+      action === 'cancel' ? 'draft_cancelled' : action === 'update' ? 'draft_updated' : 'draft_registered'
+    return res.status(200).json(
+      guideToolSuccess({
+        message: result.spoken,
+        status,
+        operation_id: result.pending_op_id,
+        pending_op_id: result.pending_op_id,
+        pending_op_ids: result.pending_op_ids,
+        entity_type:
+          resolvedChannel === 'whatsapp'
+            ? 'whatsapp'
+            : resolvedChannel === 'event'
+              ? 'event'
+              : resolvedChannel === 'both'
+                ? 'communication'
+                : 'email',
+        entity_id: result.pending_op_id,
+        tool: 'queue_workspace_draft',
+        data: { action: result.action },
+      })
+    )
   } catch (error) {
     console.error('guide-queue-workspace-draft', error instanceof Error ? error.message : error)
-    return res.status(200).json({
-      result: 'No pude guardar el borrador ahora. No afirmo que se haya enviado. ¿Lo reintentamos?',
-      ok: false,
+    logGuideToolEvent({
+      request_id: requestId,
+      call_id: callId,
+      session_id: sessionId,
+      tool_name: 'queue_workspace_draft',
+      phase: 'error',
+      success: false,
+      error_code: 'DATABASE_ERROR',
+      duration_ms: Date.now() - started,
     })
+    return res.status(200).json(
+      guideToolFailure({
+        code: 'DATABASE_ERROR',
+        user_message: 'No pude guardar el borrador ahora. No afirmo que se haya enviado. ¿Lo reintentamos?',
+        tool: 'queue_workspace_draft',
+      })
+    )
   }
 })

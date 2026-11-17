@@ -2,7 +2,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { parseDueDateHint } from '../../src/features/ai-support/parseWorkFacts.js'
 import {
   buildEnviardianReportDocument,
+  buildSessionActions,
   serializeReportDocument,
+  type EnviardianCommunicationDraftRef,
+  type EnviardianTechnicalAttention,
+  type EnviardianVerifiedMetric,
 } from '../../src/features/guide/enviardianReportDocument.js'
 
 export type GuideWorkKind = 'action' | 'initiative'
@@ -240,6 +244,9 @@ export type FormatExecutiveExtras = {
     evidence?: string
   }>
   risks?: Array<{ risk?: string; consequence?: string; mitigation?: string; opportunity?: string }>
+  technicalAttention?: EnviardianTechnicalAttention[]
+  communicationDrafts?: EnviardianCommunicationDraftRef[]
+  verifiedMetrics?: EnviardianVerifiedMetric[]
 }
 
 export function formatExecutiveReport(
@@ -284,7 +291,7 @@ export function formatExecutiveReport(
       })),
       ...nextSteps.map((item) => ({
         action: item,
-        status: 'undefined' as const,
+        status: 'pending' as const,
       })),
     ]
     const doc = buildEnviardianReportDocument({
@@ -324,8 +331,32 @@ export function formatExecutiveReport(
           kind: item.kind,
         })),
       ],
+      // Recomendaciones LLM no se convierten en session_actions/tareas.
+      sessionActions: buildSessionActions({
+        createdWork: [
+          ...pending.map((item) => ({
+            title: item.title,
+            pending: true,
+            ownerHint: item.ownerHint,
+            dueDateHint: item.dueDateHint,
+            kind: item.kind,
+          })),
+          ...recordedWorkFromCreated(ok).map((item) => ({
+            title: item.title,
+            id: item.id,
+            pending: false,
+            ownerHint: item.ownerHint,
+            dueDateHint: item.dueDateHint,
+            kind: item.kind,
+          })),
+        ],
+        recommendations: [],
+      }),
       headlineFinding: extras?.headlineFinding,
       nextStep: extras?.nextStep,
+      technicalAttention: extras?.technicalAttention ?? [],
+      communicationDrafts: extras?.communicationDrafts ?? [],
+      verifiedMetrics: extras?.verifiedMetrics ?? [],
     })
     return serializeReportDocument(doc)
   }

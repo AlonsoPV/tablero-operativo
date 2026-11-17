@@ -260,7 +260,16 @@ describe('retell tool bridge', () => {
     expect(facts.hadSuccess).toBe(true)
     expect(facts.lines.join('\n')).toContain('Cerrar OTIF')
     expect(facts.lines.join('\n')).not.toContain('inventado')
-    expect(verifiedFactsFromLog(null)).toEqual({ lines: [], hadError: false, hadSuccess: false })
+    expect(facts.lines.join('\n')).not.toMatch(/get_my_actions:/)
+    expect(facts.technicalAttention.length).toBeGreaterThan(0)
+    expect(verifiedFactsFromLog(null)).toEqual({
+      lines: [],
+      sources: [],
+      metrics: [],
+      technicalAttention: [],
+      hadError: false,
+      hadSuccess: false,
+    })
   })
 
   it('stores a short phrase and keeps model-written verified text out of the report', () => {
@@ -269,11 +278,11 @@ describe('retell tool bridge', () => {
     })
     expect(entry.summary).toBe('Cerrar OTIF, Revisar inventario')
     expect(entry.summary).not.toMatch(/[{}]/)
-    const grounded = groundVerifiedLines(
-      [`get_my_actions: ${entry.summary}`],
-      ['Hay 40 acciones vencidas y el indicador OTIF esta en 92%.']
-    )
-    expect(grounded).toEqual(['get_my_actions: Cerrar OTIF, Revisar inventario'])
-    expect(grounded.join('\n')).not.toMatch(/92%|40 acciones/)
+    const facts = verifiedFactsFromLog([entry])
+    const grounded = groundVerifiedLines(facts.lines, [
+      'Hay 40 acciones vencidas y el indicador OTIF esta en 92%.',
+    ])
+    expect(grounded).toEqual(['Cerrar OTIF, Revisar inventario'])
+    expect(grounded.join('\n')).not.toMatch(/92%|40 acciones|get_my_actions/)
   })
 })

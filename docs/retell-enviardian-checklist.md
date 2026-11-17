@@ -101,7 +101,7 @@ Estado en repo (código + script listos; remoto solo tras OK):
 | N | Informe sección Acciones | Ejecutadas / pendientes / recomendaciones no ejecutadas |
 | O | Pedir WhatsApp/correo/ambos en voz | `queue_workspace_draft` action=prepare encola; no envía |
 | P | Colgar + `call_analyzed` | Borradores rellenados; visibles en historial / invite (solo lectura) |
-| Q | Aprobar envío autenticado | Gmail/Meta ok; invite no puede enviar |
+| Q | Aprobar envío autenticado / piloto | Gmail/Meta ok; `interview_full_read` puede enviar; `read` puro no |
 | R | Destinatario ambiguo / sin WA / ventana 24h | needs_info o error claro; sin “enviado” falso |
 | S | Webhook duplicado | No duplica envío (`guide-comm:{op_id}`) |
 | T | Cambiar destinatario en voz | `action=update` + `pending_op_id`; un solo borrador |
@@ -120,10 +120,11 @@ Hasta completar A–Z contra una URL real, la integracion de voz no esta cerrada
 - Cola Retell: `POST /api/guide-queue-workspace-draft` con `action=prepare|update|cancel`, `channel=email|whatsapp|both`, `pending_op_id`, `idempotency_key`, `content_instructions`, `conversation_context`.
 - Canal `unspecified` / mensaje sin canal: **no encola**; spoken pide WhatsApp o correo.
 - Detección de intención (offline + prompt): [`communicationIntent.ts`](../api/_shared/communicationIntent.ts) + taxonomía A–D en `enviardian-voz-2026-11-17-intent`. Menciones informativas **no** generan borrador; soft intent pregunta confirmación.
-- Ligas: pueden **encolar** borradores; no pueden **enviar**. Migración: `20261117010000_whatsapp_prepare_pending_ops.sql`.
-- UI: `GuideCommunicationsSection` (“Comunicaciones por aprobar”) + chip `N comunicaciones pendientes` en historial e invite (read-only).
+- Ligas piloto (`interview_full_read`): pueden **encolar** y **confirmar/enviar** como dueño (`canSendCommunication`). Modo `read` puro: solo encolar, no enviar. Migración: `20261117010000_whatsapp_prepare_pending_ops.sql`.
+- Contrato tool: respuestas con `success` + `error.code` tipado (`guideToolResult.ts`). El agente **no** afirma éxito si `success!==true`.
+- UI: `GuideCommunicationsSection` (“Comunicaciones por aprobar”) + sección “atención técnica” en informe + chip pendientes.
 - Config externa requerida para envío real: `WHATSAPP_*`, Gmail OAuth del dueño, ventana 24h WhatsApp, publish Retell del prompt/schema (`GUIDE_RETELL_PUBLISH_OK`).
-- Sin publish Retell / deploy prod sin OK.
+- Sin publish Retell / deploy prod sin OK explícito del usuario.
 
 ## Informe ejecutivo v3 (web + PDF)
 
@@ -133,9 +134,19 @@ Hasta completar A–Z contra una URL real, la integracion de voz no esta cerrada
 - PDF/WhatsApp: misma capa [`guideReportPresentation`](../src/features/guide/guideReportPresentation.ts) + acentos PDF por `sectionKind`.
 - Sin deploy producción ni publish Retell en este cambio: validar en preview.
 
+## Verificación dashboard Retell (manual; el repo no sincroniza solo)
+
+1. Nombres exactos: `scrumban` / tools board, `get_session_state`, `queue_workspace_draft`.
+2. URL de `queue_workspace_draft` → `https://<vercel>/api/guide-queue-workspace-draft`.
+3. URL de board tools → `/api/guide-retell-tool` (o bridge).
+4. JSON Schema: `action`, `channel`, `purpose`, `recipient`, `pending_op_id`, `content_instructions`, `conversation_context`, `uttered_at`.
+5. Timeout custom function ≥ latencia p95 del backend (hoy `GUIDE_RETELL_TOOL_TIMEOUT_MS` default 3000; Retell dashboard aparte).
+6. Prompt: no afirmar éxito si la tool responde `success: false`.
+7. Publicar solo con `GUIDE_RETELL_PUBLISH_OK=1`.
+
 ## Observabilidad
 
-Logs `guide-retell-tool`: `call_id`, `session`, `tool`, `status`, `auth_ms`, `session_ms`, `user_ms`, `dispatch_ms`, `consult_log_ms`, `payload_bytes`, `ms`, `ignored_model_user`. No loguear tokens ni grants completos.
+Logs `guide-retell-tool` + `guide-tool`: `request_id`, `call_id`, `session_id`, `tool_name`, `operation_id`, `phase`, `duration_ms`, `success`, `error_code`, `access_mode`; teléfonos/correos enmascarados. No loguear tokens ni grants.
 
 Harness local/preview: `node scripts/e2e-guia-voice-latency.mjs` (matriz A–N, p50/p95 por herramienta). Smoke corto: `scripts/e2e-guia-bridge-smoke.mjs`. Detalle: `docs/retell-voice-latency-baseline.md`.
 

@@ -12,6 +12,11 @@ export type CopilotActor = {
   boardScope?: CopilotBoardScope
   /** Canal voz Retell: lecturas más cortas y payloads compactos. */
   voiceChannel?: boolean
+  /**
+   * Modo de acceso de la sesión Guía (propose / read / interview_full_read).
+   * Usado para gates de envío (canSendCommunication) en confirm_pending_op.
+   */
+  guideAccessMode?: 'propose' | 'read' | 'interview_full_read'
 }
 
 export const BOARD_PENDING_TTL_MS = 10 * 60 * 1000

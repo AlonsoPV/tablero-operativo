@@ -291,6 +291,31 @@ async function prepareOne(
     }
   }
 
+  // Deduplicar reformulaciones de voz: mismo canal + propósito + destinatario en la sesión.
+  const latestSameChannel = await findLatestPendingByChannel(actor, input.sessionId, input.channel)
+  if (latestSameChannel) {
+    const prevPurpose = asString(latestSameChannel.payload.purpose, 500).toLowerCase().replace(/\s+/g, ' ')
+    const nextPurpose = input.purpose.trim().toLowerCase().replace(/\s+/g, ' ')
+    const prevRecipient = asString(latestSameChannel.payload.recipient_hint, 160).toLowerCase()
+    const nextRecipient = (input.recipient || '').trim().toLowerCase()
+    if (prevPurpose && prevPurpose === nextPurpose && prevRecipient === nextRecipient) {
+      return {
+        id: latestSameChannel.id,
+        tool: latestSameChannel.tool as CopilotProposal['tool'],
+        title: asString(latestSameChannel.preview.title, 120) || 'Borrador',
+        summary: asString(latestSameChannel.preview.summary, 280) || 'Borrador ya anotado.',
+        fields: Array.isArray(latestSameChannel.preview.fields)
+          ? (latestSameChannel.preview.fields as CopilotProposal['fields'])
+          : [],
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        workspace:
+          latestSameChannel.preview.workspace && typeof latestSameChannel.preview.workspace === 'object'
+            ? (latestSameChannel.preview.workspace as CopilotProposal['workspace'])
+            : undefined,
+      }
+    }
+  }
+
   if (input.channel === 'whatsapp') {
     const proposal = await queueWhatsappDraft(actor, {
       purpose: input.purpose,

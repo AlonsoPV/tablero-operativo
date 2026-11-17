@@ -23,18 +23,30 @@ import {
   readRetellToolCall,
   type ConsultLogEntry,
 } from '../guideRetellTool.js'
+import {
+  guideToolFailure,
+  guideToolSuccess,
+  logGuideToolEvent,
+  newGuideRequestId,
+  type GuideToolErrorCode,
+} from '../guideToolResult.js'
 
 function asString(value: unknown, max = 80) {
   return typeof value === 'string' ? value.trim().slice(0, max) : ''
 }
 
 function timedOutResult(tool: string) {
-  return {
-    status: 'error' as const,
+  return guideToolFailure({
+    code: 'TIMEOUT',
+    user_message: 'No pude recuperar ese dato a tiempo. No inventes cifras; ofrece reintentar o reformular.',
     tool,
-    result: 'No pude recuperar ese dato a tiempo. No inventes cifras; ofrece reintentar o reformular.',
-    data: null,
-  }
+  })
+}
+
+function statusToErrorCode(status: string): GuideToolErrorCode {
+  if (status === 'denied') return 'PERMISSION_DENIED'
+  if (status === 'timeout') return 'TIMEOUT'
+  return 'UNKNOWN_ERROR'
 }
 
 async function appendConsultLog(
@@ -85,6 +97,7 @@ export default defineApiHandler(async (req, res) => {
     return res.status(405).json({ error: 'Metodo no permitido.' })
   }
 
+  const requestId = newGuideRequestId('retell')
   const authStarted = Date.now()
   const apiKey = readStringEnv('RETELL_API_KEY')
   const toolSecret = readStringEnv('GUIDE_RETELL_TOOL_SECRET')
@@ -96,10 +109,28 @@ export default defineApiHandler(async (req, res) => {
   const signedOk = Boolean(apiKey && rawBody && verifyRetellSignature(rawBody, apiKey, signature))
   const secretOk = Boolean(toolSecret && ((guideSecret && guideSecret === toolSecret) || (bearer && bearer === toolSecret)))
   if (!apiKey && !toolSecret) {
-    return res.status(503).json({ status: 'error', result: 'Falta configurar la voz.' })
+    return res.status(503).json(
+      guideToolFailure({
+        code: 'AUTHENTICATION_FAILED',
+        user_message: 'Falta configurar la voz.',
+      })
+    )
   }
   if (!signedOk && !secretOk) {
-    return res.status(401).json({ status: 'error', result: 'Firma de Retell invalida.' })
+    logGuideToolEvent({
+      request_id: requestId,
+      tool_name: 'guide-retell-tool',
+      phase: 'auth',
+      success: false,
+      error_code: 'AUTHENTICATION_FAILED',
+      duration_ms: Date.now() - authStarted,
+    })
+    return res.status(401).json(
+      guideToolFailure({
+        code: 'AUTHENTICATION_FAILED',
+        user_message: 'Firma de Retell invalida.',
+      })
+    )
   }
   const auth_ms = Date.now() - authStarted
 
@@ -110,26 +141,40 @@ export default defineApiHandler(async (req, res) => {
     call?: { call_id?: unknown; metadata?: unknown }
   } | null
   if (!body || typeof body !== 'object') {
-    return res.status(400).json({ status: 'error', result: 'Solicitud invalida.' })
+    return res.status(400).json(
+      guideToolFailure({
+        code: 'RESPONSE_FORMAT_ERROR',
+        user_message: 'Solicitud invalida.',
+      })
+    )
   }
 
   const callId = asString(body.call?.call_id, 80) || null
   const parsed = readRetellToolCall(body)
   if (parsed.product && parsed.product !== 'guide') {
-    return res.status(200).json({ status: 'error', result: 'Ignorado: no es una llamada de Guia.' })
+    return res.status(200).json(
+      guideToolFailure({
+        code: 'VALIDATION_FAILED',
+        user_message: 'Ignorado: no es una llamada de Guia.',
+      })
+    )
   }
   if (!parsed.sessionId) {
-    return res.status(200).json({
-      status: 'error',
-      result: 'No pude consultar porque falta la sesion. No inventes datos del tablero.',
-    })
+    return res.status(200).json(
+      guideToolFailure({
+        code: 'SESSION_NOT_FOUND',
+        user_message: 'No pude consultar porque falta la sesion. No inventes datos del tablero.',
+      })
+    )
   }
   if (!parsed.tool || !isRetellBoardTool(parsed.tool)) {
-    return res.status(200).json({
-      status: 'error',
-      tool: parsed.tool || null,
-      result: 'Esa herramienta no esta disponible en la entrevista. No inventes el resultado.',
-    })
+    return res.status(200).json(
+      guideToolFailure({
+        code: 'TOOL_NOT_FOUND',
+        user_message: 'Esa herramienta no esta disponible en la entrevista. No inventes el resultado.',
+        tool: parsed.tool || null,
+      })
+    )
   }
 
   const rate = checkAssistantRateLimit({
@@ -138,11 +183,14 @@ export default defineApiHandler(async (req, res) => {
     windowMs: 60_000,
   })
   if (rate.ok === false) {
-    return res.status(200).json({
-      status: 'error',
-      tool: parsed.tool,
-      result: 'Demasiadas consultas en esta llamada. Espera un momento y no inventes datos.',
-    })
+    return res.status(200).json(
+      guideToolFailure({
+        code: 'TIMEOUT',
+        user_message: 'Demasiadas consultas en esta llamada. Espera un momento y no inventes datos.',
+        tool: parsed.tool,
+        retryable: true,
+      })
+    )
   }
 
   const started = Date.now()
@@ -159,11 +207,12 @@ export default defineApiHandler(async (req, res) => {
     guide_link_id?: string | null
     access_mode?: string | null
   }
-  type ToolResponse = {
-    status: 'error' | 'denied' | 'ok' | 'empty' | 'needs_clarification' | 'needs_confirmation'
-    tool: string
+  type ToolResponse = Record<string, unknown> & {
+    status: string
+    tool?: string | null
     result: string
     data?: unknown
+    success?: boolean
   }
   type WorkDone =
     | {
@@ -211,11 +260,11 @@ export default defineApiHandler(async (req, res) => {
           early: true,
           session: null,
           accessMode: null,
-          response: {
-            status: 'error',
+          response: guideToolFailure({
+            code: 'SESSION_NOT_FOUND',
+            user_message: 'No pude asociar esta llamada a un usuario. No inventes datos del tablero.',
             tool: parsed.tool,
-            result: 'No pude asociar esta llamada a un usuario. No inventes datos del tablero.',
-          },
+          }),
         }
       }
       const session: SessionRow = {
@@ -231,11 +280,11 @@ export default defineApiHandler(async (req, res) => {
           early: true,
           session,
           accessMode: null,
-          response: {
-            status: 'error',
+          response: guideToolFailure({
+            code: 'SESSION_NOT_FOUND',
+            user_message: 'La sesion de voz ya no esta abierta. No inventes datos del tablero.',
             tool: parsed.tool,
-            result: 'La sesion de voz ya no esta abierta. No inventes datos del tablero.',
-          },
+          }),
         }
       }
 
@@ -253,12 +302,13 @@ export default defineApiHandler(async (req, res) => {
           early: true,
           session,
           accessMode,
-          response: {
+          response: guideToolFailure({
+            code: 'PERMISSION_DENIED',
+            user_message:
+              'No tienes permiso de escritura en este modo. No inventes que quedo hecho.',
             status: 'denied',
             tool: parsed.tool,
-            result:
-              'No tienes permiso de escritura en este modo. No inventes que quedo hecho.',
-          },
+          }),
         }
       }
 
@@ -274,11 +324,12 @@ export default defineApiHandler(async (req, res) => {
           early: true,
           session,
           accessMode,
-          response: {
+          response: guideToolFailure({
+            code: 'PERMISSION_DENIED',
+            user_message: 'Este usuario no puede consultar el tablero ahora.',
             status: 'denied',
             tool: parsed.tool,
-            result: 'Este usuario no puede consultar el tablero ahora.',
-          },
+          }),
         }
       }
 
@@ -291,6 +342,7 @@ export default defineApiHandler(async (req, res) => {
           rol: typeof usuario.rol === 'string' ? usuario.rol : null,
           boardScope: guideBoardScopeForAccessMode(accessMode),
           voiceChannel: true,
+          guideAccessMode: accessMode,
         },
         parsed.tool,
         parsed.args
@@ -339,6 +391,16 @@ export default defineApiHandler(async (req, res) => {
           })
         )
       )
+      logGuideToolEvent({
+        request_id: requestId,
+        call_id: callId,
+        session_id: asString(parsed.sessionId),
+        tool_name: parsed.tool,
+        phase: 'timeout',
+        success: false,
+        error_code: 'TIMEOUT',
+        duration_ms: Date.now() - started,
+      })
       return res.status(200).json(timedOutResult(parsed.tool))
     }
 
@@ -352,7 +414,7 @@ export default defineApiHandler(async (req, res) => {
             session: asString(done.session?.id ?? parsed.sessionId),
             invitation_id: done.session?.guide_link_id ?? null,
             tool: parsed.tool,
-            status: done.response.status,
+            status: done.response.status as 'error' | 'denied' | 'ok' | 'empty' | 'needs_clarification' | 'needs_confirmation' | 'timeout',
             access_mode: done.accessMode ?? 'unknown',
             auth_ms,
             session_ms,
@@ -365,15 +427,42 @@ export default defineApiHandler(async (req, res) => {
           })
         )
       )
+      logGuideToolEvent({
+        request_id: requestId,
+        call_id: callId,
+        session_id: asString(done.session?.id ?? parsed.sessionId),
+        tool_name: parsed.tool,
+        phase: 'early',
+        success: done.response.success === true,
+        error_code: statusToErrorCode(String(done.response.status)),
+        access_mode: done.accessMode,
+        duration_ms: Date.now() - started,
+      })
       return res.status(200).json(done.response)
     }
 
-    const payload = {
-      status: done.classified.status,
-      tool: parsed.tool,
-      result: done.classified.spoken,
-      data: done.classified.data,
-    }
+    const okStatuses = new Set(['ok', 'empty', 'needs_clarification', 'needs_confirmation'])
+    const payload =
+      okStatuses.has(done.classified.status)
+        ? guideToolSuccess({
+            message: done.classified.spoken,
+            status: done.classified.status,
+            tool: parsed.tool,
+            data: done.classified.data,
+            operation_id:
+              done.classified.data &&
+              typeof done.classified.data === 'object' &&
+              'pending_op_id' in (done.classified.data as object)
+                ? String((done.classified.data as { pending_op_id?: unknown }).pending_op_id ?? '') || null
+                : null,
+          })
+        : guideToolFailure({
+            code: statusToErrorCode(done.classified.status),
+            user_message: done.classified.spoken,
+            status: done.classified.status === 'denied' ? 'denied' : 'error',
+            tool: parsed.tool,
+            data: done.classified.data,
+          })
     console.info(
       'guide-retell-tool',
       JSON.stringify(
@@ -395,13 +484,27 @@ export default defineApiHandler(async (req, res) => {
         })
       )
     )
+    logGuideToolEvent({
+      request_id: requestId,
+      call_id: callId,
+      session_id: done.session.id,
+      tool_name: parsed.tool,
+      operation_id: payload.operation_id,
+      phase: 'complete',
+      success: payload.success,
+      error_code: payload.success ? null : payload.error.code,
+      access_mode: done.accessMode,
+      duration_ms: Date.now() - started,
+    })
     return res.status(200).json(payload)
   } catch (error) {
     console.error('guide-retell-tool', error instanceof Error ? error.message : error)
-    return res.status(200).json({
-      status: 'error',
-      tool: parsed.tool,
-      result: 'No pude consultar el tablero. Prefiero no dar informacion que no pueda confirmar.',
-    })
+    return res.status(200).json(
+      guideToolFailure({
+        code: 'UNKNOWN_ERROR',
+        user_message: 'No pude consultar el tablero. Prefiero no dar informacion que no pueda confirmar.',
+        tool: parsed.tool,
+      })
+    )
   }
 })
