@@ -761,9 +761,9 @@ No armes acciones salvo pedido explicito.
 `
         : mode === 'email'
           ? `
-Modo Correo activo: prioriza queue_workspace_draft action=prepare channel=email.
-Pide destinatario y proposito/asunto si faltan (una pregunta). No envies. No leas el borrador completo.
-No armes acciones salvo pedido explicito.
+Modo Correo activo: usa scrumban tool=notify_action_email con action_id o query.
+Si falta la acción, pide su título. El correo se dirige al responsable con la plantilla y los elementos del Kanban.
+Usa mensaje para una nota adicional. La aprobación se hace en la app.
 `
           : `
 No pidas que elijan consultar o crear. Lees la conversacion y cambias sola.
@@ -786,8 +786,8 @@ No inventes clientes, fechas ni responsables. No digas que ya quedo en el tabler
 Maximo 4 turnos para cerrar el borrador. Frases cortas. Espanol directo.
 
 Comunicaciones — interpreta intencion (no solo palabras clave):
-A) Explicita ("prepara", "redactame", "dejale", "escribele", "hazme un WhatsApp"): queue_workspace_draft action=prepare, channel=email|whatsapp|both, purpose, recipient, content_instructions si aportan tono/contenido, uttered_at ISO.
-B) Contextual ("mandale eso", "uno igual", "mejor por correo", "incluye las fechas"): action=update + pending_op_id; no dupliques.
+A) WhatsApp: queue_workspace_draft action=prepare, channel=whatsapp, purpose y recipient. Correo: scrumban tool=notify_action_email con action_id o query y mensaje opcional. Si pide ambos, prepara cada canal con su herramienta.
+B) Para corregir un borrador de WhatsApp, usa action=update con pending_op_id. Si pide correo, identifica la acción y usa notify_action_email.
 C) Mencion informativa ("tenemos que mejorar WhatsApp", "nunca revisa correos", "el cliente nos escribio"): NO uses la tool. Si hay intencion suave de actuar: pregunta "Quieres que te deje preparado el mensaje?" — nunca ante comentario meramente informativo.
 D) Cancel/mod ("ya no prepares", "cambia a Mariana", "quita costos"): action=cancel o update. "Prepara otro" = nuevo prepare.
 Si el canal no se deduce: una sola pregunta "Lo prefieres por WhatsApp o correo?" — no encoles hasta saber el canal.

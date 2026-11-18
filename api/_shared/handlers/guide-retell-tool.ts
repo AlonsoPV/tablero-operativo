@@ -7,6 +7,7 @@ import { checkAssistantRateLimit, createServiceRoleClient } from '../assistantAu
 import { defineApiHandler, readHeader, readNumberEnv, readRequestBody, readStringEnv } from '../http.js'
 import { verifyRetellSignature } from '../guideInterviewReport.js'
 import {
+  canQueueCommunicationDraft,
   effectiveInviteAccessMode,
   guideBoardScopeForAccessMode,
   isGuideWriteAllowed,
@@ -321,7 +322,10 @@ export default defineApiHandler(async (req, res) => {
       if (!session.access_mode && !session.guide_link_id) accessMode = 'propose'
       if (session.guide_link_id) accessMode = effectiveInviteAccessMode(session.access_mode || accessMode)
 
-      if (!isGuideWriteAllowed(accessMode) && isRetellWriteTool(parsed.tool) && parsed.tool !== 'whatsapp_prepare_send') {
+      const communicationDraft =
+        (parsed.tool === 'whatsapp_prepare_send' || parsed.tool === 'notify_action_email') &&
+        canQueueCommunicationDraft(accessMode)
+      if (!isGuideWriteAllowed(accessMode) && isRetellWriteTool(parsed.tool) && !communicationDraft) {
         const userMessage =
           'No tienes permiso de escritura en este modo. No inventes que quedo hecho.'
         const entry = consultLogEntry(

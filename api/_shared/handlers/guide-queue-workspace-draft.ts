@@ -294,6 +294,17 @@ export default defineApiHandler(async (req, res) => {
       )
     }
 
+    if (action !== 'cancel' && (resolvedChannel === 'email' || resolvedChannel === 'both')) {
+      return res.status(200).json(
+        guideToolFailure({
+          code: 'VALIDATION_FAILED',
+          user_message: 'El correo desde Enviardián usa el aviso del Kanban al responsable. Usa scrumban con notify_action_email. Si falta la acción, pregunta su título.',
+          tool: 'queue_workspace_draft',
+          retryable: false,
+        })
+      )
+    }
+
     const result = await mutateVoiceWorkspaceDraft(actor, {
       action,
       channel: resolvedChannel,

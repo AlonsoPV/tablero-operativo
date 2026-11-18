@@ -19,7 +19,7 @@ export const ENVIARDIAN_VOICE_WHATSAPP_INSTRUCTION =
   'work_intent=whatsapp. El usuario entro para PREPARAR un WhatsApp, no para enviar. Si pide acciones vencidas, usa scrumban con tool=whatsapp_prepare_send, recipient e include_overdue=true. Para otros mensajes prioriza queue_workspace_draft action=prepare channel=whatsapp con purpose y recipient. Si falta destinatario o proposito, UNA pregunta. Confirma en una frase SOLO si la tool ok. No leas el borrador completo. No envies. No crees acciones salvo que lo pida aparte.'
 
 export const ENVIARDIAN_VOICE_EMAIL_INSTRUCTION =
-  'work_intent=email. El usuario entro para PREPARAR un correo, no para enviar. Prioriza queue_workspace_draft action=prepare channel=email con purpose y recipient. Si falta destinatario o proposito, UNA pregunta. Confirma en una frase SOLO si la tool ok. No leas el borrador completo. No envies. No crees acciones salvo que lo pida aparte.'
+  'work_intent=email. Prepara el correo de la acción con scrumban tool=notify_action_email y action_id o query. Pide el título si falta. Usa mensaje para el texto adicional. El servicio del Kanban incorpora los elementos de la acción y envía al responsable tras aprobación en la app.'
 
 export function normalizeEnviardianWorkIntent(raw: unknown): Exclude<EnviardianWorkIntent, 'create'> {
   const value = typeof raw === 'string' ? raw.trim().toLowerCase() : ''

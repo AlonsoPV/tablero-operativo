@@ -45,6 +45,50 @@ function actorFrom(from: (table: string) => unknown, extra?: Partial<CopilotActo
   }
 }
 
+describe('Action email from Retell', () => {
+  it('uses the Kanban recipient, action and checklist without a personal Google connection', async () => {
+    const pending = query({ id: 'email-operation', expires_at: '2999-01-01' })
+    const checkpoints = query([{ texto: 'Comparar existencias' }])
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const actor = actorFrom((table) => ({
+      acciones_diarias: query({
+        id: 'action',
+        titulo_accion: 'Revisar inventario',
+        responsable: 'recipient',
+        fecha: '2026-11-18',
+        hora_limite: '16:00',
+        updated_at: '2026-11-17T12:00:00Z',
+      }),
+      accion_checkpoints: checkpoints,
+      usuarios: query([{ id: 'recipient', nombre: 'Jorge Neri' }]),
+      assistant_pending_ops: pending,
+      assistant_op_log: query(null),
+    })[table], { voiceChannel: true, guideSessionId: 'session-1', accessToken: undefined })
+
+    const result = await dispatchCopilotTool(actor, 'notify_action_email', {
+      action_id: 'action',
+      mensaje: 'Confirma el avance.',
+    })
+    expect(result.proposal?.workspace?.to).toEqual(['Jorge Neri'])
+    expect(checkpoints.eq).toHaveBeenCalledWith('activo', true)
+    expect(pending.insert).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'retell',
+      session_id: 'session-1',
+      tool: 'notify_action_email',
+      payload: expect.objectContaining({
+        usuario_id: 'recipient',
+        email_payload: expect.objectContaining({
+          accion_id: 'action',
+          checklist: ['Comparar existencias'],
+          mensaje: 'Confirma el avance.',
+        }),
+      }),
+    }))
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('WhatsApp communication flow', () => {
   it.each(['web', 'retell'])('persists the same preview from %s with the recipient’s overdue actions', async (channel) => {
     const people = query([{ id: 'recipient', nombre: 'Jorge Neri' }])
