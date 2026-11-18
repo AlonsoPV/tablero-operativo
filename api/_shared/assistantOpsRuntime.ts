@@ -826,6 +826,12 @@ async function proposeNotifyActionEmail(
   actor: CopilotActor,
   args: Record<string, unknown>
 ): Promise<CopilotToolResult> {
+  if (!asString(args.action_id, 80) && !asString(args.query, 160)) {
+    return clarification('notify_action_email', {
+      question: '¿De qué acción del tablero quieres que prepare el correo?',
+      options: [],
+    })
+  }
   const resolved = await resolveAction(actor, args)
   if ('missing' in resolved) return denied('notify_action_email', resolved.missing)
   if ('question' in resolved) return clarification('notify_action_email', resolved)

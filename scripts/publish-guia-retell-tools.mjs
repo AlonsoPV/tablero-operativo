@@ -26,7 +26,7 @@ const key = process.env.RETELL_API_KEY
 const agentId = process.env.RETELL_GUIDE_AGENT_ID
 const toolSecret = process.env.GUIDE_RETELL_TOOL_SECRET
 const publishOk = process.env.GUIDE_RETELL_PUBLISH_OK === '1'
-const PROMPT_VERSION = 'enviardian-voz-2026-11-17-comms-intents'
+const PROMPT_VERSION = 'enviardian-voz-2026-11-17-action-email-intents'
 
 if (publishOk && (!configuredApp || !key || !agentId || !toolSecret)) {
   console.error('Para publicar define GUIDE_RETELL_APP_URL, RETELL_API_KEY, RETELL_GUIDE_AGENT_ID y GUIDE_RETELL_TOOL_SECRET.')
@@ -118,6 +118,26 @@ const SCRUMBAN = {
   },
 }
 
+const NOTIFY_ACTION_EMAIL = {
+  ...SCRUMBAN,
+  tool_id: 'tool_notify_action_email',
+  name: 'notify_action_email',
+  description:
+    'Prepara el correo de una acción de Scrumban para su responsable, con la plantilla y el checklist del Kanban. ' +
+    'Llama esta herramienta cuando el usuario pida preparar, enviar o compartir por correo una acción, incluso en una llamada de consulta. ' +
+    'Pasa action_id si ya conoces la acción o query con el título que indicó el usuario. Pasa la nota adicional en mensaje. ' +
+    'Si falta la acción, pregunta su título. El correo queda listo para aprobar en el informe.',
+  execution_message_description: 'Un momento, preparo el correo de la acción.',
+  parameters: {
+    type: 'object',
+    properties: {
+      action_id: { type: 'string', description: 'ID confirmado de la acción, cuando se conoce.' },
+      query: { type: 'string', description: 'Título o fragmento de título de la acción indicado por el usuario.' },
+      mensaje: { type: 'string', description: 'Texto adicional que el usuario pidió incluir para el responsable.' },
+    },
+  },
+}
+
 const QUEUE_WORKSPACE_DRAFT = {
   tool_id: 'tool_queue_workspace_draft',
   type: 'custom',
@@ -176,12 +196,12 @@ const COMMS_STEERING = `
 Comunicaciones (prompt_version=${PROMPT_VERSION}): interpreta intencion, no solo keywords.
 Detecta el canal que el usuario pide durante la conversación, incluso si la llamada empezó en consulta.
 Para WhatsApp usa scrumban tool=whatsapp_prepare_send con recipient y body. Si pide las acciones vencidas del destinatario, usa include_overdue=true.
-Para correo de una acción usa notify_action_email. Los borradores quedan disponibles en el informe para revisión. Para cambios al contenido generado indica que puede editarlo allí.
+Para correo de una acción llama directamente la herramienta notify_action_email en cuanto conozcas el título o ID. Los borradores quedan disponibles en el informe para revisión. Para cambios al contenido generado indica que puede editarlo allí.
 Ante una mención informativa no prepares un mensaje. Si pide cancelar un WhatsApp pendiente, usa queue_workspace_draft con action=cancel y su pending_op_id.
 Canal ambiguo: pregunta WhatsApp o correo antes de encolar. Confirma solo si tool ok. No envies ni leas borradores largos en la llamada.
 work_intent: consult|action|whatsapp|email (create legacy = action).
 Reserva confirm_pending_op para cambios de tablero que admiten aprobación verbal. La aprobación de envíos se hace en la app autenticada.
-Para correo de una acción al responsable usa scrumban tool=notify_action_email con action_id o query.
+Ejemplo: «Envíale al responsable el correo de Revisar inventario y dile que confirme hoy» → notify_action_email con query «Revisar inventario» y mensaje «Confirma hoy». Si responde solo un título a tu pregunta, úsalo para preparar el correo.
 Para consultar el estado de un WhatsApp usa scrumban tool=get_whatsapp_operation_status con pending_op_id.
 Si la herramienta pide aclarar o devuelve error, dilo en una frase y sigue la conversación.
 Variables: work_intent, consult_instruction, work_instruction, prompt_version.
@@ -196,7 +216,7 @@ if (!publishOk) {
         prompt_version: PROMPT_VERSION,
         app_url: APP,
         webhook_url: APP + '/api/guide-retell-webhook',
-        tools: [SCRUMBAN, QUEUE_WORKSPACE_DRAFT].map(({ headers, ...tool }) => ({
+        tools: [SCRUMBAN, NOTIFY_ACTION_EMAIL, QUEUE_WORKSPACE_DRAFT].map(({ headers, ...tool }) => ({
           ...tool,
           header_names: Object.keys(headers),
         })),
@@ -258,6 +278,7 @@ const otherTools = (flow.tools || []).filter(
   (t) =>
     t.name !== 'get_session_state' &&
     t.name !== 'scrumban' &&
+    t.name !== 'notify_action_email' &&
     t.name !== 'queue_workspace_draft'
 )
 const existingQueue = (flow.tools || []).find((t) => t.name === 'queue_workspace_draft')
@@ -267,7 +288,9 @@ const nextQueue = {
 }
 const existingScrumban = (flow.tools || []).find((t) => t.name === 'scrumban')
 const nextScrumban = { ...SCRUMBAN, tool_id: existingScrumban?.tool_id || SCRUMBAN.tool_id }
-const tools = [...otherTools, nextClock, nextScrumban, nextQueue]
+const existingEmail = (flow.tools || []).find((t) => t.name === 'notify_action_email')
+const nextEmail = { ...NOTIFY_ACTION_EMAIL, tool_id: existingEmail?.tool_id || NOTIFY_ACTION_EMAIL.tool_id }
+const tools = [...otherTools, nextClock, nextScrumban, nextEmail, nextQueue]
 
 const nodeIdsWithClock = new Set(
   (flow.nodes || [])
@@ -280,6 +303,7 @@ const nodes = (flow.nodes || []).map((node) => {
   const ids = Array.isArray(node.tool_ids) ? [...node.tool_ids] : []
   if (nodeIdsWithClock.has(node.id) || ids.includes(clock.tool_id) || node.type === 'conversation') {
     if (!ids.includes(nextScrumban.tool_id)) ids.push(nextScrumban.tool_id)
+    if (!ids.includes(nextEmail.tool_id)) ids.push(nextEmail.tool_id)
     if (!ids.includes(nextQueue.tool_id)) ids.push(nextQueue.tool_id)
   }
   // No mutar node.instruction: en Retell es objeto estructurado, no string.
@@ -329,6 +353,7 @@ console.log(
       webhook_events: verify.webhook_events,
       clock_url: nextClock.url,
       scrumban_url: SCRUMBAN.url,
+      notify_action_email_url: nextEmail.url,
       queue_workspace_draft_url: nextQueue.url,
       prompt_version: PROMPT_VERSION,
       scrumban_args_at_root: SCRUMBAN.args_at_root,
