@@ -129,12 +129,17 @@ export default defineApiHandler(async (req, res) => {
     const allowPersonalGmailWrites = /\b(?:mi gmail|gmail personal|mi correo personal|mi cuenta personal de google)\b/i.test(lastUserMessage)
     const boardEmailRequest = !allowPersonalGmailWrites &&
       !/\b(?:whatsapp|wasap)\b/i.test(lastUserMessage) &&
-      !/\bno\s+(?:(?:le|lo|me|nos|les)\s+)?(?:envi\w*|env[ií]a\w*|mand\w*|prepar\w*|compart\w*|notific\w*)\b/i.test(lastUserMessage) &&
+      !/\bno\s+(?:(?:le|lo|me|nos|les)\s+)?(?:envi\w*|env[ií]a\w*|m[aá]nd\w*|prepar\w*|compart\w*|notific\w*)\b/i.test(lastUserMessage) &&
       /\b(?:correo|email|mail)\b/i.test(lastUserMessage) &&
-      /\b(?:envi\w*|env[ií]a\w*|mand\w*|compart\w*|prepar\w*|redact\w*|notific\w*)\b/i.test(lastUserMessage)
+      /\b(?:envi\w*|env[ií]a\w*|m[aá]nd\w*|compart\w*|prepar\w*|redact\w*|notific\w*)\b/i.test(lastUserMessage)
     const requestedEmail = boardEmailRequest
       ? lastUserMessage.match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}/i)?.[0]
       : undefined
+    const previousReply = sanitizedMessages.filter((message) => message.role === 'assistant').at(-1)?.content || ''
+    const summaryEmailRequest = boardEmailRequest &&
+      (/\b(?:resumen|consolidado|reporte|informe|okr|okrs|indicadores|informaci[oó]n)\b/i.test(lastUserMessage) ||
+        (/\b(?:eso|esto|env[ií]alo|m[aá]ndalo|env[ií]amelo|m[aá]ndamelo)\b/i.test(lastUserMessage) &&
+          /\b(?:resumen|consolidado|reporte|informe|okr|okrs)\b/i.test(previousReply)))
     const cleanMessages = appendAssistantContexts(
       sanitizedMessages,
       actionContext,
@@ -160,7 +165,7 @@ export default defineApiHandler(async (req, res) => {
       maxOutputTokens: readNumberEnv('GEMINI_MAX_TOKENS', DEFAULT_MAX_OUTPUT_TOKENS),
       temperature: readNumberEnv('GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE),
     }
-    const timeoutMs = readNumberEnv('GEMINI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS)
+    const timeoutMs = Math.min(readNumberEnv('GEMINI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS), 24_000)
     const contents = toGeminiContents(cleanMessages)
     const actor = {
       supabase: auth.supabase,
@@ -190,6 +195,7 @@ export default defineApiHandler(async (req, res) => {
           timeoutMs,
           allowPersonalGmailWrites,
           boardEmailRequest,
+          summaryEmailRequest,
           requestedEmail,
         })
         if (i > 0) {
@@ -244,7 +250,13 @@ export default defineApiHandler(async (req, res) => {
       })
     }
 
-    const text = loopResult.text
+    const ui = buildAssistantUiFromToolResults(loopResult.toolReads)
+    const lastToolFailure = loopResult.toolReads.filter(({ kind, error }) =>
+      (kind === 'error' || kind === 'denied') && error
+    ).at(-1)
+    const text = loopResult.text || loopResult.clarification?.question ||
+      (loopResult.proposals.length ? loopResult.proposals[0]?.summary : '') ||
+      lastToolFailure?.error || (ui?.views.length ? 'Estos son los resultados del tablero.' : '')
     if (!text && loopResult.proposals.length === 0 && !loopResult.clarification) {
       console.error('Gemini empty response:', {
         model,
@@ -260,7 +272,6 @@ export default defineApiHandler(async (req, res) => {
         ? `${text}\n\nNota: la respuesta se corto por limite de longitud. Puedes pedirme que continue.`
         : text || 'Revisa la propuesta o las opciones para continuar.'
     const content = cleanAssistantText(rawContent)
-    const ui = buildAssistantUiFromToolResults(loopResult.toolReads)
 
     return res.status(200).json({
       answer: content,

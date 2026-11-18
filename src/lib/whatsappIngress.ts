@@ -137,8 +137,15 @@ export async function acceptWhatsAppWebhook(
   }
   if (request.method !== 'POST')
     return new Response('method_not_allowed', { status: 405 })
-  if (!config.appSecret || !config.phoneId || !config.wabaId)
+  const missing = [
+    !config.appSecret && 'WHATSAPP_APP_SECRET',
+    !config.phoneId && 'WHATSAPP_PHONE_NUMBER_ID',
+    !config.wabaId && 'WHATSAPP_WABA_ID',
+  ].filter(Boolean)
+  if (missing.length > 0) {
+    console.error(JSON.stringify({ event: 'whatsapp_ingress', stage: 'configuration', missing }))
     return new Response('webhook_not_configured', { status: 503 })
+  }
   const raw = await request.text()
   if (new TextEncoder().encode(raw).length > 1048576)
     return new Response('payload_too_large', { status: 413 })

@@ -38,6 +38,22 @@ function signed(body: string, signature?: string) {
   })
 }
 describe('production WhatsApp ingress', () => {
+  it('identifies the missing configuration by name and keeps the webhook retryable', async () => {
+    const save = vi.fn()
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const response = await acceptWhatsAppWebhook(signed(JSON.stringify(fixture)), { ...config, wabaId: '' }, save)
+      expect(response.status).toBe(503)
+      expect(await response.text()).toBe('webhook_not_configured')
+      expect(save).not.toHaveBeenCalled()
+      expect(log).toHaveBeenCalledExactlyOnceWith(JSON.stringify({
+        event: 'whatsapp_ingress', stage: 'configuration', missing: ['WHATSAPP_WABA_ID'],
+      }))
+    } finally {
+      log.mockRestore()
+    }
+  })
+
   it('echoes GET challenge only for the configured token', async () => {
     expect(
       await (
