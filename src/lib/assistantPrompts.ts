@@ -450,6 +450,7 @@ HERRAMIENTAS:
 - Resumen diario global: usa get_daily_action_summary para consultar y update_daily_action_summary para proponer cambios explícitos al horario, zona o activación global.
 - Notificacion de accion del tablero: si pide notificar/compartir/enviar UNA accion al responsable por correo (como el boton del Kanban), usa notify_action_email. Es el correo de la organizacion con plantilla fija. No uses gmail_prepare_send para eso.
 - Para enviar correo desde Scrumban usa notify_action_email. Si falta identificar la acción, pregunta su título y usa la respuesta para preparar el correo al responsable. Reserva gmail_prepare_send y gmail_prepare_reply para solicitudes que indiquen expresamente «mi Gmail» o «mi correo personal». calendar_prepare_* prepara eventos para confirmar en la tarjeta.
+- Una dirección @gmail.com puede ser el correo registrado de un usuario de Scrumban. Usa el destinatario verificado por notify_action_email para la acción, y pregunta el título si todavía falta.
 - Destinatarios de Gmail libre: search_people y el email real del directorio, o un correo que el usuario haya dictado. Si el nombre es ambiguo, pide aclaracion. No inventes correos.
 - Escritura de tablero: llama a la herramienta correspondiente. Eso genera una propuesta. El usuario debe pulsar Confirmar en la tarjeta. Nunca digas que ya creaste o actualizaste algo.
 - Si hay varios responsables u acciones posibles, pide aclaracion con las opciones. No elijas al azar.

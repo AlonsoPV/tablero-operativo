@@ -128,8 +128,13 @@ export default defineApiHandler(async (req, res) => {
     const lastUserMessage = sanitizedMessages.filter((message) => message.role === 'user').at(-1)?.content || ''
     const allowPersonalGmailWrites = /\b(?:mi gmail|gmail personal|mi correo personal|mi cuenta personal de google)\b/i.test(lastUserMessage)
     const boardEmailRequest = !allowPersonalGmailWrites &&
+      !/\b(?:whatsapp|wasap)\b/i.test(lastUserMessage) &&
+      !/\bno\s+(?:(?:le|lo|me|nos|les)\s+)?(?:envi\w*|env[ií]a\w*|mand\w*|prepar\w*|compart\w*|notific\w*)\b/i.test(lastUserMessage) &&
       /\b(?:correo|email|mail)\b/i.test(lastUserMessage) &&
       /\b(?:envi\w*|env[ií]a\w*|mand\w*|compart\w*|prepar\w*|redact\w*|notific\w*)\b/i.test(lastUserMessage)
+    const requestedEmail = boardEmailRequest
+      ? lastUserMessage.match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}/i)?.[0]
+      : undefined
     const cleanMessages = appendAssistantContexts(
       sanitizedMessages,
       actionContext,
@@ -185,6 +190,7 @@ export default defineApiHandler(async (req, res) => {
           timeoutMs,
           allowPersonalGmailWrites,
           boardEmailRequest,
+          requestedEmail,
         })
         if (i > 0) {
           console.warn('Gemini fallback model used', { model, attempted: candidates.slice(0, i + 1) })
