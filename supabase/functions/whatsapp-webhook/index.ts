@@ -514,7 +514,11 @@ function adminClient() {
   const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   if (!url || !key) throw new Error('missing_supabase_admin')
   return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
   })
 }
 
@@ -522,12 +526,21 @@ function whatsappConfig() {
   const accessToken = Deno.env.get('WHATSAPP_ACCESS_TOKEN')?.trim() || ''
   const phoneNumberId = Deno.env.get('WHATSAPP_PHONE_NUMBER_ID')?.trim() || ''
   const graphVersion = Deno.env.get('WHATSAPP_GRAPH_VERSION')?.trim() || 'v20.0'
-  const templateName = Deno.env.get('WHATSAPP_INITIAL_TEMPLATE_NAME')?.trim() || 'nueva_actividad_what2do'
-  const templateLanguage = Deno.env.get('WHATSAPP_INITIAL_TEMPLATE_LANGUAGE')?.trim() || 'en'
+  const templateName =
+    Deno.env.get('WHATSAPP_INITIAL_TEMPLATE_NAME')?.trim() ||
+    'nueva_actividad_what2do'
+  const templateLanguage =
+    Deno.env.get('WHATSAPP_INITIAL_TEMPLATE_LANGUAGE')?.trim() || 'en'
   if (!accessToken || !phoneNumberId) {
     throw new Error('missing_whatsapp_secrets')
   }
-  return { accessToken, phoneNumberId, graphVersion, templateName, templateLanguage }
+  return {
+    accessToken,
+    phoneNumberId,
+    graphVersion,
+    templateName,
+    templateLanguage,
+  }
 }
 
 function normalizePhone(raw: string | null | undefined): string | null {
@@ -545,7 +558,11 @@ function phoneVariants(raw: string | null | undefined): string[] {
     out.add(`52${digits}`)
     out.add(`521${digits}`)
   }
-  if (digits.length === 12 && digits.startsWith('52') && !digits.startsWith('521')) {
+  if (
+    digits.length === 12 &&
+    digits.startsWith('52') &&
+    !digits.startsWith('521')
+  ) {
     const local = digits.slice(2)
     out.add(local)
     out.add(`521${local}`)
@@ -558,8 +575,14 @@ function phoneVariants(raw: string | null | undefined): string[] {
   return [...out]
 }
 
-function renderTemplate(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, key: string) => vars[key] ?? '')
+function renderTemplate(
+  template: string,
+  vars: Record<string, string>
+): string {
+  return template.replace(
+    /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g,
+    (_m, key: string) => vars[key] ?? ''
+  )
 }
 
 async function loadFollowupSettings(supabase: ReturnType<typeof createClient>) {
@@ -585,7 +608,10 @@ async function loadFollowupSettings(supabase: ReturnType<typeof createClient>) {
   }
 }
 
-async function findWhatsAppIdentity(supabase: ReturnType<typeof createClient>, usuarioId: string) {
+async function findWhatsAppIdentity(
+  supabase: ReturnType<typeof createClient>,
+  usuarioId: string
+) {
   const { data } = await supabase
     .from('user_channel_identities')
     .select('id,usuario_id,external_user_id,external_chat_id,status')
@@ -596,7 +622,11 @@ async function findWhatsAppIdentity(supabase: ReturnType<typeof createClient>, u
   return data
 }
 
-async function graphSendMessage(body: Record<string, unknown>) {
+async function graphSendMessage(supabase, body: Record<string, unknown>) {
+  const context = workerContexts.get(supabase)
+  if (context?.uncertain) throw new Error('provider_outcome_unknown')
+  await context?.mark('provider_request')
+  if (context) context.uncertain = true
   const { accessToken, phoneNumberId, graphVersion } = whatsappConfig()
   const url = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`
   const response = await fetch(url, {
@@ -614,10 +644,29 @@ async function graphSendMessage(body: Record<string, unknown>) {
   } catch {
     json = { raw }
   }
+  if (context) context.uncertain = response.status >= 500
+  if (!response.ok) throw new Error('provider_http_' + response.status)
+  if (!extractMessageId(json)) {
+    if (context) context.uncertain = true
+    throw new Error('provider_missing_message_id')
+  }
+  if (context) context.sent = true
+  console.info(
+    JSON.stringify({
+      event: 'whatsapp_processing',
+      correlation_id: context?.id,
+      stage: 'provider_accepted',
+      meta_message_id: extractMessageId(json),
+    })
+  )
   return { ok: response.ok, status: response.status, json, raw }
 }
 
-function interactiveFollowupPayload(to: string, bodyText: string, buttonIdPrefix: string) {
+function interactiveFollowupPayload(
+  to: string,
+  bodyText: string,
+  buttonIdPrefix: string
+) {
   return {
     messaging_product: 'whatsapp',
     to,
@@ -627,9 +676,18 @@ function interactiveFollowupPayload(to: string, bodyText: string, buttonIdPrefix
       body: { text: bodyText.slice(0, 1024) },
       action: {
         buttons: [
-          { type: 'reply', reply: { id: `${buttonIdPrefix}:done`, title: 'Realizada' } },
-          { type: 'reply', reply: { id: `${buttonIdPrefix}:progress`, title: 'En proceso' } },
-          { type: 'reply', reply: { id: `${buttonIdPrefix}:support`, title: 'Requiero apoyo' } },
+          {
+            type: 'reply',
+            reply: { id: `${buttonIdPrefix}:done`, title: 'Realizada' },
+          },
+          {
+            type: 'reply',
+            reply: { id: `${buttonIdPrefix}:progress`, title: 'En proceso' },
+          },
+          {
+            type: 'reply',
+            reply: { id: `${buttonIdPrefix}:support`, title: 'Requiero apoyo' },
+          },
         ],
       },
     },
@@ -662,7 +720,10 @@ function templatePayload(
         ? [
             {
               type: 'body',
-              parameters: bodyParams.map((text) => ({ type: 'text', text: text.slice(0, 1024) })),
+              parameters: bodyParams.map((text) => ({
+                type: 'text',
+                text: text.slice(0, 1024),
+              })),
             },
           ]
         : [],
@@ -691,34 +752,14 @@ type WaMessage = {
     list_reply?: { id?: string; title?: string }
   }
   image?: { id?: string; mime_type?: string; caption?: string }
-  document?: { id?: string; mime_type?: string; filename?: string; caption?: string }
+  document?: {
+    id?: string
+    mime_type?: string
+    filename?: string
+    caption?: string
+  }
   audio?: { id?: string; mime_type?: string }
   video?: { id?: string; mime_type?: string; caption?: string }
-}
-
-function verifyChallenge(url: URL): Response | null {
-  const mode = url.searchParams.get('hub.mode')
-  const token = url.searchParams.get('hub.verify_token')
-  const challenge = url.searchParams.get('hub.challenge')
-  const expected =
-    Deno.env.get('WHATSAPP_VERIFY_TOKEN')?.trim() ||
-    Deno.env.get('token_de_verificacion')?.trim() ||
-    ''
-  if (mode === 'subscribe' && expected && token === expected && challenge) {
-    return new Response(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } })
-  }
-  if (mode === 'subscribe') {
-    console.error(
-      'whatsapp-webhook verify failed',
-      JSON.stringify({
-        hasExpected: Boolean(expected),
-        tokenLen: (token ?? '').length,
-        challengeLen: (challenge ?? '').length,
-      })
-    )
-    return new Response('forbidden', { status: 403 })
-  }
-  return null
 }
 
 function timingSafeEqualHex(a: string, b: string): boolean {
@@ -726,36 +767,6 @@ function timingSafeEqualHex(a: string, b: string): boolean {
   let out = 0
   for (let i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i)
   return out === 0
-}
-
-function toHex(buffer: ArrayBuffer): string {
-  return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, '0')).join('')
-}
-
-/** Meta Cloud API: X-Hub-Signature-256 = sha256=<hmac_hex(app_secret, raw_body)>. */
-async function verifyMetaSignature(rawBody: string, signatureHeader: string | null): Promise<boolean> {
-  const allowUnsigned = (Deno.env.get('WHATSAPP_WEBHOOK_ALLOW_UNSIGNED') || '').trim() === '1'
-  if (allowUnsigned) return true
-
-  const appSecret = Deno.env.get('WHATSAPP_APP_SECRET')?.trim() || ''
-  if (!appSecret) {
-    // Fail-open: HMAC fail-closed sin App Secret deja inbound en 0 (botón y statuses muertos).
-    console.error('whatsapp-webhook missing WHATSAPP_APP_SECRET; accepting without HMAC')
-    return true
-  }
-  const provided = (signatureHeader ?? '').trim()
-  const match = /^sha256=([a-fA-F0-9]{64})$/.exec(provided)
-  if (!match) return false
-
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(appSecret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  )
-  const digest = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(rawBody))
-  return timingSafeEqualHex(toHex(digest).toLowerCase(), match[1].toLowerCase())
 }
 
 function parseButtonId(raw: string | null | undefined): {
@@ -783,7 +794,9 @@ function parseButtonId(raw: string | null | undefined): {
       action: corp[2].toLowerCase() as 'done' | 'progress' | 'support',
     }
   }
-  const team = /^tchk:([0-9a-fA-F-]{36}):(\d+):(done|progress|support)$/i.exec(value)
+  const team = /^tchk:([0-9a-fA-F-]{36}):(\d+):(done|progress|support)$/i.exec(
+    value
+  )
   if (team) {
     return {
       kind: 'team',
@@ -802,17 +815,29 @@ function inferTextAction(text: string): 'done' | 'progress' | 'support' | null {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
   if (!t) return null
-  if (/\b(realizada|realizado|hecho|done|completad[oa]|lista|listo)\b/.test(t)) return 'done'
-  if (/\b(en progreso|en proceso|proceso|avance|avanzando|progress|trabajando)\b/.test(t)) {
+  if (/\b(realizada|realizado|hecho|done|completad[oa]|lista|listo)\b/.test(t))
+    return 'done'
+  if (
+    /\b(en progreso|en proceso|proceso|avance|avanzando|progress|trabajando)\b/.test(
+      t
+    )
+  ) {
     return 'progress'
   }
-  if (/\b(requiero apoyo|necesito apoyo|necesito ayuda|ayuda|support|bloquead[oa]|apoyo)\b/.test(t)) {
+  if (
+    /\b(requiero apoyo|necesito apoyo|necesito ayuda|ayuda|support|bloquead[oa]|apoyo)\b/.test(
+      t
+    )
+  ) {
     return 'support'
   }
   return null
 }
 
-function isVerActividadesButton(rawId: string | null | undefined, title: string | null | undefined) {
+function isVerActividadesButton(
+  rawId: string | null | undefined,
+  title: string | null | undefined
+) {
   const fold = (value: string) =>
     value
       .trim()
@@ -851,7 +876,10 @@ function inboundPreview(message: WaMessage): string {
     message.interactive?.list_reply?.title
   if (buttonTitle) return buttonTitle
   const caption =
-    message.image?.caption || message.document?.caption || message.video?.caption || message.document?.filename
+    message.image?.caption ||
+    message.document?.caption ||
+    message.video?.caption ||
+    message.document?.filename
   if (caption) return caption
   if (type === 'image') return '[Imagen]'
   if (type === 'document') return '[Documento]'
@@ -865,7 +893,8 @@ async function upsertThreadMessage(
   supabase: ReturnType<typeof adminClient>,
   row: Record<string, unknown>
 ) {
-  const metaId = typeof row.meta_message_id === 'string' ? row.meta_message_id : null
+  const metaId =
+    typeof row.meta_message_id === 'string' ? row.meta_message_id : null
   if (metaId) {
     const { data: existing } = await supabase
       .from('whatsapp_messages')
@@ -874,7 +903,11 @@ async function upsertThreadMessage(
       .maybeSingle()
     if (existing?.id) return existing.id as string
   }
-  const { data, error } = await supabase.from('whatsapp_messages').insert(row).select('id').maybeSingle()
+  const { data, error } = await supabase
+    .from('whatsapp_messages')
+    .insert(row)
+    .select('id')
+    .maybeSingle()
   if (error) {
     // Carrera por meta_message_id único
     if (metaId && String(error.message || '').includes('meta_message_id')) {
@@ -926,7 +959,12 @@ function normalizeMetaStatusError(err: unknown): {
 
 async function applyMetaStatus(
   supabase: ReturnType<typeof adminClient>,
-  statusEvent: { id?: string; status?: string; timestamp?: string; errors?: unknown[] }
+  statusEvent: {
+    id?: string
+    status?: string
+    timestamp?: string
+    errors?: unknown[]
+  }
 ) {
   const metaId = statusEvent.id
   const status = statusEvent.status
@@ -951,7 +989,9 @@ async function applyMetaStatus(
     patch.delivery_status = 'failed'
     patch.failed_at = ts
     const err = Array.isArray(statusEvent.errors) ? statusEvent.errors[0] : null
-    failedNorm = normalizeMetaStatusError(err ?? { message: 'meta_status_failed' })
+    failedNorm = normalizeMetaStatusError(
+      err ?? { message: 'meta_status_failed' }
+    )
     patch.error_message = failedNorm.errorMessage
   } else {
     return
@@ -978,7 +1018,9 @@ async function applyMetaStatus(
     if (next > cur || patch.delivery_status === 'failed') {
       if (failedNorm) {
         const prevPayload =
-          current.payload && typeof current.payload === 'object' && !Array.isArray(current.payload)
+          current.payload &&
+          typeof current.payload === 'object' &&
+          !Array.isArray(current.payload)
             ? (current.payload as Record<string, unknown>)
             : {}
         patch.payload = {
@@ -989,7 +1031,9 @@ async function applyMetaStatus(
         }
       } else if (status === 'delivered' || status === 'read') {
         const prevPayload =
-          current.payload && typeof current.payload === 'object' && !Array.isArray(current.payload)
+          current.payload &&
+          typeof current.payload === 'object' &&
+          !Array.isArray(current.payload)
             ? (current.payload as Record<string, unknown>)
             : {}
         patch.payload = {
@@ -998,7 +1042,10 @@ async function applyMetaStatus(
           meta_status: status,
         }
       }
-      await supabase.from('whatsapp_messages').update(patch).eq('id', current.id)
+      await supabase
+        .from('whatsapp_messages')
+        .update(patch)
+        .eq('id', current.id)
     }
   }
 
@@ -1031,7 +1078,7 @@ async function replyText(
     if (extras?.preview_url === true && graphBody.text) {
       graphBody.text.preview_url = true
     }
-    const result = await graphSendMessage(graphBody)
+    const result = await graphSendMessage(supabase, graphBody)
     const metaId = extractMessageId(result.json)
     const flow = typeof extras?.flow === 'string' ? extras.flow : 'ops'
     await upsertThreadMessage(supabase, {
@@ -1050,12 +1097,13 @@ async function replyText(
         request: graphBody,
         response: result.json,
         source: 'webhook_auto_reply',
+        correlation_id: workerContexts.get(supabase)?.id,
         flow,
         ...(extras ?? {}),
       },
     })
   } catch (error) {
-    console.error('whatsapp reply failed', error)
+    throw error
   }
 }
 
@@ -1065,7 +1113,11 @@ function whatsappAiEnabled() {
   if (flag === '1' || flag === 'true' || flag === 'yes') return true
   // Si el cerebro está configurado, encender aunque falte el flag explícito.
   const secret = Deno.env.get('WHATSAPP_ASSISTANT_SECRET')?.trim() || ''
-  const base = (Deno.env.get('APP_URL') || Deno.env.get('VITE_APP_URL') || '').trim()
+  const base = (
+    Deno.env.get('APP_URL') ||
+    Deno.env.get('VITE_APP_URL') ||
+    ''
+  ).trim()
   return Boolean(secret && base)
 }
 
@@ -1079,8 +1131,14 @@ function interactiveAiOpPayload(to: string, bodyText: string, opId: string) {
       body: { text: bodyText.slice(0, 1024) },
       action: {
         buttons: [
-          { type: 'reply', reply: { id: `aiop:${opId}:ok`, title: 'Confirmar' } },
-          { type: 'reply', reply: { id: `aiop:${opId}:no`, title: 'Cancelar' } },
+          {
+            type: 'reply',
+            reply: { id: `aiop:${opId}:ok`, title: 'Confirmar' },
+          },
+          {
+            type: 'reply',
+            reply: { id: `aiop:${opId}:no`, title: 'Cancelar' },
+          },
         ],
       },
     },
@@ -1112,21 +1170,6 @@ function interactiveChannelSelectorPayload(to: string) {
   }
 }
 
-const CHANNEL_SELECTOR_DEBOUNCE_MS = 60_000
-const VOICE_LINK_RESEND_COOLDOWN_MS = 120_000
-
-function channelSelectorFallbackText() {
-  return [
-    '¡Hola! Soy tu asistente operativo de Scrumban.',
-    '',
-    'Puedo ayudarte a consultar actividades, revisar prioridades, resolver bloqueos y dar seguimiento a tus objetivos.',
-    '',
-    '¿Cómo prefieres conversar?',
-    '',
-    'Responde: Por mensaje  o  Por voz',
-  ].join('\n')
-}
-
 function voiceLinkMessageBody(link: string) {
   return [
     'Perfecto. Puedes hablar conmigo por voz desde este enlace:',
@@ -1137,21 +1180,15 @@ function voiceLinkMessageBody(link: string) {
   ].join('\n')
 }
 
-function isWithinCooldownMs(sentAtIso: string | null | undefined, windowMs: number) {
+function isWithinCooldownMs(
+  sentAtIso: string | null | undefined,
+  windowMs: number
+) {
   if (!sentAtIso) return false
   const t = new Date(sentAtIso).getTime()
   if (!Number.isFinite(t)) return false
   const delta = Date.now() - t
   return delta >= 0 && delta < windowMs
-}
-
-function extractVoiceLinkFromPayload(payload: Record<string, unknown> | null | undefined) {
-  if (!payload || typeof payload !== 'object') return null
-  const direct = payload.link
-  if (typeof direct === 'string' && /^https?:\/\//i.test(direct.trim())) return direct.trim()
-  const nested = payload.guide_link
-  if (typeof nested === 'string' && /^https?:\/\//i.test(nested.trim())) return nested.trim()
-  return null
 }
 
 async function findRecentOutboundByEvent(
@@ -1181,10 +1218,15 @@ async function findRecentOutboundByEvent(
   }
   for (const row of data ?? []) {
     const payload =
-      row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
+      row.payload &&
+      typeof row.payload === 'object' &&
+      !Array.isArray(row.payload)
         ? (row.payload as Record<string, unknown>)
         : {}
-    if (payload.event === eventName && isWithinCooldownMs(String(row.created_at ?? ''), windowMs)) {
+    if (
+      payload.event === eventName &&
+      isWithinCooldownMs(String(row.created_at ?? ''), windowMs)
+    ) {
       return { created_at: String(row.created_at), payload }
     }
   }
@@ -1208,14 +1250,18 @@ async function replyChannelSelector(
       to,
       'Usa las opciones de arriba: Por mensaje o Por voz. Si no las ves, responde con esas palabras.',
       usuarioId,
-      { flow: 'agent', agent_consult: true, event: 'bot_start_selector_debounced' }
+      {
+        flow: 'agent',
+        agent_consult: true,
+        event: 'bot_start_selector_debounced',
+      }
     )
     return
   }
 
   try {
     const graphBody = interactiveChannelSelectorPayload(to)
-    const result = await graphSendMessage(graphBody)
+    const result = await graphSendMessage(supabase, graphBody)
     const metaId = extractMessageId(result.json)
     await upsertThreadMessage(supabase, {
       wa_id: to,
@@ -1239,33 +1285,21 @@ async function replyChannelSelector(
       },
     })
     if (!result.ok) {
-      await replyText(
-        supabase,
-        to,
-        channelSelectorFallbackText(),
-        usuarioId,
-        {
-          flow: 'agent',
-          agent_consult: true,
-          event: 'bot_start_selector_text_fallback',
-          interactive_failed: true,
-        }
-      )
-    }
-  } catch (error) {
-    console.error('whatsapp channel selector failed', error)
-    await replyText(
-      supabase,
-      to,
-      channelSelectorFallbackText(),
-      usuarioId,
-      {
+      await replyText(supabase, to, channelSelectorFallbackText(), usuarioId, {
         flow: 'agent',
         agent_consult: true,
         event: 'bot_start_selector_text_fallback',
-        interactive_exception: true,
-      }
-    )
+        interactive_failed: true,
+      })
+    }
+  } catch (error) {
+    console.error('whatsapp channel selector failed', error)
+    await replyText(supabase, to, channelSelectorFallbackText(), usuarioId, {
+      flow: 'agent',
+      agent_consult: true,
+      event: 'bot_start_selector_text_fallback',
+      interactive_exception: true,
+    })
   }
 }
 
@@ -1316,7 +1350,9 @@ async function createAndSendVoiceLink(
   }
 
   const secret = Deno.env.get('WHATSAPP_ASSISTANT_SECRET')?.trim() || ''
-  const base = (Deno.env.get('APP_URL') || Deno.env.get('VITE_APP_URL') || '').trim().replace(/\/$/, '')
+  const base = (Deno.env.get('APP_URL') || Deno.env.get('VITE_APP_URL') || '')
+    .trim()
+    .replace(/\/$/, '')
   if (!secret || !base) {
     await replyText(
       supabase,
@@ -1389,11 +1425,13 @@ async function replyAi(
   proposalId?: string | null
 ) {
   try {
-    const canButtons = Boolean(proposalId && /^[0-9a-fA-F-]{36}$/.test(proposalId))
+    const canButtons = Boolean(
+      proposalId && /^[0-9a-fA-F-]{36}$/.test(proposalId)
+    )
     const graphBody = canButtons
       ? interactiveAiOpPayload(to, body, proposalId as string)
       : textPayload(to, body)
-    const result = await graphSendMessage(graphBody)
+    const result = await graphSendMessage(supabase, graphBody)
     const metaId = extractMessageId(result.json)
     await upsertThreadMessage(supabase, {
       wa_id: to,
@@ -1424,9 +1462,12 @@ async function canUseAiWhatsApp(
   usuarioId: string
 ): Promise<boolean> {
   if (!whatsappAiEnabled()) return false
-  const { data: allowed, error } = await supabase.rpc('can_use_ai_whatsapp_for_usuario', {
-    p_usuario_id: usuarioId,
-  })
+  const { data: allowed, error } = await supabase.rpc(
+    'can_use_ai_whatsapp_for_usuario',
+    {
+      p_usuario_id: usuarioId,
+    }
+  )
   if (error) {
     console.error('whatsapp-webhook AI access rpc', error.message)
     return false
@@ -1524,9 +1565,13 @@ async function callWhatsAppAssistant(input: {
   handoff?: string | null
 } | null> {
   const secret = Deno.env.get('WHATSAPP_ASSISTANT_SECRET')?.trim() || ''
-  const base = (Deno.env.get('APP_URL') || Deno.env.get('VITE_APP_URL') || '').trim().replace(/\/$/, '')
+  const base = (Deno.env.get('APP_URL') || Deno.env.get('VITE_APP_URL') || '')
+    .trim()
+    .replace(/\/$/, '')
   if (!secret || !base) {
-    console.error('whatsapp-webhook AI missing APP_URL or WHATSAPP_ASSISTANT_SECRET')
+    console.error(
+      'whatsapp-webhook AI missing APP_URL or WHATSAPP_ASSISTANT_SECRET'
+    )
     return null
   }
   const controller = new AbortController()
@@ -1555,11 +1600,24 @@ async function callWhatsAppAssistant(input: {
     }
     const text = typeof json.text === 'string' ? json.text.trim() : ''
     const handoff = typeof json.handoff === 'string' ? json.handoff : null
-    if (!text) return { text: 'No pude consultar el tablero ahora.', proposals: [], handoff }
-    return { text, proposals: Array.isArray(json.proposals) ? json.proposals : [], handoff }
+    if (!text)
+      return {
+        text: 'No pude consultar el tablero ahora.',
+        proposals: [],
+        handoff,
+      }
+    return {
+      text,
+      proposals: Array.isArray(json.proposals) ? json.proposals : [],
+      handoff,
+    }
   } catch (error) {
     console.error('whatsapp-webhook AI call failed', error)
-    return { text: 'No pude consultar el tablero ahora.', proposals: [], handoff: null }
+    return {
+      text: 'No pude consultar el tablero ahora.',
+      proposals: [],
+      handoff: null,
+    }
   } finally {
     clearTimeout(timeout)
   }
@@ -1580,9 +1638,12 @@ async function maybeHandleWhatsAppAi(
   if (!whatsappAiEnabled()) return false
   let allowed = input.aiAllowed
   if (allowed === undefined) {
-    const { data: rpcAllowed, error } = await supabase.rpc('can_use_ai_whatsapp_for_usuario', {
-      p_usuario_id: input.usuarioId,
-    })
+    const { data: rpcAllowed, error } = await supabase.rpc(
+      'can_use_ai_whatsapp_for_usuario',
+      {
+        p_usuario_id: input.usuarioId,
+      }
+    )
     if (error) {
       console.error('whatsapp-webhook AI access rpc', error.message)
       return false
@@ -1619,27 +1680,34 @@ async function downloadWhatsAppMedia(mediaId: string): Promise<{
   fileName: string
 }> {
   const { accessToken, graphVersion } = whatsappConfig()
-  const metaRes = await fetch(`https://graph.facebook.com/${graphVersion}/${mediaId}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
+  const metaRes = await fetch(
+    `https://graph.facebook.com/${graphVersion}/${mediaId}`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  )
   const meta = (await metaRes.json()) as { url?: string; mime_type?: string }
   if (!metaRes.ok || !meta.url) throw new Error('media_meta_failed')
-  const binRes = await fetch(meta.url, { headers: { Authorization: `Bearer ${accessToken}` } })
+  const binRes = await fetch(meta.url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
   if (!binRes.ok) throw new Error('media_download_failed')
-  const mimeType = meta.mime_type || binRes.headers.get('content-type') || 'application/octet-stream'
+  const mimeType =
+    meta.mime_type ||
+    binRes.headers.get('content-type') ||
+    'application/octet-stream'
   const bytes = new Uint8Array(await binRes.arrayBuffer())
-  const ext =
-    mimeType.includes('png')
-      ? 'png'
-      : mimeType.includes('jpeg') || mimeType.includes('jpg')
-        ? 'jpg'
-        : mimeType.includes('pdf')
-          ? 'pdf'
-          : mimeType.includes('csv')
-            ? 'csv'
-            : mimeType.includes('sheet') || mimeType.includes('excel')
-              ? 'xlsx'
-              : 'bin'
+  const ext = mimeType.includes('png')
+    ? 'png'
+    : mimeType.includes('jpeg') || mimeType.includes('jpg')
+      ? 'jpg'
+      : mimeType.includes('pdf')
+        ? 'pdf'
+        : mimeType.includes('csv')
+          ? 'csv'
+          : mimeType.includes('sheet') || mimeType.includes('excel')
+            ? 'xlsx'
+            : 'bin'
   return { bytes, mimeType, fileName: `${mediaId}.${ext}` }
 }
 
@@ -1654,371 +1722,58 @@ async function findUsuarioByWa(
     .select('id,usuario_id,external_user_id')
     .eq('channel', 'whatsapp')
     .eq('status', 'active')
-    .or(`external_user_id.in.(${variants.join(',')}),external_chat_id.in.(${variants.join(',')})`)
-    .limit(1)
-  return data?.[0] ?? null
-}
-
-async function resolveTeamStateId(
-  supabase: ReturnType<typeof adminClient>,
-  prefer: 'final' | 'progress' | 'blocked'
-): Promise<string | null> {
-  const { data: rows } = await supabase
-    .from('statuses')
-    .select('id,nombre,es_cierre,orden,activo')
+    .or(
+      `external_user_id.in.(${variants.join(',')}),external_chat_id.in.(${variants.join(',')})`
+    )
+    .limit(2)
+  if (data?.length !== 1) return null
+  const { data: user } = await supabase
+    .from('usuarios')
+    .select('id,activo')
+    .eq('id', data[0].usuario_id)
     .eq('activo', true)
-    .order('orden', { ascending: true })
-
-  const list = rows ?? []
-  if (prefer === 'final') {
-    return (
-      list.find((r) => r.es_cierre && /hecho/i.test(r.nombre))?.id ??
-      list.find((r) => r.es_cierre)?.id ??
-      null
-    )
-  }
-  if (prefer === 'blocked') {
-    // Requiero apoyo → Retraso/overdue (SSOT: OPERATIONAL_DICTIONARY_VERSION); Bloqueado fallback.
-    const overdueRe = new RegExp(
-      ['retraso', ...OVERDUE_ALIASES.map((a) => a.replace(/\s+/g, '\\s+'))].join('|'),
-      'i'
-    )
-    return (
-      list.find((r) => overdueRe.test(String(r.nombre ?? '')) && !r.es_cierre)?.id ??
-      list.find((r) => /bloquead/i.test(String(r.nombre ?? '')) && !r.es_cierre)?.id ??
-      null
-    )
-  }
-  return (
-    list.find((r) => /en[_\s-]?ejecucion|en[_\s-]?proceso|en[_\s-]?progreso/i.test(r.nombre) && !r.es_cierre)?.id ??
-    list.find((r) => /proceso|progreso|ejecucion/i.test(r.nombre) && !r.es_cierre)?.id ??
-    list.find((r) => /hoy/i.test(r.nombre) && !r.es_cierre)?.id ??
-    list.find((r) => !r.es_cierre)?.id ??
-    null
-  )
-}
-
-async function applyActionResponse(
-  supabase: ReturnType<typeof adminClient>,
-  params: {
-    accionId: string
-    action: 'done' | 'progress' | 'support'
-    usuarioId: string
-    waId: string
-  }
-) {
-  const { data: actionRow } = await supabase
-    .from('acciones_diarias')
-    .select('id,estado,responsable,titulo_accion')
-    .eq('id', params.accionId)
     .maybeSingle()
-  if (!actionRow) return { ok: false as const, reason: 'action_not_found' }
-
-  if (params.action === 'support') {
-    await supabase.from('acciones_diarias').update({ estado: 'Retraso' }).eq('id', actionRow.id)
-    return {
-      ok: true as const,
-      askResult: false,
-      askSupport: true,
-      accionId: actionRow.id,
-      titulo: actionRow.titulo_accion ?? 'Actividad',
-    }
-  }
-
-  if (params.action === 'progress') {
-    if (actionRow.estado !== 'Bloqueado') {
-      await supabase.from('acciones_diarias').update({ estado: 'En_Ejecucion' }).eq('id', actionRow.id)
-    }
-    await supabase.from('whatsapp_result_requests').insert({
-      scope: 'corporate',
-      accion_id: actionRow.id,
-      checkpoint_id: null,
-      usuario_id: params.usuarioId,
-      wa_id: params.waId,
-      status: 'waiting',
-      expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-    })
-    return {
-      ok: true as const,
-      askResult: true,
-      askSupport: false,
-      accionId: actionRow.id,
-      titulo: actionRow.titulo_accion ?? 'Actividad',
-      resultLabel: 'En proceso' as const,
-    }
-  }
-
-  // done — todos los checkpoints activos pendientes
-  const { data: pending } = await supabase
-    .from('accion_checkpoints')
-    .select('id')
-    .eq('accion_id', actionRow.id)
-    .eq('activo', true)
-    .eq('completado', false)
-
-  const nowIso = new Date().toISOString()
-  for (const cp of pending ?? []) {
-    await supabase
-      .from('accion_checkpoints')
-      .update({
-        completado: true,
-        checked_at: nowIso,
-        checked_by: params.usuarioId,
-      })
-      .eq('id', cp.id)
-  }
-
-  await supabase
-    .from('acciones_diarias')
-    .update({
-      estado: 'Hecho',
-      completed_at: nowIso,
-      completed_by: params.usuarioId,
-    })
-    .eq('id', actionRow.id)
-
-  await supabase
-    .from('whatsapp_followup_jobs')
-    .update({ status: 'canceled', updated_at: nowIso })
-    .eq('scope', 'corporate')
-    .eq('accion_id', actionRow.id)
-    .eq('status', 'pending')
-
-  await supabase.from('whatsapp_result_requests').insert({
-    scope: 'corporate',
-    accion_id: actionRow.id,
-    checkpoint_id: null,
-    usuario_id: params.usuarioId,
-    wa_id: params.waId,
-    status: 'waiting',
-    expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-  })
-
-  return {
-    ok: true as const,
-    askResult: true,
-    askSupport: false,
-    accionId: actionRow.id,
-    titulo: actionRow.titulo_accion ?? 'Actividad',
-    resultLabel: 'Realizada' as const,
-  }
+  return user ? data[0] : null
 }
 
-async function handleCorporateAction(
-  supabase: ReturnType<typeof adminClient>,
-  params: {
-    checkpointId: string
-    action: 'done' | 'progress' | 'support'
-    usuarioId: string
-    waId: string
-  }
-) {
+async function applyActionResponse(supabase, params) {
+  const { data } = await supabase.rpc('whatsapp_apply_action', {
+    p_event: workerContexts.get(supabase).id,
+    p_usuario: params.usuarioId,
+    p_accion: params.accionId,
+    p_action: params.action,
+    p_wa: params.waId,
+    p_reason: params.reason ?? null,
+    p_checkpoint: params.checkpointId ?? null,
+  })
+  return data
+}
+async function handleCorporateAction(supabase, params) {
   const { data: checkpoint } = await supabase
     .from('accion_checkpoints')
-    .select('id,accion_id,texto,completado,activo')
+    .select('accion_id')
     .eq('id', params.checkpointId)
     .maybeSingle()
-  if (!checkpoint?.accion_id) return { ok: false as const, reason: 'checkpoint_not_found' }
-
-  const { data: actionRow } = await supabase
-    .from('acciones_diarias')
-    .select('id,estado,responsable,titulo_accion')
-    .eq('id', checkpoint.accion_id)
-    .maybeSingle()
-  if (!actionRow) return { ok: false as const, reason: 'action_not_found' }
-
-  if (params.action === 'support') {
-    await supabase
-      .from('acciones_diarias')
-      .update({ estado: 'Retraso' })
-      .eq('id', actionRow.id)
-    return {
-      ok: true as const,
-      askResult: false,
-      askSupport: true,
-      accionId: actionRow.id,
-      titulo: actionRow.titulo_accion ?? 'Actividad',
-    }
-  }
-
-  if (params.action === 'progress') {
-    if (actionRow.estado !== 'Bloqueado') {
-      await supabase
-        .from('acciones_diarias')
-        .update({ estado: 'En_Ejecucion' })
-        .eq('id', actionRow.id)
-    }
-    await supabase.from('whatsapp_result_requests').insert({
-      scope: 'corporate',
-      accion_id: actionRow.id,
-      checkpoint_id: checkpoint.id,
-      usuario_id: params.usuarioId,
-      wa_id: params.waId,
-      status: 'waiting',
-      expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-    })
-    return {
-      ok: true as const,
-      askResult: true,
-      askSupport: false,
-      accionId: actionRow.id,
-      titulo: actionRow.titulo_accion ?? 'Actividad',
-      resultLabel: 'En proceso' as const,
-    }
-  }
-
-  // done — update directo (service role; RPC exige auth.uid())
-  await supabase
-    .from('accion_checkpoints')
-    .update({
-      completado: true,
-      checked_at: new Date().toISOString(),
-      checked_by: params.usuarioId,
-    })
-    .eq('id', checkpoint.id)
-
-  const { data: pending } = await supabase
-    .from('accion_checkpoints')
-    .select('id')
-    .eq('accion_id', actionRow.id)
-    .eq('activo', true)
-    .eq('completado', false)
-
-  const allDone = !pending || pending.length === 0
-  await supabase
-    .from('acciones_diarias')
-    .update({
-      estado: allDone ? 'Hecho' : 'En_Ejecucion',
-      ...(allDone
-        ? { completed_at: new Date().toISOString(), completed_by: params.usuarioId }
-        : {}),
-    })
-    .eq('id', actionRow.id)
-
-  await supabase
-    .from('whatsapp_followup_jobs')
-    .update({ status: 'canceled', updated_at: new Date().toISOString() })
-    .eq('scope', 'corporate')
-    .eq('checkpoint_id', checkpoint.id)
-    .eq('status', 'pending')
-
-  await supabase.from('whatsapp_result_requests').insert({
-    scope: 'corporate',
-    accion_id: actionRow.id,
-    checkpoint_id: checkpoint.id,
-    usuario_id: params.usuarioId,
-    wa_id: params.waId,
-    status: 'waiting',
-    expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+  if (!checkpoint) return { ok: false }
+  return applyActionResponse(supabase, {
+    ...params,
+    accionId: checkpoint.accion_id,
   })
-
-  return {
-    ok: true as const,
-    askResult: true,
-    askSupport: false,
-    accionId: actionRow.id,
-    titulo: actionRow.titulo_accion ?? 'Actividad',
-    resultLabel: 'Realizada' as const,
-  }
 }
 
-async function handleTeamAction(
-  supabase: ReturnType<typeof adminClient>,
-  params: {
-    teamActionId: string
-    checklistIndex: number
-    action: 'done' | 'progress' | 'support'
-    usuarioId: string
-    waId: string
-  }
-) {
-  const { data: team } = await supabase
-    .from('acciones_equipo')
-    .select('id,area_id,estado_id,asignado_a,checklist,bloqueada')
-    .eq('id', params.teamActionId)
-    .maybeSingle()
-  if (!team) return { ok: false as const, reason: 'team_action_not_found' }
-
-  if (params.action === 'support') {
-    const blockedState = await resolveTeamStateId(supabase, 'blocked')
-    await supabase
-      .from('acciones_equipo')
-      .update({
-        bloqueada: true,
-        ...(blockedState ? { estado_id: blockedState } : {}),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', team.id)
-    return { ok: true as const, askResult: false, teamActionId: team.id }
-  }
-
-  if (params.action === 'progress') {
-    if (!team.bloqueada) {
-      const progressState = await resolveTeamStateId(supabase, 'progress')
-      await supabase
-        .from('acciones_equipo')
-        .update({
-          ...(progressState ? { estado_id: progressState } : {}),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', team.id)
-    }
-    await supabase.from('whatsapp_result_requests').insert({
-      scope: 'team',
-      team_action_id: team.id,
-      checklist_index: params.checklistIndex,
-      usuario_id: params.usuarioId,
-      wa_id: params.waId,
-      status: 'waiting',
-      expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-    })
-    return { ok: true as const, askResult: true, teamActionId: team.id }
-  }
-
-  const checklist = Array.isArray(team.checklist) ? [...(team.checklist as Array<Record<string, unknown>>)] : []
-  if (params.checklistIndex < 0 || params.checklistIndex >= checklist.length) {
-    return { ok: false as const, reason: 'checklist_index_out_of_range' }
-  }
-  const item = { ...(checklist[params.checklistIndex] ?? {}) }
-  item.done = true
-  item.checked_at = new Date().toISOString()
-  item.checked_by = params.usuarioId
-  checklist[params.checklistIndex] = item
-
-  const allDone = checklist.length === 0 || checklist.every((row) => Boolean(row.done))
-  const nextState = await resolveTeamStateId(supabase, allDone ? 'final' : 'progress')
-
-  await supabase
-    .from('acciones_equipo')
-    .update({
-      checklist,
-      bloqueada: false,
-      ...(nextState ? { estado_id: nextState } : {}),
-      ...(allDone ? { completed_at: new Date().toISOString() } : {}),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', team.id)
-
-  await supabase
-    .from('whatsapp_followup_jobs')
-    .update({ status: 'canceled', updated_at: new Date().toISOString() })
-    .eq('scope', 'team')
-    .eq('team_action_id', team.id)
-    .eq('checklist_index', params.checklistIndex)
-    .eq('status', 'pending')
-
-  await supabase.from('whatsapp_result_requests').insert({
-    scope: 'team',
-    team_action_id: team.id,
-    checklist_index: params.checklistIndex,
-    usuario_id: params.usuarioId,
-    wa_id: params.waId,
-    status: 'waiting',
-    expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+async function applyTeamMutation(supabase, params) {
+  const { data } = await supabase.rpc('whatsapp_apply_team', {
+    p_event: workerContexts.get(supabase).id,
+    p_usuario: params.usuarioId,
+    p_team: params.teamActionId,
+    p_index: params.checklistIndex,
+    p_action: params.action,
+    p_wa: params.waId,
+    p_reason: params.reason ?? null,
   })
-
-  return { ok: true as const, askResult: true, teamActionId: team.id }
+  return data
 }
+const handleTeamAction = applyTeamMutation
 
 async function requestResultComment(
   supabase: ReturnType<typeof adminClient>,
@@ -2029,12 +1784,19 @@ async function requestResultComment(
     accionId?: string | null
   }
 ) {
-  const lines: string[] = [`*${params.label}*`, '', 'Responde con el numero de actividad y tu avance.', '', '*Actividades*']
+  const lines: string[] = [
+    `*${params.label}*`,
+    '',
+    'Responde con el numero de actividad y tu avance.',
+    '',
+    '*Actividades*',
+  ]
   if (params.accionId) {
     const { data: action } = await supabase
       .from('acciones_diarias')
       .select('titulo_accion')
       .eq('id', params.accionId)
+      .eq('responsable', params.usuarioId)
       .maybeSingle()
     lines.push(`1. ${action?.titulo_accion ?? 'Actividad'}`)
   } else {
@@ -2122,8 +1884,10 @@ async function sendLatestActionFollowupButtons(
     .from('acciones_diarias')
     .select('id,titulo_accion,estado')
     .eq('id', accionId)
+    .eq('responsable', params.usuarioId)
     .maybeSingle()
-  if (!action || action.estado === 'Hecho' || action.estado === 'Verificado') return false
+  if (!action || action.estado === 'Hecho' || action.estado === 'Verificado')
+    return false
 
   const { data: pendingCheckpoints } = await supabase
     .from('accion_checkpoints')
@@ -2134,7 +1898,9 @@ async function sendLatestActionFollowupButtons(
     .order('orden', { ascending: true })
 
   const pendingLines = (pendingCheckpoints ?? []).map((c) =>
-    typeof c.texto === 'string' && c.texto.trim() ? c.texto.trim() : 'Checkpoint'
+    typeof c.texto === 'string' && c.texto.trim()
+      ? c.texto.trim()
+      : 'Checkpoint'
   )
   const list =
     pendingLines.length > 0
@@ -2150,8 +1916,12 @@ async function sendLatestActionFollowupButtons(
       'Responde con el boton: Realizada, En proceso o Requiero apoyo.',
     ].join('\n')
   )
-  const graphBody = interactiveFollowupPayload(params.waId, bodyText, `act:${action.id}`)
-  const result = await graphSendMessage(graphBody)
+  const graphBody = interactiveFollowupPayload(
+    params.waId,
+    bodyText,
+    `act:${action.id}`
+  )
+  const result = await graphSendMessage(supabase, graphBody)
   const metaId = extractMessageId(result.json)
   await upsertThreadMessage(supabase, {
     wa_id: params.waId,
@@ -2243,7 +2013,9 @@ async function handleVerActividades(
     'Usa los botones del recordatorio (Realizada / En proceso / Requiero apoyo) para reportar avance.',
     'Para el asistente, usa el disparador Consulta al Bot.'
   )
-  await replyText(supabase, params.waId, lines.join('\n'), params.usuarioId, { flow: 'ops' })
+  await replyText(supabase, params.waId, lines.join('\n'), params.usuarioId, {
+    flow: 'ops',
+  })
 }
 
 /**
@@ -2277,7 +2049,9 @@ async function handleEvidence(
   const variants = phoneVariants(params.waId)
   const { data: waiting } = await supabase
     .from('whatsapp_result_requests')
-    .select('id,scope,accion_id,team_action_id,checkpoint_id,checklist_index,expires_at')
+    .select(
+      'id,scope,accion_id,team_action_id,checkpoint_id,checklist_index,expires_at'
+    )
     .in('wa_id', variants.length ? variants : [params.waId])
     .eq('status', 'waiting')
     .gt('expires_at', nowIso)
@@ -2286,6 +2060,14 @@ async function handleEvidence(
     .maybeSingle()
 
   if (!waiting) return false
+  const team = waiting.scope === 'team'
+  const { data: authorized } = await supabase
+    .from(team ? 'acciones_equipo' : 'acciones_diarias')
+    .select('id')
+    .eq('id', team ? waiting.team_action_id : waiting.accion_id)
+    .eq(team ? 'asignado_a' : 'responsable', params.usuarioId)
+    .maybeSingle()
+  if (!authorized) throw new Error('not_authorized')
 
   const textBody =
     params.message.text?.body?.trim() ||
@@ -2304,11 +2086,17 @@ async function handleEvidence(
   if (mediaId) {
     const media = await downloadWhatsAppMedia(mediaId)
     const pathPrefix =
-      waiting.scope === 'team' ? `equipo/${waiting.team_action_id}` : `acciones/${waiting.accion_id}`
+      waiting.scope === 'team'
+        ? `equipo/${waiting.team_action_id}`
+        : `acciones/${waiting.accion_id}`
     const storagePath = `${pathPrefix}/whatsapp/${Date.now()}_${media.fileName}`
+    await workerContexts.get(supabase)?.mark('evidence_upload')
     const { error: uploadError } = await supabase.storage
       .from('evidencias')
-      .upload(storagePath, media.bytes, { contentType: media.mimeType, upsert: false })
+      .upload(storagePath, media.bytes, {
+        contentType: media.mimeType,
+        upsert: false,
+      })
     if (uploadError) throw uploadError
     adjuntos.push({
       path: storagePath,
@@ -2320,7 +2108,9 @@ async function handleEvidence(
 
   const contenido =
     textBody ||
-    (adjuntos.length > 0 ? 'Evidencia recibida por WhatsApp.' : 'Respuesta WhatsApp sin contenido.')
+    (adjuntos.length > 0
+      ? 'Evidencia recibida por WhatsApp.'
+      : 'Respuesta WhatsApp sin contenido.')
 
   if (waiting.scope === 'team' && waiting.team_action_id) {
     await supabase.from('equipo_accion_comentarios').insert({
@@ -2356,7 +2146,12 @@ async function handleEvidence(
 
 type OpsFallbackTarget =
   | { kind: 'action'; accionId: string; deliveryId: string; title?: string }
-  | { kind: 'corporate'; checkpointId: string; deliveryId: string; title?: string }
+  | {
+      kind: 'corporate'
+      checkpointId: string
+      deliveryId: string
+      title?: string
+    }
   | {
       kind: 'team'
       teamActionId: string
@@ -2374,12 +2169,16 @@ function targetFromDelivery(delivery: {
 }): OpsFallbackTarget | null {
   const payload = (delivery.payload ?? {}) as Record<string, unknown>
   if (payload.message_type !== 'checkpoint_followup') return null
-  const createdAt = delivery.created_at ? new Date(delivery.created_at).getTime() : 0
+  const createdAt = delivery.created_at
+    ? new Date(delivery.created_at).getTime()
+    : 0
   if (createdAt && Date.now() - createdAt > OPS_FALLBACK_WINDOW_MS) return null
 
   const request = (payload.request ?? {}) as Record<string, unknown>
   const interactive = (request.interactive ?? {}) as Record<string, unknown>
-  const actionBlock = (interactive.action ?? {}) as { buttons?: Array<{ reply?: { id?: string } }> }
+  const actionBlock = (interactive.action ?? {}) as {
+    buttons?: Array<{ reply?: { id?: string } }>
+  }
   const buttonId = actionBlock.buttons?.[0]?.reply?.id ?? ''
   const fromButton = parseButtonId(buttonId)
   const title =
@@ -2390,7 +2189,12 @@ function targetFromDelivery(delivery: {
         : undefined
 
   if (fromButton.kind === 'action' && fromButton.accionId) {
-    return { kind: 'action', accionId: fromButton.accionId, deliveryId: delivery.id, title }
+    return {
+      kind: 'action',
+      accionId: fromButton.accionId,
+      deliveryId: delivery.id,
+      title,
+    }
   }
   if (fromButton.kind === 'corporate' && fromButton.checkpointId) {
     return {
@@ -2400,7 +2204,11 @@ function targetFromDelivery(delivery: {
       title,
     }
   }
-  if (fromButton.kind === 'team' && fromButton.teamActionId != null && fromButton.checklistIndex != null) {
+  if (
+    fromButton.kind === 'team' &&
+    fromButton.teamActionId != null &&
+    fromButton.checklistIndex != null
+  ) {
     return {
       kind: 'team',
       teamActionId: fromButton.teamActionId,
@@ -2411,15 +2219,29 @@ function targetFromDelivery(delivery: {
   }
 
   if (payload.target_type === 'action' && delivery.accion_id) {
-    return { kind: 'action', accionId: delivery.accion_id as string, deliveryId: delivery.id, title }
+    return {
+      kind: 'action',
+      accionId: delivery.accion_id as string,
+      deliveryId: delivery.id,
+      title,
+    }
   }
 
-  const checkpointId = typeof payload.checkpoint_id === 'string' ? payload.checkpoint_id : null
+  const checkpointId =
+    typeof payload.checkpoint_id === 'string' ? payload.checkpoint_id : null
   if (checkpointId) {
     return { kind: 'corporate', checkpointId, deliveryId: delivery.id, title }
   }
-  if (delivery.accion_id && (payload.source === 'followup_job' || payload.related_task_id)) {
-    return { kind: 'action', accionId: delivery.accion_id as string, deliveryId: delivery.id, title }
+  if (
+    delivery.accion_id &&
+    (payload.source === 'followup_job' || payload.related_task_id)
+  ) {
+    return {
+      kind: 'action',
+      accionId: delivery.accion_id as string,
+      deliveryId: delivery.id,
+      title,
+    }
   }
 
   if (delivery.team_action_id) {
@@ -2467,7 +2289,9 @@ async function listOpsFallbackCandidates(
   const sinceIso = new Date(Date.now() - OPS_FALLBACK_WINDOW_MS).toISOString()
   const { data: byPhone } = await supabase
     .from('action_delivery_log')
-    .select('id,accion_id,team_action_id,payload,created_at,external_chat_id,usuario_id')
+    .select(
+      'id,accion_id,team_action_id,payload,created_at,external_chat_id,usuario_id'
+    )
     .eq('channel', 'whatsapp')
     .eq('delivery_status', 'sent')
     .gte('created_at', sinceIso)
@@ -2479,7 +2303,9 @@ async function listOpsFallbackCandidates(
   if (deliveries.length === 0) {
     const { data: byUser } = await supabase
       .from('action_delivery_log')
-      .select('id,accion_id,team_action_id,payload,created_at,external_chat_id,usuario_id')
+      .select(
+        'id,accion_id,team_action_id,payload,created_at,external_chat_id,usuario_id'
+      )
       .eq('channel', 'whatsapp')
       .eq('delivery_status', 'sent')
       .eq('usuario_id', usuarioId)
@@ -2578,83 +2404,70 @@ function logInboundObs(fields: Record<string, unknown>) {
     JSON.stringify({
       event: 'whatsapp_inbound_route',
       ...fields,
-      phone: typeof fields.phone === 'string' ? String(fields.phone).replace(/(\d{4})\d+(\d{2})/, '$1***$2') : undefined,
+      phone:
+        typeof fields.phone === 'string'
+          ? String(fields.phone).replace(/(\d{4})\d+(\d{2})/, '$1***$2')
+          : undefined,
     })
   )
 }
 
-Deno.serve(async (req) => {
-  if (req.method === 'GET') {
-    const challenge = verifyChallenge(new URL(req.url))
-    if (challenge) return challenge
-    return new Response('ok', { status: 200 })
-  }
-
-  if (req.method !== 'POST') {
-    return new Response('method_not_allowed', { status: 405 })
-  }
-
-  const rawBody = await req.text()
-  const signatureOk = await verifyMetaSignature(rawBody, req.headers.get('X-Hub-Signature-256'))
-  if (!signatureOk) {
-    return new Response('invalid_signature', { status: 401 })
-  }
-
-  let payload: Record<string, unknown>
+async function processWhatsAppPayload(payload, supabase) {
   try {
-    payload = JSON.parse(rawBody) as Record<string, unknown>
-  } catch {
-    return new Response('invalid_json', { status: 400 })
-  }
-
-  try {
-    const supabase = adminClient()
     const entry = Array.isArray(payload.entry) ? payload.entry : []
     for (const ent of entry) {
       const changes = Array.isArray((ent as { changes?: unknown }).changes)
-        ? ((ent as { changes: unknown[] }).changes)
+        ? (ent as { changes: unknown[] }).changes
         : []
       for (const change of changes) {
-        const value = (change as { value?: Record<string, unknown> }).value ?? {}
+        const value =
+          (change as { value?: Record<string, unknown> }).value ?? {}
 
         const statuses = Array.isArray(value.statuses)
-          ? (value.statuses as Array<{ id?: string; status?: string; timestamp?: string; errors?: unknown[] }>)
+          ? (value.statuses as Array<{
+              id?: string
+              status?: string
+              timestamp?: string
+              errors?: unknown[]
+            }>)
           : []
         for (const statusEvent of statuses) {
           await applyMetaStatus(supabase, statusEvent)
         }
 
-        const messages = Array.isArray(value.messages) ? (value.messages as WaMessage[]) : []
+        const messages = Array.isArray(value.messages)
+          ? (value.messages as WaMessage[])
+          : []
         for (const message of messages) {
           const waId = normalizePhone(message.from)
           if (!waId) continue
 
-          // Dedup por Meta message id (reintentos del webhook).
-          if (message.id) {
-            const { data: dup } = await supabase
-              .from('external_inbound_messages')
-              .select('id')
-              .eq('channel', 'whatsapp')
-              .eq('external_update_id', message.id)
-              .maybeSingle()
-            if (dup?.id) continue
-          }
-
           const identity = await findUsuarioByWa(supabase, waId)
-          const { error: inboundError } = await supabase.from('external_inbound_messages').insert({
-            channel: 'whatsapp',
-            external_user_id: waId,
-            external_chat_id: waId,
-            external_message_id: message.id ?? null,
-            external_update_id: message.id ?? null,
-            usuario_id: identity?.usuario_id ?? null,
-            message_type: message.type ?? 'unknown',
-            payload: { message, value },
-          })
+          const { error: inboundError } = await supabase
+            .from('external_inbound_messages')
+            .insert({
+              channel: 'whatsapp',
+              external_user_id: waId,
+              external_chat_id: waId,
+              external_message_id: message.id ?? null,
+              external_update_id: message.id ?? null,
+              usuario_id: identity?.usuario_id ?? null,
+              message_type: message.type ?? 'unknown',
+              payload: { message, value },
+            })
           if (inboundError) {
             // Unique violation = evento repetido
-            if (String(inboundError.message || '').toLowerCase().includes('duplicate')) continue
-            if (String((inboundError as { code?: string }).code || '') === '23505') continue
+            if (
+              String(inboundError.message || '')
+                .toLowerCase()
+                .includes('duplicate')
+            ) {
+              /* queue retry */
+            }
+            if (
+              String((inboundError as { code?: string }).code || '') === '23505'
+            )
+              continue
             throw inboundError
           }
 
@@ -2681,7 +2494,7 @@ Deno.serve(async (req) => {
             await replyText(
               supabase,
               waId,
-              'Tu numero no esta vinculado a un usuario del tablero.',
+              'No pude identificar tu cuenta de Scrumban. Necesitas vincular este número.',
               null,
               { flow: 'ops' }
             )
@@ -2690,10 +2503,13 @@ Deno.serve(async (req) => {
 
           await supabase
             .from('user_channel_identities')
-            .update({ last_seen_at: new Date().toISOString(), external_chat_id: waId })
+            .update({
+              last_seen_at: new Date().toISOString(),
+              external_chat_id: waId,
+            })
             .eq('id', identity.id)
 
-          const buttonRaw =
+          let buttonRaw =
             message.interactive?.button_reply?.id ||
             message.button?.payload ||
             message.interactive?.list_reply?.id ||
@@ -2730,7 +2546,9 @@ Deno.serve(async (req) => {
                   message,
                   source: 'webhook_inbound',
                   flow: 'communication',
-                  route_kind: replyLookupError ? 'quoted_reply_unresolved' : 'communication_reply',
+                  route_kind: replyLookupError
+                    ? 'quoted_reply_unresolved'
+                    : 'communication_reply',
                   in_reply_to: message.context.id,
                 },
               })
@@ -2738,6 +2556,69 @@ Deno.serve(async (req) => {
             }
           }
 
+          if (
+            await handleInboundCommand(
+              supabase,
+              message,
+              identity.usuario_id,
+              waId
+            )
+          )
+            continue
+          if (
+            message.context?.id &&
+            !buttonRaw &&
+            inferOpsTextAction(message.text?.body || '')
+          ) {
+            const { data: delivery } = await supabase
+              .from('action_delivery_log')
+              .select('id,accion_id,team_action_id,payload,created_at')
+              .eq('channel', 'whatsapp')
+              .eq('external_message_id', message.context.id)
+              .eq('usuario_id', identity.usuario_id)
+              .gte(
+                'created_at',
+                new Date(Date.now() - OPS_FALLBACK_WINDOW_MS).toISOString()
+              )
+              .maybeSingle()
+            const target = delivery ? targetFromDelivery(delivery) : null
+            if (!target) {
+              await replyText(
+                supabase,
+                waId,
+                'Ese seguimiento ya no está disponible. Escribe Actualizar acciones.',
+                identity.usuario_id
+              )
+              continue
+            }
+            const action = inferOpsTextAction(message.text.body)
+            message.interactive = {
+              button_reply: {
+                id:
+                  target.kind === 'action'
+                    ? 'act:' + target.accionId + ':' + action
+                    : target.kind === 'corporate'
+                      ? 'chk:' + target.checkpointId + ':' + action
+                      : 'tchk:' +
+                        target.teamActionId +
+                        ':' +
+                        target.checklistIndex +
+                        ':' +
+                        action,
+              },
+            }
+            buttonRaw = message.interactive.button_reply.id
+            // Re-enter the canonical command handler for blocked replies.
+            if (
+              await handleInboundCommand(
+                supabase,
+                message,
+                identity.usuario_id,
+                waId
+              )
+            )
+              continue
+          }
           // --- Shared: evidencia pendiente (Ops) antes de routers ---
           if (
             message.type === 'text' ||
@@ -2785,7 +2666,8 @@ Deno.serve(async (req) => {
           const routeInput = {
             buttonId: buttonRaw,
             buttonTitle,
-            textBody: message.type === 'text' ? message.text?.body ?? null : null,
+            textBody:
+              message.type === 'text' ? (message.text?.body ?? null) : null,
             messageType: message.type,
           }
           // Deferir RPC: botones ops / media ignore no consultan can_use_ai.
@@ -2804,7 +2686,9 @@ Deno.serve(async (req) => {
             route = structured
           } else {
             canUseAi = await canUseAiWhatsApp(supabase, identity.usuario_id)
-            agentSessionActive = canUseAi ? await hasActiveAgentSession(supabase, waId) : false
+            agentSessionActive = canUseAi
+              ? await hasActiveAgentSession(supabase, waId)
+              : false
             clarificationPending = await hasClarificationSession(
               supabase,
               waId,
@@ -2964,7 +2848,11 @@ Deno.serve(async (req) => {
             checklistIndex = parsed.checklistIndex
           } else if (route.kind === 'ops_keyword') {
             action = route.action
-            const fallback = await resolveFallbackTarget(supabase, waId, identity.usuario_id)
+            const fallback = await resolveFallbackTarget(
+              supabase,
+              waId,
+              identity.usuario_id
+            )
             if (fallback.status === 'one') {
               const target = fallback.target
               await upsertFlowSession(supabase, {
@@ -3006,7 +2894,11 @@ Deno.serve(async (req) => {
                 waId,
                 askWhichTaskText(),
                 identity.usuario_id,
-                { flow: 'ops', event: 'ops_clarify_many', intent: 'CLARIFICATION' }
+                {
+                  flow: 'ops',
+                  event: 'ops_clarify_many',
+                  intent: 'CLARIFICATION',
+                }
               )
               continue
             } else {
@@ -3044,7 +2936,10 @@ Deno.serve(async (req) => {
             try {
               await supabase
                 .from('whatsapp_flow_sessions')
-                .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                .update({
+                  status: 'cancelled',
+                  updated_at: new Date().toISOString(),
+                })
                 .eq('usuario_id', identity.usuario_id)
                 .in('status', ['active', 'awaiting_clarification'])
             } catch {
@@ -3108,7 +3003,30 @@ Deno.serve(async (req) => {
             continue
           }
 
-          if (!action || !kind) continue
+          if (!action || !kind) {
+            await replyText(
+              supabase,
+              waId,
+              'No reconocí esa respuesta. Escribe Ayuda o Actualizar acciones.',
+              identity.usuario_id
+            )
+            continue
+          }
+          if (action === 'support') {
+            const id =
+              kind === 'action'
+                ? 'act:' + accionId + ':support'
+                : kind === 'corporate'
+                  ? 'chk:' + checkpointId + ':support'
+                  : 'tchk:' + teamActionId + ':' + checklistIndex + ':support'
+            await handleInboundCommand(
+              supabase,
+              { ...message, interactive: { button_reply: { id } } },
+              identity.usuario_id,
+              waId
+            )
+            continue
+          }
 
           if (kind === 'action' && accionId) {
             const result = await applyActionResponse(supabase, {
@@ -3156,7 +3074,11 @@ Deno.serve(async (req) => {
                 })
               }
             }
-          } else if (kind === 'team' && teamActionId != null && checklistIndex != null) {
+          } else if (
+            kind === 'team' &&
+            teamActionId != null &&
+            checklistIndex != null
+          ) {
             const result = await handleTeamAction(supabase, {
               teamActionId,
               checklistIndex,
@@ -3188,12 +3110,741 @@ Deno.serve(async (req) => {
       headers: { 'Content-Type': 'application/json' },
     })
   } catch (error) {
-    console.error('whatsapp-webhook error', error)
-    // Meta reintenta si no es 200; devolvemos 200 tras log para evitar storm,
-    // excepto errores de verify.
-    return new Response(JSON.stringify({ ok: false }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
+    throw error
+  }
+}
+
+// BEGIN_WHATSAPP_INGRESS
+/** Shared ingress contract for Meta. No routing, AI or sends before durable ACK. */
+type WhatsAppEvent = {
+  key: string
+  phone: string
+  sender: string
+  kind: 'message' | 'status'
+  payload: Record<string, unknown>
+}
+type IngressConfig = {
+  appSecret: string
+  verifyToken: string
+  phoneId: string
+  wabaId: string
+}
+async function verifyWhatsAppSignature(
+  raw: string,
+  signature: string | null,
+  secret: string
+): Promise<boolean> {
+  const match = /^sha256=([a-f0-9]{64})$/i.exec(signature ?? '')
+  if (!secret || !match) return false
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['verify']
+  )
+  const bytes = Uint8Array.from(match[1].match(/../g)!, (n) => parseInt(n, 16))
+  return crypto.subtle.verify('HMAC', key, bytes, new TextEncoder().encode(raw))
+}
+function record(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+function normalizeWhatsAppEvents(
+  payload: unknown,
+  config: Pick<IngressConfig, 'phoneId' | 'wabaId'>
+): WhatsAppEvent[] {
+  if (
+    !record(payload) ||
+    payload.object !== 'whatsapp_business_account' ||
+    !Array.isArray(payload.entry)
+  )
+    throw new Error('invalid_payload')
+  const events: WhatsAppEvent[] = []
+  for (const entry of payload.entry) {
+    if (!record(entry) || !Array.isArray(entry.changes))
+      throw new Error('invalid_entry')
+    if (entry.id !== config.wabaId) throw new Error('wrong_waba')
+    for (const change of entry.changes) {
+      if (!record(change)) throw new Error('invalid_change')
+      if (change.field !== 'messages') continue
+      const v = change.value
+      if (
+        !record(v) ||
+        !record(v.metadata) ||
+        v.metadata.phone_number_id !== config.phoneId
+      )
+        throw new Error('wrong_phone')
+      for (const field of ['messages', 'statuses'] as const) {
+        if (v[field] !== undefined && !Array.isArray(v[field]))
+          throw new Error('invalid_events')
+        for (const item of (v[field] ?? []) as unknown[]) {
+          if (
+            !record(item) ||
+            typeof item.id !== 'string' ||
+            !item.id ||
+            item.id.length > 512
+          )
+            throw new Error('invalid_event_id')
+          const kind = field === 'messages' ? 'message' : 'status'
+          const sender = kind === 'message' ? item.from : item.recipient_id
+          if (typeof sender !== 'string' || !/^\d{10,15}$/.test(sender))
+            throw new Error('invalid_sender')
+          if (kind === 'message' && typeof item.type !== 'string')
+            throw new Error('invalid_message_type')
+          if (
+            kind === 'message' &&
+            item.type === 'text' &&
+            (!record(item.text) || typeof item.text.body !== 'string')
+          )
+            throw new Error('invalid_text')
+          if (
+            kind === 'status' &&
+            (!['sent', 'delivered', 'read', 'failed'].includes(
+              String(item.status)
+            ) ||
+              !/^\d+$/.test(String(item.timestamp)))
+          )
+            throw new Error('invalid_status')
+          const key =
+            kind === 'message'
+              ? `message:${item.id}`
+              : `status:${item.id}:${item.status}:${item.timestamp}`
+          events.push({
+            key,
+            kind,
+            phone: config.phoneId,
+            sender,
+            payload: {
+              object: 'whatsapp_business_account',
+              entry: [
+                {
+                  id: entry.id,
+                  changes: [
+                    {
+                      field: 'messages',
+                      value: {
+                        metadata: { phone_number_id: config.phoneId },
+                        [field]: [item],
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          })
+        }
+      }
+    }
+  }
+  return events
+}
+async function acceptWhatsAppWebhook(
+  request: Request,
+  config: IngressConfig,
+  enqueue: (events: WhatsAppEvent[]) => Promise<void>
+): Promise<Response> {
+  if (request.method === 'GET') {
+    const q = new URL(request.url).searchParams
+    return q.get('hub.mode') === 'subscribe' &&
+      !!config.verifyToken &&
+      q.get('hub.verify_token') === config.verifyToken &&
+      q.has('hub.challenge')
+      ? new Response(q.get('hub.challenge'), { status: 200 })
+      : new Response('forbidden', { status: 403 })
+  }
+  if (request.method !== 'POST')
+    return new Response('method_not_allowed', { status: 405 })
+  if (!config.appSecret || !config.phoneId || !config.wabaId)
+    return new Response('webhook_not_configured', { status: 503 })
+  const raw = await request.text()
+  if (new TextEncoder().encode(raw).length > 1048576)
+    return new Response('payload_too_large', { status: 413 })
+  if (
+    !(await verifyWhatsAppSignature(
+      raw,
+      request.headers.get('x-hub-signature-256'),
+      config.appSecret
+    ))
+  )
+    return new Response('invalid_signature', { status: 401 })
+  let events: WhatsAppEvent[]
+  try {
+    events = normalizeWhatsAppEvents(JSON.parse(raw), config)
+  } catch {
+    return new Response('invalid_payload', { status: 400 })
+  }
+  try {
+    await enqueue(events)
+  } catch {
+    console.error(
+      JSON.stringify({
+        event: 'whatsapp_ingress',
+        stage: 'enqueue',
+        result: 'failed',
+      })
+    )
+    return new Response('temporarily_unavailable', { status: 503 })
+  }
+  console.info(
+    JSON.stringify({
+      event: 'whatsapp_ingress',
+      stage: 'persisted',
+      count: events.length,
     })
+  )
+  return new Response('EVENT_RECEIVED', { status: 200 })
+}
+
+// END_WHATSAPP_INGRESS
+
+
+
+async function handleInboundCommand(supabase, message, usuarioId, waId) {
+  const text = message.text?.body?.trim() || ''
+  const button =
+    message.interactive?.button_reply?.id ||
+    message.interactive?.list_reply?.id ||
+    message.button?.payload ||
+    ''
+  const label =
+    message.interactive?.button_reply?.title ||
+    message.interactive?.list_reply?.title ||
+    message.button?.text ||
+    ''
+  const command =
+    whatsappCommand(button) ||
+    whatsappCommand(text) ||
+    (!button || !button.includes(':') ? whatsappCommand(label) : null) ||
+    (looksLikeCancelText(text)
+      ? 'cancel'
+      : looksLikeExplicitTaskUpdate(text)
+        ? 'update'
+        : null)
+  const correlation = workerContexts.get(supabase)?.id
+  const send = (body) =>
+    replyText(supabase, waId, body, usuarioId, { correlation_id: correlation })
+  const now = new Date().toISOString()
+  const close = async () => {
+    await supabase
+      .from('whatsapp_flow_sessions')
+      .update({ status: 'cancelled', updated_at: now })
+      .eq('usuario_id', usuarioId)
+      .eq('phone', waId)
+      .in('status', ['active', 'awaiting_clarification'])
+    await supabase
+      .from('whatsapp_result_requests')
+      .update({ status: 'expired', updated_at: now })
+      .eq('usuario_id', usuarioId)
+      .eq('wa_id', waId)
+      .eq('status', 'waiting')
+  }
+  const save = async (meta) => {
+    await close()
+    await supabase
+      .from('whatsapp_flow_sessions')
+      .insert({
+        phone: waId,
+        usuario_id: usuarioId,
+        flow_type: 'task_update',
+        status: 'awaiting_clarification',
+        intent: 'CLARIFICATION',
+        meta,
+        correlation_id: message.id,
+        expires_at: new Date(Date.now() + 30 * 60000).toISOString(),
+      })
+  }
+  if (command) {
+    console.info(
+      JSON.stringify({
+        event: 'whatsapp_processing',
+        correlation_id: correlation,
+        stage: 'router',
+        route: command,
+      })
+    )
+    await close()
+    if (command === 'cancel') {
+      await send(
+        'Cancelé el seguimiento pendiente. Puedes escribir Mis acciones o Actualizar acciones.'
+      )
+      return true
+    }
+    if (command === 'help') {
+      await send(
+        'Hola. Soy el asistente de Scrumban.\n\nPuedes escribir:\n• Mis acciones\n• Vencidas\n• Acciones que asigné\n• Actualizar acciones\n• Consulta al Bot\n• Cancelar'
+      )
+      return true
+    }
+    let query = supabase
+      .from('acciones_diarias')
+      .select('id,titulo_accion,estado,fecha,responsable')
+      .eq(command === 'assigned' ? 'created_by' : 'responsable', usuarioId)
+      .not('estado', 'in', '(Hecho,Verificado)')
+      .order('fecha', { ascending: true })
+      .limit(10)
+    if (command === 'overdue')
+      query = query.lt(
+        'fecha',
+        new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Mexico_City',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(new Date())
+      )
+    const { data: rows } = await query
+    if (!rows?.length) {
+      await send(
+        command === 'assigned'
+          ? 'No encontré acciones pendientes creadas por ti.'
+          : command === 'overdue'
+            ? 'No encontré acciones vencidas asignadas a ti.'
+            : 'No encontré acciones pendientes asignadas a ti.'
+      )
+      return true
+    }
+    if (command === 'update') {
+      await save({ purpose: 'select_action', ids: rows.map((r) => r.id) })
+      const body = {
+        messaging_product: 'whatsapp',
+        to: waId,
+        type: 'interactive',
+        interactive: {
+          type: 'list',
+          body: {
+            text: 'Selecciona una de tus acciones para actualizarla. También puedes responder con su número o Cancelar.',
+          },
+          action: {
+            button: 'Elegir acción',
+            sections: [
+              {
+                title: 'Tus acciones',
+                rows: rows.map((r, i) => ({
+                  id: 'wa:select:' + r.id,
+                  title: `${i + 1}. ${r.titulo_accion || 'Acción'}`.slice(
+                    0,
+                    24
+                  ),
+                  description: String(r.estado).slice(0, 72),
+                })),
+              },
+            ],
+          },
+        },
+      }
+      const result = await graphSendMessage(supabase, body)
+      await upsertThreadMessage(supabase, {
+        wa_id: waId,
+        usuario_id: usuarioId,
+        direction: 'outbound',
+        source: 'automation',
+        message_kind: 'interactive',
+        body_text: 'Selecciona una acción',
+        meta_message_id: extractMessageId(result.json),
+        delivery_status: 'sent',
+        payload: { correlation_id: correlation, flow: 'ops' },
+      })
+    } else
+      await send(
+        (command === 'assigned'
+          ? 'Acciones que creaste'
+          : command === 'overdue'
+            ? 'Tus acciones vencidas'
+            : 'Tus acciones pendientes') +
+          ' (hasta 10):\n\n' +
+          rows
+            .map(
+              (r, i) =>
+                `${i + 1}. ${r.titulo_accion || 'Acción'} — ${r.estado} · ${r.fecha}`
+            )
+            .join('\n')
+      )
+    return true
+  }
+  const { data: session } = await supabase
+    .from('whatsapp_flow_sessions')
+    .select('id,meta,expires_at')
+    .eq('usuario_id', usuarioId)
+    .eq('phone', waId)
+    .eq('flow_type', 'task_update')
+    .eq('status', 'awaiting_clarification')
+    .gt('expires_at', now)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const selection = /^wa:select:([0-9a-f-]{36})$/i.exec(button)
+  if (
+    selection ||
+    (session?.meta?.purpose === 'select_action' && /^\d+$/.test(text))
+  ) {
+    const id = selection?.[1] || session?.meta?.ids?.[Number(text) - 1]
+    if (!session || !session.meta?.ids?.includes(id)) {
+      await send(
+        'La selección expiró o no está disponible. Escribe Actualizar acciones.'
+      )
+      return true
+    }
+    const { data: a } = await supabase
+      .from('acciones_diarias')
+      .select('id,titulo_accion')
+      .eq('id', id)
+      .eq('responsable', usuarioId)
+      .maybeSingle()
+    if (!a) {
+      await send('No pude encontrar una acción que puedas actualizar.')
+      return true
+    }
+    await save({ purpose: 'selected_action', id: a.id })
+    const body = interactiveFollowupPayload(
+      waId,
+      a.titulo_accion || 'Selecciona el avance',
+      'act:' + a.id
+    )
+    const result = await graphSendMessage(supabase, body)
+    await upsertThreadMessage(supabase, {
+      wa_id: waId,
+      usuario_id: usuarioId,
+      direction: 'outbound',
+      source: 'automation',
+      message_kind: 'interactive',
+      body_text: a.titulo_accion,
+      meta_message_id: extractMessageId(result.json),
+      delivery_status: 'sent',
+      payload: { flow: 'ops', correlation_id: correlation },
+    })
+    return true
+  }
+  // An unrelated query changes intent and must never become evidence or a blocking reason.
+  if (
+    looksLikeQueryText(text) ||
+    isConsultaAlBotText(text) ||
+    inferAiChannelText(text)
+  ) {
+    await close()
+    return false
+  }
+  let parsed = parseButtonId(button)
+  if (!parsed.kind && session?.meta?.purpose === 'selected_action') {
+    const action = inferOpsTextAction(text)
+    if (action) parsed = { kind: 'action', accionId: session.meta.id, action }
+  }
+  if (parsed.action === 'support') {
+    let id = parsed.accionId
+    if (parsed.kind === 'corporate') {
+      const { data: cp } = await supabase
+        .from('accion_checkpoints')
+        .select('accion_id')
+        .eq('id', parsed.checkpointId)
+        .maybeSingle()
+      id = cp?.accion_id
+    }
+    const table =
+      parsed.kind === 'team' ? 'acciones_equipo' : 'acciones_diarias'
+    const owner = parsed.kind === 'team' ? 'asignado_a' : 'responsable'
+    id = parsed.kind === 'team' ? parsed.teamActionId : id
+    const { data: a } = await supabase
+      .from(table)
+      .select('id')
+      .eq('id', id)
+      .eq(owner, usuarioId)
+      .maybeSingle()
+    if (!a) {
+      await send('No pude encontrar una acción que puedas actualizar.')
+      return true
+    }
+    await save({
+      purpose: 'block_reason',
+      id,
+      kind: parsed.kind,
+      checkpointId: parsed.checkpointId,
+      checklistIndex: parsed.checklistIndex,
+    })
+    await send(
+      '¿Qué impide avanzar? Escribe el motivo del bloqueo o Cancelar. Aún no he cambiado el estado.'
+    )
+    return true
+  }
+  if (session?.meta?.purpose === 'block_reason' && text) {
+    if (text.length < 3) {
+      await send('Describe el motivo del bloqueo con un poco más de detalle.')
+      return true
+    }
+    const m = session.meta
+    if (m.kind === 'team')
+      await applyTeamMutation(supabase, {
+        teamActionId: m.id,
+        checklistIndex: m.checklistIndex,
+        action: 'support',
+        reason: text,
+        usuarioId,
+        waId,
+      })
+    else
+      await applyActionResponse(supabase, {
+        accionId: m.id,
+        action: 'support',
+        reason: text,
+        usuarioId,
+        waId,
+        checkpointId: m.checkpointId,
+      })
+    await close()
+    await send('Registré el bloqueo y su motivo en la acción.')
+    return true
+  }
+  if (
+    parsed.kind === 'action' &&
+    parsed.action &&
+    session?.meta?.purpose === 'selected_action' &&
+    !button
+  ) {
+    const result = await applyActionResponse(supabase, {
+      accionId: parsed.accionId,
+      action: parsed.action,
+      usuarioId,
+      waId,
+    })
+    await supabase
+      .from('whatsapp_flow_sessions')
+      .update({ status: 'closed' })
+      .eq('id', session.id)
+    if (result.ok)
+      await send(
+        parsed.action === 'done'
+          ? 'Registré la acción como Hecho. Puedes responder con el resultado.'
+          : 'Registré la acción En proceso. Puedes responder con tu avance.'
+      )
+    return true
+  }
+  return false
+}
+
+// BEGIN_WHATSAPP_COMMANDS
+/** Deterministic commands are resolved before evidence capture or an LLM. */
+function whatsappCommand(
+  text: string | null | undefined
+): 'help' | 'mine' | 'overdue' | 'assigned' | 'update' | 'cancel' | null {
+  const value = (text ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/^\//, '')
+    .replace(/[¿?¡!]/g, '')
+    .replace(/[_-]+/g, ' ')
+  if (/^(hola|ayuda|help|menu|buenos dias|buenas tardes)$/.test(value))
+    return 'help'
+  if (
+    /^(mis acciones|pendientes|mis pendientes|consultar acciones|ver actividades|wa:mine)$/.test(
+      value
+    )
+  )
+    return 'mine'
+  if (
+    /^(vencidas|acciones vencidas|mis acciones vencidas|wa:overdue)$/.test(
+      value
+    )
+  )
+    return 'overdue'
+  if (/^(acciones que asigne|asignadas por mi|wa:assigned)$/.test(value))
+    return 'assigned'
+  if (
+    /^(actualizar acciones|actualizar mis acciones|reportar avance|wa:update)$/.test(
+      value
+    )
+  )
+    return 'update'
+  if (/^(cancelar|cancela|cancel|salir)$/.test(value)) return 'cancel'
+  return null
+}
+
+// END_WHATSAPP_COMMANDS
+
+const workerContexts = new WeakMap()
+function checkedWorkerClient(base, job) {
+  const context = {
+    id: job.id,
+    uncertain: false,
+    sent: false,
+    effect: false,
+    mark: async (stage) => {
+      const { error } = await base.rpc('whatsapp_mark_effect', {
+        p_id: job.id,
+        p_lease: job.lease_token,
+        p_stage: stage,
+      })
+      if (error) throw new Error('lease_lost')
+      context.effect = true
+    },
+  }
+  const wrap = (builder, table, write = false) =>
+    new Proxy(builder, {
+      get(target, key) {
+        if (key === 'then')
+          return (resolve, reject) =>
+            (async () => {
+              if (
+                write &&
+                ![
+                  'external_inbound_messages',
+                  'whatsapp_messages',
+                  'action_delivery_log',
+                  'user_channel_identities',
+                ].includes(table)
+              )
+                await context.mark('database_write:' + table)
+              const result = await target
+              if (
+                result.error &&
+                !(
+                  table === 'external_inbound_messages' &&
+                  result.error.code === '23505'
+                )
+              )
+                throw new Error('database_' + (result.error.code || 'error'))
+              return result
+            })().then(resolve, reject)
+        const member = target[key]
+        if (typeof member !== 'function') return member
+        return (...args) =>
+          wrap(
+            member.apply(target, args),
+            table,
+            write ||
+              ['insert', 'update', 'upsert', 'delete'].includes(String(key))
+          )
+      },
+    })
+  const client = new Proxy(base, {
+    get(target, key) {
+      if (key === 'from') return (table) => wrap(target.from(table), table)
+      if (key === 'rpc')
+        return (...args) =>
+          wrap(
+            target.rpc(...args),
+            'rpc',
+            ['whatsapp_apply_action', 'whatsapp_apply_team'].includes(args[0])
+          )
+      const member = target[key]
+      return typeof member === 'function' ? member.bind(target) : member
+    },
+  })
+  workerContexts.set(client, context)
+  return client
+}
+async function runInboundWorker(req) {
+  const secret = Deno.env.get('WHATSAPP_DISPATCHER_SECRET') || ''
+  const supplied = req.headers.get('x-dispatcher-secret') || ''
+  if (!secret || !timingSafeEqualHex(secret, supplied))
+    return new Response('forbidden', { status: 403 })
+  const base = adminClient()
+  for (let i = 0; i < 5; i++) {
+    const { data, error } = await base.rpc('whatsapp_claim_inbound')
+    if (error) return new Response('queue_unavailable', { status: 503 })
+    const job = data?.[0]
+    if (!job) break
+    const client = checkedWorkerClient(base, job)
+    let ok = false,
+      code = null
+    try {
+      console.info(
+        JSON.stringify({
+          event: 'whatsapp_processing',
+          correlation_id: job.id,
+          stage: 'claimed',
+          attempt: job.attempts,
+          kind: job.kind,
+        })
+      )
+      await processWhatsAppPayload(job.payload, client)
+      if (workerContexts.get(client)?.uncertain)
+        throw new Error('provider_outcome_unknown')
+      ok = true
+    } catch (error) {
+      const candidate = error instanceof Error ? error.message : ''
+      code =
+        /^(database_[A-Z0-9]+|provider_http_\d+|provider_outcome_unknown|provider_missing_message_id|lease_lost)$/.test(
+          candidate
+        )
+          ? candidate
+          : 'processing_error'
+      console.error(
+        JSON.stringify({
+          event: 'whatsapp_processing',
+          correlation_id: job.id,
+          stage: 'failed',
+          code,
+        })
+      )
+      if (
+        job.kind === 'message' &&
+        !workerContexts.get(client)?.sent &&
+        !workerContexts.get(client)?.uncertain &&
+        (job.attempts >= 4 || workerContexts.get(client)?.effect)
+      ) {
+        try {
+          await replyText(
+            client,
+            job.sender,
+            'No pude completar la consulta o actualización en este momento. No he podido confirmar el resultado.',
+            null,
+            { correlation_id: job.id }
+          )
+        } catch {
+          /* retained for review */
+        }
+      }
+    }
+    const result = await base.rpc('whatsapp_finish_inbound', {
+      p_id: job.id,
+      p_lease: job.lease_token,
+      p_ok: ok,
+      p_error: code,
+    })
+    if (result.error) return new Response('finish_failed', { status: 503 })
+    console.info(
+      JSON.stringify({
+        event: 'whatsapp_processing',
+        correlation_id: job.id,
+        stage: ok ? 'completed' : 'attention_required',
+      })
+    )
+  }
+  return new Response('ok')
+}
+Deno.serve(async (req) => {
+  try {
+    if (new URL(req.url).searchParams.get('worker') === '1') {
+      if (req.method !== 'POST')
+        return new Response('method_not_allowed', { status: 405 })
+      return await runInboundWorker(req)
+    }
+    return await acceptWhatsAppWebhook(
+      req,
+      {
+        appSecret: Deno.env.get('WHATSAPP_APP_SECRET') || '',
+        verifyToken:
+          Deno.env.get('WHATSAPP_VERIFY_TOKEN') ||
+          Deno.env.get('token_de_verificacion') ||
+          '',
+        phoneId: Deno.env.get('WHATSAPP_PHONE_NUMBER_ID') || '',
+        wabaId:
+          Deno.env.get('WHATSAPP_WABA_ID') ||
+          Deno.env.get('WHATSAPP_BUSINESS_ACCOUNT_ID') ||
+          '',
+      },
+      async (events) => {
+        if (!events.length) return
+        const { error } = await adminClient().rpc('whatsapp_enqueue_inbound', {
+          p_events: events,
+        })
+        if (error) throw new Error('enqueue_failed')
+      }
+    )
+  } catch {
+    console.error(
+      JSON.stringify({ event: 'whatsapp_ingress', stage: 'unavailable' })
+    )
+    return new Response('temporarily_unavailable', { status: 503 })
   }
 })

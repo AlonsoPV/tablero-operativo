@@ -1,5 +1,7 @@
 # WhatsApp — conexión y comunicación (guía completa)
 
+> Reparación preparada el 17/11/2026: [auditoría bidireccional y guía de activación](./whatsapp-bidirectional-audit-2026-11-17.md). Esta guía nueva reemplaza las indicaciones de recepción síncrona y firma opcional de la documentación histórica. Requiere migración y worker programado; aún no está desplegada.
+
 Documentación operativa de la integración WhatsApp Cloud API en What2Do: vinculación de usuarios, envío de acciones, seguimientos con botones, respuestas entrantes, evidencia, plantillas Meta, jobs/cron y configuración UI.
 
 > Doc hermano histórico: [whatsapp-integration-replication.md](./whatsapp-integration-replication.md) (base de réplica). Este archivo refleja el **estado actual del código** (plantillas editables, fallback 24h, dispatcher durable).

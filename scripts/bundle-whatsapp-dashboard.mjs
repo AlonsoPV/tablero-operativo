@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const functions = ['whatsapp-send-action', 'whatsapp-followup-dispatcher', 'whatsapp-inbox']
+const functions = ['whatsapp-webhook', 'whatsapp-send-action', 'whatsapp-followup-dispatcher', 'whatsapp-inbox']
 
 for (const name of functions) {
   const result = await build({
