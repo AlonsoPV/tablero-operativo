@@ -28,14 +28,17 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-function send(text: string) {
+async function send(text: string): Promise<Response> {
   vi.stubEnv('WHATSAPP_ASSISTANT_SECRET', 'test-only')
   vi.stubEnv('GEMINI_API_KEY', 'test-only')
-  return handler.fetch(new Request('https://example.test/api/whatsapp-assistant', {
+  const request = new Request('https://example.test/api/whatsapp-assistant', {
     method: 'POST',
     headers: { 'x-whatsapp-assistant-secret': 'test-only', 'content-type': 'application/json' },
     body: JSON.stringify({ usuario_id: 'usuario', wa_id: 'contacto', text }),
-  }))
+  })
+  const response = await handler(request, undefined)
+  if (!(response instanceof Response)) throw new Error('Expected a Web Response')
+  return response
 }
 
 it('answers a repeated board query while a pending draft exists and keeps that draft out of context', async () => {
