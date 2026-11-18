@@ -861,6 +861,13 @@ async function proposeNotifyActionEmail(
     resolved.created_by,
     actor.usuarioId,
   ])
+  const requestedEmail = asString(args.requested_email, 254).toLowerCase()
+  if (requestedEmail && requestedEmail !== asString(address, 254).toLowerCase()) {
+    return clarification('notify_action_email', {
+      question: 'La dirección que indicaste no coincide con el correo registrado del responsable de esta acción. ¿Quieres usar el correo del responsable o indicar otra acción?',
+      options: [],
+    })
+  }
   const mensaje = asString(args.mensaje, 500)
   const prioridadRaw = asString(args.prioridad, 20)
   const prioridad =

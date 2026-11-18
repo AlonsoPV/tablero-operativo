@@ -135,6 +135,12 @@ describe('Action email from Retell', () => {
     expect(result.proposal?.workspace?.to).toEqual(['jorge@example.test'])
     expect(result.proposal?.workspace?.body).toContain('Comparar existencias')
     expect(result.proposal?.workspace?.message).toBe('Confirma el avance.')
+    const differentAddress = await dispatchCopilotTool(actor, 'notify_action_email', {
+      action_id: 'action',
+      requested_email: 'otra-persona@gmail.com',
+    })
+    expect(differentAddress.clarification?.question).toContain('no coincide con el correo registrado')
+    expect(pending.insert).toHaveBeenCalledTimes(1)
     expect(checkpoints.eq).toHaveBeenCalledWith('activo', true)
     expect(pending.insert).toHaveBeenCalledWith(expect.objectContaining({
       channel: 'retell',

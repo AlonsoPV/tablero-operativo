@@ -60,6 +60,7 @@ export async function runGeminiToolLoop(input: {
   /** En el chat, solo habilita Gmail de escritura si el usuario lo pidió explícitamente. */
   allowPersonalGmailWrites?: boolean
   boardEmailRequest?: boolean
+  requestedEmail?: string
 }): Promise<{
   text: string
   finishReason?: string
@@ -86,8 +87,10 @@ export async function runGeminiToolLoop(input: {
     (tool === 'gmail_prepare_send' || tool === 'gmail_prepare_reply' ||
       (input.boardEmailRequest === true && tool.startsWith('gmail_')))
   const declarations = catalog.filter(({ name }) => !routeToBoardEmail(name))
+  const boardEmailTool = declarations.find(({ name }) => name === 'notify_action_email')
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
+    const requireBoardEmail = round === 0 && !input.readOnly && input.boardEmailRequest === true && boardEmailTool
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), input.timeoutMs)
     let response: Response
@@ -99,8 +102,8 @@ export async function runGeminiToolLoop(input: {
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: input.systemInstruction }] },
           contents,
-          tools: [{ functionDeclarations: declarations }],
-          toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
+          tools: [{ functionDeclarations: requireBoardEmail ? [boardEmailTool] : declarations }],
+          toolConfig: { functionCallingConfig: { mode: requireBoardEmail ? 'ANY' : 'AUTO' } },
           generationConfig: input.generationConfig,
         }),
       })
@@ -128,7 +131,14 @@ export async function runGeminiToolLoop(input: {
       .trim()
     if (texts) text = texts
 
-    if (calls.length === 0) break
+    if (calls.length === 0) {
+      if (requireBoardEmail) {
+        const result = await dispatchCopilotTool(input.actor, 'notify_action_email', {})
+        clarification = result.clarification
+        text = clarification?.question || 'Indica de qué acción del tablero quieres preparar el correo.'
+      }
+      break
+    }
 
     contents.push({ role: 'model', parts })
     const responseParts: GeminiPart[] = []
@@ -155,8 +165,12 @@ export async function runGeminiToolLoop(input: {
           ? await dispatchCopilotTool(input.actor, 'notify_action_email', {
               action_id: call.args.action_id,
               query: call.args.query,
+              ...(input.requestedEmail ? { requested_email: input.requestedEmail } : {}),
             })
-          : await dispatchCopilotTool(input.actor, call.name, call.args)
+          : await dispatchCopilotTool(input.actor, call.name, {
+              ...call.args,
+              ...(call.name === 'notify_action_email' && input.requestedEmail ? { requested_email: input.requestedEmail } : {}),
+            })
       toolTrace.push({ tool: result.tool, kind: result.kind })
       if (result.kind === 'read' || result.kind === 'denied' || result.kind === 'error') {
         toolReads.push({
@@ -176,6 +190,10 @@ export async function runGeminiToolLoop(input: {
       })
     }
     contents.push({ role: 'user', parts: responseParts })
+    if (input.boardEmailRequest && clarification) {
+      text = clarification.question
+      break
+    }
   }
 
   return {
