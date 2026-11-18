@@ -46,7 +46,8 @@ CANAL WHATSAPP (SOLO LECTURA):
 - Responde en espanol, corto (maximo 900 caracteres).
 - No uses markdown ni simbolos # *.
 - No inventes telefonos, usuarios ni estados.
-- Solo puedes CONSULTAR el tablero (acciones, OKRs, dashboard, organigrama, busquedas).
+- Consulta los datos del tablero disponibles para la cuenta vinculada. Usa get_module_data para modulos especificos y search_board para buscar registros en el tablero.
+- Responde a la consulta mas reciente. Un borrador que aparezca en el historial no impide hacer una consulta nueva.
 - NO crees ni actualices acciones, checkpoints, correos ni eventos desde este canal.
 - Si el usuario pide modificar/cerrar/actualizar una tarea, responde preguntando: Quieres actualizar esa tarea? y deja claro que use los botones del recordatorio (Realizada / En proceso / Requiero apoyo) o confirme el handoff.
 - Si no tiene permiso para un modulo, dilo. No inventes cifras.
@@ -171,11 +172,12 @@ async function loadLatestPending(supabase: SupabaseClient, usuarioId: string): P
   }
 }
 
-async function loadHistory(supabase: SupabaseClient, waId: string) {
+async function loadHistory(supabase: SupabaseClient, waId: string, usuarioId: string) {
   const { data } = await supabase
     .from('whatsapp_messages')
     .select('direction,source,body_text,created_at')
     .eq('wa_id', waId)
+    .eq('usuario_id', usuarioId)
     .order('created_at', { ascending: false })
     .limit(HISTORY_LIMIT)
 
@@ -186,6 +188,8 @@ async function loadHistory(supabase: SupabaseClient, waId: string) {
     const content = typeof row.body_text === 'string' ? row.body_text.trim() : ''
     if (!content) continue
     const role: 'user' | 'assistant' = row.direction === 'inbound' ? 'user' : 'assistant'
+    if (role === 'assistant' && row.source === 'ai' &&
+      (content.startsWith('Prepare este borrador de Google.') || content.startsWith('Prepare esta propuesta.'))) continue
     chars += content.length
     if (chars > HISTORY_CHARS && kept.length > 0) break
     kept.push({ role, content: content.slice(0, 1200) })
@@ -338,12 +342,10 @@ export default defineApiHandler(async (req, res) => {
     rol: typeof usuario.rol === 'string' ? usuario.rol : null,
   }
 
-  const pendingForText = action === 'chat' ? await loadLatestPending(supabase, usuarioId) : null
-  const rejectBareYes = Boolean(pendingForText && isGoogleWriteTool(pendingForText.tool))
-  const textDecision = action === 'chat' ? inferAiConfirmText(text, { rejectBareYes }) : null
-  if (textDecision) action = textDecision
-  else if (rejectBareYes && inferAiConfirmText(text) === 'confirm') {
-    const proposal = pendingToProposal(pendingForText as PendingPreview)
+  const textDecision = action === 'chat' ? inferAiConfirmText(text) : null
+  const pendingForText = textDecision ? await loadLatestPending(supabase, usuarioId) : null
+  if (textDecision === 'confirm' && pendingForText && isGoogleWriteTool(pendingForText.tool)) {
+    const proposal = pendingToProposal(pendingForText)
     return res.status(200).json({
       text: proposalToReply(
         'Un "si" suelto no envia correo ni crea eventos. Pulsa Confirmar en el boton o abre el asistente.',
@@ -352,10 +354,11 @@ export default defineApiHandler(async (req, res) => {
       proposals: [proposal],
     })
   }
+  if (textDecision) action = textDecision
 
   try {
     if (action === 'confirm' || action === 'cancel') {
-      const pending = opId ? { id: opId } : await loadLatestPending(supabase, usuarioId)
+      const pending = opId ? { id: opId } : textDecision ? pendingForText : await loadLatestPending(supabase, usuarioId)
       if (!pending?.id) {
         return res.status(200).json({
           text: 'No hay una propuesta pendiente. Escribe tu consulta.',
@@ -406,25 +409,15 @@ export default defineApiHandler(async (req, res) => {
       })
     }
 
-    const pending = await loadLatestPending(supabase, usuarioId)
-    if (pending) {
-      const proposal = pendingToProposal(pending)
-      return res.status(200).json({
-        text: proposalToReply(
-          'Tienes una propuesta pendiente. Confirma o cancela antes de seguir.',
-          proposal
-        ),
-        proposals: [proposal],
-      })
-    }
-
     if (!text) {
       return res.status(400).json({ error: 'Falta el mensaje.' })
     }
 
-    const history = await loadHistory(supabase, waId)
-    if (!history.some((m) => m.role === 'user' && m.content === text)) {
-      history.push({ role: 'user', content: text.slice(0, 2000) })
+    const history = await loadHistory(supabase, waId, usuarioId)
+    const currentMessage = { role: 'user' as const, content: text.slice(0, 2000) }
+    const lastMessage = history.at(-1)
+    if (lastMessage?.role !== 'user' || lastMessage.content !== currentMessage.content) {
+      history.push(currentMessage)
     }
 
     const loopResult = await runGeminiChat({ actor, messages: history })
