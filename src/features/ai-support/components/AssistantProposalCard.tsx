@@ -66,7 +66,7 @@ export function AssistantProposalCard({
   const whatsappWrite = proposal.tool === 'whatsapp_prepare_send'
   const dailySummary = proposal.tool === 'update_daily_action_summary'
   const boardNotifyEmail = proposal.tool === 'notify_action_email'
-  const canEdit = !disableEdit && (googleWrite || whatsappWrite) && status === 'pending'
+  const canEdit = !disableEdit && (googleWrite || whatsappWrite || boardNotifyEmail) && status === 'pending'
   const view = toActionCardView(proposal, {
     status: busy === 'confirm' || busy === 'cancel' ? 'executing' : status,
     busy,
@@ -410,9 +410,13 @@ function EditWorkspaceDialog({
   const workspace = proposal.workspace
   const isWhatsapp = workspace?.kind === 'whatsapp' || proposal.tool === 'whatsapp_prepare_send'
   const isEmail = !isWhatsapp && (workspace?.kind === 'email' || proposal.tool.startsWith('gmail_'))
-  const [recipientName, setRecipientName] = useState('')
+  const isBoardEmail = proposal.tool === 'notify_action_email'
+  const initialRecipient = workspace?.recipientName ?? ''
+  const [recipientName, setRecipientName] = useState(initialRecipient)
   const [subject, setSubject] = useState(workspace?.subject ?? '')
-  const [body, setBody] = useState(workspace?.body ?? '')
+  const [body, setBody] = useState(
+    isBoardEmail ? workspace?.message ?? proposal.fields.find((field) => field.label === 'Mensaje')?.to ?? '' : workspace?.body ?? ''
+  )
   const [title, setTitle] = useState(workspace?.title ?? '')
   const [start, setStart] = useState(workspace?.start ?? '')
   const [end, setEnd] = useState(workspace?.end ?? '')
@@ -443,14 +447,15 @@ function EditWorkspaceDialog({
             {isEmail ? (
               <label className="space-y-1 text-xs font-medium">
                 Asunto
-                <Input value={subject} onChange={(event) => setSubject(event.target.value)} />
+                <Input value={subject} readOnly={isBoardEmail} onChange={(event) => setSubject(event.target.value)} />
               </label>
             ) : null}
             <label className="space-y-1 text-xs font-medium">
-              {isWhatsapp ? 'Mensaje' : 'Cuerpo'}
+              {isBoardEmail ? 'Mensaje para el responsable' : isWhatsapp ? 'Mensaje' : 'Cuerpo'}
               <textarea
                 className="min-h-32 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 value={body}
+                maxLength={isBoardEmail ? 500 : undefined}
                 onChange={(event) => setBody(event.target.value)}
               />
             </label>
@@ -480,7 +485,9 @@ function EditWorkspaceDialog({
             disabled={busy}
             onClick={() =>
               void onSave(
-                isWhatsapp ? { body, recipientName: recipientName.trim() || undefined } : isEmail ? { subject, body } : { title, start, end }
+                isWhatsapp
+                  ? { body, recipientName: recipientName.trim() !== initialRecipient || workspace?.needsInfo ? recipientName.trim() : undefined }
+                  : isBoardEmail ? { body } : isEmail ? { subject, body } : { title, start, end }
               )
             }
           >

@@ -1,6 +1,6 @@
 import { defineApiHandler, readRequestBody } from './_shared/http.js'
 import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth.js'
-import { cancelPendingOp, confirmPendingOp } from './_shared/assistantOpsRuntime.js'
+import { cancelPendingOp, confirmPendingOp, editActionEmailPendingOp } from './_shared/assistantOpsRuntime.js'
 import { editGooglePendingOp, listSessionGoogleOps } from './_shared/assistantGoogleTools.js'
 import { editWhatsappPendingOp } from './_shared/assistantCommunicationDrafts.js'
 import { isCommunicationWriteTool } from '../src/features/ai-support/copilot/communicationTools.js'
@@ -74,6 +74,10 @@ export default defineApiHandler(async (req, res) => {
       if (lookupError) throw new Error('DATABASE_ERROR: No se pudo consultar el borrador.')
       if (!opRow) return res.status(404).json({ error: 'No encontré ese borrador en tu cuenta.' })
       const tool = typeof opRow?.tool === 'string' ? opRow.tool : ''
+      if (tool === 'notify_action_email' && typeof payload.body === 'string') {
+        const proposal = await editActionEmailPendingOp(actor, opId, payload.body)
+        return res.status(200).json({ status: 'pending', proposal })
+      }
       if (!isCommunicationWriteTool(tool) && !isGoogleWriteTool(tool)) {
         return res.status(400).json({
           error: 'VALIDATION_FAILED: Este tipo de operación no admite edición. Descártala y prepara una nueva.',

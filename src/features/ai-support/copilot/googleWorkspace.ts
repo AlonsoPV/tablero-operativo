@@ -45,6 +45,7 @@ export type CopilotWorkspacePreview = {
   bcc?: string[]
   subject?: string
   body?: string
+  message?: string
   title?: string
   start?: string
   end?: string

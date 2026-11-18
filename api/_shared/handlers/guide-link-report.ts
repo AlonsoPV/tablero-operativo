@@ -3,7 +3,7 @@
  * Auth: el token de la liga (no se acepta un id de otra persona).
  * Confirm/cancel desde la liga publica estan deshabilitados (LOGIN_REQUIRED).
  */
-import { createServiceRoleClient } from '../assistantAuth.js'
+import { createServiceRoleClient, readAuthToken, requireAssistantAuth } from '../assistantAuth.js'
 import { finalizeGuideInterview } from '../finalizeGuideInterview.js'
 import {
   retellCallEndedAt,
@@ -88,10 +88,11 @@ export default defineApiHandler(async (req, res) => {
         .select(sessionSelect)
         .eq('provider_session_id', callId)
         .eq('usuario_id', owner.usuario_id)
+        .eq('guide_link_id', owner.link_id)
         .maybeSingle()
     : null
   const byLink =
-    byCall?.data
+    byCall
       ? byCall
       : await supabase
           .from('guide_sessions')
@@ -129,6 +130,12 @@ export default defineApiHandler(async (req, res) => {
     })
   }
 
+  let canManageCommunications = false
+  if (readAuthToken(req)) {
+    const auth = await requireAssistantAuth(req, { requireAiModule: true })
+    canManageCommunications = auth.ok && auth.usuarioId === owner.usuario_id && session.guide_link_id === owner.link_id
+  }
+
   const POLL_TIMEOUT_MS = 90_000
   const ageMs = (iso: string | null | undefined) => {
     const time = iso ? Date.parse(iso) : Number.NaN
@@ -140,7 +147,7 @@ export default defineApiHandler(async (req, res) => {
     ageMs(session.updated_at || session.closed_at || session.started_at) >= POLL_TIMEOUT_MS
 
   if (action === 'finalize' || action === 'retry' || action === 'poll-timeout' || (action === 'status' && stalePending)) {
-    const targetCallId = callId || session.provider_session_id || ''
+    const targetCallId = session.provider_session_id || ''
     let turns = asTurns(body?.messages)
     let endedAt: string | null = null
     const shouldFetch =
@@ -178,8 +185,8 @@ export default defineApiHandler(async (req, res) => {
         ms: Date.now() - started,
       })
     )
-    const communications = await loadSessionPendingOps(supabase, session.id, owner.usuario_id)
-    return res.status(200).json(publicPayload(result.status, result.journal, communications))
+    const communications = await loadSessionPendingOps(supabase, session.id, owner.usuario_id, canManageCommunications)
+    return res.status(200).json(publicPayload(result.status, result.journal, communications, canManageCommunications))
   }
 
   if (action === 'whatsapp') {
@@ -211,14 +218,15 @@ export default defineApiHandler(async (req, res) => {
   const status =
     session.report_status ||
     (journal?.executive_report ? 'ready' : 'pending')
-  const communications = await loadSessionPendingOps(supabase, session.id, owner.usuario_id)
-  return res.status(200).json(publicPayload(String(status), journal, communications))
+  const communications = await loadSessionPendingOps(supabase, session.id, owner.usuario_id, canManageCommunications)
+  return res.status(200).json(publicPayload(String(status), journal, communications, canManageCommunications))
 })
 
 async function loadSessionPendingOps(
   supabase: ReturnType<typeof createServiceRoleClient>,
   sessionId: string,
-  usuarioId: string
+  usuarioId: string,
+  canManageCommunications: boolean
 ) {
   const { data } = await supabase
     .from('assistant_pending_ops')
@@ -227,23 +235,31 @@ async function loadSessionPendingOps(
     .eq('usuario_id', usuarioId)
     .in('tool', [...INVITE_PENDING_TOOLS])
     .order('created_at', { ascending: true })
-  return (data ?? []).map((row) => ({
-    ...proposalFromPendingRow({
+  return (data ?? []).map((row) => {
+    const proposal = proposalFromPendingRow({
       id: String(row.id),
       tool: String(row.tool),
       preview: (row.preview ?? {}) as Record<string, unknown>,
       expires_at: String(row.expires_at),
       status: String(row.status),
-    }),
-    status: String(row.status),
-    errorMessage: typeof row.error_message === 'string' ? row.error_message : null,
-  }))
+    })
+    if (!canManageCommunications && proposal.tool === 'notify_action_email' && proposal.workspace) {
+      const name = proposal.workspace.recipientName
+      proposal.workspace = { ...proposal.workspace, to: name ? [name] : [] }
+    }
+    return {
+      ...proposal,
+      status: String(row.status),
+      errorMessage: typeof row.error_message === 'string' ? row.error_message : null,
+    }
+  })
 }
 
 function publicPayload(
   status: string,
   journal: Record<string, unknown> | null,
-  communications: unknown[] = []
+  communications: unknown[],
+  canManageCommunications: boolean
 ) {
   return {
     report_status: status,
@@ -258,5 +274,6 @@ function publicPayload(
     executive_report: journal?.executive_report ?? null,
     created_at: journal?.created_at ?? null,
     communications,
+    can_manage_communications: canManageCommunications,
   }
 }

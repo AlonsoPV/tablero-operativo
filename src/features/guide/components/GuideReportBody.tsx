@@ -52,6 +52,7 @@ export function GuideReportBody({
   createdWork,
   communications,
   communicationsReadOnly = false,
+  boardReadOnly = communicationsReadOnly,
   confirmOp,
   cancelOp,
   disableEditCommunications = false,
@@ -71,6 +72,7 @@ export function GuideReportBody({
   createdWork?: GuideCreatedWork[] | null
   communications?: ReportCommunicationOp[] | null
   communicationsReadOnly?: boolean
+  boardReadOnly?: boolean
   confirmOp?: (opId: string) => Promise<{ result?: { href?: string } | null }>
   cancelOp?: (opId: string) => Promise<void>
   disableEditCommunications?: boolean
@@ -414,7 +416,7 @@ export function GuideReportBody({
                 ops={(communications ?? []).filter((op) =>
                   block3.boardOps.some((row) => row.id === op.id)
                 )}
-                readOnly={communicationsReadOnly}
+                readOnly={boardReadOnly}
                 confirmOp={confirmOp}
                 cancelOp={cancelOp}
                 disableEdit={disableEditCommunications}

@@ -78,6 +78,7 @@ type NotificationEmailPayload = {
   tipo?: string
   prioridad?: 'Normal' | 'Alta' | 'Urgente'
   notification_id?: string | null
+  reply_to_caller?: boolean
   payload?: Record<string, unknown> | null
 }
 
@@ -494,6 +495,7 @@ async function sendWithGoogleMail(input: {
   subject: string
   html: string
   text: string
+  replyTo?: string
 }): Promise<{ provider: 'gmail'; id: string | null; account: string | null; from: string | null }> {
   const token = await googleAccessToken()
   const configuredFrom = optionalEnv('GOOGLE_GMAIL_FROM') || optionalEnv('NOTIFICATION_EMAIL_FROM')
@@ -513,7 +515,7 @@ async function sendWithGoogleMail(input: {
     subject: input.subject,
     html: input.html,
     text: input.text,
-    replyTo: optionalEnv('NOTIFICATION_EMAIL_REPLY_TO') || undefined,
+    replyTo: input.replyTo || optionalEnv('NOTIFICATION_EMAIL_REPLY_TO') || undefined,
   })
 
   const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
@@ -729,9 +731,18 @@ Deno.serve(async (req) => {
   const html = buildEmailHtml({ recipientName, tipo, prioridad, payload, url })
   const text = buildEmailText({ recipientName, tipo, prioridad, payload, url })
 
+  let replyTo: string | undefined
+  if (body?.reply_to_caller === true) {
+    const loginEmail = auth.data.user.email?.trim() ?? ''
+    if (!auth.data.user.email_confirmed_at || !/^[^\s<>,;:"()]+@[^\s<>,;:"()]+\.[^\s<>,;:"()]+$/.test(loginEmail)) {
+      return jsonResponse({ ok: false, message: 'Verifica el correo con el que inicias sesión en Scrumban.' }, 400)
+    }
+    replyTo = loginEmail
+  }
+
   const sendEmail = (to: string) => {
     if (!hasGoogleMailSecrets()) throw new Error('Faltan secretos de Gmail')
-    return sendWithGoogleMail({ to, subject, html, text })
+    return sendWithGoogleMail({ to, subject, html, text, replyTo })
   }
 
   try {

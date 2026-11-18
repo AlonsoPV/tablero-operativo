@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { dispatchCopilotTool, confirmPendingOp } from './assistantOpsRuntime.js'
-import { executeWhatsappWrite, readWhatsappStatus } from './assistantCommunicationDrafts.js'
+import { dispatchCopilotTool, confirmPendingOp, editActionEmailPendingOp } from './assistantOpsRuntime.js'
+import { editWhatsappPendingOp, executeWhatsappWrite, readWhatsappStatus } from './assistantCommunicationDrafts.js'
 import { createServiceRoleClient } from './assistantAuth.js'
 import { withContentHash } from './workspaceHash.js'
 import type { CopilotActor } from './assistantPending.js'
@@ -46,12 +46,60 @@ function actorFrom(from: (table: string) => unknown, extra?: Partial<CopilotActo
 }
 
 describe('Action email from Retell', () => {
+  it('edits the saved note while retaining the intended recipient and generated checklist', async () => {
+    const original = {
+      usuario_id: 'recipient',
+      email_payload: {
+        accion_id: 'action',
+        titulo_accion: 'Revisar inventario',
+        responsable_nombre: 'Jorge Neri',
+        checklist: ['Comparar existencias'],
+        mensaje: 'Confirma el avance.',
+      },
+    }
+    const saved = query({
+      payload: original,
+      preview: { title: 'Correo', summary: 'Revisión', fields: [{ label: 'Mensaje', to: 'Confirma el avance.' }] },
+      status: 'pending',
+      expires_at: '2999-01-01',
+    })
+    const update = query({ id: 'email-operation' })
+    vi.mocked(createServiceRoleClient).mockReturnValue({ from: () => update } as never)
+    const from = () => saved
+    const actor = actorFrom(from, {
+      supabase: { from, rpc: vi.fn(async () => ({ data: 'jorge@example.test', error: null })) } as never,
+    })
+    const edited = await editActionEmailPendingOp(actor, 'email-operation', 'Confirma el avance hoy.')
+    expect(edited.id).toBe('email-operation')
+    expect(edited.workspace?.to).toEqual(['jorge@example.test'])
+    expect(edited.workspace?.body).toContain('Comparar existencias')
+    expect(edited.workspace?.message).toBe('Confirma el avance hoy.')
+    expect(update.update).toHaveBeenCalledWith(expect.objectContaining({
+      payload: { ...original, email_payload: { ...original.email_payload, mensaje: 'Confirma el avance hoy.' } },
+    }))
+    expect(update.eq).toHaveBeenCalledWith('usuario_id', 'actor')
+    expect(update.eq).toHaveBeenCalledWith('payload', JSON.stringify(original))
+  })
+
+  it('does not route a legacy Retell email draft through the personal Gmail connection', async () => {
+    const row = query({
+      usuario_id: 'actor',
+      tool: 'gmail_prepare_send',
+      channel: 'retell',
+      status: 'pending',
+      expires_at: '2999-01-01',
+    })
+    await expect(confirmPendingOp(actorFrom(() => row), 'old-email'))
+      .rejects.toThrow('pide en Enviardián el correo de la acción')
+    expect(row.update).not.toHaveBeenCalled()
+  })
+
   it('uses the Kanban recipient, action and checklist without a personal Google connection', async () => {
     const pending = query({ id: 'email-operation', expires_at: '2999-01-01' })
     const checkpoints = query([{ texto: 'Comparar existencias' }])
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
-    const actor = actorFrom((table) => ({
+    const from = (table: string) => ({
       acciones_diarias: query({
         id: 'action',
         titulo_accion: 'Revisar inventario',
@@ -64,13 +112,20 @@ describe('Action email from Retell', () => {
       usuarios: query([{ id: 'recipient', nombre: 'Jorge Neri' }]),
       assistant_pending_ops: pending,
       assistant_op_log: query(null),
-    })[table], { voiceChannel: true, guideSessionId: 'session-1', accessToken: undefined })
+    })[table]
+    const actor = actorFrom(from, {
+      supabase: { from, rpc: vi.fn(async () => ({ data: 'jorge@example.test', error: null })) } as never,
+      voiceChannel: true, guideSessionId: 'session-1', accessToken: undefined,
+    })
 
     const result = await dispatchCopilotTool(actor, 'notify_action_email', {
       action_id: 'action',
       mensaje: 'Confirma el avance.',
     })
-    expect(result.proposal?.workspace?.to).toEqual(['Jorge Neri'])
+    expect(result.proposal?.workspace?.recipientName).toBe('Jorge Neri')
+    expect(result.proposal?.workspace?.to).toEqual(['jorge@example.test'])
+    expect(result.proposal?.workspace?.body).toContain('Comparar existencias')
+    expect(result.proposal?.workspace?.message).toBe('Confirma el avance.')
     expect(checkpoints.eq).toHaveBeenCalledWith('activo', true)
     expect(pending.insert).toHaveBeenCalledWith(expect.objectContaining({
       channel: 'retell',
@@ -90,6 +145,26 @@ describe('Action email from Retell', () => {
 })
 
 describe('WhatsApp communication flow', () => {
+  it('edits a generated WhatsApp body without changing its saved contact', async () => {
+    const saved = query({
+      usuario_id: 'actor',
+      tool: 'whatsapp_prepare_send',
+      status: 'pending',
+      expires_at: '2999-01-01',
+      payload: { to_user_id: 'recipient', to_phone: '5215512345678', recipient_hint: 'Jorge Neri', body: 'Hola, Jorge.' },
+    })
+    const from = () => saved
+    const rpc = vi.fn(async () => ({ error: null }))
+    const actor = actorFrom(from, { supabase: { from, rpc } as never })
+    const edited = await editWhatsappPendingOp(actor, 'wa-draft', { body: 'Hola, Jorge. Confirma el avance.' })
+    expect(edited.workspace?.body).toBe('Hola, Jorge. Confirma el avance.')
+    expect(edited.workspace?.recipientName).toBe('Jorge Neri')
+    expect(rpc).toHaveBeenCalledWith('edit_assistant_pending_op', expect.objectContaining({
+      p_id: 'wa-draft',
+      p_payload: expect.objectContaining({ to_user_id: 'recipient', to_phone: '5215512345678' }),
+    }))
+  })
+
   it.each(['web', 'retell'])('persists the same preview from %s with the recipient’s overdue actions', async (channel) => {
     const people = query([{ id: 'recipient', nombre: 'Jorge Neri' }])
     const identity = query({ external_user_id: '5215512345678' })

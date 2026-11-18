@@ -8,6 +8,7 @@ export type NotificationEmailInvokeInput = {
   tipo: string
   prioridad?: 'Normal' | 'Alta' | 'Urgente'
   payload?: Record<string, unknown> | null
+  reply_to_caller?: boolean
 }
 
 export type NotificationEmailInvokeResult = {
@@ -53,6 +54,7 @@ export async function invokeNotificationEmail(
       tipo: input.tipo,
       prioridad: input.prioridad ?? 'Normal',
       payload: input.payload ?? null,
+      ...(input.reply_to_caller ? { reply_to_caller: true } : {}),
     }),
   })
 
