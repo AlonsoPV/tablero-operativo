@@ -625,9 +625,14 @@ async function findWhatsAppIdentity(
 async function graphSendMessage(supabase, body: Record<string, unknown>) {
   const context = workerContexts.get(supabase)
   if (context?.uncertain) throw new Error('provider_outcome_unknown')
+  const { accessToken, phoneNumberId, graphVersion } = whatsappConfig()
+  if (context?.command && !context.commandExecuted) {
+    whatsappTrace('WHATSAPP_COMMAND_EXECUTED', { ...workerTrace(context), command: context.command })
+    context.commandExecuted = true
+  }
+  const firstEffect = context && !context.effect
   await context?.mark('provider_request')
   if (context) context.uncertain = true
-  const { accessToken, phoneNumberId, graphVersion } = whatsappConfig()
   const url = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`
   const response = await fetch(url, {
     method: 'POST',
@@ -636,6 +641,7 @@ async function graphSendMessage(supabase, body: Record<string, unknown>) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
   })
   const raw = await response.text()
   let json: Record<string, unknown> = {}
@@ -645,20 +651,17 @@ async function graphSendMessage(supabase, body: Record<string, unknown>) {
     json = { raw }
   }
   if (context) context.uncertain = response.status >= 500
+  if (response.status === 429 && firstEffect) await context.releaseRejectedReply()
   if (!response.ok) throw new Error('provider_http_' + response.status)
   if (!extractMessageId(json)) {
     if (context) context.uncertain = true
     throw new Error('provider_missing_message_id')
   }
   if (context) context.sent = true
-  console.info(
-    JSON.stringify({
-      event: 'whatsapp_processing',
-      correlation_id: context?.id,
-      stage: 'provider_accepted',
-      meta_message_id: extractMessageId(json),
-    })
-  )
+  whatsappTrace('WHATSAPP_REPLY_SENT', {
+    ...workerTrace(context),
+    outbound_meta_id: extractMessageId(json),
+  })
   return { ok: response.ok, status: response.status, json, raw }
 }
 
@@ -2399,19 +2402,6 @@ async function hasClarificationSession(
   }
 }
 
-function logInboundObs(fields: Record<string, unknown>) {
-  console.log(
-    JSON.stringify({
-      event: 'whatsapp_inbound_route',
-      ...fields,
-      phone:
-        typeof fields.phone === 'string'
-          ? String(fields.phone).replace(/(\d{4})\d+(\d{2})/, '$1***$2')
-          : undefined,
-    })
-  )
-}
-
 async function processWhatsAppPayload(payload, supabase) {
   try {
     const entry = Array.isArray(payload.entry) ? payload.entry : []
@@ -2443,6 +2433,11 @@ async function processWhatsAppPayload(payload, supabase) {
           if (!waId) continue
 
           const identity = await findUsuarioByWa(supabase, waId)
+          const context = workerContexts.get(supabase)
+          whatsappTrace('WHATSAPP_USER_RESOLVED', {
+            ...workerTrace(context),
+            linked: Boolean(identity?.usuario_id),
+          })
           const { error: inboundError } = await supabase
             .from('external_inbound_messages')
             .insert({
@@ -2453,21 +2448,21 @@ async function processWhatsAppPayload(payload, supabase) {
               external_update_id: message.id ?? null,
               usuario_id: identity?.usuario_id ?? null,
               message_type: message.type ?? 'unknown',
-              payload: { message, value },
+              payload: { message, value, worker_job_id: context?.id },
             })
-          if (inboundError) {
-            // Unique violation = evento repetido
-            if (
-              String(inboundError.message || '')
-                .toLowerCase()
-                .includes('duplicate')
-            ) {
-              /* queue retry */
-            }
-            if (
-              String((inboundError as { code?: string }).code || '') === '23505'
-            )
+          if (inboundError?.code === '23505') {
+            const { data: previous } = await supabase
+              .from('external_inbound_messages')
+              .select('payload')
+              .eq('channel', 'whatsapp')
+              .eq('external_update_id', message.id)
+              .maybeSingle()
+            // The inbox row records receipt. Only the owning queue job can resume it.
+            if (!context || previous?.payload?.worker_job_id !== context.id) {
+              whatsappTrace('WHATSAPP_DUPLICATE_SKIPPED', workerTrace(context))
               continue
+            }
+          } else if (inboundError) {
             throw inboundError
           }
 
@@ -2711,15 +2706,7 @@ async function processWhatsAppPayload(payload, supabase) {
           }
           const inboundFlow = inboundFlowForRoute(route)
           const intent = intentForRoute(route)
-          logInboundObs({
-            meta_message_id: message.id ?? null,
-            intent,
-            rule: route.kind,
-            flow: inboundFlow,
-            correlatedTargetCount: correlatedTargetCount ?? null,
-            usuario_id: identity.usuario_id,
-            phone: waId,
-          })
+          traceInboundCommand(supabase, route.kind)
 
           await upsertThreadMessage(supabase, {
             wa_id: waId,
@@ -3238,11 +3225,22 @@ function normalizeWhatsAppEvents(
   }
   return events
 }
+function whatsappTrace(event: string, fields: Record<string, unknown>) {
+  const log = event === 'WHATSAPP_PROCESSING_FAILED' ? console.error : console.info
+  log(JSON.stringify({ event, ...fields }))
+}
+
 async function acceptWhatsAppWebhook(
   request: Request,
   config: IngressConfig,
   enqueue: (events: WhatsAppEvent[]) => Promise<void>
 ): Promise<Response> {
+  const requestId = crypto.randomUUID()
+  whatsappTrace('WHATSAPP_WEBHOOK_RECEIVED', { request_id: requestId, method: request.method })
+  const fail = (code: string, status: number, fields: Record<string, unknown> = {}) => {
+    whatsappTrace('WHATSAPP_PROCESSING_FAILED', { request_id: requestId, code, ...fields })
+    return new Response(code, { status })
+  }
   if (request.method === 'GET') {
     const q = new URL(request.url).searchParams
     return q.get('hub.mode') === 'subscribe' &&
@@ -3250,7 +3248,7 @@ async function acceptWhatsAppWebhook(
       q.get('hub.verify_token') === config.verifyToken &&
       q.has('hub.challenge')
       ? new Response(q.get('hub.challenge'), { status: 200 })
-      : new Response('forbidden', { status: 403 })
+      : fail('invalid_verify_token', 403)
   }
   if (request.method !== 'POST')
     return new Response('method_not_allowed', { status: 405 })
@@ -3259,49 +3257,33 @@ async function acceptWhatsAppWebhook(
     !config.phoneId && 'WHATSAPP_PHONE_NUMBER_ID',
     !config.wabaId && 'WHATSAPP_WABA_ID',
   ].filter(Boolean)
-  if (missing.length > 0) {
-    console.error(JSON.stringify({ event: 'whatsapp_ingress', stage: 'configuration', missing }))
-    return new Response('webhook_not_configured', { status: 503 })
-  }
+  if (missing.length > 0) return fail('webhook_not_configured', 503, { missing })
   const raw = await request.text()
   if (new TextEncoder().encode(raw).length > 1048576)
-    return new Response('payload_too_large', { status: 413 })
-  if (
-    !(await verifyWhatsAppSignature(
-      raw,
-      request.headers.get('x-hub-signature-256'),
-      config.appSecret
-    ))
-  )
-    return new Response('invalid_signature', { status: 401 })
+    return fail('payload_too_large', 413)
+  if (!(await verifyWhatsAppSignature(raw, request.headers.get('x-hub-signature-256'), config.appSecret))) {
+    return fail('invalid_signature', 401)
+  }
+  whatsappTrace('WHATSAPP_SIGNATURE_VALIDATED', { request_id: requestId })
   let events: WhatsAppEvent[]
   try {
     events = normalizeWhatsAppEvents(JSON.parse(raw), config)
   } catch {
-    return new Response('invalid_payload', { status: 400 })
+    return fail('invalid_payload', 400)
+  }
+  for (const event of events) {
+    whatsappTrace('WHATSAPP_MESSAGE_PARSED', {
+      request_id: requestId, correlation_id: event.key, kind: event.kind,
+    })
   }
   try {
     await enqueue(events)
   } catch {
-    console.error(
-      JSON.stringify({
-        event: 'whatsapp_ingress',
-        stage: 'enqueue',
-        result: 'failed',
-      })
-    )
-    return new Response('temporarily_unavailable', { status: 503 })
+    return fail('temporarily_unavailable', 503, { stage: 'enqueue' })
   }
-  console.info(
-    JSON.stringify({
-      event: 'whatsapp_ingress',
-      stage: 'persisted',
-      count: events.length,
-    })
-  )
+  whatsappTrace('WHATSAPP_WEBHOOK_PERSISTED', { request_id: requestId, count: events.length })
   return new Response('EVENT_RECEIVED', { status: 200 })
 }
-
 // END_WHATSAPP_INGRESS
 
 
@@ -3361,16 +3343,9 @@ async function handleInboundCommand(supabase, message, usuarioId, waId) {
       })
   }
   if (command) {
-    console.info(
-      JSON.stringify({
-        event: 'whatsapp_processing',
-        correlation_id: correlation,
-        stage: 'router',
-        route: command,
-      })
-    )
-    await close()
+    traceInboundCommand(supabase, command)
     if (command === 'cancel') {
+      await close()
       await send(
         'Cancelé el seguimiento pendiente. Puedes escribir Mis acciones o Actualizar acciones.'
       )
@@ -3380,6 +3355,7 @@ async function handleInboundCommand(supabase, message, usuarioId, waId) {
       await send(
         'Hola. Soy el asistente de Scrumban.\n\nPuedes escribir:\n• Mis acciones\n• Vencidas\n• Acciones que asigné\n• Actualizar acciones\n• Consulta al Bot\n• Cancelar'
       )
+      await close()
       return true
     }
     let query = supabase
@@ -3408,6 +3384,7 @@ async function handleInboundCommand(supabase, message, usuarioId, waId) {
             ? 'No encontré acciones vencidas asignadas a ti.'
             : 'No encontré acciones pendientes asignadas a ti.'
       )
+      await close()
       return true
     }
     if (command === 'update') {
@@ -3466,6 +3443,7 @@ async function handleInboundCommand(supabase, message, usuarioId, waId) {
             )
             .join('\n')
       )
+    if (command !== 'update') await close()
     return true
   }
   const { data: session } = await supabase
@@ -3484,6 +3462,7 @@ async function handleInboundCommand(supabase, message, usuarioId, waId) {
     selection ||
     (session?.meta?.purpose === 'select_action' && /^\d+$/.test(text))
   ) {
+    traceInboundCommand(supabase, 'select_action')
     const id = selection?.[1] || session?.meta?.ids?.[Number(text) - 1]
     if (!session || !session.meta?.ids?.includes(id)) {
       await send(
@@ -3536,6 +3515,7 @@ async function handleInboundCommand(supabase, message, usuarioId, waId) {
     if (action) parsed = { kind: 'action', accionId: session.meta.id, action }
   }
   if (parsed.action === 'support') {
+    traceInboundCommand(supabase, 'support')
     let id = parsed.accionId
     if (parsed.kind === 'corporate') {
       const { data: cp } = await supabase
@@ -3572,6 +3552,7 @@ async function handleInboundCommand(supabase, message, usuarioId, waId) {
     return true
   }
   if (session?.meta?.purpose === 'block_reason' && text) {
+    traceInboundCommand(supabase, 'block_reason')
     if (text.length < 3) {
       await send('Describe el motivo del bloqueo con un poco más de detalle.')
       return true
@@ -3605,6 +3586,7 @@ async function handleInboundCommand(supabase, message, usuarioId, waId) {
     session?.meta?.purpose === 'selected_action' &&
     !button
   ) {
+    traceInboundCommand(supabase, parsed.action)
     const result = await applyActionResponse(supabase, {
       accionId: parsed.accionId,
       action: parsed.action,
@@ -3668,9 +3650,22 @@ function whatsappCommand(
 // END_WHATSAPP_COMMANDS
 
 const workerContexts = new WeakMap()
+function workerTrace(context) {
+  return { job_id: context?.id, correlation_id: context?.eventKey }
+}
+function traceInboundCommand(supabase, command) {
+  const context = workerContexts.get(supabase)
+  if (!context || context.command === command) return
+  context.command = command
+  context.commandExecuted = false
+  whatsappTrace('WHATSAPP_COMMAND_DETECTED', { ...workerTrace(context), command })
+}
 function checkedWorkerClient(base, job) {
   const context = {
     id: job.id,
+    eventKey: job.event_key,
+    command: null,
+    commandExecuted: false,
     uncertain: false,
     sent: false,
     effect: false,
@@ -3682,6 +3677,14 @@ function checkedWorkerClient(base, job) {
       })
       if (error) throw new Error('lease_lost')
       context.effect = true
+    },
+    releaseRejectedReply: async () => {
+      const { error } = await base.rpc('whatsapp_release_rejected_inbound_reply', {
+        p_id: job.id,
+        p_lease: job.lease_token,
+      })
+      if (error) throw new Error('lease_lost')
+      context.effect = false
     },
   }
   const wrap = (builder, table, write = false) =>
@@ -3747,7 +3750,10 @@ async function runInboundWorker(req) {
   const base = adminClient()
   for (let i = 0; i < 5; i++) {
     const { data, error } = await base.rpc('whatsapp_claim_inbound')
-    if (error) return new Response('queue_unavailable', { status: 503 })
+    if (error) {
+      whatsappTrace('WHATSAPP_PROCESSING_FAILED', { stage: 'claim', code: safeDatabaseCode(error) })
+      return new Response('queue_unavailable', { status: 503 })
+    }
     const job = data?.[0]
     if (!job) break
     const client = checkedWorkerClient(base, job)
@@ -3770,19 +3776,14 @@ async function runInboundWorker(req) {
     } catch (error) {
       const candidate = error instanceof Error ? error.message : ''
       code =
-        /^(database_[A-Z0-9]+|provider_http_\d+|provider_outcome_unknown|provider_missing_message_id|lease_lost)$/.test(
+        /^(database_[A-Z0-9]+|provider_http_\d+|provider_outcome_unknown|provider_missing_message_id|lease_lost|missing_whatsapp_secrets)$/.test(
           candidate
         )
           ? candidate
-          : 'processing_error'
-      console.error(
-        JSON.stringify({
-          event: 'whatsapp_processing',
-          correlation_id: job.id,
-          stage: 'failed',
-          code,
-        })
-      )
+          : workerContexts.get(client)?.uncertain ? 'provider_outcome_unknown' : 'processing_error'
+      whatsappTrace('WHATSAPP_PROCESSING_FAILED', {
+        ...workerTrace(workerContexts.get(client)), stage: 'worker', code,
+      })
       if (
         job.kind === 'message' &&
         !workerContexts.get(client)?.sent &&
@@ -3808,7 +3809,10 @@ async function runInboundWorker(req) {
       p_ok: ok,
       p_error: code,
     })
-    if (result.error) return new Response('finish_failed', { status: 503 })
+    if (result.error) {
+      whatsappTrace('WHATSAPP_PROCESSING_FAILED', { ...workerTrace(workerContexts.get(client)), stage: 'finish', code: safeDatabaseCode(result.error) })
+      return new Response('finish_failed', { status: 503 })
+    }
     console.info(
       JSON.stringify({
         event: 'whatsapp_processing',
@@ -3819,6 +3823,10 @@ async function runInboundWorker(req) {
   }
   return new Response('ok')
 }
+function safeDatabaseCode(error) {
+  return /^[A-Z0-9]{5,8}$/.test(error?.code || '') ? error.code : 'unknown'
+}
+
 Deno.serve(async (req) => {
   try {
     if (new URL(req.url).searchParams.get('worker') === '1') {
@@ -3846,8 +3854,9 @@ Deno.serve(async (req) => {
           p_events: events,
         })
         if (error) {
-          const code = /^[A-Z0-9]{5,8}$/.test(error.code || '') ? error.code : 'unknown'
-          console.error(JSON.stringify({ event: 'whatsapp_ingress', stage: 'enqueue_rpc', code }))
+          whatsappTrace('WHATSAPP_PROCESSING_FAILED', {
+            stage: 'enqueue_rpc', code: safeDatabaseCode(error),
+          })
           throw new Error('enqueue_failed')
         }
       }
