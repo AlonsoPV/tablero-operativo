@@ -121,11 +121,22 @@ export function normalizeWhatsAppEvents(
   }
   return events
 }
+export function whatsappTrace(event: string, fields: Record<string, unknown>) {
+  const log = event === 'WHATSAPP_PROCESSING_FAILED' ? console.error : console.info
+  log(JSON.stringify({ event, ...fields }))
+}
+
 export async function acceptWhatsAppWebhook(
   request: Request,
   config: IngressConfig,
   enqueue: (events: WhatsAppEvent[]) => Promise<void>
 ): Promise<Response> {
+  const requestId = crypto.randomUUID()
+  whatsappTrace('WHATSAPP_WEBHOOK_RECEIVED', { request_id: requestId, method: request.method })
+  const fail = (code: string, status: number, fields: Record<string, unknown> = {}) => {
+    whatsappTrace('WHATSAPP_PROCESSING_FAILED', { request_id: requestId, code, ...fields })
+    return new Response(code, { status })
+  }
   if (request.method === 'GET') {
     const q = new URL(request.url).searchParams
     return q.get('hub.mode') === 'subscribe' &&
@@ -133,7 +144,7 @@ export async function acceptWhatsAppWebhook(
       q.get('hub.verify_token') === config.verifyToken &&
       q.has('hub.challenge')
       ? new Response(q.get('hub.challenge'), { status: 200 })
-      : new Response('forbidden', { status: 403 })
+      : fail('invalid_verify_token', 403)
   }
   if (request.method !== 'POST')
     return new Response('method_not_allowed', { status: 405 })
@@ -142,45 +153,30 @@ export async function acceptWhatsAppWebhook(
     !config.phoneId && 'WHATSAPP_PHONE_NUMBER_ID',
     !config.wabaId && 'WHATSAPP_WABA_ID',
   ].filter(Boolean)
-  if (missing.length > 0) {
-    console.error(JSON.stringify({ event: 'whatsapp_ingress', stage: 'configuration', missing }))
-    return new Response('webhook_not_configured', { status: 503 })
-  }
+  if (missing.length > 0) return fail('webhook_not_configured', 503, { missing })
   const raw = await request.text()
   if (new TextEncoder().encode(raw).length > 1048576)
-    return new Response('payload_too_large', { status: 413 })
-  if (
-    !(await verifyWhatsAppSignature(
-      raw,
-      request.headers.get('x-hub-signature-256'),
-      config.appSecret
-    ))
-  )
-    return new Response('invalid_signature', { status: 401 })
+    return fail('payload_too_large', 413)
+  if (!(await verifyWhatsAppSignature(raw, request.headers.get('x-hub-signature-256'), config.appSecret))) {
+    return fail('invalid_signature', 401)
+  }
+  whatsappTrace('WHATSAPP_SIGNATURE_VALIDATED', { request_id: requestId })
   let events: WhatsAppEvent[]
   try {
     events = normalizeWhatsAppEvents(JSON.parse(raw), config)
   } catch {
-    return new Response('invalid_payload', { status: 400 })
+    return fail('invalid_payload', 400)
+  }
+  for (const event of events) {
+    whatsappTrace('WHATSAPP_MESSAGE_PARSED', {
+      request_id: requestId, correlation_id: event.key, kind: event.kind,
+    })
   }
   try {
     await enqueue(events)
   } catch {
-    console.error(
-      JSON.stringify({
-        event: 'whatsapp_ingress',
-        stage: 'enqueue',
-        result: 'failed',
-      })
-    )
-    return new Response('temporarily_unavailable', { status: 503 })
+    return fail('temporarily_unavailable', 503, { stage: 'enqueue' })
   }
-  console.info(
-    JSON.stringify({
-      event: 'whatsapp_ingress',
-      stage: 'persisted',
-      count: events.length,
-    })
-  )
+  whatsappTrace('WHATSAPP_WEBHOOK_PERSISTED', { request_id: requestId, count: events.length })
   return new Response('EVENT_RECEIVED', { status: 200 })
 }

@@ -46,9 +46,10 @@ describe('production WhatsApp ingress', () => {
       expect(response.status).toBe(503)
       expect(await response.text()).toBe('webhook_not_configured')
       expect(save).not.toHaveBeenCalled()
-      expect(log).toHaveBeenCalledExactlyOnceWith(JSON.stringify({
-        event: 'whatsapp_ingress', stage: 'configuration', missing: ['WHATSAPP_WABA_ID'],
-      }))
+      expect(log).toHaveBeenCalledOnce()
+      expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
+        event: 'WHATSAPP_PROCESSING_FAILED', code: 'webhook_not_configured', missing: ['WHATSAPP_WABA_ID'],
+      })
     } finally {
       log.mockRestore()
     }
