@@ -60,6 +60,7 @@ export async function runGeminiToolLoop(input: {
   /** En el chat, solo habilita Gmail de escritura si el usuario lo pidió explícitamente. */
   allowPersonalGmailWrites?: boolean
   boardEmailRequest?: boolean
+  summaryEmailRequest?: boolean
   requestedEmail?: string
 }): Promise<{
   text: string
@@ -88,11 +89,20 @@ export async function runGeminiToolLoop(input: {
       (input.boardEmailRequest === true && tool.startsWith('gmail_')))
   const declarations = catalog.filter(({ name }) => !routeToBoardEmail(name))
   const boardEmailTool = declarations.find(({ name }) => name === 'notify_action_email')
+  const summaryEmailTool = input.summaryEmailRequest && !input.readOnly
+    ? declarations.find(({ name }) => name === 'notify_user_email')
+    : undefined
+  const readyEmail = () => proposals.find(({ tool }) => tool === 'notify_user_email' || tool === 'notify_action_email')
+  const deadline = Date.now() + input.timeoutMs
+  let finishSummaryDraft = false
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    const requireBoardEmail = round === 0 && !input.readOnly && input.boardEmailRequest === true && boardEmailTool
+    const requireBoardEmail = round === 0 && !input.readOnly && input.boardEmailRequest === true &&
+      !input.summaryEmailRequest && boardEmailTool
+    const requiredTool = requireBoardEmail ||
+      ((finishSummaryDraft || round === MAX_ROUNDS - 1) ? summaryEmailTool : undefined)
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), input.timeoutMs)
+    const timeout = setTimeout(() => controller.abort(), Math.max(0, deadline - Date.now()))
     let response: Response
     try {
       response = await fetch(input.url, {
@@ -102,11 +112,17 @@ export async function runGeminiToolLoop(input: {
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: input.systemInstruction }] },
           contents,
-          tools: [{ functionDeclarations: requireBoardEmail ? [boardEmailTool] : declarations }],
-          toolConfig: { functionCallingConfig: { mode: requireBoardEmail ? 'ANY' : 'AUTO' } },
+          tools: [{ functionDeclarations: requiredTool ? [requiredTool] : declarations }],
+          toolConfig: { functionCallingConfig: { mode: requiredTool ? 'ANY' : 'AUTO' } },
           generationConfig: input.generationConfig,
         }),
       })
+    } catch (error) {
+      if (controller.signal.aborted && (proposals.length || clarification)) {
+        text = clarification?.question || readyEmail()?.summary || 'La propuesta está lista para revisar.'
+        break
+      }
+      throw error
     } finally {
       clearTimeout(timeout)
     }
@@ -132,6 +148,12 @@ export async function runGeminiToolLoop(input: {
     if (texts) text = texts
 
     if (calls.length === 0) {
+      if (summaryEmailTool && !requiredTool && texts) {
+        contents.push({ role: 'model', parts })
+        contents.push({ role: 'user', parts: [{ text: 'Prepara ahora el borrador del correo solicitado con notify_user_email.' }] })
+        finishSummaryDraft = true
+        continue
+      }
       if (requireBoardEmail) {
         const result = await dispatchCopilotTool(input.actor, 'notify_action_email', {})
         clarification = result.clarification
@@ -169,7 +191,8 @@ export async function runGeminiToolLoop(input: {
             })
           : await dispatchCopilotTool(input.actor, call.name, {
               ...call.args,
-              ...(call.name === 'notify_action_email' && input.requestedEmail ? { requested_email: input.requestedEmail } : {}),
+              ...((call.name === 'notify_action_email' || call.name === 'notify_user_email') && input.requestedEmail
+                ? { requested_email: input.requestedEmail } : {}),
             })
       toolTrace.push({ tool: result.tool, kind: result.kind })
       if (result.kind === 'read' || result.kind === 'denied' || result.kind === 'error') {
@@ -190,6 +213,11 @@ export async function runGeminiToolLoop(input: {
       })
     }
     contents.push({ role: 'user', parts: responseParts })
+    const prepared = readyEmail()
+    if (prepared) {
+      text = prepared.summary
+      break
+    }
     if (input.boardEmailRequest && clarification) {
       text = clarification.question
       break

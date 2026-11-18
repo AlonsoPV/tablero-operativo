@@ -293,6 +293,19 @@ export const COPILOT_FUNCTION_DECLARATIONS: GeminiFunctionDeclaration[] = [
     },
   },
   {
+    name: 'notify_user_email',
+    description: 'Prepara un correo de Scrumban con un resumen ya redactado para un usuario activo del tablero. Usa el destinatario registrado y el servicio del Kanban. Obtén los datos solicitados con herramientas de consulta o utiliza el resumen de la conversación. Si es el aviso de una sola acción a su responsable, usa notify_action_email.',
+    parameters: {
+      type: 'object',
+      properties: {
+        recipient: { type: 'string', description: 'Nombre del usuario, su correo registrado o yo.' },
+        subject: { type: 'string', description: 'Asunto del correo.' },
+        body: { type: 'string', description: 'Resumen final destinado al usuario. Incluye solo hechos comprobados.' },
+      },
+      required: ['recipient', 'subject', 'body'],
+    },
+  },
+  {
     name: 'notify_action_email',
     description:
       'Propone enviar el correo de notificacion del tablero al responsable de una accion (misma plantilla que el boton Enviar correo del Kanban). NO envia hasta Confirmar. Usa el mailbox de la organizacion, no el Gmail personal del usuario. Para "notifica/comparte/envia esta accion por correo al responsable". Si el usuario quiere un correo libre desde su Gmail, usa gmail_prepare_send.',

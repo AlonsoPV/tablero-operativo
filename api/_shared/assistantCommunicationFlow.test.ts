@@ -159,6 +159,40 @@ describe('Action email from Retell', () => {
   })
 })
 
+describe('Scrumban summary email', () => {
+  it('prepares a summary for a registered Gmail address and sends it through the Kanban service after approval', async () => {
+    vi.stubEnv('SUPABASE_URL', 'https://example.supabase.test')
+    vi.stubEnv('SUPABASE_ANON_KEY', 'test-key')
+    const send = vi.fn(async () => Response.json({ email_id: 'email-1', ok: true }))
+    vi.stubGlobal('fetch', send)
+    const pending = query({ id: 'summary-draft', expires_at: '2999-01-01' })
+    const contact = query({ id: 'actor', nombre: 'Alonso Pérez' })
+    const rpc = vi.fn(async (name: string) => ({
+      data: name === 'usuario_id_by_auth_email' ? 'actor' : 'alonso@gmail.com',
+      error: null,
+    }))
+    const from = (table: string) => table === 'usuarios' ? contact : pending
+    const actor = actorFrom(from, { supabase: { from, rpc } as never })
+    const result = await dispatchCopilotTool(actor, 'notify_user_email', {
+      recipient: 'alonso@gmail.com', subject: 'Resumen del tablero', body: 'Una acción abierta.',
+    })
+    expect(result.kind).toBe('proposal')
+    expect(result.proposal?.workspace?.to).toEqual(['alonso@gmail.com'])
+    expect(send).not.toHaveBeenCalled()
+    const row = pending.insert.mock.calls[0] as unknown as Array<Record<string, unknown>>
+    const approvalRows = [query({ ...row[0], id: 'summary-draft' }), pending, pending]
+    const approvalFrom = (table: string) => table === 'assistant_pending_ops' ? approvalRows.shift() : contact
+    const approver = actorFrom(approvalFrom, { supabase: { from: approvalFrom, rpc } as never })
+    await expect(confirmPendingOp(approver, 'summary-draft')).resolves.toMatchObject({
+      status: 'confirmed', result: { email_id: 'email-1', delivery_status: 'accepted' },
+    })
+    expect(send).toHaveBeenCalledExactlyOnceWith(
+      'https://example.supabase.test/functions/v1/send-notification-email',
+      expect.objectContaining({ body: expect.stringContaining('"tipo":"assistant_summary"') })
+    )
+  })
+})
+
 describe('WhatsApp communication flow', () => {
   it('lists only visible active users with a valid linked number and returns no phone number', async () => {
     const users = query([

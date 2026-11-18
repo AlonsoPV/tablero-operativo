@@ -24,7 +24,7 @@ export function classifyPendingOpTool(tool: string | null | undefined): {
   if (name === 'whatsapp_prepare_send') {
     return { presentation: 'communication', channel: 'whatsapp' }
   }
-  if (name === 'notify_action_email' || name.startsWith('gmail_')) {
+  if (name === 'notify_action_email' || name === 'notify_user_email' || name.startsWith('gmail_')) {
     return { presentation: 'communication', channel: 'email' }
   }
   if (name.startsWith('calendar_')) {

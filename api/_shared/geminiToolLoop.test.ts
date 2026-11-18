@@ -66,3 +66,40 @@ it('asks for the board action when the model returns an unsupported Gmail explan
   expect(result.text).toBe('¿De qué acción?')
   expect(result.clarification?.question).toBe('¿De qué acción?')
 })
+
+it.each([false, true])('returns a persisted summary email after a prose fallback when needed (%s)', async (modelStartsWithProse) => {
+  const proposal = { id: 'draft-1', tool: 'notify_user_email', summary: 'Correo para Alonso. Revisa el contenido antes de aprobar.' }
+  vi.mocked(dispatchCopilotTool).mockResolvedValueOnce({
+    ok: true, kind: 'proposal', tool: 'notify_user_email', proposal,
+  } as never)
+  const model = vi.fn(async () => Response.json({
+    candidates: [{ content: { parts: [{
+      functionCall: {
+        name: 'notify_user_email',
+        args: { recipient: 'Alonso Pérez', subject: 'Resumen', body: 'Una acción abierta.' },
+      },
+    }] } }],
+  }))
+  if (modelStartsWithProse) {
+    model.mockResolvedValueOnce(Response.json({
+      candidates: [{ content: { parts: [{ text: 'Copia y envía el resumen.' }] } }],
+    }))
+  }
+  vi.stubGlobal('fetch', model)
+  const result = await runGeminiToolLoop({
+    apiKey: 'test-key',
+    url: 'https://example.test',
+    model: 'test-model',
+    systemInstruction: '',
+    contents: [],
+    generationConfig: {},
+    actor: {} as never,
+    timeoutMs: 1000,
+    allowPersonalGmailWrites: false,
+    boardEmailRequest: true,
+    summaryEmailRequest: true,
+  })
+  expect(result.proposals).toEqual([proposal])
+  expect(result.text).toBe(proposal.summary)
+  expect(model).toHaveBeenCalledTimes(modelStartsWithProse ? 2 : 1)
+})

@@ -24,7 +24,11 @@ export async function receiveWhatsApp(request: Request): Promise<Response> {
         'whatsapp_enqueue_inbound',
         { p_events: events }
       )
-      if (error) throw new Error('enqueue_failed')
+      if (error) {
+        const code = /^[A-Z0-9]{5,8}$/.test(error.code || '') ? error.code : 'unknown'
+        console.error(JSON.stringify({ event: 'whatsapp_ingress', stage: 'enqueue_rpc', code }))
+        throw new Error('enqueue_failed')
+      }
     }
   )
 }

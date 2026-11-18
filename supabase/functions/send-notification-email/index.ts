@@ -627,6 +627,10 @@ Deno.serve(async (req) => {
   recent.push(now)
   emailRateBuckets.set(rateKey, recent)
 
+  if (tipo === 'assistant_summary' && !isPrivilegedMailer && callerProfile.id !== usuarioId) {
+    return jsonResponse({ ok: false, message: 'Tu cuenta solo puede enviar este resumen a su propio correo.' }, 403)
+  }
+
   // No-admins: exigir contexto de acción/ticket real (evita mailer genérico de phishing).
   if (!isPrivilegedMailer) {
     const accionId =

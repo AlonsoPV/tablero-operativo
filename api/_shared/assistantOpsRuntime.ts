@@ -43,6 +43,8 @@ import {
   type ActionQueryStatusGroup,
   type PriorityCatalogRow,
 } from './actionQueryContract.js'
+import { resolveCommunicationRecipient } from './resolveCommunicationRecipient.js'
+import { sanitizeRecipientFacingText } from '../../src/features/ai-support/copilot/pendingOpTaxonomy.js'
 import { createServiceRoleClient } from './assistantAuth.js'
 import { invokeNotificationEmail } from './invokeNotificationEmail.js'
 import { GoogleUserError } from './googleUserClient.js'
@@ -932,6 +934,56 @@ async function proposeNotifyActionEmail(
   return { ok: true, tool: 'notify_action_email', kind: 'proposal', proposal }
 }
 
+async function proposeUserEmail(actor: CopilotActor, args: Record<string, unknown>): Promise<CopilotToolResult> {
+  const hint = asString(args.recipient, 254)
+  const requestedEmail = asString(args.requested_email, 254).toLowerCase()
+  const subject = sanitizeRecipientFacingText(asString(args.subject, 160), 160)
+  const body = sanitizeRecipientFacingText(asString(args.body, 4000), 4000)
+  if (!hint || !subject || !body) {
+    return clarification('notify_user_email', { question: '¿Para quién y con qué contenido preparo el correo?', options: [] })
+  }
+
+  let toUserId: string | null
+  let recipientName: string | null
+  let address: string | null
+  if (hint.includes('@')) {
+    const { data: id, error } = await actor.supabase.rpc('usuario_id_by_auth_email', { p_email: hint })
+    if (error) throw new Error('DATABASE_ERROR: No se pudo verificar el correo del destinatario.')
+    const { data: person, error: personError } = id ? await actor.supabase.from('usuarios').select('id,nombre')
+      .eq('id', id).eq('activo', true).maybeSingle() : { data: null, error: null }
+    if (personError) throw new Error('DATABASE_ERROR: No se pudo verificar al destinatario.')
+    toUserId = person?.id ?? null
+    recipientName = person?.nombre ?? null
+    address = person ? hint.toLowerCase() : null
+  } else {
+    const recipient = await resolveCommunicationRecipient(actor.supabase, hint, 'email', { selfId: actor.usuarioId })
+    if (recipient.needsInfoReason) {
+      return clarification('notify_user_email', { question: recipient.needsInfoReason, options: [] })
+    }
+    toUserId = recipient.toUserId
+    recipientName = recipient.name
+    address = recipient.email
+  }
+  if (!toUserId || !address || (requestedEmail && requestedEmail !== address.toLowerCase())) {
+    return clarification('notify_user_email', {
+      question: 'Indica el nombre o correo registrado de un usuario activo del tablero.',
+      options: [],
+    })
+  }
+
+  const proposal = await createPendingOp(actor, {
+    tool: 'notify_user_email',
+    payload: { usuario_id: toUserId, to_email: address, subject, body },
+    proposal: {
+      title: 'Correo de Scrumban',
+      summary: `Correo para ${recipientName || 'el usuario seleccionado'}. Revisa el contenido antes de aprobar.`,
+      fields: [{ label: 'Destinatario', to: address }, { label: 'Asunto', to: subject }],
+      workspace: { kind: 'email', recipientName: recipientName || undefined, to: [address], subject, body },
+    },
+  })
+  return { ok: true, tool: 'notify_user_email', kind: 'proposal', proposal }
+}
+
 export async function dispatchCopilotTool(
   actor: CopilotActor,
   name: string,
@@ -982,6 +1034,8 @@ export async function dispatchCopilotTool(
         })
         return { ok: true, tool: name, kind: 'proposal', proposal }
       }
+      case 'notify_user_email':
+        return await proposeUserEmail(actor, args)
       case 'notify_action_email':
         return await proposeNotifyActionEmail(actor, args)
       case 'confirm_pending_op':
@@ -1172,6 +1226,29 @@ async function executePayload(actor: CopilotActor, tool: string, payload: Record
     return { id: payload.action_id, href: actionHref(String(payload.action_id)), estado: 'Verificado' }
   }
   if (tool === 'update_daily_action_summary') return executeDailySummaryUpdate(actor, payload)
+  if (tool === 'notify_user_email') {
+    const id = asString(payload.usuario_id, 80)
+    const address = asString(payload.to_email, 254).toLowerCase()
+    const subject = sanitizeRecipientFacingText(asString(payload.subject, 160), 160)
+    const body = sanitizeRecipientFacingText(asString(payload.body, 4000), 4000)
+    const { data: person, error } = await actor.supabase.from('usuarios').select('id')
+      .eq('id', id).eq('activo', true).maybeSingle()
+    if (error) throw new Error('DATABASE_ERROR: No se pudo verificar el destinatario.')
+    if (!person || !address || !subject || !body) throw new Error('VALIDATION_FAILED: Revisa el destinatario y el contenido.')
+    const { data: currentEmail, error: emailError } = await actor.supabase.rpc('assistant_person_email', { p_usuario_id: id })
+    if (emailError) throw new Error('DATABASE_ERROR: No se pudo verificar el correo del destinatario.')
+    if (asString(currentEmail, 254).toLowerCase() !== address) {
+      throw new Error('VALIDATION_FAILED: El correo del destinatario cambió. Prepara un borrador nuevo.')
+    }
+    const result = await invokeNotificationEmail(actor.accessToken || '', {
+      usuario_id: id,
+      tipo: 'assistant_summary',
+      payload: { titulo: subject, mensaje: body },
+      reply_to_caller: true,
+    })
+    if (!result.email_id) throw new Error(result.message || 'PROVIDER_ERROR: El proveedor no confirmó el correo.')
+    return { id: result.email_id, email_id: result.email_id, delivery_status: 'accepted' }
+  }
   if (tool === 'notify_action_email') {
     const usuarioId = asString(payload.usuario_id, 80)
     const emailPayload =
@@ -1237,7 +1314,7 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string, option
   if (row.usuario_id !== actor.usuarioId) throw new Error('Esa operación no te pertenece.')
 
   const sendsCommunication =
-    isCommunicationWriteTool(row.tool) || row.tool.startsWith('gmail_') || row.tool === 'notify_action_email'
+    isCommunicationWriteTool(row.tool) || row.tool.startsWith('gmail_') || (row.tool === 'notify_action_email' || row.tool === 'notify_user_email')
   if ((sendsCommunication || row.tool === 'update_daily_action_summary') && (options?.fromTool || !actor.accessToken)) {
     throw new Error('PERMISSION_DENIED: Aprueba el envío desde una sesión web autenticada.')
   }

@@ -29,6 +29,7 @@ export const COPILOT_WRITE_TOOLS = [
   'mark_action_done',
   'verify_action',
   'notify_action_email',
+  'notify_user_email',
   'update_daily_action_summary',
   'confirm_pending_op',
   'cancel_pending_op',
