@@ -57,6 +57,9 @@ export async function runGeminiToolLoop(input: {
   functionDeclarations?: GeminiFunctionDeclaration[]
   /** Bloquea escrituras aunque el modelo las pida (p. ej. WhatsApp QUERY). */
   readOnly?: boolean
+  /** En el chat, solo habilita Gmail de escritura si el usuario lo pidió explícitamente. */
+  allowPersonalGmailWrites?: boolean
+  boardEmailRequest?: boolean
 }): Promise<{
   text: string
   finishReason?: string
@@ -77,7 +80,12 @@ export async function runGeminiToolLoop(input: {
   let finishReason: string | undefined
   let blockReason: string | undefined
   let text = ''
-  const declarations = input.functionDeclarations ?? COPILOT_FUNCTION_DECLARATIONS
+  const catalog = input.functionDeclarations ?? COPILOT_FUNCTION_DECLARATIONS
+  const routeToBoardEmail = (tool: string) =>
+    input.allowPersonalGmailWrites === false &&
+    (tool === 'gmail_prepare_send' || tool === 'gmail_prepare_reply' ||
+      (input.boardEmailRequest === true && tool.startsWith('gmail_')))
+  const declarations = catalog.filter(({ name }) => !routeToBoardEmail(name))
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const controller = new AbortController()
@@ -142,7 +150,13 @@ export async function runGeminiToolLoop(input: {
         })
         continue
       }
-      const result: CopilotToolResult = await dispatchCopilotTool(input.actor, call.name, call.args)
+      const result: CopilotToolResult =
+        routeToBoardEmail(call.name)
+          ? await dispatchCopilotTool(input.actor, 'notify_action_email', {
+              action_id: call.args.action_id,
+              query: call.args.query,
+            })
+          : await dispatchCopilotTool(input.actor, call.name, call.args)
       toolTrace.push({ tool: result.tool, kind: result.kind })
       if (result.kind === 'read' || result.kind === 'denied' || result.kind === 'error') {
         toolReads.push({

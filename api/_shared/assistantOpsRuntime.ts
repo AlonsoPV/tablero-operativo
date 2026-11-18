@@ -45,6 +45,7 @@ import {
 } from './actionQueryContract.js'
 import { createServiceRoleClient } from './assistantAuth.js'
 import { invokeNotificationEmail } from './invokeNotificationEmail.js'
+import { GoogleUserError } from './googleUserClient.js'
 import {
   ACCION_SHARE_EMAIL_TITLE,
   buildAccionEmailPayload,
@@ -1083,6 +1084,7 @@ type PendingRow = {
   expires_at: string
   result: unknown
   channel?: string | null
+  session_id?: string | null
 }
 
 async function executePayload(actor: CopilotActor, tool: string, payload: Record<string, unknown>) {
@@ -1220,7 +1222,7 @@ async function executePayload(actor: CopilotActor, tool: string, payload: Record
 export async function confirmPendingOp(actor: CopilotActor, opId: string, options?: { fromTool?: boolean }) {
   const { data, error } = await actor.supabase
     .from('assistant_pending_ops')
-    .select('id,usuario_id,tool,resource_id,expected_updated_at,payload,preview,status,expires_at,result,channel')
+    .select('id,usuario_id,tool,resource_id,expected_updated_at,payload,preview,status,expires_at,result,channel,session_id')
     .eq('id', opId)
     .maybeSingle()
   if (error || !data) throw new Error('No encontré esa operación pendiente.')
@@ -1254,7 +1256,7 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string, option
     )
   }
 
-  if (row.channel === 'retell' && row.tool.startsWith('gmail_')) {
+  if ((row.channel === 'retell' || (row.session_id && row.payload?.draft_kind === 'email')) && row.tool.startsWith('gmail_')) {
     throw new Error('VALIDATION_FAILED: Este borrador se creó con Gmail personal. Descártalo y pide en Enviardián el correo de la acción desde el Kanban.')
   }
 
@@ -1330,7 +1332,11 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string, option
       ? await executeWhatsappWrite(actor, row.payload ?? {}, opId)
       : await executePayload(actor, row.tool, row.payload ?? {})
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'No se pudo ejecutar.'
+    const needsPersonalConnection = row.tool.startsWith('gmail_') && err instanceof GoogleUserError &&
+      ['not_connected', 'needs_reauth', 'missing_scope'].includes(err.code)
+    const message = needsPersonalConnection
+      ? 'VALIDATION_FAILED: Este borrador usa Gmail personal. Para enviar desde Scrumban, descártalo y pide el correo de la acción del Kanban al responsable.'
+      : err instanceof Error ? err.message : 'No se pudo ejecutar.'
     await actor.supabase
       .from('assistant_pending_ops')
       .update({ status: 'pending', error_message: message.slice(0, 220) })
