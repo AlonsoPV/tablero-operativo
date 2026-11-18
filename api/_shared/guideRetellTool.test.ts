@@ -21,6 +21,17 @@ function signed(body: string) {
 }
 
 describe('retell tool bridge', () => {
+  it('routes a direct action email call with the title and note from the conversation', () => {
+    const parsed = readRetellToolCall({
+      name: 'notify_action_email',
+      call: { metadata: { guide_session_id: 'session-1' } },
+      args: { query: 'Revisar inventario', mensaje: 'Confirma hoy.', usuario_id: 'untrusted' },
+    })
+    expect(parsed.sessionId).toBe('session-1')
+    expect(parsed.tool).toBe('notify_action_email')
+    expect(parsed.args).toEqual({ query: 'Revisar inventario', mensaje: 'Confirma hoy.' })
+  })
+
   it('rejects a body whose signature does not match', () => {
     const body = '{"name":"get_my_actions"}'
     const { key, signature } = signed(body)

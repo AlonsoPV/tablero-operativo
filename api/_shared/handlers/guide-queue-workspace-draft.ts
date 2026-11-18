@@ -4,11 +4,14 @@
  * La identidad sale de guide_sessions, no de metadata.usuario_id del modelo.
  */
 import { createServiceRoleClient } from '../assistantAuth.js'
+import { dispatchCopilotTool } from '../assistantOpsRuntime.js'
+import { classifyRetellToolResult } from '../guideRetellTool.js'
 import { defineApiHandler, readHeader, readRequestBody, readStringEnv } from '../http.js'
 import { verifyRetellSignature } from '../guideInterviewReport.js'
 import {
   canQueueCommunicationDraft,
   effectiveInviteAccessMode,
+  guideBoardScopeForAccessMode,
   isGuideWriteAllowed,
   normalizeGuideAccessMode,
 } from '../guideUserLinks.js'
@@ -274,6 +277,9 @@ export default defineApiHandler(async (req, res) => {
       authUserId: String(usuario.user_id),
       rol: typeof usuario.rol === 'string' ? usuario.rol : null,
       guideAccessMode: accessMode,
+      guideSessionId: sessionId,
+      boardScope: guideBoardScopeForAccessMode(accessMode),
+      voiceChannel: true,
     }
 
     const toolCallId =
@@ -294,15 +300,47 @@ export default defineApiHandler(async (req, res) => {
       )
     }
 
-    if (action !== 'cancel' && (resolvedChannel === 'email' || resolvedChannel === 'both')) {
-      return res.status(200).json(
-        guideToolFailure({
-          code: 'VALIDATION_FAILED',
-          user_message: 'El correo desde Enviardián usa el aviso del Kanban al responsable. Usa scrumban con notify_action_email. Si falta la acción, pregunta su título.',
+    if (action === 'prepare' && resolvedChannel === 'email') {
+      const actionId = asString(args.action_id, 80)
+      const query = asString(args.query, 160)
+      if (!actionId && !query) {
+        return res.status(200).json(guideToolSuccess({
+          status: 'needs_clarification',
+          message: '¿De qué acción del tablero quieres que prepare el correo?',
           tool: 'queue_workspace_draft',
-          retryable: false,
-        })
-      )
+          data: { tool_hint: 'notify_action_email' },
+        }))
+      }
+      const result = await dispatchCopilotTool(actor, 'notify_action_email', {
+        action_id: actionId,
+        query,
+        mensaje: asString(args.mensaje, 500),
+      })
+      const classified = classifyRetellToolResult(result)
+      if (classified.status === 'error' || classified.status === 'denied') {
+        return res.status(200).json(guideToolFailure({
+          code: classified.error_code || 'VALIDATION_FAILED',
+          user_message: classified.spoken,
+          tool: 'notify_action_email',
+        }))
+      }
+      return res.status(200).json(guideToolSuccess({
+        status: classified.status,
+        message: classified.spoken,
+        pending_op_id: result.proposal?.id,
+        operation_id: result.proposal?.id,
+        tool: 'notify_action_email',
+        data: classified.data,
+      }))
+    }
+
+    if (action !== 'cancel' && (resolvedChannel === 'email' || resolvedChannel === 'both')) {
+      return res.status(200).json(guideToolSuccess({
+        status: 'needs_clarification',
+        message: 'Para el correo necesito saber de qué acción del tablero se trata. Si también necesitas WhatsApp, prepara ese borrador por separado.',
+        tool: 'queue_workspace_draft',
+        data: { tool_hint: 'notify_action_email' },
+      }))
     }
 
     const result = await mutateVoiceWorkspaceDraft(actor, {

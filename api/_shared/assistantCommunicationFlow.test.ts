@@ -46,6 +46,14 @@ function actorFrom(from: (table: string) => unknown, extra?: Partial<CopilotActo
 }
 
 describe('Action email from Retell', () => {
+  it('asks for the action title before creating an email draft', async () => {
+    const from = vi.fn()
+    const result = await dispatchCopilotTool(actorFrom(from), 'notify_action_email', {})
+    expect(result.kind).toBe('clarification')
+    expect(result.clarification?.question).toMatch(/de qué acción/i)
+    expect(from).not.toHaveBeenCalled()
+  })
+
   it('edits the saved note while retaining the intended recipient and generated checklist', async () => {
     const original = {
       usuario_id: 'recipient',
