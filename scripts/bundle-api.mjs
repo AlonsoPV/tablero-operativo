@@ -27,7 +27,7 @@ if (entries.length === 0) {
 const outdir = await mkdtemp(path.join(os.tmpdir(), 'tablero-api-'))
 
 try {
-  await esbuild.build({
+  const { metafile } = await esbuild.build({
     absWorkingDir: root,
     entryPoints: entries.map((name) => path.join('api', name)),
     outdir,
@@ -36,10 +36,16 @@ try {
     format: 'esm',
     target: 'node20',
     packages: 'external',
+    alias: { '@': './src' },
     legalComments: 'none',
     logLevel: 'info',
     sourcemap: false,
+    metafile: true,
   })
+  for (const [output, entry] of Object.entries(metafile.outputs)) {
+    const unresolved = entry.imports.find(({ external, path }) => external && path.startsWith('@/'))
+    if (unresolved) throw new Error(`bundle-api: ${output} dejó sin resolver ${unresolved.path}`)
+  }
 
   for (const name of entries) {
     const bundled = await readFile(path.join(outdir, name.replace(/\.ts$/, '.js')), 'utf8')
