@@ -100,6 +100,7 @@ const SCRUMBAN = {
       recipient: { type: 'string', description: 'Nombre de la persona o yo para whatsapp_prepare_send.' },
       body: { type: 'string', description: 'Mensaje o introducción para whatsapp_prepare_send.' },
       include_overdue: { type: 'boolean', description: 'Agrega acciones vencidas asignadas al destinatario.' },
+      mensaje: { type: 'string', description: 'Nota opcional para el responsable en el correo de una acción.' },
       action_id: { type: 'string', description: 'Id de accion cuando aplique.' },
       title: { type: 'string', description: 'Titulo para create_action u otras escrituras.' },
       comment: { type: 'string', description: 'Comentario cuando aplique.' },
@@ -122,9 +123,9 @@ const QUEUE_WORKSPACE_DRAFT = {
   type: 'custom',
   name: 'queue_workspace_draft',
   description:
-    'Encola, actualiza o cancela borradores de correo/WhatsApp/evento para revision post-llamada. ' +
+    'Encola, actualiza o cancela borradores de WhatsApp y eventos para revisión al terminar. Para correo de acciones usa scrumban tool=notify_action_email. ' +
     'Nunca envia. Usa action=prepare|update|cancel. Reutiliza pending_op_id al actualizar/cancelar. ' +
-    'channel=email|whatsapp|both|event. Si el canal no esta claro, pregunta antes de llamar. ' +
+    'Para preparar usa channel=whatsapp|event. Si el canal no está claro, pregunta antes de llamar. ' +
     'No uses esta tool ante menciones informativas (mejorar WhatsApp, nunca revisa correos).',
   url: `${APP}/api/guide-queue-workspace-draft`,
   method: 'POST',
@@ -147,7 +148,7 @@ const QUEUE_WORKSPACE_DRAFT = {
       },
       channel: {
         type: 'string',
-        description: 'email | whatsapp | both | event',
+        description: 'whatsapp | event. email se conserva para cancelar borradores anteriores.',
       },
       purpose: { type: 'string', description: 'Propósito del mensaje o evento. Requerido para preparar o actualizar.' },
       recipient: { type: 'string', description: 'Nombre o pista del destinatario.' },
@@ -173,7 +174,7 @@ const QUEUE_WORKSPACE_DRAFT = {
 
 const COMMS_STEERING = `
 Comunicaciones (prompt_version=${PROMPT_VERSION}): interpreta intencion, no solo keywords.
-A explícita → queue_workspace_draft action=prepare. Si es WhatsApp con acciones vencidas, usa scrumban tool=whatsapp_prepare_send con recipient e include_overdue=true. Los envíos se aprueban en la app. B contextual → update + pending_op_id. C mencion informativa → NO tool; soft intent pregunta "Quieres que te deje preparado el mensaje?". D cancel/mod → cancel|update; "otro" = prepare nuevo.
+A explícita de WhatsApp → queue_workspace_draft action=prepare channel=whatsapp. Para correo usa notify_action_email con la acción del tablero. Si es WhatsApp con acciones vencidas, usa scrumban tool=whatsapp_prepare_send con recipient e include_overdue=true. Los envíos se aprueban en la app. B contextual → update + pending_op_id. C mencion informativa → NO tool; soft intent pregunta "Quieres que te deje preparado el mensaje?". D cancel/mod → cancel|update; "otro" = prepare nuevo.
 Canal ambiguo: pregunta WhatsApp o correo antes de encolar. Confirma solo si tool ok. No envies ni leas borradores largos en la llamada.
 work_intent: consult|action|whatsapp|email (create legacy = action).
 Reserva confirm_pending_op para cambios de tablero que admiten aprobación verbal. La aprobación de envíos se hace en la app autenticada.

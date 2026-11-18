@@ -45,7 +45,7 @@ Los errores estructurados incluyen `VALIDATION_FAILED`, `PERMISSION_DENIED`, `MI
 | --- | --- | --- | --- | --- | --- |
 | WhatsApp de una acción | Edge existente | Borrador libre y resumen de acciones vencidas | Resumen estructurado y captura existente | `assistant_pending_ops`, `whatsapp_messages` | Pruebas simuladas de filtros, aprobación, aceptación, reintento y timeout. |
 | Correo corporativo de una acción | Plantilla existente | `notify_action_email` | `notify_action_email` con permisos de propuesta | `assistant_pending_ops` y registro de correo de la Edge Function | Pruebas de plantilla e invocación autenticada. |
-| Correo libre | — | Gmail conectado | Borrador de llamada Gmail | `assistant_pending_ops` | Pruebas de herramientas Gmail y finalización de borrador con mocks. |
+| Correo libre | — | Gmail conectado | El agente pide identificar una acción para usar el correo del Kanban | `assistant_pending_ops` | Pruebas de las herramientas Gmail del chat y compatibilidad con borradores anteriores. |
 | Configuración del resumen global | Ajustes existentes | Consulta, pausa, reactivación, horario y zona | — | Settings y logs del scheduler existente | Pruebas de lectura, autorización, propuesta y cambio optimista con mocks. |
 | Historial postllamada | — | App autenticada | Informe Guía | Operaciones por sesión y dueño | Pruebas de captura y finalización. Falta verificar llamada y UI reales en sandbox. |
 

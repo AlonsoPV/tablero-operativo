@@ -180,7 +180,7 @@ export async function executeWhatsappWrite(
   const phoneNumberId = readStringEnv('WHATSAPP_PHONE_NUMBER_ID')
   const graphVersion = readStringEnv('WHATSAPP_GRAPH_VERSION', 'v20.0')
   if (!accessToken || !phoneNumberId) {
-    throw new Error('CONFIGURATION_ERROR: WhatsApp no está configurado en este entorno.')
+    throw new Error('CONFIGURATION_ERROR: Configura WHATSAPP_ACCESS_TOKEN y WHATSAPP_PHONE_NUMBER_ID en el servidor que ejecuta el asistente.')
   }
 
   const { data: attempt, error: queueError } = await admin
@@ -295,6 +295,9 @@ export async function editWhatsappPendingOp(
     p_payload: nextPayload,
     p_preview: preview,
   })
+  if (rpcError?.code === 'PGRST202' || /esta operaci[oó]n no se puede editar/i.test(rpcError?.message ?? '')) {
+    throw new Error('CONFIGURATION_ERROR: Supabase no admite editar WhatsApp. Verifica la migración 20261117010000_whatsapp_prepare_pending_ops.sql.')
+  }
   if (rpcError) throw new Error(rpcError.message || 'No se pudo editar.')
   return proposalFromPendingRow({
     id: opId,

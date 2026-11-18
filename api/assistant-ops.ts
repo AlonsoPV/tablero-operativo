@@ -4,6 +4,7 @@ import { cancelPendingOp, confirmPendingOp } from './_shared/assistantOpsRuntime
 import { editGooglePendingOp, listSessionGoogleOps } from './_shared/assistantGoogleTools.js'
 import { editWhatsappPendingOp } from './_shared/assistantCommunicationDrafts.js'
 import { isCommunicationWriteTool } from '../src/features/ai-support/copilot/communicationTools.js'
+import { isGoogleWriteTool } from '../src/features/ai-support/copilot/googleWorkspace.js'
 
 const RATE_LIMIT = 30
 const RATE_WINDOW_MS = 60_000
@@ -64,12 +65,21 @@ export default defineApiHandler(async (req, res) => {
     if (!opId) return res.status(400).json({ error: 'Falta op_id.' })
 
     if (action === 'edit') {
-      const { data: opRow } = await actor.supabase
+      const { data: opRow, error: lookupError } = await actor.supabase
         .from('assistant_pending_ops')
         .select('tool')
         .eq('id', opId)
+        .eq('usuario_id', actor.usuarioId)
         .maybeSingle()
+      if (lookupError) throw new Error('DATABASE_ERROR: No se pudo consultar el borrador.')
+      if (!opRow) return res.status(404).json({ error: 'No encontré ese borrador en tu cuenta.' })
       const tool = typeof opRow?.tool === 'string' ? opRow.tool : ''
+      if (!isCommunicationWriteTool(tool) && !isGoogleWriteTool(tool)) {
+        return res.status(400).json({
+          error: 'VALIDATION_FAILED: Este tipo de operación no admite edición. Descártala y prepara una nueva.',
+          code: 'VALIDATION_FAILED',
+        })
+      }
       const proposal = isCommunicationWriteTool(tool)
         ? await editWhatsappPendingOp(actor, opId, {
             recipientName: typeof payload.recipientName === 'string' ? payload.recipientName : undefined,
