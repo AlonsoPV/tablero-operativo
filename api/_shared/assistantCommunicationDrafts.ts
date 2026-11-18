@@ -23,7 +23,7 @@ import { maskPhone } from './guideInterviewReport.js'
 import { whatsappPhoneVariants } from './whatsappBidirectional.js'
 import { hashWorkspacePayload, withContentHash, assertWorkspaceHash } from './workspaceHash.js'
 import { proposalFromPendingRow } from './assistantGoogleTools.js'
-import { resolveCommunicationRecipient } from './resolveCommunicationRecipient.js'
+import { resolveCommunicationRecipient, resolveLinkedWhatsappPerson } from './resolveCommunicationRecipient.js'
 
 export { resolveCommunicationRecipient, resolveWhatsappRecipient } from './resolveCommunicationRecipient.js'
 
@@ -241,7 +241,7 @@ export async function executeWhatsappWrite(
 export async function editWhatsappPendingOp(
   actor: CopilotActor,
   opId: string,
-  patch: { body?: string; recipientName?: string }
+  patch: { body?: string; recipientName?: string; recipientId?: string }
 ) {
   const { data, error } = await actor.supabase
     .from('assistant_pending_ops')
@@ -262,10 +262,12 @@ export async function editWhatsappPendingOp(
 
   let needsInfo = !payload.to_user_id || !payload.to_phone
   let needsInfoReason = needsInfo ? asString(payload.needs_info_reason, 220) : ''
-  if (typeof patch.recipientName === 'string' && patch.recipientName.trim()) {
-    const hint = patch.recipientName.trim()
-    payload.recipient_hint = hint
-    const resolved = await resolveDraftRecipient(actor, hint)
+  if (patch.recipientId || patch.recipientName?.trim()) {
+    const hint = patch.recipientName?.trim() || ''
+    const resolved = patch.recipientId
+      ? await resolveLinkedWhatsappPerson(actor.supabase, createServiceRoleClient, patch.recipientId)
+      : await resolveDraftRecipient(actor, hint)
+    payload.recipient_hint = resolved.name || hint
     if (payload.filter && resolved.toUserId !== payload.to_user_id) {
       payload.body = ''
       payload.action_ids = []
@@ -273,7 +275,6 @@ export async function editWhatsappPendingOp(
     }
     payload.to_user_id = resolved.toUserId || ''
     payload.to_phone = resolved.phone || ''
-    if (resolved.name) payload.recipient_hint = resolved.name
     needsInfo = Boolean(resolved.needsInfoReason)
     needsInfoReason = resolved.needsInfoReason || ''
   }

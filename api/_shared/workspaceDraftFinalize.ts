@@ -47,16 +47,20 @@ function extractEmail(text: string) {
   return emailsFromUnknown(text)[0] || ''
 }
 
-/** Acuerdos / pendientes del informe (JSON v3 o texto) sin inventar cifras. */
+/** Extrae únicamente las secciones de negocio del informe estructurado. */
 export function extractAgreementsFromReport(report?: string): string {
   if (!report?.trim()) return ''
-  let raw: unknown = report
-  if (report.trim().startsWith('{')) {
-    try {
-      raw = JSON.parse(report) as unknown
-    } catch {
-      raw = report
-    }
+  let raw: unknown
+  try {
+    raw = JSON.parse(report) as unknown
+  } catch {
+    return ''
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return ''
+  if ('version' in raw && raw.version === 'enviardian-informe-v3' &&
+      'executive_summary' in raw && raw.executive_summary && typeof raw.executive_summary === 'object' &&
+      'text' in raw.executive_summary) {
+    return sanitizeRecipientFacingText(asString(raw.executive_summary.text, 1200), 1200)
   }
   const parsed = parseExecutiveReport(raw)
   if (parsed && (parsed.agreed?.length || parsed.pending?.length || parsed.verified?.length)) {
@@ -65,29 +69,18 @@ export function extractAgreementsFromReport(report?: string): string {
       ...(parsed.pending ?? []).map((line) => `Pendiente: ${line}`),
       ...(parsed.verified ?? []).slice(0, 4).map((line) => `Hecho: ${line}`),
     ]
-    return clipText(parts.filter(Boolean).join('\n'), 1200)
+    return sanitizeRecipientFacingText(parts.join('\n'), 1200)
   }
-  if (typeof raw === 'string') return clipText(raw, 800)
   return ''
 }
 
 export function buildCommunicationDraftBody(input: {
-  purpose: string
-  contentInstructions?: string
   conversationContext?: string
   report?: string
-  transcriptNear?: string
   maxLen: number
 }): string {
-  const agreements = extractAgreementsFromReport(input.report)
-  const parts = [
-    input.contentInstructions,
-    input.conversationContext,
-    agreements,
-    input.transcriptNear,
-    input.purpose,
-  ].filter((part) => typeof part === 'string' && part.trim())
-  return clipText(parts.join('\n\n'), input.maxLen) || input.purpose
+  return sanitizeRecipientFacingText(input.conversationContext, input.maxLen) ||
+    sanitizeRecipientFacingText(extractAgreementsFromReport(input.report), input.maxLen)
 }
 
 export function fillWorkspaceDraftsFromTranscript(input: {
@@ -96,7 +89,7 @@ export function fillWorkspaceDraftsFromTranscript(input: {
   report?: string
   now?: Date
 }): FilledWorkspaceDraft[] {
-  const transcript = [input.transcript, input.report].filter(Boolean).join('\n')
+  const transcript = input.transcript
   const filled: FilledWorkspaceDraft[] = []
 
   for (const draft of input.drafts) {
@@ -135,28 +128,26 @@ export function fillWorkspaceDraftsFromTranscript(input: {
     if (kind === 'whatsapp') {
       // Recipient resolution is async in persistFilledWorkspaceDrafts; here we only draft body.
       const body = buildCommunicationDraftBody({
-        purpose,
-        contentInstructions,
         conversationContext,
         report: input.report,
-        transcriptNear,
         maxLen: WHATSAPP_BODY_MAX,
       })
+      const needsInfoReason = !recipientHint ? 'Falta el destinatario del WhatsApp.' : !body ? 'Falta el cuerpo del WhatsApp.' : ''
       const workspace: CopilotWorkspacePreview = {
         kind: 'whatsapp',
         recipientName: recipientHint || undefined,
         body,
         incomplete: false,
-        needsInfo: !recipientHint,
-        needsInfoReason: recipientHint ? undefined : 'Falta el destinatario del WhatsApp.',
+        needsInfo: Boolean(needsInfoReason),
+        needsInfoReason: needsInfoReason || undefined,
       }
       const nextPayload = withContentHash({
         ...payload,
         incomplete: false,
         body,
         recipient_hint: recipientHint,
-        needs_info: !recipientHint,
-        needs_info_reason: recipientHint ? '' : 'Falta el destinatario del WhatsApp.',
+        needs_info: Boolean(needsInfoReason),
+        needs_info_reason: needsInfoReason,
       })
       filled.push({
         id: draft.id,
@@ -228,22 +219,21 @@ export function fillWorkspaceDraftsFromTranscript(input: {
     const to = hintedEmail ? [hintedEmail] : emailsFromUnknown(payload.to)
     const subject = purpose || 'Seguimiento acordado en la llamada'
     const body = buildCommunicationDraftBody({
-      purpose,
-      contentInstructions,
       conversationContext,
       report: input.report,
-      transcriptNear,
       maxLen: 4000,
     })
-    const needsRecipient = to.length === 0 && !recipientHint
+    const needsInfoReason = to.length === 0 && !recipientHint
+      ? 'Falta el destinatario del correo.'
+      : !body ? 'Falta el cuerpo del correo.' : ''
     const workspace: CopilotWorkspacePreview = {
       kind: 'email',
       to,
       subject,
       body,
       incomplete: false,
-      needsInfo: needsRecipient,
-      needsInfoReason: needsRecipient ? 'Falta el destinatario del correo.' : undefined,
+      needsInfo: Boolean(needsInfoReason),
+      needsInfoReason: needsInfoReason || undefined,
       recipientName: recipientHint || undefined,
     }
     const nextPayload = withContentHash({
@@ -253,8 +243,8 @@ export function fillWorkspaceDraftsFromTranscript(input: {
       subject,
       body,
       recipient_hint: recipientHint,
-      needs_info: needsRecipient,
-      needs_info_reason: needsRecipient ? 'Falta el destinatario del correo.' : '',
+      needs_info: Boolean(needsInfoReason),
+      needs_info_reason: needsInfoReason,
     })
     filled.push({
       id: draft.id,
@@ -360,14 +350,15 @@ export async function persistFilledWorkspaceDrafts(
         : []
       if (existingTo.length === 0 && hint && !extractEmail(hint)) {
         const resolved = await resolveCommunicationRecipient(supabase, hint, 'email')
-        const needsInfo = Boolean(resolved.needsInfoReason)
+        const needsInfoReason = resolved.needsInfoReason || (!asString(payload.body, 4000) ? 'Falta el cuerpo del correo.' : '')
+        const needsInfo = Boolean(needsInfoReason)
         const to = resolved.email ? [resolved.email] : []
         const workspace: CopilotWorkspacePreview = {
           ...item.workspace,
           to,
           recipientName: resolved.name || item.workspace.recipientName,
           needsInfo,
-          needsInfoReason: resolved.needsInfoReason || undefined,
+          needsInfoReason: needsInfoReason || undefined,
         }
         payload = withContentHash({
           ...payload,
@@ -376,12 +367,12 @@ export async function persistFilledWorkspaceDrafts(
           recipient_hint: resolved.name || hint,
           needs_info: needsInfo || to.length === 0,
           needs_info_reason:
-            resolved.needsInfoReason || (to.length === 0 ? 'Falta el destinatario del correo.' : ''),
+            needsInfoReason || (to.length === 0 ? 'Falta el destinatario del correo.' : ''),
         })
         preview = {
           title: 'Enviar correo',
           summary: needsInfo
-            ? `Correo incompleto: ${resolved.needsInfoReason}`
+            ? `Correo incompleto: ${needsInfoReason}`
             : `Correo a ${to.join(', ') || resolved.name || '(destinatario por confirmar)'}. Revisa y confirma; no se envio solo.`,
           fields: [
             { label: 'Para', to: to.join(', ') || resolved.name || '—' },

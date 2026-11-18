@@ -129,6 +129,14 @@ export function sanitizeRecipientFacingText(raw: string | null | undefined, max 
       // no es JSON válido; seguir limpia heurística
     }
   }
+  // Los informes de versiones previas podían quedar pegados o cortados dentro del cuerpo.
+  const reportFragment = /"(?:communication_drafts|communicationDrafts|pendingOpId|technical_attention)"\s*:|"channel"\s*:\s*"(?:whatsapp|email)"\s*,\s*"status"\s*:/.exec(text)
+  if (reportFragment) {
+    const lineStart = text.lastIndexOf('\n', reportFragment.index) + 1
+    const prefix = text.slice(lineStart, reportFragment.index)
+    const delimiter = prefix.search(/[{}"]|^[\da-f-]{8,}",?\s*$/i)
+    text = text.slice(0, delimiter >= 0 ? lineStart + delimiter : lineStart)
+  }
   text = text
     .replace(/\b(get_okr_progress|get_my_actions|queue_workspace_draft|confirm_pending_op|whatsapp_prepare_send|gmail_prepare_send|notify_action_email)\b/gi, '')
     .replace(/\b(PERMISSION_DENIED|AUTHENTICATION_FAILED|TOOL_ERROR|pending_op_id|operation_id)\b/gi, '')

@@ -12,7 +12,8 @@ function escapeIlike(value: string) {
 export async function searchActivePeopleByName(
   supabase: SupabaseClient,
   name: string,
-  limit = 40
+  limit = 40,
+  options?: { includePartialMatches?: boolean }
 ): Promise<NamedPerson[]> {
   const needle = name.trim()
   if (!needle) return []
@@ -29,6 +30,7 @@ export async function searchActivePeopleByName(
   }
 
   const full = await runIlike(`%${escapeIlike(needle)}%`)
+  if (options?.includePartialMatches && full.length > 0) return full
   const matched = matchPeopleByName(full, needle)
   if (matched.length > 0) return matched
   if (full.length > 0) return full

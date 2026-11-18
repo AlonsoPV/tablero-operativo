@@ -90,6 +90,49 @@ async function loadWhatsappPhone(supabase: SupabaseClient, usuarioId: string) {
   return typeof data?.external_user_id === 'string' ? data.external_user_id : null
 }
 
+export async function searchLinkedWhatsappPeople(
+  supabase: SupabaseClient,
+  contacts: () => SupabaseClient,
+  query: string
+) {
+  if (query.trim().length < 2) return []
+  const people = await searchActivePeopleByName(supabase, query.trim().slice(0, 100), 40, {
+    includePartialMatches: true,
+  })
+  if (people.length === 0) return []
+  const { data, error } = await contacts()
+    .from('user_channel_identities')
+    .select('usuario_id,external_user_id')
+    .eq('channel', 'whatsapp')
+    .eq('status', 'active')
+    .in('usuario_id', people.map((person) => person.id))
+  if (error) throw new Error('DATABASE_ERROR: No se pudo consultar el directorio de WhatsApp.')
+  const linkedIds = new Set((data ?? [])
+    .filter((row) => /^\d{10,15}$/.test(String(row.external_user_id).replace(/\D/g, '')))
+    .map((row) => row.usuario_id))
+  return people.filter((person) => linkedIds.has(person.id))
+}
+
+export async function resolveLinkedWhatsappPerson(
+  supabase: SupabaseClient,
+  contacts: () => SupabaseClient,
+  usuarioId: string
+) {
+  const { data: person, error } = await supabase
+    .from('usuarios')
+    .select('id,nombre')
+    .eq('id', usuarioId)
+    .eq('activo', true)
+    .maybeSingle()
+  if (error) throw new Error('DATABASE_ERROR: No se pudo verificar al destinatario.')
+  if (!person) throw new Error('VALIDATION_FAILED: Selecciona un usuario activo del directorio.')
+  const phone = await loadWhatsappPhone(contacts(), usuarioId)
+  if (!phone || !/^\d{10,15}$/.test(phone.replace(/\D/g, ''))) {
+    throw new Error('MISSING_CONTACT: El usuario ya no tiene WhatsApp vinculado.')
+  }
+  return { toUserId: usuarioId, phone, name: String(person.nombre), needsInfoReason: null }
+}
+
 async function loadPersonEmail(supabase: SupabaseClient, usuarioId: string) {
   const { data, error } = await supabase.rpc('assistant_person_email', { p_usuario_id: usuarioId })
   if (error) throw new Error('DATABASE_ERROR: No se pudo consultar el correo.')

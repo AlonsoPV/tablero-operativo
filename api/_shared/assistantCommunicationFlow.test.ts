@@ -5,6 +5,7 @@ import { createServiceRoleClient } from './assistantAuth.js'
 import { withContentHash } from './workspaceHash.js'
 import type { CopilotActor } from './assistantPending.js'
 import { executeDailySummaryUpdate, readDailySummary } from './assistantDailySummary.js'
+import { searchLinkedWhatsappPeople } from './resolveCommunicationRecipient.js'
 
 vi.mock('./assistantAuth.js', () => ({ createServiceRoleClient: vi.fn() }))
 
@@ -153,6 +154,49 @@ describe('Action email from Retell', () => {
 })
 
 describe('WhatsApp communication flow', () => {
+  it('lists only visible active users with a valid linked number and returns no phone number', async () => {
+    const users = query([
+      { id: 'linked', nombre: 'Ana Guzmán', area: 'Calidad' },
+      { id: 'unlinked', nombre: 'Ana' },
+    ])
+    const identities = query([
+      { usuario_id: 'linked', external_user_id: '5215512345678' },
+      { usuario_id: 'unlinked', external_user_id: '123' },
+    ])
+    const matches = await searchLinkedWhatsappPeople(
+      { from: () => users } as never,
+      () => ({ from: () => identities }) as never,
+      'Ana'
+    )
+    expect(matches).toEqual([{ id: 'linked', nombre: 'Ana Guzmán', area: 'Calidad' }])
+    expect(users.eq).toHaveBeenCalledWith('activo', true)
+    expect(identities.eq).toHaveBeenCalledWith('status', 'active')
+    expect(identities.in).toHaveBeenCalledWith('usuario_id', ['linked', 'unlinked'])
+  })
+
+  it('uses the selected user ID and revalidates the linked number before saving', async () => {
+    const saved = query({
+      usuario_id: 'actor',
+      tool: 'whatsapp_prepare_send',
+      status: 'pending',
+      expires_at: '2999-01-01',
+      payload: { to_user_id: 'old-contact', to_phone: '5215512349876', body: 'Confirma el avance.' },
+    })
+    const person = query({ id: 'selected', nombre: 'Ana Guzmán' })
+    const identity = query({ external_user_id: '5215512345678' })
+    vi.mocked(createServiceRoleClient).mockReturnValue({ from: () => identity } as never)
+    const from = (table: string) => table === 'usuarios' ? person : saved
+    const rpc = vi.fn(async () => ({ error: null }))
+    const actor = actorFrom(from, { supabase: { from, rpc } as never })
+    const edited = await editWhatsappPendingOp(actor, 'wa-draft', { recipientId: 'selected' })
+    expect(edited.workspace?.body).toBe('Confirma el avance.')
+    expect(person.eq).toHaveBeenCalledWith('id', 'selected')
+    expect(identity.eq).toHaveBeenCalledWith('usuario_id', 'selected')
+    expect(rpc).toHaveBeenCalledWith('edit_assistant_pending_op', expect.objectContaining({
+      p_payload: expect.objectContaining({ to_user_id: 'selected', to_phone: '5215512345678' }),
+    }))
+  })
+
   it('edits a generated WhatsApp body without changing its saved contact', async () => {
     const saved = query({
       usuario_id: 'actor',

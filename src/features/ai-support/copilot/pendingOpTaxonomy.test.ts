@@ -49,5 +49,8 @@ describe('pendingOpTaxonomy', () => {
     expect(sanitizeRecipientFacingText('{"body":"Hola Carlos","pending_op_id":"x"}')).toBe('Hola Carlos')
     expect(sanitizeRecipientFacingText('get_okr_progress: avanza')).toBe(': avanza')
     expect(sanitizeRecipientFacingText('')).toBe('')
+    expect(sanitizeRecipientFacingText(
+      'Resumen de acciones del equipo.\n\nb190-463b-9dcb-e07e11827f0f","channel":"whatsapp","status":"pending","purpose":"Resumen"}],"counts":{"communicationDrafts":1}}\n\nEnviar resumen del equipo.'
+    )).toBe('Resumen de acciones del equipo.')
   })
 })

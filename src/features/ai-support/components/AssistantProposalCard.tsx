@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowUpRight, Loader2, Pencil } from 'lucide-react'
+import { ArrowUpRight, ChevronDown, Loader2, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,8 +13,10 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import type { NamedPerson } from '@/features/ai-support/copilot/matching'
 import type { CopilotProposal } from '@/features/ai-support/copilot/types'
 import { isGoogleWriteTool } from '@/features/ai-support/copilot/googleWorkspace'
+import { sanitizeRecipientFacingText } from '@/features/ai-support/copilot/pendingOpTaxonomy'
 import {
   actionLifecycleTone,
   actionTypeLabel,
@@ -25,6 +27,7 @@ import {
   cancelAssistantOp,
   confirmAssistantOp,
   editAssistantOp,
+  searchWhatsappRecipients,
 } from '@/features/ai-support/services/assistantOpsClient'
 
 type ProposalStatus = 'pending' | 'confirmed' | 'cancelled' | 'error'
@@ -394,6 +397,93 @@ export const ActionCard = AssistantProposalCard
 
 export type { ActionLifecycleStatus }
 
+function WhatsappRecipientDropdown({
+  name,
+  disabled,
+  onSelect,
+}: {
+  name?: string
+  disabled: boolean
+  onSelect: (person: NamedPerson) => void
+}) {
+  const id = useId()
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [search, setSearch] = useState<{ query: string; people?: NamedPerson[]; error?: string }>()
+  const term = query.trim()
+  useEffect(() => {
+    if (!open || term.length < 2) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      void searchWhatsappRecipients(term, controller.signal).then(
+        (people) => { if (!controller.signal.aborted) setSearch({ query: term, people }) },
+        (error: unknown) => {
+          if (!controller.signal.aborted) {
+            setSearch({ query: term, error: error instanceof Error ? error.message : 'No se pudo buscar.' })
+          }
+        }
+      )
+    }, 300)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [open, term])
+
+  const result = search?.query === term ? search : undefined
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium">Destinatario</p>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={disabled}
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        className="w-full justify-between"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="truncate">{name || 'Seleccionar usuario con WhatsApp'}</span>
+        <ChevronDown className="h-4 w-4 shrink-0" aria-hidden />
+      </Button>
+      {open ? (
+        <div id={id} className="space-y-1 rounded-md border bg-popover p-2">
+          <Input
+            autoFocus
+            aria-label="Buscar usuarios con WhatsApp"
+            placeholder="Buscar por nombre"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <div className="max-h-40 overflow-y-auto">
+            {term.length < 2 ? (
+              <p className="p-2 text-xs text-muted-foreground">Escribe al menos dos letras.</p>
+            ) : result?.people?.length ? (
+              <ul>
+                {result.people.map((person) => (
+                  <li key={person.id}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full justify-start text-left"
+                      disabled={disabled}
+                      onClick={() => { onSelect(person); setOpen(false) }}
+                    >
+                      <span className="truncate">{person.nombre}</span>
+                      <span className="truncate text-xs text-muted-foreground">{[person.area, person.rol].filter(Boolean).join(' · ')}</span>
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p role="status" className="p-2 text-xs text-muted-foreground">
+                {result?.error || (result ? 'No encontré usuarios con WhatsApp vinculado.' : 'Buscando…')}
+              </p>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function EditWorkspaceDialog({
   open,
   proposal,
@@ -405,17 +495,18 @@ function EditWorkspaceDialog({
   proposal: CopilotProposal
   busy: boolean
   onOpenChange: (open: boolean) => void
-  onSave: (patch: { recipientName?: string; subject?: string; body?: string; title?: string; start?: string; end?: string }) => Promise<void>
+  onSave: (patch: { recipientId?: string; subject?: string; body?: string; title?: string; start?: string; end?: string }) => Promise<void>
 }) {
   const workspace = proposal.workspace
   const isWhatsapp = workspace?.kind === 'whatsapp' || proposal.tool === 'whatsapp_prepare_send'
   const isEmail = !isWhatsapp && (workspace?.kind === 'email' || proposal.tool.startsWith('gmail_'))
   const isBoardEmail = proposal.tool === 'notify_action_email'
-  const initialRecipient = workspace?.recipientName ?? ''
-  const [recipientName, setRecipientName] = useState(initialRecipient)
+  const [recipient, setRecipient] = useState<NamedPerson>()
   const [subject, setSubject] = useState(workspace?.subject ?? '')
   const [body, setBody] = useState(
-    isBoardEmail ? workspace?.message ?? proposal.fields.find((field) => field.label === 'Mensaje')?.to ?? '' : workspace?.body ?? ''
+    isBoardEmail
+      ? workspace?.message ?? proposal.fields.find((field) => field.label === 'Mensaje')?.to ?? ''
+      : isWhatsapp ? sanitizeRecipientFacingText(workspace?.body) : workspace?.body ?? ''
   )
   const [title, setTitle] = useState(workspace?.title ?? '')
   const [start, setStart] = useState(workspace?.start ?? '')
@@ -435,14 +526,11 @@ function EditWorkspaceDialog({
         {isWhatsapp || isEmail ? (
           <div className="space-y-3">
             {isWhatsapp ? (
-              <label className="space-y-1 text-xs font-medium">
-                Destinatario
-                <Input
-                  value={recipientName}
-                  placeholder={workspace?.recipientName || 'Nombre en Scrumban'}
-                  onChange={(event) => setRecipientName(event.target.value)}
-                />
-              </label>
+              <WhatsappRecipientDropdown
+                name={recipient?.nombre || workspace?.recipientName}
+                disabled={busy}
+                onSelect={setRecipient}
+              />
             ) : null}
             {isEmail ? (
               <label className="space-y-1 text-xs font-medium">
@@ -486,7 +574,7 @@ function EditWorkspaceDialog({
             onClick={() =>
               void onSave(
                 isWhatsapp
-                  ? { body, recipientName: recipientName.trim() !== initialRecipient || workspace?.needsInfo ? recipientName.trim() : undefined }
+                  ? { body, recipientId: recipient?.id }
                   : isBoardEmail ? { body } : isEmail ? { subject, body } : { title, start, end }
               )
             }

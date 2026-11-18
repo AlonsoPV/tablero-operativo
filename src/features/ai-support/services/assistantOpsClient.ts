@@ -1,3 +1,4 @@
+import type { NamedPerson } from '@/features/ai-support/copilot/matching'
 import { getAssistantAuthHeaders } from '@/lib/assistantApiAuth'
 import type { CopilotProposal } from '@/features/ai-support/copilot/types'
 
@@ -36,7 +37,7 @@ export async function cancelAssistantOp(opId: string) {
 
 export async function editAssistantOp(
   opId: string,
-  patch: { recipientName?: string; subject?: string; body?: string; title?: string; start?: string; end?: string }
+  patch: { recipientId?: string; recipientName?: string; subject?: string; body?: string; title?: string; start?: string; end?: string }
 ) {
   const headers = await getAssistantAuthHeaders()
   const response = await fetch('/api/assistant-ops', {
@@ -66,5 +67,13 @@ export async function listSessionWorkspaceOps(sessionId: string) {
   if (!response.ok) {
     throw new Error(data.error || 'No se pudieron cargar las acciones de Shaman.')
   }
+  return data.items ?? []
+}
+
+export async function searchWhatsappRecipients(query: string, signal: AbortSignal) {
+  const headers = await getAssistantAuthHeaders()
+  const response = await fetch(`/api/assistant-ops?whatsapp_recipient=${encodeURIComponent(query)}`, { headers, signal })
+  const data = (await response.json().catch(() => ({}))) as { items?: NamedPerson[]; error?: string }
+  if (!response.ok) throw new Error(data.error || 'No se pudo buscar a los usuarios.')
   return data.items ?? []
 }

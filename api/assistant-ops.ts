@@ -1,7 +1,8 @@
 import { defineApiHandler, readRequestBody } from './_shared/http.js'
-import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth.js'
+import { checkAssistantRateLimit, createServiceRoleClient, requireAssistantAuth } from './_shared/assistantAuth.js'
 import { cancelPendingOp, confirmPendingOp, editActionEmailPendingOp } from './_shared/assistantOpsRuntime.js'
 import { editGooglePendingOp, listSessionGoogleOps } from './_shared/assistantGoogleTools.js'
+import { searchLinkedWhatsappPeople } from './_shared/resolveCommunicationRecipient.js'
 import { editWhatsappPendingOp } from './_shared/assistantCommunicationDrafts.js'
 import { isCommunicationWriteTool } from '../src/features/ai-support/copilot/communicationTools.js'
 import { isGoogleWriteTool } from '../src/features/ai-support/copilot/googleWorkspace.js'
@@ -36,6 +37,10 @@ export default defineApiHandler(async (req, res) => {
     if (req.method === 'GET') {
       const url = req.url || ''
       const query = new URLSearchParams(url.includes('?') ? url.slice(url.indexOf('?') + 1) : '')
+      if (query.has('whatsapp_recipient')) {
+        const items = await searchLinkedWhatsappPeople(actor.supabase, createServiceRoleClient, query.get('whatsapp_recipient') || '')
+        return res.status(200).json({ items })
+      }
       const sessionId = query.get('session_id')?.trim() || ''
       if (!sessionId) return res.status(400).json({ error: 'Falta session_id.' })
       const items = await listSessionGoogleOps(actor, sessionId)
@@ -54,6 +59,7 @@ export default defineApiHandler(async (req, res) => {
       action?: unknown
       op_id?: unknown
       recipientName?: unknown
+      recipientId?: unknown
       subject?: unknown
       body?: unknown
       title?: unknown
@@ -86,6 +92,7 @@ export default defineApiHandler(async (req, res) => {
       }
       const proposal = isCommunicationWriteTool(tool)
         ? await editWhatsappPendingOp(actor, opId, {
+            recipientId: typeof payload.recipientId === 'string' ? payload.recipientId : undefined,
             recipientName: typeof payload.recipientName === 'string' ? payload.recipientName : undefined,
             body: typeof payload.body === 'string' ? payload.body : undefined,
           })

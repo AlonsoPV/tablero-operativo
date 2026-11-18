@@ -47,7 +47,8 @@ describe('fillWorkspaceDraftsFromTranscript', () => {
     })
     expect(filled[0].workspace.to).toEqual(['ana@empresa.com'])
     expect(String(filled[0].preview.summary)).toMatch(/no se envio/i)
-    expect(filled[0].payload.body).toMatch(/minuta/i)
+    expect(filled[0].payload.body).toBe('')
+    expect(filled[0].workspace.needsInfoReason).toMatch(/cuerpo/i)
   })
 
   it('ignores drafts already complete', () => {
@@ -87,10 +88,11 @@ describe('fillWorkspaceDraftsFromTranscript', () => {
     expect(filled[0].workspace.kind).toBe('whatsapp')
     expect(filled[0].payload.incomplete).toBe(false)
     expect(String(filled[0].preview.summary)).toMatch(/no se envio/i)
-    expect(String(filled[0].payload.body)).toMatch(/acuerdos|Carlos/i)
+    expect(filled[0].payload.body).toBe('')
+    expect(filled[0].workspace.needsInfoReason).toMatch(/cuerpo/i)
   })
 
-  it('prefers content_instructions when filling whatsapp body', () => {
+  it('keeps only the message context in the WhatsApp body', () => {
     const filled = fillWorkspaceDraftsFromTranscript({
       drafts: [
         {
@@ -110,7 +112,28 @@ describe('fillWorkspaceDraftsFromTranscript', () => {
       ],
       transcript: 'Texto largo irrelevante de otra parte de la llamada.',
     })
-    expect(String(filled[0].payload.body)).toMatch(/OTIF|directo|acuerdos/i)
+    expect(filled[0].payload.body).toBe('Acordaron revisar OTIF el lunes.')
+  })
+
+  it('reads the v3 executive summary without copying report metadata or the purpose', () => {
+    const summary = 'Revisen las acciones bloqueadas de calidad y mantenimiento.'
+    const filled = fillWorkspaceDraftsFromTranscript({
+      drafts: [{
+        id: 'op-wa',
+        tool: 'whatsapp_prepare_send',
+        payload: { incomplete: true, purpose: 'Enviar resumen del equipo.', recipient_hint: 'Carlos' },
+        preview: {},
+      }],
+      transcript: 'user: envía el resumen por WhatsApp',
+      report: JSON.stringify({
+        version: 'enviardian-informe-v3',
+        executive_summary: { text: summary },
+        communication_drafts: [{ pendingOpId: 'b190-463b-9dcb-e07e11827f0f', recipientHint: 'usuario' }],
+        counts: { findings: 3 },
+      }),
+    })
+    expect(filled[0].workspace.body).toBe(summary)
+    expect(filled[0].payload.body).toBe(summary)
   })
 
   it('includes agreed lines from executive report in the body', () => {

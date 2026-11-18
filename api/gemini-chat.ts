@@ -124,8 +124,14 @@ export default defineApiHandler(async (req, res) => {
       })
     }
 
+    const sanitizedMessages = sanitizeMessages(messages as { role: 'user' | 'assistant'; content: string }[])
+    const lastUserMessage = sanitizedMessages.filter((message) => message.role === 'user').at(-1)?.content || ''
+    const allowPersonalGmailWrites = /\b(?:mi gmail|gmail personal|mi correo personal|mi cuenta personal de google)\b/i.test(lastUserMessage)
+    const boardEmailRequest = !allowPersonalGmailWrites &&
+      /\b(?:correo|email|mail)\b/i.test(lastUserMessage) &&
+      /\b(?:envi\w*|env[ií]a\w*|mand\w*|compart\w*|prepar\w*|redact\w*|notific\w*)\b/i.test(lastUserMessage)
     const cleanMessages = appendAssistantContexts(
-      sanitizeMessages(messages as { role: 'user' | 'assistant'; content: string }[]),
+      sanitizedMessages,
       actionContext,
       okrContext,
       boardContext
@@ -177,6 +183,8 @@ export default defineApiHandler(async (req, res) => {
           generationConfig,
           actor,
           timeoutMs,
+          allowPersonalGmailWrites,
+          boardEmailRequest,
         })
         if (i > 0) {
           console.warn('Gemini fallback model used', { model, attempted: candidates.slice(0, i + 1) })
