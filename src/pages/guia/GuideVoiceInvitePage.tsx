@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { AlertCircle, ArrowLeft, LayoutDashboard, Mic, MicOff, Phone, PhoneOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { APP_NAME, ROUTES } from '@/constants'
@@ -19,10 +19,13 @@ import type { CopilotProposal } from '@/features/ai-support/copilot/types'
 import { useRetellGuideCall } from '@/features/guide/hooks/useRetellGuideCall'
 import { guideService } from '@/features/guide/services/guide.service'
 import { guideVoiceLoginState } from '@/features/guide/voiceLogin'
+import { useAuth } from '@/features/auth/hooks/useAuth'
+import { getAssistantAuthHeaders } from '@/lib/assistantApiAuth'
 import { cn } from '@/lib/utils'
 
 type LinkReport = {
   report_status?: string
+  can_manage_communications?: boolean
   entry_id?: string | null
   topic?: string | null
   summary?: string | null
@@ -52,6 +55,9 @@ function statusLabel(status: string, muted: boolean) {
 export function GuideVoiceInvitePage() {
   const { token = '' } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
+  const { isAuthenticated, user } = useAuth()
+  const resumeReport = new URLSearchParams(location.search).get('report') === '1'
   const orbSize = useStageOrbSize(188, 248)
   const [error, setError] = useState<string | null>(null)
   const [report, setReport] = useState<LinkReport | null>(null)
@@ -59,7 +65,7 @@ export function GuideVoiceInvitePage() {
   const [accessGrant, setAccessGrant] = useState(() =>
     token ? guideService.readAccessGrant(token) : ''
   )
-  const callIdRef = useRef('')
+  const callIdRef = useRef(new URLSearchParams(location.search).get('call') || '')
   const finalizedRef = useRef(false)
   const landingHref = useMemo(
     () => ROUTES.GUIA_INVITACION.replace(':token', encodeURIComponent(token)),
@@ -90,22 +96,22 @@ export function GuideVoiceInvitePage() {
       | 'finalize'
       | 'retry'
       | 'poll-timeout'
-      | 'whatsapp'
-      | 'confirm_pending'
-      | 'cancel_pending',
-    confirm = false,
-    opId?: string
+      | 'whatsapp',
+    confirm = false
   ) => {
+    const publicHeaders = { 'Content-Type': 'application/json' }
+    const headers = isAuthenticated && action !== 'whatsapp'
+      ? await getAssistantAuthHeaders().catch(() => publicHeaders)
+      : publicHeaders
     const response = await fetch('/api/guide-link-report', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         guide_token: token,
         access_grant: accessGrant || undefined,
         action,
         call_id: callIdRef.current || undefined,
         confirm,
-        op_id: opId,
         messages: retell.messages.map((message) => ({ role: message.role, content: message.content })),
       }),
     })
@@ -116,6 +122,17 @@ export function GuideVoiceInvitePage() {
     if (!response.ok) throw new Error(payload.error || 'No se pudo leer el informe.')
     return payload
   }
+
+  useEffect(() => {
+    if (!resumeReport || retell.status === 'connected' || retell.status === 'connecting') return
+    let active = true
+    void requestReport('status').then(
+      (payload) => { if (active) setReport(payload) },
+      (err: unknown) => { if (active) setError(err instanceof Error ? err.message : 'No se pudo recuperar el informe.') }
+    )
+    return () => { active = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeReport, isAuthenticated, user?.id, token])
 
   useEffect(() => {
     if (retell.status !== 'ended') return
@@ -185,6 +202,11 @@ export function GuideVoiceInvitePage() {
   const reportPending =
     reportBusy || report?.report_status === 'pending' || report?.report_status === 'processing'
 
+  const canManageCommunications = isAuthenticated && report?.can_manage_communications === true
+  const loginSearch = new URLSearchParams({ report: '1' })
+  if (callIdRef.current) loginSearch.set('call', callIdRef.current)
+  const reportLoginState = { from: { pathname: location.pathname, search: `?${loginSearch}` } }
+
   return (
     <GuideInviteShell
       intensity="stage"
@@ -225,7 +247,7 @@ export function GuideVoiceInvitePage() {
         <p className="mt-2 max-w-xs text-center text-xs leading-5 text-muted-foreground">
           {retell.status === 'ended'
             ? 'Puedes iniciar otra llamada o volver a la invitación.'
-            : 'Máximo 15 minutos. Habla con naturalidad; Guía te escucha.'}
+            : 'Máximo 15 minutos. Puedes pedir un WhatsApp o el correo de una acción durante la conversación.'}
         </p>
       </section>
 
@@ -278,8 +300,20 @@ export function GuideVoiceInvitePage() {
             topic={report.topic}
             createdAt={report.created_at}
             communications={report.communications}
-            communicationsReadOnly
-            showLoginCta
+            communicationsReadOnly={!canManageCommunications}
+            boardReadOnly
+            onCommunicationUpdated={(next) =>
+              setReport((current) => current && {
+                ...current,
+                communications: current.communications?.map((op) => op.id === next.id ? { ...op, ...next } : op),
+              })
+            }
+            onCommunicationResolved={(id, status) =>
+              setReport((current) => current && {
+                ...current,
+                communications: current.communications?.map((op) => op.id === id ? { ...op, status } : op),
+              })
+            }
           />
           <GuideReportActions
             topic={report.topic}
@@ -294,7 +328,7 @@ export function GuideVoiceInvitePage() {
               channel:
                 op.tool === 'whatsapp_prepare_send'
                   ? 'WhatsApp'
-                  : String(op.tool || '').startsWith('gmail_')
+                  : op.tool === 'notify_action_email' || String(op.tool || '').startsWith('gmail_')
                     ? 'Correo'
                     : String(op.tool || '').startsWith('calendar_')
                       ? 'Evento'
@@ -317,13 +351,14 @@ export function GuideVoiceInvitePage() {
               }
             }}
           />
-          <p className="text-xs text-muted-foreground">
-            Esta liga es solo lectura. Para editar, aprobar o descartar,{' '}
-            <Link className="underline underline-offset-4" to={ROUTES.LOGIN} state={guideVoiceLoginState}>
-              inicia sesion
-            </Link>{' '}
-            como el dueno.
-          </p>
+          {!canManageCommunications && (report.communications?.length ?? 0) > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              <Link className="underline underline-offset-4" to={ROUTES.LOGIN} state={reportLoginState}>
+                Inicia sesión con la cuenta dueña de la liga
+              </Link>{' '}
+              para revisar y aprobar los mensajes.
+            </p>
+          ) : null}
         </section>
       ) : null}
 

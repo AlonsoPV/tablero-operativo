@@ -22,6 +22,7 @@ describe('invokeNotificationEmail', () => {
       usuario_id: 'u-2',
       tipo: 'responsable',
       prioridad: 'Normal',
+      reply_to_caller: true,
       payload: { accion_id: 'a1', titulo: 'Te compartieron una accion' },
     })
 
@@ -35,6 +36,7 @@ describe('invokeNotificationEmail', () => {
       usuario_id: 'u-2',
       tipo: 'responsable',
       prioridad: 'Normal',
+      reply_to_caller: true,
     })
   })
 

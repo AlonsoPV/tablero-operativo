@@ -1,7 +1,7 @@
 import { executeDailySummaryUpdate, proposeDailySummaryUpdate, readDailySummary } from './assistantDailySummary.js'
 import { canManageActionsByRole, isAnalystByRole } from '../../src/features/auth/lib/permissions.js'
 import { isCopilotWriteTool } from '../../src/features/ai-support/copilot/catalog.js'
-import { isGoogleWriteTool } from '../../src/features/ai-support/copilot/googleWorkspace.js'
+import { isGoogleWriteTool, type CopilotWorkspacePreview } from '../../src/features/ai-support/copilot/googleWorkspace.js'
 import { isCommunicationWriteTool } from '../../src/features/ai-support/copilot/communicationTools.js'
 import { dispatchGoogleTool, executeGoogleWrite } from './assistantGoogleTools.js'
 import { executeWhatsappWrite, prepareWhatsappDraft, readWhatsappStatus } from './assistantCommunicationDrafts.js'
@@ -43,6 +43,7 @@ import {
   type ActionQueryStatusGroup,
   type PriorityCatalogRow,
 } from './actionQueryContract.js'
+import { createServiceRoleClient } from './assistantAuth.js'
 import { invokeNotificationEmail } from './invokeNotificationEmail.js'
 import {
   ACCION_SHARE_EMAIL_TITLE,
@@ -747,6 +748,80 @@ async function loadUsuarioNames(actor: CopilotActor, ids: Array<string | null | 
   return map
 }
 
+function actionEmailWorkspace(
+  email: Record<string, unknown>,
+  contact: { name: string; address: string; subject: string }
+): CopilotWorkspacePreview {
+  const message = asString(email.mensaje, 500)
+  const checklist = Array.isArray(email.checklist) ? email.checklist.filter((item) => typeof item === 'string') : []
+  const description = asString(email.descripcion_accion, 900)
+  return {
+    kind: 'email',
+    recipientName: contact.name,
+    to: contact.address ? [contact.address] : [],
+    subject: contact.subject,
+    message,
+    needsInfo: !contact.address,
+    needsInfoReason: contact.address ? undefined : 'El responsable no tiene correo disponible en Scrumban.',
+    body: [
+      `Acción: ${asString(email.titulo_accion, 250)}`,
+      `Responsable: ${contact.name}`,
+      `Fecha compromiso: ${asString(email.fecha_compromiso, 40) || 'Sin fecha'}`,
+      message ? `Mensaje: ${message}` : '',
+      description ? `Descripción:\n${description}` : '',
+      checklist.length ? `Checklist:\n${checklist.map((item) => `• ${item}`).join('\n')}` : '',
+    ].filter(Boolean).join('\n'),
+  }
+}
+
+export async function editActionEmailPendingOp(actor: CopilotActor, opId: string, body: string) {
+  const { data, error } = await actor.supabase.from('assistant_pending_ops')
+    .select('payload,preview,status,expires_at')
+    .eq('id', opId)
+    .eq('usuario_id', actor.usuarioId)
+    .eq('tool', 'notify_action_email')
+    .maybeSingle()
+  if (error) throw new Error('DATABASE_ERROR: No se pudo leer el borrador de correo.')
+  if (!data || data.status !== 'pending' || Date.parse(data.expires_at) <= Date.now()) {
+    throw new Error('VALIDATION_FAILED: Solo puedes editar borradores pendientes y vigentes.')
+  }
+  const previous = data.payload as Record<string, unknown>
+  if (!previous?.email_payload || typeof previous.email_payload !== 'object') {
+    throw new Error('VALIDATION_FAILED: El borrador de correo está incompleto.')
+  }
+  const email: Record<string, unknown> = {
+    ...previous.email_payload as Record<string, unknown>,
+    mensaje: asString(body, 500),
+  }
+  const previousPreview = data.preview as Omit<CopilotProposal, 'id' | 'tool' | 'expiresAt'>
+  const currentWorkspace = previousPreview.workspace
+  const { data: address, error: emailError } = await actor.supabase.rpc('assistant_person_email', {
+    p_usuario_id: previous.usuario_id,
+  })
+  if (emailError) throw new Error('DATABASE_ERROR: No se pudo verificar el correo del responsable.')
+  const workspace = actionEmailWorkspace(email, {
+    name: asString(email.responsable_nombre, 150) || currentWorkspace?.recipientName || currentWorkspace?.to?.[0] || 'Responsable',
+    address: asString(address, 254),
+    subject: currentWorkspace?.subject || ACCION_SHARE_EMAIL_TITLE,
+  })
+  const fields = previousPreview.fields.filter((field) => field.label !== 'Mensaje')
+  if (workspace.message) fields.push({ label: 'Mensaje', to: workspace.message })
+  const preview = { ...previousPreview, fields, workspace }
+  const { data: updated, error: updateError } = await createServiceRoleClient().from('assistant_pending_ops')
+    .update({ payload: { ...previous, email_payload: email }, preview })
+    .eq('id', opId)
+    .eq('usuario_id', actor.usuarioId)
+    .eq('tool', 'notify_action_email')
+    .eq('status', 'pending')
+    .eq('payload', JSON.stringify(previous))
+    .gt('expires_at', new Date().toISOString())
+    .select('id')
+    .maybeSingle()
+  if (updateError) throw new Error('DATABASE_ERROR: No se pudo guardar el mensaje del correo.')
+  if (!updated) throw new Error('La operación cambió después de abrir el borrador. Vuelve a cargar el informe.')
+  return { ...preview, id: opId, tool: 'notify_action_email' as const, expiresAt: String(data.expires_at) }
+}
+
 async function proposeNotifyActionEmail(
   actor: CopilotActor,
   args: Record<string, unknown>
@@ -761,12 +836,18 @@ async function proposeNotifyActionEmail(
     )
   }
 
-  const { data: checkpoints } = await actor.supabase
+  const { data: checkpoints, error: checklistError } = await actor.supabase
     .from('accion_checkpoints')
     .select('texto')
     .eq('accion_id', resolved.id)
     .eq('activo', true)
     .order('orden', { ascending: true })
+
+  if (checklistError) throw new Error('DATABASE_ERROR: No se pudo consultar el checklist de la acción.')
+  const { data: address, error: emailError } = await actor.supabase.rpc('assistant_person_email', {
+    p_usuario_id: resolved.responsable,
+  })
+  if (emailError) throw new Error('DATABASE_ERROR: No se pudo verificar el correo del responsable.')
 
   const names = await loadUsuarioNames(actor, [
     resolved.responsable,
@@ -827,20 +908,11 @@ async function proposeNotifyActionEmail(
         title: actionTitle(resolved),
         href: actionHref(resolved.id),
       },
-      workspace: {
-        kind: 'email',
-        to: [responsableNombre],
+      workspace: actionEmailWorkspace(emailPayload, {
+        name: responsableNombre,
+        address: asString(address, 254),
         subject: ACCION_SHARE_EMAIL_TITLE,
-        body: [
-          `Accion: ${actionTitle(resolved)}`,
-          `Responsable: ${responsableNombre}`,
-          `Fecha compromiso: ${fechaCompromiso}`,
-          mensaje ? `Mensaje: ${mensaje}` : '',
-          'Remitente: correo de notificaciones del tablero (organizacion).',
-        ]
-          .filter(Boolean)
-          .join('\n'),
-      },
+      }),
     },
   })
   return { ok: true, tool: 'notify_action_email', kind: 'proposal', proposal }
@@ -1004,6 +1076,7 @@ type PendingRow = {
   status: string
   expires_at: string
   result: unknown
+  channel?: string | null
 }
 
 async function executePayload(actor: CopilotActor, tool: string, payload: Record<string, unknown>) {
@@ -1106,6 +1179,7 @@ async function executePayload(actor: CopilotActor, tool: string, payload: Record
       tipo: asString(payload.tipo, 40) || 'responsable',
       prioridad,
       payload: emailPayload,
+      reply_to_caller: true,
     })
     if (result.skipped === true) {
       const detail = [result.reason, result.message ?? result.error].filter(Boolean).join(': ')
@@ -1140,7 +1214,7 @@ async function executePayload(actor: CopilotActor, tool: string, payload: Record
 export async function confirmPendingOp(actor: CopilotActor, opId: string, options?: { fromTool?: boolean }) {
   const { data, error } = await actor.supabase
     .from('assistant_pending_ops')
-    .select('id,usuario_id,tool,resource_id,expected_updated_at,payload,preview,status,expires_at,result')
+    .select('id,usuario_id,tool,resource_id,expected_updated_at,payload,preview,status,expires_at,result,channel')
     .eq('id', opId)
     .maybeSingle()
   if (error || !data) throw new Error('No encontré esa operación pendiente.')
@@ -1172,6 +1246,10 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string, option
         ? 'Esta operación fue cancelada.'
         : 'Esta operación ya no se puede confirmar.'
     )
+  }
+
+  if (row.channel === 'retell' && row.tool.startsWith('gmail_')) {
+    throw new Error('VALIDATION_FAILED: Este borrador se creó con Gmail personal. Descártalo y pide en Enviardián el correo de la acción desde el Kanban.')
   }
 
   if (isGoogleWriteTool(row.tool) || isCommunicationWriteTool(row.tool)) {

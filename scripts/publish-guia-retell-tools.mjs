@@ -26,7 +26,7 @@ const key = process.env.RETELL_API_KEY
 const agentId = process.env.RETELL_GUIDE_AGENT_ID
 const toolSecret = process.env.GUIDE_RETELL_TOOL_SECRET
 const publishOk = process.env.GUIDE_RETELL_PUBLISH_OK === '1'
-const PROMPT_VERSION = 'enviardian-voz-2026-11-17-dict-intents'
+const PROMPT_VERSION = 'enviardian-voz-2026-11-17-comms-intents'
 
 if (publishOk && (!configuredApp || !key || !agentId || !toolSecret)) {
   console.error('Para publicar define GUIDE_RETELL_APP_URL, RETELL_API_KEY, RETELL_GUIDE_AGENT_ID y GUIDE_RETELL_TOOL_SECRET.')
@@ -67,7 +67,7 @@ const SCRUMBAN = {
     'Consulta o propone cambios en el tablero Scrumban del usuario de esta sesion. ' +
     'Prefiere tool=get_my_actions|get_okr_progress|get_dashboard_summary|get_action_details|' +
     'get_team_actions|get_pending_verifications|search_people. ' +
-    'Para WhatsApp con acciones vencidas usa whatsapp_prepare_send con recipient e include_overdue=true. Para estado usa get_whatsapp_operation_status. Para correo de una acción al responsable usa notify_action_email. El envío se aprueba en la app. ' +
+    'Para preparar WhatsApp usa whatsapp_prepare_send con recipient y body. Si piden acciones vencidas, usa include_overdue=true. Para estado usa get_whatsapp_operation_status. Para correo de una acción al responsable usa notify_action_email. El envío se aprueba en la app. ' +
     'Evita search_board y get_module_data amplios salvo peticion explicita del usuario. ' +
     'Escrituras: create_action|update_action|add_action_comment|update_checklist_item|mark_action_done|verify_action. ' +
     'Para cambios de tablero que admiten confirmación verbal, usa confirm_pending_op con pending_op_id tras un sí explícito. Para comunicaciones, indica que el borrador se revisa en la app autenticada. ' +
@@ -174,7 +174,10 @@ const QUEUE_WORKSPACE_DRAFT = {
 
 const COMMS_STEERING = `
 Comunicaciones (prompt_version=${PROMPT_VERSION}): interpreta intencion, no solo keywords.
-A explícita de WhatsApp → queue_workspace_draft action=prepare channel=whatsapp. Para correo usa notify_action_email con la acción del tablero. Si es WhatsApp con acciones vencidas, usa scrumban tool=whatsapp_prepare_send con recipient e include_overdue=true. Los envíos se aprueban en la app. B contextual → update + pending_op_id. C mencion informativa → NO tool; soft intent pregunta "Quieres que te deje preparado el mensaje?". D cancel/mod → cancel|update; "otro" = prepare nuevo.
+Detecta el canal que el usuario pide durante la conversación, incluso si la llamada empezó en consulta.
+Para WhatsApp usa scrumban tool=whatsapp_prepare_send con recipient y body. Si pide las acciones vencidas del destinatario, usa include_overdue=true.
+Para correo de una acción usa notify_action_email. Los borradores quedan disponibles en el informe para revisión. Para cambios al contenido generado indica que puede editarlo allí.
+Ante una mención informativa no prepares un mensaje. Si pide cancelar un WhatsApp pendiente, usa queue_workspace_draft con action=cancel y su pending_op_id.
 Canal ambiguo: pregunta WhatsApp o correo antes de encolar. Confirma solo si tool ok. No envies ni leas borradores largos en la llamada.
 work_intent: consult|action|whatsapp|email (create legacy = action).
 Reserva confirm_pending_op para cambios de tablero que admiten aprobación verbal. La aprobación de envíos se hace en la app autenticada.

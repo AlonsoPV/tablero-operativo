@@ -17,7 +17,7 @@ describe('voice work intents', () => {
   it('exposes distinct instructions per intent', () => {
     expect(enviardianVoiceWorkInstruction('create')).toMatch(/work_intent=action/i)
     expect(enviardianVoiceWorkInstruction('action')).toMatch(/create_action/i)
-    expect(enviardianVoiceWorkInstruction('whatsapp')).toMatch(/channel=whatsapp/i)
+    expect(enviardianVoiceWorkInstruction('whatsapp')).toMatch(/tool=whatsapp_prepare_send/)
     expect(enviardianVoiceWorkInstruction('email')).toMatch(/tool=notify_action_email/)
     expect(enviardianVoiceWorkInstruction('consult')).not.toMatch(/work_intent=action/i)
     expect(ENVIARDIAN_PROMPT_VERSION).toMatch(/intents/)

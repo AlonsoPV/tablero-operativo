@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ROUTES } from '@/constants'
 import { GuidePresence, type GuideMood } from '@/features/guide/components/GuidePresence'
+import { listSessionWorkspaceOps } from '@/features/ai-support/services/assistantOpsClient'
 import { GuideReportBody } from '@/features/guide/components/GuideReportBody'
 import { useRetellGuideCall } from '@/features/guide/hooks/useRetellGuideCall'
 import { GuidePersonalLinkButton } from '@/features/guide/components/GuidePersonalLinkButton'
@@ -173,6 +174,7 @@ export function GuidePanel({
   const [session, setSession] = useState<GuideSession | null>(null)
   const [messages, setMessages] = useState<GuideMessage[]>([])
   const [journal, setJournal] = useState<GuideJournalEntry | null>(null)
+  const [workspaceOps, setWorkspaceOps] = useState<Awaited<ReturnType<typeof listSessionWorkspaceOps>>>([])
   const [recentJournal, setRecentJournal] = useState<GuideJournalEntry[]>([])
   const [input, setInput] = useState('')
   const [bootstrapping, setBootstrapping] = useState(true)
@@ -246,6 +248,17 @@ export function GuidePanel({
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, sending, view])
 
+  const reportSessionId = journal?.session_id || session?.id
+  useEffect(() => {
+    if (view !== 'result' || !reportSessionId) return
+    let active = true
+    void listSessionWorkspaceOps(reportSessionId).then(
+      (items) => { if (active) setWorkspaceOps(items) },
+      () => { if (active) toast.error('No se pudieron cargar los mensajes preparados. Puedes abrirlos desde el historial.') }
+    )
+    return () => { active = false }
+  }, [view, reportSessionId])
+
   const closeSession = useCallback(
     async (reason: 'user_requested' | 'time_limit' = 'user_requested') => {
       const current = sessionRef.current
@@ -270,6 +283,7 @@ export function GuidePanel({
               }
             : prev
         )
+        setWorkspaceOps([])
         setJournal(result.journal)
         setRemaining(0)
         const pending =
@@ -670,6 +684,13 @@ export function GuidePanel({
               createdAt={journal?.created_at}
               sessionId={journal?.session_id}
               createdWork={recordedWorkItems(sessionWork)}
+              communications={workspaceOps}
+              onCommunicationUpdated={(next) =>
+                setWorkspaceOps((current) => current.map((op) => op.id === next.id ? { ...op, ...next } : op))
+              }
+              onCommunicationResolved={(id, status) =>
+                setWorkspaceOps((current) => current.map((op) => op.id === id ? { ...op, status } : op))
+              }
             />
             <CreatedWorkList items={recordedWorkItems(sessionWork)} />
           </div>
@@ -682,11 +703,11 @@ export function GuidePanel({
                 onCreated={(draft, created) => markDraftCreated(draft.title, created.id)}
               />
             </div>
-          ) : (
+          ) : workspaceOps.length === 0 ? (
             <p className="px-1 text-xs text-muted-foreground">
               No hubo trabajo nuevo para aprobar. El reporte de arriba conserva lo revisado.
             </p>
-          )}
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="secondary" className="rounded-full" onClick={() => setView('journal')}>
               Ver historial
