@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import assert from 'node:assert/strict'
@@ -18,7 +18,9 @@ function definition(text, name) {
   return match[0]
 }
 const migration = (file) => readFileSync('supabase/migrations/' + file, 'utf8')
-const fromRef = (file) => execSync(`git show ${compatRef}:supabase/migrations/${file}`, { encoding: 'utf8' })
+const fromRef = (file) => existsSync(`supabase/migrations/${file}`)
+  ? readFileSync(`supabase/migrations/${file}`, 'utf8')
+  : execSync(`git show ${compatRef}:supabase/migrations/${file}`, { encoding: 'utf8' })
 
 const id = (n) => '00000000-0000-0000-0000-' + String(n).padStart(12, '0')
 const area = { Ventas: id(201), Comercial: id(202), RH: id(203), OKRS: id(204) }
@@ -313,7 +315,8 @@ try {
     create trigger guard_functional_area_membership before insert or update or delete on usuario_areas
       for each row execute function guard_functional_area_membership();
   `)
-  passed.push(`Compatibility schema loaded from ${compatRef} (R0 can_manage_*, A set_areas and area guards)`)
+  const compatSource = existsSync('supabase/migrations/20261119140000_r1_transversal_access.sql') ? 'working tree' : compatRef
+  passed.push(`Compatibility schema loaded from ${compatSource} (R0 can_manage_*, A set_areas and area guards)`)
   await ordinary('[with R0+A]')
   await check('[with R0+A] Direction is not a catalog manager and cannot grant RH', async () => {
     await asUser(U.direction)

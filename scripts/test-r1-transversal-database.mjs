@@ -8,6 +8,7 @@ const db = new PGlite()
 const r0Migration = 'supabase/migrations/20261118150000_direction_executive_scope.sql'
 const guardMigration = 'supabase/migrations/20261119135000_guard_usuarios_privileges.sql'
 const rc05Migration = 'supabase/migrations/20261119150000_inactive_users_rls.sql'
+const areaGuardMigration = 'supabase/migrations/20261119136000_guard_privileged_area_membership.sql'
 const rc05Rollback = 'supabase/scripts/rollback_inactive_users_rls.sql'
 const migrationA = 'supabase/migrations/20261119140000_r1_transversal_access.sql'
 const scriptB = 'supabase/scripts/apply_r1_revoke_legacy_okrs_area.sql'
@@ -44,19 +45,21 @@ const camel = (key) => key.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
 const passed = []
 const check = async (label, fn) => { await fn(); passed.push(label) }
 
+const claims = (sub, role) =>
+  query("select set_config('request.jwt.claim.sub',$1,false), set_config('request.jwt.claim.role',$2,false)", [sub, role])
 const asUser = async (userId) => {
   await db.exec('reset role')
-  await query("select set_config('request.jwt.claim.sub',$1,false)", [userId])
+  await claims(userId, 'authenticated')
   await db.exec('set role authenticated')
 }
 const asService = async () => {
   await db.exec('reset role')
-  await query("select set_config('request.jwt.claim.sub','',false)")
+  await claims('', 'service_role')
   await db.exec('set role service_role')
 }
 const asOwner = async () => {
   await db.exec('reset role')
-  await query("select set_config('request.jwt.claim.sub','',false)")
+  await claims('', '')
 }
 const capsOf = async (userId) => {
   await asService()
@@ -72,7 +75,10 @@ try {
     create function auth.uid() returns uuid language sql stable as $$
       select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid;
     $$;
-    create function auth.role() returns text language sql stable as $$ select current_user::text; $$;
+    -- Same as Supabase: the JWT role claim, which definer functions do not change.
+    create function auth.role() returns text language sql stable as $$
+      select nullif(current_setting('request.jwt.claim.role',true),'');
+    $$;
     grant usage on schema public,auth to authenticated,service_role;
     grant execute on function auth.uid(), auth.role() to authenticated,service_role;
     create table usuarios(id uuid primary key,user_id uuid,nombre text,rol text,activo boolean,area text,
@@ -298,6 +304,10 @@ try {
     await query('update usuarios set activo=true where id=$1', [U.super_admin])
   })
 
+  await db.exec(readFileSync(areaGuardMigration, 'utf8'))
+  await db.exec(readFileSync(areaGuardMigration, 'utf8'))
+  passed.push('Hotfix 136000 (privileged area guard) applies after 135000 and is idempotent')
+
   await check('Migration A refuses an unsafe public schema', async () => {
     await db.exec('grant create on schema public to authenticated')
     await assert.rejects(db.exec(readFileSync(migrationA, 'utf8')), /Unsafe public schema CREATE/)
@@ -306,6 +316,20 @@ try {
   await db.exec(readFileSync(migrationA, 'utf8'))
   await db.exec(readFileSync(migrationA, 'utf8'))
   passed.push('Migration A applies and is idempotent')
+
+  await check('Hotfix 136000 with A: RH cannot be self-assigned by text or area RPC; an RH member can grant it', async () => {
+    await asUser(U.collaborator)
+    await assert.rejects(query("update usuarios set area='RH' where id=$1", [U.collaborator]), /Privileged area membership/)
+    await assert.rejects(query('select * from settings_users_set_areas($1,$2,$3)', [U.collaborator, area.RH, [area.RH]]),
+      /Privileged area membership/)
+    await assert.rejects(query('insert into usuario_areas(user_id,area_id) values ($1,$2)', [U.collaborator, area.RH]),
+      /Privileged area membership/)
+    await asUser(U.rh)
+    await query('select * from settings_users_set_areas($1,$2,$3)', [U.collaborator, area.Ventas, [area.Ventas, area.RH]])
+    await asOwner()
+    assert.equal(await count('select count(*) n from usuario_areas where user_id=$1 and area_id=$2', [U.collaborator, area.RH]), 1)
+    await query('delete from usuario_areas where user_id=$1 and area_id=$2', [U.collaborator, area.RH])
+  })
 
   await check('system_key: only the OKRS area receives the functional key; new modules are registered', async () => {
     assert.deepEqual(await query("select id from areas where system_key='okrs'"), [{ id: area.OKRS }])
