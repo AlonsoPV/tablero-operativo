@@ -146,11 +146,11 @@ El responsable confirmó que aplicó a mano los archivos del incidente. Se aplic
 - **Precheck** en ambos entornos: hash de `guard_usuarios_privileges` coincide, sin CREATE en `public` para `authenticated`/`anon`, dueños `postgres`, 136000 no aplicado previamente.
 - **DEV** y **PROD**: aplicado sin error. Después: los dos triggers existen; los cuatro helpers son definer o invoker según corresponde, pertenecen a `postgres`, fijan `search_path` y `anon` no tiene EXECUTE; `anon` no tiene INSERT, UPDATE, DELETE ni TRUNCATE en `usuarios` ni en `usuario_areas`; `authenticated` no tiene TRUNCATE; `guard_usuarios_privileges` sigue activo; los miembros de RH no cambiaron (3 en PROD).
 - **Logs** de Postgres desde el despliegue: sin errores ni bloqueos `Privileged area membership requires an administrator` en DEV ni en PROD.
-- **No hecho aún:** pruebas con sesiones JWT reales de cuentas sinteticas en DEV o PROD. Requieren crear cuentas, que no se autorizó. Hasta entonces la verificación de comportamiento es la suite PGlite (31/31).
-- **No hecho:** registrar `20261119136000` en el historial de migraciones. Pendiente de la reconciliación.
+- **JWT real en DEV (2026-11-19).** Dos cuentas sintéticas, Operativo en Calidad y Operativo en RH, iniciaron sesión con contraseña y llamaron a la API con su propio token. Resultados: el operativo recibió 403 al cambiar su rol, al escribir RH y al pedirlo por `settings_users_set_areas`; sí cambió su nombre y sus áreas normales. El miembro de RH recibió 403 al cambiar el rol del otro y sí pudo asignarle y quitarle RH. Una sesión anónima recibió 401. El perfil quedó en Operativo / Calidad. Las dos cuentas se eliminaron al terminar.
+- **Historial reconciliado en DEV y PROD**, sólo con filas de versiones ya aplicadas (sin reejecutar SQL): `20261117181000`, `20261118150000`, `20261119120000`, `20261119135000`, `20261119136000`, `20261119140000` y `20261119150000`. El script B no tiene versión: su efecto está aplicado (`legacy_okrs_area_grants()` es false en PROD) y no se inventó una fila. El desfase anterior a noviembre sigue: muchas migraciones locales de agosto a noviembre se aplicaron con otra marca de tiempo o como SQL suelto, así que `supabase db push` todavía no es seguro.
 
 ## Recomendación
 
 - **135000: GO para mantenerlo.** Ya está activo, es correcto y no se revierte.
-- **136000: aplicado en DEV y PROD** (autorización del responsable). Pendiente la prueba con JWT real.
-- **Reconciliar el historial: GO condicionado** a una autorización expresa del responsable, que confirmó la aplicación manual de R0, A, RC-05, B y `20261119120000` (pendiente confirmar si fue intencional).
+- **136000: aplicado en DEV y PROD**, y verificado con JWT real en DEV.
+- **Historial de noviembre: registrado** en DEV y PROD para las siete versiones confirmadas. `supabase db push` sigue sin ser seguro por el desfase anterior.
