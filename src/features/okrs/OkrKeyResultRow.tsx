@@ -430,6 +430,10 @@ export function OkrKeyResultRow({
                       <LinkedInitiativeRow
                         key={link.id}
                         action={action}
+                        responsableName={
+                          users.find((user) => user.id === action?.responsableId)
+                            ?.nombre
+                        }
                         busy={busy}
                         canUnlink={kr.can_update}
                         onUnlink={() =>

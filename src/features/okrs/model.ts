@@ -41,6 +41,12 @@ export interface ActionOption {
   area_id: string | null
   closed: boolean
   es_okr?: boolean
+  /** usuarios.id del responsable en el Kanban. */
+  responsableId?: string | null
+  /** Fecha compromiso (YYYY-MM-DD). */
+  fecha?: string | null
+  /** Hora de la fecha compromiso (HH:MM). */
+  horaLimite?: string | null
 }
 
 export function isTaggedOkrAction(action: Pick<ActionOption, 'es_okr'>): boolean {

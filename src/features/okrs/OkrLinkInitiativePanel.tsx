@@ -11,7 +11,7 @@ export function OkrLinkInitiativePanel({
   selectedAction,
   onSelect,
   available,
-  areas,
+  users,
   actionsReady,
   actionsError,
   onCreateAction,
@@ -22,7 +22,7 @@ export function OkrLinkInitiativePanel({
   selectedAction: string
   onSelect: (key: string) => void
   available: ActionOption[]
-  areas: { id: string; nombre: string }[]
+  users: { id: string; nombre: string }[]
   actionsReady: boolean
   actionsError?: string | null
   onCreateAction: () => void
@@ -95,8 +95,8 @@ export function OkrLinkInitiativePanel({
               <LinkActionChoice
                 key={`${action.kind}:${action.id}`}
                 action={action}
-                areaName={
-                  areas.find((area) => area.id === action.area_id)?.nombre
+                responsableName={
+                  users.find((user) => user.id === action.responsableId)?.nombre
                 }
                 selected={selectedAction === `${action.kind}:${action.id}`}
                 onSelect={() => onSelect(`${action.kind}:${action.id}`)}
