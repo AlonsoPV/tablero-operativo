@@ -139,9 +139,18 @@ Orden: DEV, verificación en DEV, y después PROD. Nunca `supabase db push`: emp
 - **Completa:** `supabase/scripts/rollback_guard_privileged_area_membership.sql`. No restaura los grants revocados a `anon`.
 - **No revertir 135000** salvo un bloqueo crítico verificado: su rollback reabre el autoescalamiento a super_admin.
 
+## Ejecución · 2026-11-19 (autorizada por el responsable para DEV y PROD)
+
+El responsable confirmó que aplicó a mano los archivos del incidente. Se aplicó `20261119136000` sólo en esta ejecución, por `execute_sql` (no `apply_migration`, para no registrar la versión en el historial).
+
+- **Precheck** en ambos entornos: hash de `guard_usuarios_privileges` coincide, sin CREATE en `public` para `authenticated`/`anon`, dueños `postgres`, 136000 no aplicado previamente.
+- **DEV** y **PROD**: aplicado sin error. Después: los dos triggers existen; los cuatro helpers son definer o invoker según corresponde, pertenecen a `postgres`, fijan `search_path` y `anon` no tiene EXECUTE; `anon` no tiene INSERT, UPDATE, DELETE ni TRUNCATE en `usuarios` ni en `usuario_areas`; `authenticated` no tiene TRUNCATE; `guard_usuarios_privileges` sigue activo; los miembros de RH no cambiaron (3 en PROD).
+- **Logs** de Postgres desde el despliegue: sin errores ni bloqueos `Privileged area membership requires an administrator` en DEV ni en PROD.
+- **No hecho aún:** pruebas con sesiones JWT reales de cuentas sinteticas en DEV o PROD. Requieren crear cuentas, que no se autorizó. Hasta entonces la verificación de comportamiento es la suite PGlite (31/31).
+- **No hecho:** registrar `20261119136000` en el historial de migraciones. Pendiente de la reconciliación.
+
 ## Recomendación
 
 - **135000: GO para mantenerlo.** Ya está activo, es correcto y no se revierte.
-- **136000 en DEV: GO** con autorización expresa, sin esperar al cierre del incidente.
-- **136000 en PROD: GO condicionado** a la verificación en DEV y a una autorización expresa aparte.
-- **Reconciliar el historial: NO-GO** hasta que el responsable confirme la aplicación manual de R0, A, RC-05, B y `20261119120000`.
+- **136000: aplicado en DEV y PROD** (autorización del responsable). Pendiente la prueba con JWT real.
+- **Reconciliar el historial: GO condicionado** a una autorización expresa del responsable, que confirmó la aplicación manual de R0, A, RC-05, B y `20261119120000` (pendiente confirmar si fue intencional).
