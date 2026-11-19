@@ -35,6 +35,7 @@ import {
   actionMatchesStatusGroup,
   actionMatchesVisual,
   canUseWideActionScope,
+  isPersonalActionScope as isPersonalScope,
   parseActionQueryScope,
   parseActionQueryStatusGroup,
   parseActionQueryVisual,
@@ -145,6 +146,7 @@ function summarizeAction(row: ActionRow) {
     fecha: row.fecha,
     hora: row.hora_limite,
     prioridad: row.prioridad,
+    responsable: row.responsable ?? null,
     href: actionHref(row.id),
   }
 }
@@ -341,7 +343,10 @@ async function toolGetMyActions(actor: CopilotActor, args: Record<string, unknow
     visual === 'none' ? Promise.resolve([] as PriorityCatalogRow[]) : loadPriorityCatalog(actor),
   ])
 
+  // Filtro por persona sólo dentro de un alcance amplio ya autorizado.
+  const responsableFilter = isPersonalScope(scope) ? '' : asString(args.responsable_id, 80)
   const filtered = rows.filter((row) => {
+    if (responsableFilter && row.responsable !== responsableFilter) return false
     if (
       !actionMatchesStatusGroup(row, status_group, {
         today,
@@ -374,6 +379,7 @@ async function toolGetMyActions(actor: CopilotActor, args: Record<string, unknow
     count: total,
     returned: items.length,
     truncated: loadTruncated || filtered.length > items.length,
+    load_truncated: loadTruncated,
     items,
     spoken_hint:
       includeCount

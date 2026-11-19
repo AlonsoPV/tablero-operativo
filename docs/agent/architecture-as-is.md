@@ -1,4 +1,34 @@
-# Enviardián · arquitectura actual R0
+# Enviardián · arquitectura actual R0–R1
+
+## R1 · inventario focalizado E1/E2/E3 · 2026-11-19
+
+Rama local `r1/agente-confiable` sobre `r0/estabilizacion` (R0 commiteado tal como estaba en el árbol, sin cambios). Sin push, merge, despliegue ni migraciones remotas. Las correcciones R0 y el rediseño UX de entrada (`feat/assistant-entry-ux`) quedan en ramas separadas.
+
+**Hallazgos de la auditoría antes de cambiar código.**
+
+- La lógica de consulta ya estaba concentrada en `get_my_actions` (alcances, filtros, `canUseWideActionScope`, truncado) y `get_okr_progress` (gate de módulo + RPC `okr_dashboard`). No había un contrato de resultado común: cada canal interpretaba `CopilotToolResult` a su modo, sin distinguir vacío, sin permiso, parcial y error.
+- `summarizeAction` no exponía el responsable, por lo que «¿quién tiene…?» no era respondible con datos. No existía filtro por persona: filtrar después del recorte a 12 filas daba totales falsos.
+- El contexto (`active_query`) sólo se persistía en voz (`consult_log`); chat y WhatsApp dependían del historial del LLM.
+- `gemini-chat` devolvía 502 cuando el loop agotaba rondas de herramientas sin texto final.
+- `assistant_op_log` sólo admite resultados de escritura; las consultas no quedaban auditadas.
+- **Discrepancia abierta:** el gate de módulo de `get_okr_progress` exige el módulo `okrs` en el rol de catálogo también para Dirección. La decisión R0 dice que Dirección consulta OKRs. No se amplió el permiso; se documenta y se prueba el comportamiento vigente.
+
+| Historia | Estado al iniciar R1 | Estado tras R1 (local) | Evidencia |
+| --- | --- | --- | --- |
+| FV-01 Catálogo de fuentes | P | ISV · catálogo tipado de fuentes, campos, dueño, herramienta y política | `api/_shared/query/sourceCatalog.ts`; prueba de catálogo |
+| FV-02 Consultas Kanban | IV local | IV local · contrato único, responsable y filtro por persona autorizado | `query/kanbanQuery.ts`; escenarios 1–3, 6; persona resuelta |
+| FV-03 Consultas OKRs | P | P · normalizado y probado; discrepancia de gate Dirección abierta | `query/okrQuery.ts`; escenario 4; caso Dirección sin módulo |
+| FV-04 Consistencia y trazabilidad | P | ISV · `asOf`, `sources` y limitaciones por resultado; «Corte HH:MM» en respuesta | `query/contracts.ts`; prueba de consistencia entre canales |
+| ID-01 Identificación | P | ISV · actor canónico desde sesión verificada; límite = proyecto | `query/resolveActor.ts`; `stripAuthorityFields` |
+| ID-02 Matriz de permisos | P | P · matriz por operación y rol con pruebas pareadas; RLS/JWT sin validar | `query/authorizeQuery.ts` + tests; remoto NO-GO (R0) |
+| ID-05 Auditoría de acceso | P | ISV · una entrada por turno sin texto ni PII; requiere migración local no aplicada | `query/queryAudit.ts`; `20261119120000_assistant_op_log_read_audit.sql` |
+| CV-01 Comandos | IV | IV local · intención determinista antes del LLM | `orchestrator/intent.ts` (reutiliza `interpretOperationalMessage`) |
+| CV-02 Contexto | P | P · contexto por actor/canal/sesión con TTL 30 min; en memoria por instancia, voz rehidrata desde `consult_log` | `orchestrator/sessionContext.ts`; escenario 2; prueba de expiración y cold start |
+| CV-03 Resolución de personas | P | IV local · homónimos → aclaración; «la más urgente» con regla explícita y empate → aclaración | `orchestrator/resolveEntity.ts`; escenario 3; caso Jorge |
+| CV-04 Gestión de errores | P | IV local · empty/forbidden/partial/error distintos; turno LLM vacío → 200 con mensaje explícito | `orchestrator/respond.ts`; `gemini-chat.ts`; prueba de fuente caída |
+| CV-05 Orquestación omnicanal | P | ISV · orquestador único y adaptadores web/WhatsApp/voz detrás de `AGENT_ORCHESTRATOR_R1=1` | `orchestrator/runAgentTurn.ts`, `channelAdapters.ts`; consistencia entre canales |
+
+IV = implementada y validada · ISV = implementada sin validar en entorno real · P = parcial. «Local» significa probado con el runtime real sobre Supabase en memoria, sin RLS ni JWT.
 
 ## Cierre técnico solicitado · estado vigente al 2026-11-19
 

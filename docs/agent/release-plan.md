@@ -1,6 +1,26 @@
-# Enviardián · releases y ejecución R0
+# Enviardián · releases y ejecución R0–R1
 
-## Decisión vigente de cierre · 2026-11-19
+## R1 · decisión · 2026-11-19
+
+**GO desarrollo / NO-GO integración y liberación.** R1 está implementado y probado localmente, pero depende de R0, que sigue abierto (tabla siguiente). No se fusiona, despliega ni activa `AGENT_ORCHESTRATOR_R1` hasta que R0 supere sus validaciones remotas.
+
+| Rama local | Base | Contenido | Estado |
+| --- | --- | --- | --- |
+| `r0/estabilizacion` | `main` | Correcciones R0 y `docs/agent` | Commit local; NO-GO hasta cerrar las validaciones remotas |
+| `r1/agente-confiable` | `r0/estabilizacion` | Capa de consulta, orquestador, adaptadores con flag, contratos y simulador R2, suite y docs R1 | Commit local; GO desarrollo |
+| `feat/assistant-entry-ux` | `main` | Rediseño de entrada del asistente (fuera del alcance R1) | Commit local; revisión independiente |
+
+**Secuencia de integración propuesta**, sin ejecutar:
+
+1. Cerrar R0 en QA: RLS/JWT, 401, dos P0001, migración efectiva y rollback.
+2. Rebase de R1 sobre el R0 aprobado y repetir la suite completa y el build.
+3. En QA: aplicar `20261119120000_assistant_op_log_read_audit.sql`, activar el flag y ejecutar los 8 escenarios por canal con las cuentas sintéticas, comparando cifras contra SQL.
+4. Resolver el gate de OKR de Dirección y la persistencia del contexto.
+5. Liberación con autorización expresa y reversión por flag (apagar `AGENT_ORCHESTRATOR_R1` devuelve los tres canales al flujo actual).
+
+R2 (mutaciones reales) no empieza sin autorización; sus contratos y simulador ya están probados.
+
+## Decisión vigente de cierre R0 · 2026-11-19
 
 **Resultado global: NO-GO para liberar y R0 permanece abierto.** El trabajo local está validado; no sustituye las cinco validaciones remotas pendientes. Esta sección prevalece sobre tablas históricas de ciclos anteriores.
 

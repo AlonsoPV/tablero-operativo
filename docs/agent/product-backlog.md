@@ -1,4 +1,24 @@
-# Enviardián · backlog consolidado R0
+# Enviardián · backlog consolidado R0–R1
+
+## R1 · estado de historias trabajadas · 2026-11-19
+
+Desarrollo aislado en `r1/agente-confiable`. Ninguna historia se declara liberada. «Local» = runtime real con Supabase en memoria; falta JWT/RLS y datos reales autorizados.
+
+| Historia | Estado | Evidencia R1 | Siguiente gate |
+| --- | --- | --- | --- |
+| FV-01 | ISV | Catálogo tipado de fuentes y dominios no disponibles | Contrastar con el esquema efectivo exportado en QA |
+| FV-02 | IV local | Contrato único; responsable y filtro por persona; escenarios 1–3 y 6 | Mismos IDs con JWT por rol (AT-01–04, AT-19) |
+| FV-03 | P | Normalización OKR y escenario 4 | Decidir gate de Dirección sin módulo `okrs` en catálogo; cotejo con RPC por rol |
+| FV-04 | ISV | `asOf`, fuentes y limitaciones en cada resultado | Mostrar corte en UI web y validar con datos reales |
+| ID-01 | ISV | Actor canónico; descarte de autoridad inyectada | Sesiones JWT QA y vínculos WhatsApp/voz reales |
+| ID-02 | P | Matriz por operación con pruebas pareadas | Paridad RLS/JWT (bloqueada por R0) |
+| ID-05 | ISV | Auditoría por turno sin PII | Aplicar migración `20261119120000` en QA y verificar RLS de inserción |
+| CV-01 | IV local | Intención determinista; no operativo → LLM | Corpus de frases reales por canal |
+| CV-02 | P | Contexto por actor/canal/sesión, TTL 30 min, rehidratación en voz | Persistencia compartida para web/WhatsApp en serverless |
+| CV-03 | IV local | Homónimos y «la más urgente» con aclaración ante empate | Homónimos reales en QA |
+| CV-04 | IV local | Cuatro estados distintos; turno LLM vacío → mensaje explícito | Fallos reales Gemini/Retell en QA |
+| CV-05 | ISV | Orquestador y tres adaptadores detrás de flag | Activar en QA con R0 cerrado; comparar canales con el mismo oráculo |
+| AC-01, AC-02, AC-03, AC-05, CM-02 (preparación) | Contratos y simulador | Propuesta tipada, idempotencia, concurrencia, revalidación y auditoría simuladas | R2: ejecución real sólo con autorización |
 
 ## Gate de cierre R0 · 2026-11-19
 

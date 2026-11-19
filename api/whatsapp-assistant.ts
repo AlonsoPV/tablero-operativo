@@ -26,6 +26,7 @@ import { isGoogleWriteTool } from '../src/features/ai-support/copilot/googleWork
 import { COPILOT_FUNCTION_DECLARATIONS, isCopilotReadTool } from '../src/features/ai-support/copilot/catalog.js'
 import { proposalFromPendingRow } from './_shared/assistantGoogleTools.js'
 import { guideAppBaseUrl } from './_shared/guideUserLinks.js'
+import { isAgentOrchestratorEnabled, runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
 
 const WHATSAPP_READ_ONLY_DECLARATIONS = COPILOT_FUNCTION_DECLARATIONS.filter((d) =>
   isCopilotReadTool(d.name)
@@ -411,6 +412,31 @@ export default defineApiHandler(async (req, res) => {
 
     if (!text) {
       return res.status(400).json({ error: 'Falta el mensaje.' })
+    }
+
+    if (isAgentOrchestratorEnabled()) {
+      const turn = await runChannelTurn({
+        identity: {
+          supabase,
+          authUserId: actor.authUserId,
+          usuarioId,
+          rol: actor.rol,
+          active: usuario.activo !== false,
+        },
+        channel: 'whatsapp',
+        sessionId: waId,
+        utterance: text.slice(0, 2000),
+      })
+      // Canal de sólo lectura: una intención de escritura no crea propuestas aquí.
+      if (turn.handled && turn.intent !== 'write_request') {
+        const options = turn.clarification?.options.map((opt) => `- ${opt.label}`).join('\n')
+        return res.status(200).json({
+          text: clipReply(options ? `${turn.text}\n${options}` : turn.text),
+          proposals: [],
+          clarification: turn.clarification ?? null,
+          handoff: null,
+        })
+      }
     }
 
     const history = await loadHistory(supabase, waId, usuarioId)

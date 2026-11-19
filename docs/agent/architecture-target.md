@@ -1,5 +1,38 @@
 # Enviardián · arquitectura objetivo
 
+## R1 · núcleo compartido implementado localmente · 2026-11-19
+
+El núcleo **envuelve** el runtime existente; no lo reemplaza. `dispatchCopilotTool`, el catálogo, RLS, predicados SQL de R0, Retell y los transportes WhatsApp siguen siendo los mismos. Los canales sólo adaptan formato.
+
+```mermaid
+flowchart LR
+  web[gemini-chat] --> adapt[channelAdapters]
+  wa[whatsapp-assistant] --> adapt
+  voice[guide-retell-tool] --> adapt
+  adapt --> actor[resolveActor]
+  actor --> intent[intent determinista]
+  intent --> ctx[sessionContext TTL 30 min]
+  ctx --> authz[authorizeQuery matriz]
+  authz --> query[query: Kanban, OKR, combinada]
+  query --> tools[dispatchCopilotTool existente]
+  query --> respond[respond: datos, interpretación, recomendación, limitaciones]
+  respond --> audit[queryAudit sin PII]
+  intent -->|unknown| llm[LLM del canal sin cambios]
+```
+
+| Pieza | Contrato | Regla clave |
+| --- | --- | --- |
+| `api/_shared/query/contracts.ts` | `QueryRequest`, `QueryResult<T>`, `CombinedQueryResult` | `status` ∈ ok, empty, forbidden, partial, error. `partial` sólo cuando la fuente se truncó o una parte se denegó; recortar la lista mostrada es una limitación, no parcialidad. |
+| `query/resolveActor.ts` | `AgentActor` | Identidad sólo de la sesión verificada (JWT, vínculo WhatsApp validado por RPC, sesión Guía). `stripAuthorityFields` descarta rol, IDs y alcance enviados por cliente o modelo. |
+| `query/authorizeQuery.ts` | `AGENT_PERMISSION_MATRIX` | Guarda previa que nunca amplía: la lectura amplia reutiliza `canUseWideActionScope`; OKRs siguen sujetos al gate de módulo; `execute_write` es `disabled_r1` o `deny` para todos. Dirección: lectura sí, proponer/ejecutar no. |
+| `orchestrator/runAgentTurn.ts` | `AgentTurnResult` | identidad → intención → contexto → autorización → consulta e interpretación → respuesta + auditoría + traza por etapa. `unknown` → `handled=false` y el canal sigue con su LLM. |
+| `orchestrator/respond.ts` | `AgentResponse` | Cuatro bloques separados. La interpretación que no es dato se rotula como inferencia. Finanzas y otros dominios sin fuente se declaran limitación; nunca se estiman. |
+| `actions/contracts.ts` y `actions/simulator.ts` | `ACTION_CONTRACTS`, `ActionProposal`, `buildIdempotencyKey` | R2 preparado: create_action, update_status, register_blocker y notify_responsable. Ejecución real `R1_EXECUTION_ENABLED=false`; la ejecución futura reutiliza `assistant_pending_ops` y `confirmPendingOp`. |
+
+**Activación.** Los tres adaptadores están detrás de `AGENT_ORCHESTRATOR_R1=1`, apagado por defecto. WhatsApp sigue en sólo lectura: una intención de escritura no crea propuestas y continúa por el flujo existente. Voz sólo intercepta herramientas de lectura con `utterance`. Retell no cambia de configuración.
+
+**Contexto en serverless.** El store es memoria por instancia: suficiente para pruebas y turnos consecutivos en la misma instancia. Para integración se necesita persistencia por sesión (para web/WhatsApp, `consult_log` o una tabla con TTL); queda registrado como dependencia de CV-02.
+
 ## Condiciones de estabilización R0 · 2026-11-19
 
 No se añade arquitectura, motor ni capacidad de R1. Se conserva Dirección como consulta ejecutiva autorizada y se mantienen grants de administración y relaciones de escritura independientes. El cierre exige contrastar la migración candidata con **owners, EXECUTE, search_path, políticas restrictivas y triggers del esquema efectivo**, no sólo con el laboratorio reducido.

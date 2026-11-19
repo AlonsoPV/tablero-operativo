@@ -1,5 +1,20 @@
 # Enviardián · incidentes, riesgos y dependencias
 
+## R1 · riesgos y dependencias nuevos · 2026-11-19
+
+| Riesgo o dependencia | Severidad | Tratamiento |
+| --- | --- | --- |
+| R1 depende de la matriz Dirección de R0 (migración `20261118150000`, `permissions.ts`, `assistantAuth.ts`) | Alta | R1 está ramificado sobre `r0/estabilizacion`. No se integra hasta cerrar R0; si R0 cambia, rebase y repetir la suite. |
+| Paridad RLS/JWT sin probar | Alta | La suite usa el runtime real sin RLS. Ejecutar AT-19 en QA con las diez cuentas propuestas antes de activar el flag. |
+| Gate de módulo OKR niega a Dirección sin módulo `okrs` en su rol de catálogo | Media | No se amplió permiso. Requiere decisión de producto: asignar el módulo por catálogo o ajustar el gate con revisión de seguridad. |
+| Contexto en memoria por instancia (serverless) | Media | Correcto por turno; puede perderse entre instancias en web/WhatsApp. Voz rehidrata desde `consult_log`. Persistencia compartida antes de activar. |
+| Auditoría de consultas requiere migración no aplicada | Media | Sin la migración, el insert falla y se registra sólo el código de error, sin bloquear la respuesta. Aplicar sólo en QA y después con autorización. |
+| WhatsApp y voz usan cliente `service_role` | Media | Comportamiento existente. La matriz añade una guarda previa, no sustituye la RLS. No se expone `service_role` al cliente. |
+| Divergencia entre el orquestador y el LLM del canal | Media | Ambos usan `dispatchCopilotTool`. Las intenciones no reconocidas siguen por el LLM; medir qué fracción atiende cada ruta en QA. |
+| Cambio de respuesta ante turno LLM vacío (502 → 200 con mensaje) | Baja | Aplica sin flag en esta rama. El cliente recibe `degraded: true`; revisar el manejo en UI antes de integrar. |
+
+Sin cambios en producción, proveedores, Retell, migraciones remotas ni envíos. R1 no alteró los incidentes R0 abiertos (401, dos P0001, nueve correlaciones).
+
 ## Conciliación final y dependencias externas · 2026-11-19
 
 ### Dos P0001: hechos confirmados y límites

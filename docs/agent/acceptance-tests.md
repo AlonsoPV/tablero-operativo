@@ -1,4 +1,33 @@
-# Enviardián · pruebas de aceptación R0
+# Enviardián · pruebas de aceptación R0–R1
+
+## R1 · suite de aceptación ejecutada · 2026-11-19
+
+Suite: `api/_shared/orchestrator/r1Acceptance.test.ts`. Ejecuta el `dispatchCopilotTool` **real** (autorización, filtros y truncado del runtime) sobre un Supabase en memoria con el fixture sintético `testing/r1Fixture.ts`. No emula RLS: la paridad con JWT sigue pendiente de QA (R0). Reloj fijo 2026-11-19 10:00 CDMX.
+
+| Escenario | Actor | Criterio verificable | Resultado |
+| --- | --- | --- | --- |
+| 1 · «¿Qué tengo pendiente hoy?» | Líder | Sólo sus 3 acciones abiertas; orden vencida → hoy → resto; 1 con fecha de hoy; una sola herramienta | Aprobado |
+| 2 · «¿Cuáles están vencidas?» | Líder | Conserva `assigned_to_me`, cambia a `overdue`; sólo `a1`; no mezcla la vencida de otra persona | Aprobado |
+| 3 · «¿Quién tiene la más urgente?» | Líder | Resuelve sobre el último resultado sin nueva consulta; responsable con nombre | Aprobado |
+| 4 · «¿Cómo vamos con los objetivos del trimestre?» | Líder | Cifras del fixture (20 %); KR sin datos como limitación; periodo declarado | Aprobado |
+| 5 · «¿Qué está poniendo en riesgo nuestros objetivos?» | Líder | Datos: 2 vencidas, 1 bloqueada, 1 de 2 objetivos bajo 40 %. Interpretación rotulada como inferencia y fuera del bloque de datos | Aprobado |
+| 6 · «Muéstrame las acciones privadas de otro equipo» | Analista | `forbidden` antes de consultar; cero herramientas; sin títulos ajenos; ofrece alcance propio; auditoría `denied_precheck` | Aprobado |
+| 7 · «¿Cuánto dinero estamos perdiendo por los atrasos?» | Líder | Limitación explícita; sin montos; ofrece el conteo verificable (2 vencidas) | Aprobado |
+| 8 · «Crea una acción para resolver el bloqueo» | Líder / Dirección | Propuesta tipada vinculada a la bloqueada `a4`, `executionEnabled=false`, faltantes declarados, cero inserciones. Dirección: `forbidden` | Aprobado |
+
+Casos adicionales en la misma suite: inactivo bloqueado sin consultas, Dirección con lectura de tablero (7 abiertas), Dirección sin módulo `okrs` → `forbidden` (comportamiento vigente, ver discrepancia), homónimos «Jorge» → aclaración, persona resuelta con filtro previo al recorte, expiración de contexto y aislamiento por canal, descarte de campos de autoridad, fuente caída → `error` sin cifras, mensaje no operativo → LLM, auditoría sin texto ni títulos, mismas cifras e IDs en web, WhatsApp y voz.
+
+| Ejecución | Resultado |
+| --- | --- |
+| Suite completa en `r1/agente-confiable` | **718/718, 114 archivos.** Base R0 en esta rama: 661/661 (las 21 pruebas UX restantes del total 682 viven en `feat/assistant-entry-ux`). |
+| Nuevas pruebas R1 | 57: aceptación 19, capa de consulta 13, matriz 14, contratos y simulador R2 9, adaptadores 2. |
+| `tsc -p tsconfig.api.json` | Aprobado. |
+| `npm run vercel-build` | Exit 0: TypeScript, Vite, shells y 11 bundles API. |
+| ESLint sobre archivos nuevos | Aprobado. `whatsapp-assistant.ts` conserva un `prefer-const` preexistente. |
+
+**Métricas medidas en la suite.** Exactitud factual (totales e IDs contra el fixture), autorización (denegaciones previas sin consultas), resolución de contexto, intención (intent esperado por escenario), errores (estado por fuente), herramientas usadas (lista exacta por turno) y consistencia entre canales. La latencia por etapa queda en `trace`; no se fija un SLO sin baseline remoto.
+
+**No ejecutado:** JWT/RLS, datos reales autorizados, Gemini/Retell reales y canales con `AGENT_ORCHESTRATOR_R1=1` desplegado.
 
 ## Validación final ejecutada · 2026-11-19
 

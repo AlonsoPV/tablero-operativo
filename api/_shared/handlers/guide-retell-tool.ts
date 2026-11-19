@@ -47,6 +47,9 @@ import {
   interpretOperationalMessage,
   shouldClarifyCreate,
 } from '../operationalInterpret.js'
+import { isAgentOrchestratorEnabled, runChannelTurn } from '../orchestrator/channelAdapters.js'
+
+const AGENT_VOICE_READ_TOOLS = new Set(['get_my_actions', 'get_okr_progress', 'get_dashboard_summary', 'get_team_actions'])
 
 function asString(value: unknown, max = 80) {
   return typeof value === 'string' ? value.trim().slice(0, max) : ''
@@ -385,6 +388,47 @@ export default defineApiHandler(async (req, res) => {
         asString(toolArgs.request, 240) ||
         null
       let rewrote_from: string | null = null
+
+      if (isAgentOrchestratorEnabled() && utterance && AGENT_VOICE_READ_TOOLS.has(toolName)) {
+        const turn = await runChannelTurn({
+          identity: {
+            supabase,
+            authUserId: String(usuario.user_id),
+            usuarioId: String(usuario.id),
+            rol: typeof usuario.rol === 'string' ? usuario.rol : null,
+            active: true,
+            boardScope: guideBoardScopeForAccessMode(accessMode),
+          },
+          channel: 'voice',
+          sessionId: session.id,
+          utterance,
+          seedActiveQuery: previous,
+        })
+        if (turn.handled && turn.intent !== 'write_request') {
+          dispatch_ms = Date.now() - dispatchStarted
+          const agentStatus = turn.response.status
+          const status =
+            agentStatus === 'forbidden' ? 'denied'
+              : agentStatus === 'clarification' ? 'needs_clarification'
+                : agentStatus === 'error' ? 'error'
+                  : agentStatus === 'empty' ? 'empty'
+                    : 'ok'
+          scheduleConsultLog(supabase, session.id, consultLogEntry(toolName, status, { agent_intent: turn.intent }, undefined, {
+            summaryHint: turn.text.slice(0, 200),
+          }))
+          return {
+            early: true,
+            session,
+            accessMode,
+            response: guideToolSuccess({
+              message: turn.text,
+              status,
+              tool: toolName,
+              data: { agent: { intent: turn.intent, blocks: turn.response.blocks, clarification: turn.clarification ?? null } },
+            }),
+          }
+        }
+      }
 
       // Capa semántica: Kanban vs iniciativa — aclarar sin despachar create.
       if (

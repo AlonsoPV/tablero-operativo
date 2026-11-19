@@ -19,6 +19,8 @@ import {
   sanitizeMessages,
 } from '../src/lib/assistantPrompts.js'
 import { buildAssistantUiFromToolResults } from '../src/features/ai-support/chatViews/buildViewsFromToolResults.js'
+import { isAgentOrchestratorEnabled, runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
+import { EMPTY_MODEL_TURN_MESSAGE } from './_shared/orchestrator/respond.js'
 
 type GeminiContent = {
   role: 'user' | 'model'
@@ -160,6 +162,37 @@ export default defineApiHandler(async (req, res) => {
       hasBoardContext,
     })
 
+    if (isAgentOrchestratorEnabled() && !hasActionContext && !hasOkrContext && lastUserMessage) {
+      const turn = await runChannelTurn({
+        identity: {
+          supabase: auth.supabase,
+          authUserId: auth.authUserId,
+          usuarioId: auth.usuarioId,
+          rol: auth.rol,
+          active: true,
+          accessToken: auth.token,
+        },
+        channel: 'web',
+        sessionId: typeof requestId === 'string' ? requestId.split(':')[0]!.slice(0, 80) : 'web',
+        utterance: lastUserMessage,
+      })
+      if (turn.handled) {
+        return res.status(200).json({
+          answer: turn.text,
+          proposals: [],
+          clarification: turn.clarification,
+          toolTrace: turn.toolsUsed.map((tool) => ({ tool, kind: 'read' })),
+          agent: {
+            intent: turn.intent,
+            status: turn.response.status,
+            blocks: turn.response.blocks,
+            references: turn.response.references,
+            executionEnabled: false,
+          },
+        })
+      }
+    }
+
     const candidates = geminiModelCandidates(process.env.GEMINI_MODEL)
     const generationConfig = {
       maxOutputTokens: readNumberEnv('GEMINI_MAX_TOKENS', DEFAULT_MAX_OUTPUT_TOKENS),
@@ -261,9 +294,13 @@ export default defineApiHandler(async (req, res) => {
       console.error('Gemini empty response:', {
         model,
         finishReason: loopResult.finishReason,
+        tools: loopResult.toolTrace.map((item) => item.tool),
       })
-      return res.status(502).json({
-        error: 'Gemini no regreso contenido util. Intenta con una pregunta mas corta o vuelve a intentar.',
+      return res.status(200).json({
+        answer: EMPTY_MODEL_TURN_MESSAGE,
+        proposals: [],
+        toolTrace: loopResult.toolTrace,
+        degraded: true,
       })
     }
 
