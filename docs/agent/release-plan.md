@@ -1,5 +1,33 @@
 # Enviardián · releases y ejecución R0–R1
 
+## Integración R1 y arranque controlado de R2 · 2026-11-19
+
+Todo es local: hubo commits locales, pero ningún push, merge a `main`, despliegue ni migración remota. DEV y PROD se consultaron sólo con SELECT.
+
+**Dependencias.** `r0/estabilizacion` (`f2fc811`) es ancestro de `r1/agente-confiable` (`f6b6e00`). El hotfix `hotfix/usuarios-guard` (`39a1292`) contiene `135000`, idéntica byte a byte a la de R1, igual que su rollback, más `136000`. Ya están aplicadas en DEV y PROD (ver `hotfix-usuarios-guard.md`). Las 49 funciones que crean las migraciones de noviembre (R0, `120000`, `135000`, `136000`, A, RC-05 y B) tienen el mismo cuerpo en local, DEV y PROD (md5 sin CR). No hay divergencias, así que no se reaplicó nada.
+
+| Rama local | Base | Contenido | Estado |
+| --- | --- | --- | --- |
+| `integration/r1-hotfix` (`be11cae`) | `r1/agente-confiable` + merge `--no-ff` del hotfix | R0, R1, `135000` y `136000`. Runner R1 con `136000` y `auth.role()` por claim JWT; runner del hotfix lee R0 y A del árbol | Validada en worktree limpio |
+| `r2/agente-accionable` (`91193fd`) | `integration/r1-hotfix` | R2 local: puerta de fases, `R2_EXECUTION_MODE`, RPC `agent_apply_action_status`, 4 operaciones con ejecutor simulado, intenciones de canal y aceptación | Validada en worktree limpio |
+
+**R2 implementado (local).** Ciclo Consulta → Propuesta → Confirmación → Revalidación → Ejecución → Evidencia sobre `assistant_pending_ops` y `confirmPendingOp`, sin un segundo sistema de confirmaciones. El orden de implementación fue `create_action`, `update_status`, `register_blocker` y `notify_responsable`. La ejecución sólo ocurre con `R2_EXECUTION_MODE=simulated` y un ejecutor simulado inyectado. En Vercel y producción el modo es siempre `disabled`, y la confirmación responde «ejecución no habilitada». En canales, el orquestador sólo llega a la propuesta: web la muestra con el flag; WhatsApp y voz mantienen su flujo vigente.
+
+| Release | Veredicto | Motivo |
+| --- | --- | --- |
+| R0 | NO-GO liberación | Siguen abiertas las validaciones remotas (JWT/RLS en QA, 401, P0001); su código está aplicado en DEV y PROD desde el incidente del 19-nov |
+| Hotfix usuarios | GO (aplicado) | 135000 y 136000 en DEV y PROD con prueba JWT; la integración no detectó incompatibilidades |
+| R1 | GO integración local / NO-GO liberación | Build y suites limpias en `integration/r1-hotfix`; falta QA con `AGENT_ORCHESTRATOR_R1` y cuentas sintéticas. El flag sigue apagado |
+| R2 | GO desarrollo local / NO-GO QA y liberación | Pasan 22 escenarios simulados y 14 comprobaciones SQL en PGlite; no hay validación con JWT reales y la RPC no está aplicada en ningún entorno |
+
+**Autorizaciones necesarias para QA de R2** (ninguna se ejecutó):
+
+1. Aplicar `20261120120000_agent_apply_action_status.sql` en DEV o QA (rollback: `supabase/scripts/rollback_agent_apply_action_status.sql`).
+2. Crear cuentas sintéticas para Responsable, Creadora, Analista, Dirección, Super Admin e Inactivo, y obtener sus JWT.
+3. Activar `AGENT_ORCHESTRATOR_R1` en QA para validar las propuestas por canal.
+4. Ejecutar el modo simulado contra DEV con proveedores simulados. Requiere un modo de QA explícito, porque hoy el ejecutor `rpc` es inalcanzable.
+5. Decidir si los copilotos actuales migran a la puerta R2 (ver R2-01 en `risks-and-dependencies.md`).
+
 ## R1 complemento · matriz de transición y orden · 2026-11-19
 
 Resultado de `audit_okrs_area_legacy_grants.sql` en sólo lectura. Nadie pierde acceso SQL con B: los diez miembros del área OKRS en PROD tienen otra vía de Super Admin. Antes de la corrección de paridad (RD-04), la UI y el agente sí habrían quitado el acceso a los cuatro Líderes y a Dirección.

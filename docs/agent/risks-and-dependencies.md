@@ -1,5 +1,22 @@
 # Enviardián · incidentes, riesgos y dependencias
 
+## Integración R1 y R2 local · riesgos y dependencias · 2026-11-19
+
+**Dependencias verificadas (sólo lectura).** Las 49 funciones de las migraciones de noviembre coinciden entre local, DEV y PROD. `135000` y su rollback son idénticos en R1 y en el hotfix. La fusión de R1 con el hotfix no tuvo conflictos y `136000` convive con A, que se prueba en ambos runners. No se encontró ninguna incompatibilidad de seguridad.
+
+| ID | Riesgo | Severidad | Tratamiento |
+| --- | --- | --- | --- |
+| R2-01 | Los copilotos actuales (`create_action`, `update_action`, `mark_action_done`, `verify_action`, `notify_action_email`, `whatsapp_prepare_send`) siguen ejecutando por su ruta vigente, fuera de la puerta de fases R2 | Media | Sin cambios por diseño (no alterar flujos en producción). Las herramientas R2 (`agent_*`) son nuevas y no están en `COPILOT_WRITE_TOOLS`, así que el LLM no las ve. Decidir en QA si los copilotos migran a la puerta |
+| R2-02 | Las pruebas R2 son simuladas: Supabase en memoria y RPC en JS con las mismas reglas | Alta para liberar | La RPC SQL se prueba aparte en PGlite. Falta aplicarla en DEV o QA y repetir con JWT reales |
+| R2-03 | Por la regla del trigger de estados, un responsable sin edición general no puede escribir `causa_raiz` | Baja | La RPC respeta la regla: el motivo queda siempre en el comentario y `causa_raiz` sólo si hay edición general. Decisión de producto pendiente |
+| R2-04 | `request_key` es permanente para operaciones confirmadas | Baja | Repetir exactamente la misma creación (mismo título, responsable y fecha) se rechaza como duplicado; el aviso se deduplica por día. Las claves de propuestas canceladas o vencidas se liberan |
+| R2-05 | `can_edit_accion_general_as` se invoca con el JWT del usuario en la propuesta; R0 sólo concedió explícitamente a `service_role` | Media | Si `authenticated` no tiene EXECUTE en un entorno, la propuesta se niega (falla cerrada). Verificar el ACL en QA |
+| R2-06 | `confirmPendingOp` registra `conflict` y después `error` en el mismo conflicto | Baja | Comportamiento previo, sin cambios; documentado en la prueba |
+| R2-07 | El ejecutor `rpc` (proveedores reales) existe pero ningún modo lo admite | — | Habilitarlo requiere un modo de QA nuevo y autorización expresa |
+| R2-08 | Dirección con privilegio explícito de administrador puede ejecutar en SQL, mientras la matriz TS la clasifica por perfil | Baja | Coherente con «Super Admin acumulativo»; Dirección sin privilegio queda negada en ambas capas |
+
+**Integración.** Para reflejar Supabase, el runner R1 ahora lee `auth.role()` del claim JWT; antes usaba `current_user`, lo que dentro de funciones definer devolvía el dueño. En un worktree limpio, vitest necesita variables Supabase ficticias.
+
 ## R1 complemento · diagnóstico de sólo lectura en DEV y PROD · 2026-11-19
 
 Consultas SELECT por MCP en DEV (`tgiuevzlyptzlfgxsfhj`) y PROD (`xhpasmjzuwifmjhrsumb`). No se modificaron datos, permisos, usuarios ni migraciones. No se registran teléfonos, correos ni mensajes.

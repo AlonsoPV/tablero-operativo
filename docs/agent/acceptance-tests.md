@@ -1,5 +1,65 @@
 # Enviardián · pruebas de aceptación R0–R1
 
+## Integración R1 y R2 local · pruebas ejecutadas · 2026-11-19
+
+Cada rama corrió en su propio worktree limpio, con `npm ci` y `node_modules` propio, sin cambios ajenos. vitest se ejecuta con `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` ficticios: sin `.env`, tres suites que crean el cliente al importarse no cargan.
+
+| Suite | `integration/r1-hotfix` | `r2/agente-accionable` |
+| --- | --- | --- |
+| `tsc -p tsconfig.api.json` / `tsconfig.app.json` | Aprobados | Aprobados |
+| `npm run vercel-build` | Aprobado | Aprobado |
+| `npx vitest run` | 756/756, 117 archivos | 778/778, 118 archivos |
+| `test-agent-permissions-database.mjs` (R0) | Aprobado | Aprobado |
+| `test-r1-transversal-database.mjs` | **49/49**: suma `136000` tras `135000` e impide autoasignar RH por texto, RPC de áreas e inserción directa | 49/49 |
+| `test-hotfix-usuarios-guard.mjs` | 31/31, con R0 y A leídos del árbol | 31/31 |
+| `test-whatsapp-database.mjs` / `test-okr-database.mjs` | Aprobados | Aprobados |
+| `test-r2-action-status-database.mjs` | — | **14/14** |
+| ESLint en los archivos TS de R2 | — | Aprobado |
+
+Las validaciones de integración pedidas están cubiertas así:
+
+- **Super Admin acumulativo, lectura transversal del área OKRS, lectura ejecutiva de Dirección y separación Inbox/configuración de WhatsApp:** runner R1, `r1Transversal.test.ts` y `capabilityParity.test.ts`.
+- **Escalamiento directo e indirecto:** runner del hotfix y las dos comprobaciones nuevas del runner R1.
+- **Contexto persistente, aislamiento y TTL:** `r1Transversal.test.ts` y `r1Acceptance.test.ts`.
+- **Paridad SQL/TS:** fixture de 12 perfiles.
+- **Idempotencia de migraciones:** cada runner aplica dos veces.
+
+**`scripts/test-r2-action-status-database.mjs` (PGlite).** Usa las definiciones reales más recientes de los permisos de acción, de `try_set_accion_hecho`, del trigger de estados y de `assistant_pending_ops`. Las sesiones corren como `authenticated` con claims JWT simulados. Comprueba:
+
+- La migración se niega a aplicarse sin dependencias y es idempotente.
+- `anon` no tiene EXECUTE y los clientes no escriben recibos.
+- Un recibo por operación vuelve idempotente la repetición.
+- CAS por `updated_at`.
+- Vínculo con la confirmación: sólo el dueño, sólo en `executing` y sólo con los mismos parámetros.
+- Verificado nunca se asigna y una acción verificada no cambia.
+- Hecho con checkpoints pendientes se revierte por completo.
+- Bloqueo: motivo de al menos 5 caracteres; comentario siempre y `causa_raiz` sólo con edición general.
+- Atomicidad ante un fallo del comentario.
+- Se niega a usuarios ajenos, Analista, Dirección e inactivos; Super Admin acumulativo.
+- RLS de recibos.
+- Rollback y reaplicación.
+
+**`api/_shared/actions/r2Acceptance.test.ts` (22 escenarios, simulados).**
+
+| Caso | Evidencia |
+| --- | --- |
+| Modo | `disabled` por defecto y forzado en Vercel y producción; confirmar sin ejecutor responde «ejecución no habilitada», no toca datos y registra `denied`. El ejecutor `rpc` es inalcanzable. `fromTool` nunca confirma |
+| AT-06 | Responsable resuelto en servidor (desambiguación de homónimos), fecha no pasada, una sola acción con id determinista por operación |
+| AT-07 | Cambio de estado con recibo. Verificado no se propone. Hecho con checkpoint pendiente deja la operación `pending` con `error_message` y el reintento cierra una vez |
+| AT-08 | Motivo obligatorio. El responsable deja comentario y la creadora además `causa_raiz` |
+| AT-09 | Exige `whatsappInbox`. Destinatario = responsable, con teléfono de su vínculo activo. Sin vínculo falla sin enviar y queda pendiente; tras vincular se envía una vez |
+| AT-10 | Correo único al responsable, sin reenvío al reconfirmar. No se notifica a uno mismo. Un usuario sin permiso sobre la acción no notifica. Si el responsable cambió, no se envía |
+| AT-16 | Evidencia del autor: estado, resultado, recibo y bitácora (`proposed`, `executed`); otro usuario no la lee |
+| Idempotencia y concurrencia | La misma intención da la misma operación. Doble confirmación y confirmaciones concurrentes producen un solo efecto |
+| Vencimiento | Pasa a `expired`, no ejecuta y libera la clave para volver a proponer |
+| Cambio de rol o desactivación | Se niega con permisos recargados; la operación sigue pendiente |
+| Conflicto `updated_at` | Pasa a `conflict` sin efecto y no puede reconfirmarse |
+| Dirección y Analista | No proponen ni confirman, aunque la operación se inserte a mano |
+| Alcance de la IA | Campos de autoridad inyectados no amplían permisos ni llegan al payload |
+| Canales | Bloqueo, estado y aviso sólo producen propuesta; Verificado se niega; no se crean operaciones |
+
+**Sin ejecutar:** RLS y RPC con JWT reales en DEV o QA, proveedores reales y canales desplegados. Las pruebas simuladas no sustituyen esa validación.
+
 ## R1 complemento · P0, RC-05 y paridad super_admin · pruebas ejecutadas · 2026-11-19
 
 Todo es local, en PGlite. El diagnóstico remoto fue de sólo lectura (ver `risks-and-dependencies.md`). Para reproducir PROD, el runner deja `get_my_usuario_id` sin filtro de `activo`, otorga UPDATE de `usuarios` a `anon` y usa el `is_current_user_super_admin` con sus tres vías.

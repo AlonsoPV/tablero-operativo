@@ -1,5 +1,25 @@
 # Enviardián · arquitectura objetivo
 
+## R2 · agente accionable (local) · 2026-11-19
+
+R2 reutiliza `ACTION_CONTRACTS`, `R2_PHASE_MATRIX`, `assistant_pending_ops` y `confirmPendingOp`; no hay otro sistema de confirmaciones.
+
+| Fase | Dónde | Regla |
+| --- | --- | --- |
+| Consulta y propuesta | `proposeR2Operation` (`api/_shared/actions/r2Runtime.ts`) | `authorizeActionPhase('propose')` con las capacidades del turno, validación del contrato y datos resueltos en servidor: responsable activo, acción visible, `updated_at` y destinatario = responsable. Guarda la operación pendiente con `request_key = buildIdempotencyKey(usuario, operación, payload)` y vence en 10 minutos |
+| Confirmación | `confirmPendingOp` → `gateR2Confirmation` | Nunca desde una herramienta del modelo (`fromTool`). Exige `R2_EXECUTION_MODE=simulated` y un ejecutor simulado. Recarga rol, activación y capacidades y autoriza `confirm` y `execute`. Si la autorización falla, se registra `denied` |
+| Revalidación | `confirmPendingOp` | Reserva atómica `pending→executing` comparando el payload y el vencimiento; conflicto si cambió `updated_at` |
+| Ejecución | `ActionExecutor` | `create_action` usa el ejecutor existente con id determinista. `update_status` y `register_blocker` usan la RPC `agent_apply_action_status`. `notify_responsable` usa adaptadores de correo y Graph simulados |
+| Evidencia | `verify` + `readR2Evidence` | Relee el efecto; si no se comprueba, la operación vuelve a `pending` con `error_message`. Se conservan bitácora, resultado y recibo SQL |
+
+**Herramientas.** `agent_create_action`, `agent_set_action_status`, `agent_register_blocker` y `agent_notify_responsable`. No forman parte del catálogo del copiloto.
+
+**Modo.** `R2_EXECUTION_MODE` vale `disabled` por defecto, y siempre con `VERCEL`, `VERCEL_ENV` o `NODE_ENV=production`. `simulated` sólo aplica en pruebas y desarrollo local. El ejecutor `rpc` (JWT del usuario y proveedores reales) no es alcanzable con ningún modo actual.
+
+**RPC `agent_apply_action_status`** (`20261120120000`, local). Es security definer con `search_path` fijo. Exige un usuario activo y una operación propia en `executing`, de la herramienta correcta y con los mismos parámetros confirmados. Hace FOR UPDATE de la acción y CAS por `updated_at`. Autoriza al responsable o a quien tenga `can_edit_accion_general_as`, y niega a Analista y a Dirección sin privilegio explícito. Hecho delega en `try_set_accion_hecho` (checkpoints) y Verificado nunca se asigna. Bloqueado exige un motivo de al menos 5 caracteres y escribe el comentario en la misma transacción. Guarda un recibo por `pending_op_id` en `agent_action_receipts`, legible sólo por su dueño, y lo devuelve si se repite la llamada.
+
+**Canales.** El orquestador reconoce las intenciones de estado, bloqueo y aviso al responsable, y sólo llega a la propuesta validada (`proposeAction`, sin persistir), avisando que la ejecución no está habilitada. Web la muestra cuando `AGENT_ORCHESTRATOR_R1=1`. WhatsApp y voz ignoran `write_request` y siguen su flujo vigente.
+
 ## R1 complemento · capacidades explícitas y lectura transversal · 2026-11-19
 
 No hay un sistema de permisos paralelo. Los permisos nuevos son módulos de `app_modules`, asignados mediante roles de catálogo (`catalog_roles` → `catalog_role_modules`). Una sola derivación produce las capacidades: `resolveAccessCapabilities` en TS y `access_capabilities_for_usuario` en SQL. Un fixture compartido prueba la paridad entre ambas.
