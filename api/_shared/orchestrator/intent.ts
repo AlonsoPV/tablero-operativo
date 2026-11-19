@@ -31,7 +31,14 @@ export type AgentIntent =
   | { kind: 'analyze_risk' }
   | { kind: 'who_most_urgent' }
   | { kind: 'unsupported_metric'; domain: 'finance' }
-  | { kind: 'write_request'; operation: 'create_action' | 'update_action'; request: string }
+  | {
+      kind: 'write_request'
+      operation: 'create_action' | 'update_action' | 'update_status' | 'register_blocker' | 'notify_responsable'
+      request: string
+      estado?: 'Pendiente' | 'En_Ejecucion' | 'Hecho' | 'Verificado'
+      motivo?: string
+      canal?: 'email' | 'whatsapp'
+    }
   | { kind: 'clarify'; question: string }
   | { kind: 'unknown' }
 
@@ -81,12 +88,31 @@ export function classifyAgentIntent(
   if (interpreted.intent === 'clarify' && interpreted.ambiguity) {
     return { kind: 'clarify', question: interpreted.ambiguity.question }
   }
+  const request = utterance.slice(0, 500)
+  const target = /\b(accion|tarea|esa|esta|la)\b/.test(text)
+  if (target && /\b(bloquea|bloquear|bloqueala|(registra|registrar|reporta|reportar)\s+(un\s+)?bloqueo)\b/.test(text)) {
+    const motivo = utterance.match(/\b(?:porque|por que|debido a|motivo:?)\s+(.+)$/i)?.[1]?.trim().slice(0, 500)
+    return { kind: 'write_request', operation: 'register_blocker', request, ...(motivo ? { motivo } : {}) }
+  }
+  if (/\b(avisa|avisale|notifica|notificale|recuerdale|manda|mandale|envia|enviale)\b/.test(text) &&
+    /\bresponsable\b/.test(text)) {
+    return { kind: 'write_request', operation: 'notify_responsable', request, canal: /\bwhatsapp\b/.test(text) ? 'whatsapp' : 'email' }
+  }
+  if (target && /\b(marca|marcar|marcala|pon|poner|ponla|cambia|cambiar|mueve|pasa)\b/.test(text)) {
+    const estado = /\bverificad[ao]\b/.test(text) ? 'Verificado'
+      : /\b(hech[ao]|terminad[ao]|completad[ao]|cerrad[ao])\b/.test(text) ? 'Hecho'
+        : /\ben (ejecucion|proceso|curso)\b/.test(text) ? 'En_Ejecucion'
+          : /\bpendiente\b/.test(text) ? 'Pendiente'
+            : null
+    if (estado) return { kind: 'write_request', operation: 'update_status', request, estado }
+  }
+
   if (interpreted.intent === 'propose_create_kanban') {
-    return { kind: 'write_request', operation: 'create_action', request: utterance.slice(0, 500) }
+    return { kind: 'write_request', operation: 'create_action', request }
   }
   if (/\b(marca|marcar|actualiza|actualizar|cambia|cambiar|cierra|cerrar|reprograma|mueve)\b/.test(text) &&
     /\b(accion|tarea|esa|esta)\b/.test(text)) {
-    return { kind: 'write_request', operation: 'update_action', request: utterance.slice(0, 500) }
+    return { kind: 'write_request', operation: 'update_action', request }
   }
 
   if (!OPERATIONAL_TERMS.test(text)) return { kind: 'unknown' }

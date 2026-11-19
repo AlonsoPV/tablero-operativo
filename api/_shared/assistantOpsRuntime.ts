@@ -54,6 +54,16 @@ import {
   buildAccionEmailPayload,
 } from '../../src/lib/accionNotificationEmail.js'
 
+import {
+  gateR2Confirmation,
+  isR2AgentTool,
+  logR2Denied,
+  type ActionExecutor,
+  type BoardWrite,
+} from './actions/r2Runtime.js'
+import { resolveR2ExecutionMode, type R2ExecutionMode } from './actions/executionMode.js'
+import type { AgentChannel } from './query/resolveActor.js'
+
 export type { CopilotActor } from './assistantPending.js'
 
 const OPEN_STATES = ['Pendiente', 'Hoy', 'En_Ejecucion', 'Bloqueado', 'Retraso']
@@ -1190,14 +1200,19 @@ async function canWriteAction(actor: CopilotActor, action: ActionRow, tool: stri
   return data === true
 }
 
-async function executePayload(actor: CopilotActor, tool: string, payload: Record<string, unknown>) {
+async function executePayload(
+  actor: CopilotActor,
+  tool: string,
+  payload: Record<string, unknown>,
+  opts?: { actionId?: string }
+) {
   if (tool === 'update_action' || tool === 'verify_action' || tool === 'mark_action_done') {
     const action = await loadAction(actor, String(payload.action_id))
     const ownsOperation = action && await canWriteAction(actor, action, tool)
     if (!ownsOperation) throw new Error('PERMISSION_DENIED: Ya no tienes autorización sobre esa acción.')
   }
   if (tool === 'create_action') {
-    const actionId = crypto.randomUUID()
+    const actionId = opts?.actionId ?? crypto.randomUUID()
     const checkpoints = sanitizeCheckpoints(payload.checkpoints)
     const fields = { ...payload }
     delete fields.checkpoints
@@ -1350,7 +1365,17 @@ async function executePayload(actor: CopilotActor, tool: string, payload: Record
   throw new Error('Herramienta de escritura no soportada.')
 }
 
-export async function confirmPendingOp(actor: CopilotActor, opId: string, options?: { fromTool?: boolean }) {
+/** Ejecutor de escrituras existente; R2 lo reutiliza para create_action y notify_action_email. */
+export const executeBoardWrite: BoardWrite = executePayload
+
+export async function confirmPendingOp(
+  actor: CopilotActor,
+  opId: string,
+  options?: {
+    fromTool?: boolean
+    r2?: { mode?: R2ExecutionMode; executor?: ActionExecutor; channel?: AgentChannel }
+  }
+) {
   const { data, error } = await actor.supabase
     .from('assistant_pending_ops')
     .select('id,usuario_id,tool,resource_id,expected_updated_at,payload,preview,status,expires_at,result,channel,session_id')
@@ -1385,6 +1410,21 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string, option
         ? 'Esta operación fue cancelada.'
         : 'Esta operación ya no se puede confirmar.'
     )
+  }
+
+  let r2Executor: ActionExecutor | null = null
+  if (isR2AgentTool(row.tool)) {
+    try {
+      r2Executor = await gateR2Confirmation(actor, { tool: row.tool, usuario_id: row.usuario_id, payload: row.payload }, {
+        fromTool: options?.fromTool,
+        mode: options?.r2?.mode ?? resolveR2ExecutionMode(),
+        executor: options?.r2?.executor,
+        channel: options?.r2?.channel,
+      })
+    } catch (err) {
+      await logR2Denied(actor, row.tool, opId, row.resource_id)
+      throw err
+    }
   }
 
   if ((row.channel === 'retell' || (row.session_id && row.payload?.draft_kind === 'email')) && row.tool.startsWith('gmail_')) {
@@ -1447,7 +1487,7 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string, option
 
   let result: Record<string, unknown>
   try {
-    if (row.resource_id && row.expected_updated_at && isCopilotWriteTool(row.tool) && row.tool !== 'create_action') {
+    if (row.resource_id && row.expected_updated_at && (isCopilotWriteTool(row.tool) || isR2AgentTool(row.tool)) && row.tool !== 'create_action') {
       const current = await loadAction(actor, row.resource_id)
       if (!current?.updated_at || current.updated_at !== row.expected_updated_at) {
         await actor.supabase
@@ -1459,9 +1499,17 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string, option
         throw new Error('El registro cambió después de la vista previa. Pide una nueva confirmación.')
       }
     }
-    result = isCommunicationWriteTool(row.tool)
-      ? await executeWhatsappWrite(actor, row.payload ?? {}, opId)
-      : await executePayload(actor, row.tool, row.payload ?? {})
+    if (r2Executor && isR2AgentTool(row.tool)) {
+      const ctx = { opId, expectedUpdatedAt: row.expected_updated_at }
+      result = await r2Executor.execute(actor, row.tool, row.payload ?? {}, ctx)
+      if (!(await r2Executor.verify(actor, row.tool, row.payload ?? {}, result, ctx))) {
+        throw new Error('VERIFICATION_FAILED: No se pudo comprobar el efecto. Consulta el estado antes de reintentar.')
+      }
+    } else {
+      result = isCommunicationWriteTool(row.tool)
+        ? await executeWhatsappWrite(actor, row.payload ?? {}, opId)
+        : await executePayload(actor, row.tool, row.payload ?? {})
+    }
   } catch (err) {
     const needsPersonalConnection = row.tool.startsWith('gmail_') && err instanceof GoogleUserError &&
       ['not_connected', 'needs_reauth', 'missing_scope'].includes(err.code)

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CopilotProposal, CopilotWriteTool } from '../../src/features/ai-support/copilot/types.js'
 import type { AccessCapabilities } from '../../src/features/auth/lib/permissions.js'
+import type { R2AgentTool } from './actions/r2Runtime.js'
 
 export type CopilotBoardScope = 'role' | 'organization'
 
@@ -52,16 +53,19 @@ export async function insertAssistantOpLog(
 export async function createPendingOp(
   actor: CopilotActor,
   input: {
-    tool: CopilotWriteTool
+    tool: CopilotWriteTool | R2AgentTool
     resourceId?: string | null
     expectedUpdatedAt?: string | null
     payload: Record<string, unknown>
     proposal: Omit<CopilotProposal, 'id' | 'expiresAt' | 'tool'> & { tool?: CopilotWriteTool }
     ttlMs?: number
     requestKey?: string
+    /** Una propuesta cancelada o vencida con la misma clave no impide volver a proponer. */
+    releaseStaleRequestKey?: boolean
     sessionId?: string | null
     channel?: string | null
-  }
+  },
+  attempt = 0
 ): Promise<CopilotProposal> {
   const expiresAt = new Date(Date.now() + (input.ttlMs ?? BOARD_PENDING_TTL_MS)).toISOString()
   const preview = {
@@ -100,10 +104,27 @@ export async function createPendingOp(
       .eq('request_key', input.requestKey)
       .maybeSingle()
     if (lookupError) throw new Error('DATABASE_ERROR: No se pudo recuperar la solicitud anterior.')
+    const stale = duplicate && (
+      duplicate.status === 'cancelled' || duplicate.status === 'expired' ||
+      (duplicate.status === 'pending' && Date.parse(duplicate.expires_at) <= Date.now())
+    )
+    if (stale && input.releaseStaleRequestKey && attempt === 0) {
+      const { data: released } = await actor.supabase
+        .from('assistant_pending_ops')
+        .update({
+          request_key: null,
+          ...(duplicate.status === 'pending' ? { status: 'expired', decided_at: new Date().toISOString() } : {}),
+        })
+        .eq('id', duplicate.id)
+        .eq('status', duplicate.status)
+        .select('id')
+        .maybeSingle()
+      if (released) return createPendingOp(actor, input, attempt + 1)
+    }
     if (!duplicate || duplicate.status !== 'pending' || Date.parse(duplicate.expires_at) <= Date.now()) {
       throw new Error('La solicitud ya se procesó. Consulta su estado o inicia una solicitud nueva.')
     }
-    return { ...duplicate.preview, id: duplicate.id, expiresAt: duplicate.expires_at, tool: input.tool }
+    return { ...duplicate.preview, id: duplicate.id, expiresAt: duplicate.expires_at, tool: input.tool as CopilotWriteTool }
   }
   if (error || !data) {
     throw new Error(
@@ -121,7 +142,7 @@ export async function createPendingOp(
   })
   return {
     id: data.id as string,
-    tool: input.tool,
+    tool: input.tool as CopilotWriteTool,
     title: input.proposal.title,
     summary: input.proposal.summary,
     fields: input.proposal.fields,

@@ -472,12 +472,52 @@ function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent, { kin
     response.blocks.limitations.push('La ejecución todavía no está habilitada en R1: no se creó ninguna acción.')
     return { response, proposal: proposed.proposal as ActionProposal, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
   }
-  const target = state.ctx.lastEntity?.kind === 'action' ? state.ctx.lastEntity : null
+  const target = state.ctx.lastEntity?.kind === 'action'
+    ? { id: state.ctx.lastEntity.id, label: state.ctx.lastEntity.label }
+    : state.ctx.lastActions.length === 1
+      ? { id: state.ctx.lastActions[0]!.id, label: state.ctx.lastActions[0]!.title }
+      : null
+  if (intent.operation === 'update_action') {
+    response.blocks.data.push(
+      target ? `Propuesta identificada: actualizar «${target.label}».` : 'Propuesta identificada: actualizar una acción (falta indicar cuál).'
+    )
+    response.blocks.limitations.push('La ejecución todavía no está habilitada en R1: no se modificó nada.')
+    return { response, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
+  }
+  return handleR2WriteRequest(state, intent, target, response)
+}
+
+/** R2 en canales: sólo llega a la propuesta validada; la confirmación y ejecución quedan fuera del canal. */
+function handleR2WriteRequest(
+  state: TurnState,
+  intent: Extract<AgentIntent, { kind: 'write_request' }>,
+  target: { id: string; label: string } | null,
+  response: ReturnType<typeof baseResponse>
+) {
+  if (intent.operation === 'update_status' && intent.estado === 'Verificado') {
+    return {
+      response: forbidden('Verificado requiere la validación de una persona; el agente no lo asigna.'),
+      audit: { status: 'denied_precheck' as const, entity: 'actions' },
+    }
+  }
+  const accionId = target?.id ?? ''
+  const proposed = intent.operation === 'update_status'
+    ? proposeAction(state.actor, 'update_status', { accionId, estado: intent.estado as 'Pendiente' | 'En_Ejecucion' | 'Hecho' })
+    : intent.operation === 'register_blocker'
+      ? proposeAction(state.actor, 'register_blocker', { accionId, motivo: intent.motivo ?? '' })
+      : proposeAction(state.actor, 'notify_responsable', { accionId, canal: intent.canal ?? 'email' })
+  if (!proposed.ok) return { response: forbidden(proposed.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
+  const label = target?.label ? `«${target.label}»` : 'una acción (falta indicar cuál)'
   response.blocks.data.push(
-    target ? `Propuesta identificada: actualizar «${target.label}».` : 'Propuesta identificada: actualizar una acción (falta indicar cuál).'
+    intent.operation === 'update_status'
+      ? `Propuesta identificada: cambiar ${label} a ${intent.estado}.`
+      : intent.operation === 'register_blocker'
+        ? `Propuesta identificada: registrar bloqueo en ${label}.`
+        : `Propuesta identificada: avisar al responsable de ${label} por ${intent.canal === 'whatsapp' ? 'WhatsApp' : 'correo'}.`
   )
-  response.blocks.limitations.push('La ejecución todavía no está habilitada en R1: no se modificó nada.')
-  return { response, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
+  if (proposed.proposal.missing.length) response.blocks.data.push(`Faltaría: ${proposed.proposal.missing.join(', ')}.`)
+  response.blocks.limitations.push('La ejecución no está habilitada en este canal: no se modificó ni se envió nada.')
+  return { response, proposal: proposed.proposal as ActionProposal, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
 }
 
 export async function runAgentTurn(

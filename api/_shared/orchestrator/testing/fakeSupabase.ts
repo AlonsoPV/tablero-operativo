@@ -7,11 +7,17 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 type Row = Record<string, unknown>
 
+export type FakeSession = { usuarioId?: string }
+
 export type FakeDb = {
   tables: Record<string, Row[]>
-  rpcs?: Record<string, (args: Record<string, unknown>) => unknown>
+  rpcs?: Record<string, (args: Record<string, unknown>, session: FakeSession) => unknown>
   inserts: Array<{ table: string; row: Row }>
   queries: Array<{ table: string }>
+  /** Inserciones persistentes, update y unicidad (pruebas R2). Apagado conserva el comportamiento R1. */
+  mutable?: boolean
+  /** Índices únicos parciales: se violan sólo si todas las columnas son no nulas e iguales. */
+  unique?: Record<string, string[][]>
 }
 
 function parseOr(expr: string): Array<{ col: string; value: string }> {
@@ -35,7 +41,24 @@ function ilikeToRegex(pattern: string) {
   return new RegExp(`^${escaped}$`, 'i')
 }
 
-export function createFakeSupabase(db: FakeDb): SupabaseClient {
+function stable(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`
+  return `{${Object.keys(value as Row).sort().map((k) => `${JSON.stringify(k)}:${stable((value as Row)[k])}`).join(',')}}`
+}
+
+/** jsonb comparado con su texto, como hace PostgREST con eq sobre una columna jsonb. */
+function same(cell: unknown, value: unknown) {
+  if (cell === value) return true
+  if (cell && typeof cell === 'object' && typeof value === 'string') {
+    try { return stable(cell) === stable(JSON.parse(value)) } catch { return false }
+  }
+  return false
+}
+
+const duplicateKey = { code: '23505', message: 'duplicate key value violates unique constraint' }
+
+export function createFakeSupabase(db: FakeDb, session: FakeSession = {}): SupabaseClient {
   const from = (table: string) => {
     db.queries.push({ table })
     const filters: Array<(row: Row) => boolean> = []
@@ -51,10 +74,35 @@ export function createFakeSupabase(db: FakeDb): SupabaseClient {
       if (limitN != null) rows = rows.slice(0, limitN)
       return rows
     }
+    const violates = (row: Row, ignore?: Row) => {
+      const rows = (db.tables[table] ?? []).filter((r) => r !== ignore)
+      if (row.id != null && rows.some((r) => r.id === row.id)) return true
+      return (db.unique?.[table] ?? []).some((cols) =>
+        cols.every((c) => row[c] != null) && rows.some((r) => cols.every((c) => r[c] === row[c])))
+    }
+    // Resultado diferido: update/insert se aplican al resolver, como una petición HTTP.
+    const deferred = (exec: () => { data: unknown; error: unknown; count?: number }) => {
+      let single = false
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const q: Record<string, any> = {
+        eq: (col: string, value: unknown) => { filters.push((r) => same(r[col], value)); return q },
+        gt: (col: string, value: unknown) => { filters.push((r) => String(r[col] ?? '') > String(value)); return q },
+        in: (col: string, values: unknown[]) => { filters.push((r) => values.includes(r[col])); return q },
+        select: () => q,
+        single: () => { single = true; return q },
+        maybeSingle: () => { single = true; return q },
+        then: (resolve: (value: unknown) => unknown, reject?: (e: unknown) => unknown) => {
+          const out = exec()
+          const data = single && Array.isArray(out.data) ? (out.data[0] ?? null) : out.data
+          return Promise.resolve({ ...out, data }).then(resolve, reject)
+        },
+      }
+      return q
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const chain: Record<string, any> = {
       select: () => chain,
-      eq: (col: string, value: unknown) => { filters.push((r) => r[col] === value); return chain },
+      eq: (col: string, value: unknown) => { filters.push((r) => same(r[col], value)); return chain },
       gt: (col: string, value: unknown) => { filters.push((r) => String(r[col] ?? '') > String(value)); return chain },
       in: (col: string, values: unknown[]) => { filters.push((r) => values.includes(r[col])); return chain },
       or: (expr: string) => {
@@ -73,10 +121,25 @@ export function createFakeSupabase(db: FakeDb): SupabaseClient {
         return chain
       },
       limit: (n: number) => { limitN = n; return chain },
-      insert: (row: Row) => {
-        db.inserts.push({ table, row })
-        return Promise.resolve({ data: null, error: null })
+      insert: (input: Row | Row[]) => {
+        const rows = Array.isArray(input) ? input : [input]
+        for (const row of rows) db.inserts.push({ table, row })
+        if (!db.mutable) return Promise.resolve({ data: null, error: null })
+        return deferred(() => {
+          const created = rows.map((row) => ({ id: crypto.randomUUID(), created_at: new Date().toISOString(), ...row }))
+          if (created.some((row) => violates(row))) return { data: null, error: duplicateKey }
+          ;(db.tables[table] ??= []).push(...created)
+          return { data: created, error: null }
+        })
       },
+      update: (patch: Row, opts?: { count?: 'exact' }) => deferred(() => {
+        const targets = run()
+        for (const row of targets) {
+          if (violates({ ...row, ...patch }, row)) return { data: null, error: duplicateKey }
+        }
+        for (const row of targets) Object.assign(row, patch)
+        return { data: targets, error: null, ...(opts?.count ? { count: targets.length } : {}) }
+      }),
       upsert: (row: Row, opts?: { onConflict?: string }) => {
         db.inserts.push({ table, row })
         const keys = (opts?.onConflict ?? 'id').split(',')
@@ -108,7 +171,11 @@ export function createFakeSupabase(db: FakeDb): SupabaseClient {
   const rpc = async (name: string, args: Record<string, unknown> = {}) => {
     const handler = db.rpcs?.[name]
     if (!handler) return { data: null, error: { message: `rpc ${name} not found`, code: 'PGRST202' } }
-    return { data: handler(args), error: null }
+    try {
+      return { data: await handler(args, session), error: null }
+    } catch (err) {
+      return { data: null, error: { message: err instanceof Error ? err.message : String(err), code: 'P0001' } }
+    }
   }
   return { from, rpc } as unknown as SupabaseClient
 }

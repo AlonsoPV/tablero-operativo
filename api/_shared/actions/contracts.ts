@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto'
 import type { AccessCapabilities } from '../../../src/features/auth/lib/permissions.js'
 import { AGENT_PERMISSION_MATRIX, agentProfile, type AgentProfile } from '../query/authorizeQuery.js'
 import type { AgentActor } from '../query/resolveActor.js'
+import type { R2ExecutionMode } from './executionMode.js'
 
 export const R1_EXECUTION_ENABLED = false as const
 
@@ -48,6 +49,7 @@ export type UpdateStatusPayload = {
 export type RegisterBlockerPayload = {
   accionId: string
   motivo: string
+  expectedUpdatedAt?: string | null
 }
 
 export type NotifyResponsablePayload = {
@@ -158,13 +160,15 @@ export type PhaseAuthorization = { allowed: true } | { allowed: false; reason: s
 /**
  * Autoriza una fase con las capacidades vigentes del actor (recalculadas por turno).
  * proposerUsuarioId aplica a confirm/execute: sólo el autor confirma su propuesta.
+ * disabled_r1 sólo se levanta con R2_EXECUTION_MODE=simulated (nunca en Vercel).
  */
 export function authorizeActionPhase<O extends ActionOperation>(
   actor: AgentActor,
   phase: ActionPhase,
   operation?: O,
   payload?: ActionPayloadMap[O],
-  proposerUsuarioId?: string
+  proposerUsuarioId?: string,
+  executionMode: R2ExecutionMode = 'disabled'
 ): PhaseAuthorization {
   if (actor.roleClass === 'inactive' || !actor.capabilities.active) {
     return { allowed: false, reason: 'Tu usuario está inactivo.' }
@@ -184,7 +188,10 @@ export function authorizeActionPhase<O extends ActionOperation>(
     }
   }
   if (decision === 'disabled_r1') {
-    return { allowed: false, reason: 'La ejecución de operaciones aún no está habilitada en R1.' }
+    if (executionMode !== 'simulated') {
+      return { allowed: false, reason: 'La ejecución de operaciones aún no está habilitada en R1.' }
+    }
+    decision = 'own'
   }
   if (decision === 'own' && proposerUsuarioId && proposerUsuarioId !== actor.usuarioId) {
     return { allowed: false, reason: 'La propuesta pertenece a otro usuario.' }
