@@ -266,6 +266,15 @@ export type AccessCapabilityInput = {
   areas?: string[] | null
   moduleKeys?: readonly string[] | null
   active?: boolean | null
+  /** Rol de catálogo activo `super_admin` (por system_key o nombre), como en public.usuario_is_super_admin. */
+  catalogSuperAdmin?: boolean | null
+}
+
+export type CatalogRoleRef = { nombre?: string | null; system_key?: string | null; activo?: boolean | null }
+
+export function isSuperAdminCatalogRole(role: CatalogRoleRef | null | undefined): boolean {
+  if (!role || role.activo === false) return false
+  return role.system_key === SUPER_ADMIN_ROLE || normalizeRole(role.nombre) === normalizeRole(SUPER_ADMIN_ROLE)
 }
 
 /** Mismas claves que public.access_capabilities_for_usuario (en camelCase). */
@@ -294,7 +303,9 @@ export type AccessCapabilities = {
 export function resolveAccessCapabilities(input: AccessCapabilityInput): AccessCapabilities {
   const active = input.active !== false
   const modules = input.moduleKeys ?? []
-  const superAdmin = active && (isSuperAdminByRole(input.rol) || isAppSuperAdminByAppRole(input.appRole))
+  const superAdmin = active && (
+    isSuperAdminByRole(input.rol) || isAppSuperAdminByAppRole(input.appRole) || input.catalogSuperAdmin === true
+  )
   const direction = active && isDirectionByRole(input.rol)
   const okrsArea = active && userBelongsToArea('OKRS', input.area, input.areas)
   const legacy = LEGACY_OKRS_AREA_GRANTS && okrsArea

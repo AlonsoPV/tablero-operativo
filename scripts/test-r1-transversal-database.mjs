@@ -6,6 +6,9 @@ import assert from 'node:assert/strict'
 const { PGlite } = await import(pathToFileURL(process.env.WHATSAPP_PGLITE_PATH).href)
 const db = new PGlite()
 const r0Migration = 'supabase/migrations/20261118150000_direction_executive_scope.sql'
+const guardMigration = 'supabase/migrations/20261119135000_guard_usuarios_privileges.sql'
+const rc05Migration = 'supabase/migrations/20261119150000_inactive_users_rls.sql'
+const rc05Rollback = 'supabase/scripts/rollback_inactive_users_rls.sql'
 const migrationA = 'supabase/migrations/20261119140000_r1_transversal_access.sql'
 const scriptB = 'supabase/scripts/apply_r1_revoke_legacy_okrs_area.sql'
 const auditScript = 'supabase/scripts/audit_okrs_area_legacy_grants.sql'
@@ -105,14 +108,23 @@ try {
     create function normalize_business_role(value text) returns text language sql immutable as $$
       select replace(lower(trim(value)),' ','_');
     $$;
+    -- Same as production: it does not filter activo (RC-05).
     create function get_my_usuario_id() returns uuid language sql security definer stable as $$
-      select id from usuarios where user_id=auth.uid() and activo;
+      select id from usuarios where user_id=auth.uid() limit 1;
     $$;
+    create table auth.users(id uuid primary key,banned_until timestamptz,last_sign_in_at timestamptz);
     create function has_business_role(value text) returns boolean language sql security definer stable as $$
       select exists(select 1 from usuarios where user_id=auth.uid() and activo and normalize_business_role(rol)=normalize_business_role(value));
     $$;
+    -- Same paths as production: app_role (admin/super_admin), business role, or super_admin catalog role.
     create function is_current_user_super_admin() returns boolean language sql security definer stable as $$
-      select has_business_role('super_admin') or exists(select 1 from user_roles where user_id=auth.uid() and app_role='super_admin');
+      select auth.uid() is not null and (
+        exists(select 1 from user_roles where user_id=auth.uid() and lower(app_role) in ('admin','super_admin'))
+        or has_business_role('super_admin')
+        or exists(select 1 from usuarios u join usuario_catalog_roles ucr on ucr.user_id=u.id
+                  join catalog_roles cr on cr.id=ucr.role_id
+                  where u.user_id=auth.uid() and u.activo and cr.activo
+                    and (cr.system_key='super_admin' or normalize_business_role(cr.nombre)='super_admin')));
     $$;
     create function is_super_admin() returns boolean language sql stable as $$ select is_current_user_super_admin(); $$;
     create function is_app_admin() returns boolean language sql security definer stable as $$
@@ -165,6 +177,7 @@ try {
     grant select,update on okrs,acciones_diarias,priorities,academy_modules,storage.objects to authenticated;
     grant select on accion_comentarios,acciones_equipo,areas,whatsapp_messages to authenticated;
     grant select,update on usuarios,whatsapp_followup_settings to authenticated;
+    grant update on usuarios to anon;
     grant select,insert,update,delete on usuario_areas to authenticated;
     create policy user_read on usuarios for select to authenticated using(true);
     create policy user_update on usuarios for update to authenticated using(user_id=auth.uid() or can_manage_catalogs());
@@ -180,10 +193,12 @@ try {
   await db.exec(`insert into areas(id,nombre) values
     ('${area.OKRS}','OKRS'),('${area.Ventas}','Ventas'),('${area.Comercial}','Comercial'),
     ('${area.Sistemas}','Sistemas'),('${area.RH}','RH'),('${area.Otro}','Otro equipo');
-    insert into app_modules(key,nombre,route) values ('okrs','OKRs','/okrs'),('kanban','Kanban','/kanban');`)
+    insert into app_modules(key,nombre,route) values ('okrs','OKRs','/okrs'),('kanban','Kanban','/kanban');
+    insert into catalog_roles values('${id(600)}','super_admin',null,true);`)
   for (const [index, profile] of parity.profiles.entries()) {
     const uid = users[profile.name]
-    const { rol, appRole, area: areaName, relationalAreas, moduleKeys, active } = profile.input
+    const { rol, appRole, area: areaName, relationalAreas, moduleKeys, active, catalogSuperAdmin } = profile.input
+    if (catalogSuperAdmin) await query('insert into usuario_catalog_roles values($1,$2)', [uid, id(600)])
     await query('insert into usuarios(id,user_id,nombre,rol,activo,area) values($1,$1,$2,$3,$4,$5)',
       [uid, profile.name, rol, active, areaName])
     if (appRole) await query('insert into user_roles values($1,$2)', [uid, appRole])
@@ -226,6 +241,61 @@ try {
     await query('delete from usuario_areas where user_id=$1', [U.collaborator])
     await query('insert into usuario_areas(user_id,area_id,is_primary) values($1,$2,true)', [U.collaborator, area.Ventas])
     assert.equal(await flag('select area as value from usuarios where id=$1', [U.collaborator]), 'Ventas')
+  })
+
+  await check('Pre-P0 (as in DEV and PROD): any user can make themselves Super Admin or reactivate themselves', async () => {
+    await asUser(U.collaborator)
+    assert.equal(await count("with u as (update usuarios set rol='super_admin' where id=$1 returning 1) select count(*) n from u",
+      [U.collaborator]), 1)
+    assert.equal(await flag('select is_current_user_super_admin() as value'), true)
+    await asUser(U.inactive_okrs)
+    assert.equal(await count('with u as (update usuarios set activo=true where id=$1 returning 1) select count(*) n from u',
+      [U.inactive_okrs]), 1)
+    await asOwner()
+    await query("update usuarios set rol='Analista' where id=$1", [U.collaborator])
+    await query('update usuarios set activo=false where id=$1', [U.inactive_okrs])
+  })
+
+  await check('Migration A requires the usuarios guard first', async () => {
+    await assert.rejects(db.exec(readFileSync(migrationA, 'utf8')), /Apply 20261119135000/)
+    await db.exec('rollback')
+  })
+  await check('Usuarios guard refuses an unsafe public schema', async () => {
+    await db.exec('grant create on schema public to authenticated')
+    await assert.rejects(db.exec(readFileSync(guardMigration, 'utf8')), /Unsafe public schema CREATE/)
+    await db.exec('rollback; revoke create on schema public from authenticated')
+  })
+  await db.exec(readFileSync(guardMigration, 'utf8'))
+  await db.exec(readFileSync(guardMigration, 'utf8'))
+  passed.push('Usuarios guard applies and is idempotent')
+
+  await check('P0: role, activation and identity change only by explicit administrators', async () => {
+    assert.equal(await flag("select has_table_privilege('anon','public.usuarios','UPDATE') as value"), false)
+    await asUser(U.collaborator)
+    await assert.rejects(query("update usuarios set rol='super_admin' where id=$1", [U.collaborator]), /identity, role or activation/)
+    await assert.rejects(query('update usuarios set activo=false where id=$1', [U.collaborator]), /identity, role or activation/)
+    await assert.rejects(query('update usuarios set user_id=$2 where id=$1', [U.collaborator, U.manager]), /identity, role or activation/)
+    assert.equal(await count("with u as (update usuarios set nombre='Colaborador' where id=$1 returning 1) select count(*) n from u",
+      [U.collaborator]), 1)
+    await asUser(U.inactive_okrs)
+    await assert.rejects(query('update usuarios set activo=true where id=$1', [U.inactive_okrs]), /identity, role or activation/)
+    await asUser(U.catalog_admin_dg)
+    assert.equal(await count("with u as (update usuarios set rol='Operativo' where id=$1 returning 1) select count(*) n from u",
+      [U.collaborator]), 1)
+    await query("update usuarios set rol='Analista' where id=$1", [U.collaborator])
+    await asUser(U.leader_catalog_super_admin)
+    assert.equal(await flag('select public.is_explicit_privilege_admin() as value'), true)
+    await asUser(U.rh)
+    assert.equal(await flag('select public.is_explicit_privilege_admin() as value'), false)
+  })
+  await check('P0: an inactive Super Admin is not an explicit administrator and cannot reactivate', async () => {
+    await asOwner()
+    await query('update usuarios set activo=false where id=$1', [U.super_admin])
+    await asUser(U.super_admin)
+    assert.equal(await flag('select public.is_explicit_privilege_admin() as value'), false)
+    await assert.rejects(query('update usuarios set activo=true where id=$1', [U.super_admin]), /identity, role or activation/)
+    await asOwner()
+    await query('update usuarios set activo=true where id=$1', [U.super_admin])
   })
 
   await check('Migration A refuses an unsafe public schema', async () => {
@@ -288,9 +358,36 @@ try {
     assert.equal(await visibleActions(U.okrs_analyst_relational), 3)
     assert.equal(await visibleActions(U.collaborator), 1)
   })
-  await check('Known pre-existing gap (documented, not changed in R1): inactive non-analysts match the legacy acciones read rule', async () => {
+  const orphan = id(991)
+  const orphanActions = async () => { await asUser(orphan); return count('select count(*) n from acciones_diarias') }
+  await check('RC-05 before the fix: inactive users and accounts without usuarios read every action', async () => {
     assert.equal(await visibleActions(U.inactive_okrs), 3)
     assert.equal((await capsOf(U.inactive_okrs)).readCrossAreaExecution, false)
+    assert.equal(await orphanActions(), 3)
+  })
+  await asOwner()
+  await db.exec(readFileSync(rc05Migration, 'utf8'))
+  await db.exec(readFileSync(rc05Migration, 'utf8'))
+  passed.push('RC-05 migration applies and is idempotent')
+  await check('RC-05: inactive users and accounts without usuarios read nothing; active users keep their scope', async () => {
+    assert.equal(await visibleActions(U.inactive_okrs), 0)
+    assert.equal(await orphanActions(), 0)
+    assert.equal(await visibleActions(U.collaborator), 1)
+    assert.equal(await visibleActions(U.okrs_analyst_relational), 3)
+    assert.equal(await visibleActions(U.manager), 3)
+    assert.equal(await visibleOkrs(U.direction), 2)
+    await asUser(U.inactive_okrs)
+    assert.equal(await count('select count(*) n from whatsapp_messages'), 0)
+    await asOwner()
+    assert.equal(await count("select count(*) n from pg_policies where policyname='rc05_active_users_only' and permissive='RESTRICTIVE'"), 6)
+  })
+  await check('RC-05 rollback restores the legacy behavior; reapplying closes it again', async () => {
+    await asOwner()
+    await db.exec(readFileSync(rc05Rollback, 'utf8'))
+    assert.equal(await visibleActions(U.inactive_okrs), 3)
+    await asOwner()
+    await db.exec(readFileSync(rc05Migration, 'utf8'))
+    assert.equal(await visibleActions(U.inactive_okrs), 0)
   })
   await check('RLS okrs: Super Admin, Direction and OKRS area read all; others by scope; inactive none', async () => {
     assert.equal(await visibleOkrs(U.super_admin), 2)
@@ -442,12 +539,21 @@ try {
 
   await check('Audit script runs read-only against the local fixture', async () => {
     await asOwner()
+    await query('insert into auth.users(id,last_sign_in_at) values($1, now())', [U.inactive_okrs])
     const audit = readFileSync(auditScript, 'utf8')
     const results = await db.exec(audit)
     const members = results.find((r) => r.fields?.some((f) => f.name === 'okrs_by_usuario_areas'))
     assert.ok(members)
     assert.deepEqual(members.rows.map((r) => r.nombre).sort(),
-      ['inactive_okrs', 'okrs_analyst_relational', 'okrs_operative_text_only'])
+      ['inactive_okrs', 'leader_catalog_super_admin', 'okrs_analyst_relational', 'okrs_operative_text_only'])
+    const leader = members.rows.find((r) => r.nombre === 'leader_catalog_super_admin')
+    assert.equal(leader.super_or_app_admin, true)
+    assert.equal(leader.eff_inbox, true)
+    const holders = results.find((r) => r.fields?.some((f) => f.name === 'super_admin_by_rol'))
+    assert.deepEqual(holders.rows.map((r) => r.nombre).sort(), ['direction_catalog_super_admin', 'leader_catalog_super_admin'])
+    const inactive = results.find((r) => r.fields?.some((f) => f.name === 'auth_banned'))
+    assert.deepEqual(inactive.rows.map((r) => [r.nombre, r.auth_account_exists, r.auth_banned, r.signed_in_last_60_days]),
+      [['inactive_okrs', true, false, true]])
     const roles = results.find((r) => r.fields?.some((f) => f.name === 'assigned_users'))
     assert.deepEqual(roles.rows.map((r) => r.module_key).sort(), ['okrs_admin', 'okrs_admin', 'whatsapp_inbox'])
     await assert.rejects(db.exec(audit.replace('commit;', 'insert into areas(id,nombre) values (gen_random_uuid(),\'x\'); commit;')),
@@ -478,7 +584,8 @@ try {
     assert.equal(await settingsRows(U.okrs_operative_text_only), 0)
   })
   await check('After B: explicit grants, Super Admin and Direction are unchanged', async () => {
-    for (const name of ['super_admin', 'app_super_admin', 'direction', 'explicit_modules', 'catalog_admin_dg', 'manager'])
+    for (const name of ['super_admin', 'app_super_admin', 'direction', 'explicit_modules', 'catalog_admin_dg', 'manager',
+      'leader_catalog_super_admin', 'direction_catalog_super_admin'])
       assert.deepEqual(await capsOf(U[name]), parity.profiles.find((p) => p.name === name).expected, name)
     assert.equal((await inboxRpc(U.explicit_modules)).length, 2)
     assert.equal(await okrWrites(U.explicit_modules), 2)

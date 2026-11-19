@@ -4,7 +4,11 @@
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { VercelRequestLike } from './http.js'
-import { isDirectionByRole } from '../../src/features/auth/lib/permissions.js'
+import {
+  isDirectionByRole,
+  isSuperAdminCatalogRole,
+  type CatalogRoleRef,
+} from '../../src/features/auth/lib/permissions.js'
 
 export type AssistantAuthSuccess = {
   ok: true
@@ -92,17 +96,22 @@ function normalizeRole(rol: string | null | undefined): string {
 async function isSuperAdminAssistantUser(
   supabase: SupabaseClient,
   authUserId: string,
+  usuarioId: string,
   rol: string | null
 ): Promise<boolean> {
   if (normalizeRole(rol) === 'super_admin') return true
 
-  const { data: roles } = await supabase
-    .from('user_roles')
-    .select('app_role')
-    .eq('user_id', authUserId)
+  const [{ data: roles }, { data: catalogLinks }] = await Promise.all([
+    supabase.from('user_roles').select('app_role').eq('user_id', authUserId),
+    supabase.from('usuario_catalog_roles').select('catalog_roles(nombre, system_key, activo)').eq('user_id', usuarioId),
+  ])
 
   const appRoles = (roles ?? []).map((row) => normalizeRole(String((row as { app_role?: string }).app_role)))
-  return appRoles.some((r) => r === 'super_admin')
+  if (appRoles.some((r) => r === 'super_admin')) return true
+  return (catalogLinks ?? []).some((row) => {
+    const linked = (row as { catalog_roles?: CatalogRoleRef | CatalogRoleRef[] | null }).catalog_roles
+    return (Array.isArray(linked) ? linked : [linked]).some(isSuperAdminCatalogRole)
+  })
 }
 
 async function belongsToOkrsArea(
@@ -171,7 +180,7 @@ export async function requireAssistantAuth(
   const area = typeof usuario.area === 'string' ? usuario.area : null
 
   if (requireAiScope) {
-    const privileged = await isSuperAdminAssistantUser(supabase, authData.user.id, rol)
+    const privileged = await isSuperAdminAssistantUser(supabase, authData.user.id, usuario.id as string, rol)
     if (!privileged && !isDirectionByRole(rol)) {
       const inOkrs = await belongsToOkrsArea(supabase, usuario.id as string, area)
       if (!inOkrs) {

@@ -1,5 +1,21 @@
 # Enviardián · incidentes, riesgos y dependencias
 
+## R1 complemento · diagnóstico de sólo lectura en DEV y PROD · 2026-11-19
+
+Consultas SELECT por MCP en DEV (`tgiuevzlyptzlfgxsfhj`) y PROD (`xhpasmjzuwifmjhrsumb`). No se modificaron datos, permisos, usuarios ni migraciones. No se registran teléfonos, correos ni mensajes.
+
+| ID | Riesgo | Evidencia | Severidad | Tratamiento propuesto (local, sin aplicar) |
+| --- | --- | --- | --- | --- |
+| RD-01 | Cualquier usuario autenticado puede darse `rol='super_admin'`, reactivarse o cambiar su `user_id` | En DEV y PROD, `authenticated` y `anon` tienen UPDATE sobre `usuarios`; la política `usuarios_update_own_or_admin` permite editar la fila propia y no hay trigger que proteja `rol` ni `activo` | Crítica | P0: `20261119135000_guard_usuarios_privileges.sql`. Sólo Super Admin, admin de app, DG o Sistemas, activos, cambian `rol`, `activo`, `id` o `user_id`; revoca UPDATE de `anon`. En PROD sólo pierde esa capacidad «Kanban» (Dirección, RH, no administrador). |
+| RD-02 | Los inactivos con cuenta de auth vigente siguen leyendo datos | PROD: dos inactivos (G. Puga, segunda cuenta con rol y catálogo super_admin; Hector, Líder) con cuenta sin ban y sin acceso desde octubre. `get_my_usuario_id` no filtra `activo`; 55 políticas SELECT permisivas en unas 47 tablas lo ignoran; no hay políticas restrictivas | Alta | Banear las dos cuentas en Auth (operación manual autorizada) y aplicar RC-05: `20261119150000_inactive_users_rls.sql`. |
+| RD-03 | El rol de catálogo `super_admin` está repartido más allá de la administración | PROD: 9 de los 10 miembros del área OKRS lo tienen, incluidos 4 Líderes y un usuario de Dirección. DEV: 7 titulares, dos con rol Operativo | Alta | Revisar por usuario (matriz en `release-plan.md`). Si sólo necesitan OKRs o WhatsApp, cambiarlo por un rol con `okrs_admin` o `whatsapp_*`. En Dirección contradice «no ampliar permisos de Dirección». |
+| RD-04 | La UI y el agente (TS) no reconocían el `super_admin` de catálogo que SQL sí cuenta | `resolveAccessCapabilities` sólo leía el rol y `app_role` | Media | Corregido localmente: `catalogSuperAdmin` en `permissions.ts`, `actorCapabilities.ts`, `assistantAuth.ts` y `useAccessCapabilities.ts`, más dos perfiles de paridad. |
+| RD-05 | En PROD, `can_manage_catalogs` aún incluye Dirección | Definición remota previa a R0 | Media | Se cierra con R0 (`20261118150000`). P0 no usa `can_manage_catalogs`. |
+| RD-06 | El historial de migraciones no refleja el esquema real | La última versión registrada es DEV `20260819234939` y PROD `20260821055806`, pero existen objetos de noviembre aplicados a mano | Media | Reconciliar el historial antes de aplicar P0, RC-05, R0 o A con la CLI. |
+| RD-07 | Hay cuentas de auth sin fila en `usuarios` | PROD: dos cuentas, sin acceso en 60 días; con las políticas actuales leen lo que permiten las reglas sin `activo` | Baja | RC-05 las bloquea (no hay fila activa). Confirmar que no son cuentas de servicio antes de aplicarlo. |
+
+**Confirmado sin cambios.** `user_roles` y las tablas de catálogo están protegidas por `is_super_admin` y `can_manage_catalogs`. Super Admin conserva todos sus permisos por cualquiera de sus tres vías (rol, `app_role`, catálogo). Dirección conserva la lectura ejecutiva: la suite comprueba que, tras RC-05 y B, lee todos los OKRs y no escribe.
+
 ## R1 complemento · riesgos residuales y dependencias · 2026-11-19
 
 | ID | Riesgo | Severidad | Tratamiento |
@@ -8,7 +24,7 @@
 | RC-02 | RH (`can_manage_org_hierarchy`) y los administradores siguen pudiendo asignar el área OKRS. La pertenencia a RH se identifica por nombre | Media | Sin cambio: es una función de administración vigente. Lo prueba la suite SQL. Decidir si RH debe asignar áreas funcionales. |
 | RC-03 | Sin registro histórico de quién asignó el área OKRS: miembros actuales pudieron autoasignarse antes de A | Media | La auditoría separa la pertenencia relacional de la de texto. Revisar cada miembro antes de asignarle módulos. |
 | RC-04 | WhatsApp, voz y el agente usan `service_role`; aplican las capacidades en la aplicación, no por RLS | Media | `loadAgentCapabilities` lee cada turno los datos del servidor; ante un error cae a capacidades sólo por rol, nunca más amplias. |
-| RC-05 | La regla SQL vigente de lectura de `acciones_diarias` deja a un inactivo no Analista leer acciones | Media | Preexistente; no se cambió para no ocultar datos a usuarios sin fila en `usuarios`. La UI y el agente niegan al inactivo. Requiere decisión propia. |
+| RC-05 | La regla SQL vigente de lectura de `acciones_diarias` deja a un inactivo no Analista leer acciones | Media | Confirmado en PROD (RD-02). Propuesta local: `20261119150000_inactive_users_rls.sql`, con políticas restrictivas de SELECT en las tablas operativas (detalle en `release-plan.md`). |
 | RC-06 | Un Super Admin sin fila en `usuarios` no obtiene capacidades SQL de WhatsApp | Baja | Las rutas existentes ya exigían fila activa. Documentado. |
 | RC-07 | Si no existe exactamente un área «OKRS», `system_key` queda vacío y nadie hereda acceso | Baja | La auditoría lista las filas; con más de una, decidir a mano antes de A. |
 | RC-08 | La rehidratación del contexto sólo conserva referencias que el usuario puede releer (máx. 12) | Baja | Por diseño: preferir perder contexto a mostrar datos ya no autorizados. |

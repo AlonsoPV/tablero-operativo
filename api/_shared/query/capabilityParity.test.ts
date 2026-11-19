@@ -16,6 +16,7 @@ type Profile = {
     relationalAreas: string[]
     moduleKeys: string[]
     active: boolean
+    catalogSuperAdmin?: boolean
   }
   expected: Record<string, boolean>
 }

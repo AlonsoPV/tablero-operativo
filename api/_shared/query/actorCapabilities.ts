@@ -4,8 +4,10 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
+  isSuperAdminCatalogRole,
   resolveAccessCapabilities,
   type AccessCapabilities,
+  type CatalogRoleRef,
 } from '../../../src/features/auth/lib/permissions.js'
 
 type CapabilityIdentity = {
@@ -33,7 +35,7 @@ export async function loadAgentCapabilities(identity: CapabilityIdentity): Promi
       identity.supabase.from('usuario_areas').select('areas(nombre)').eq('user_id', identity.usuarioId),
       identity.supabase
         .from('usuario_catalog_roles')
-        .select('catalog_roles(activo, catalog_role_modules(module_key))')
+        .select('catalog_roles(nombre, system_key, activo, catalog_role_modules(module_key))')
         .eq('user_id', identity.usuarioId),
     ])
     if (usuarioRes.error || !usuarioRes.data) return fallback
@@ -46,15 +48,14 @@ export async function loadAgentCapabilities(identity: CapabilityIdentity): Promi
       : ((areasRes.data ?? []) as Array<{ areas?: Relation<{ nombre?: string }> }>)
           .flatMap((row) => list(row.areas).map((a) => a.nombre))
           .filter((name): name is string => Boolean(name))
-    const moduleKeys = modulesRes.error
+    const catalogRoles = modulesRes.error
       ? []
       : ((modulesRes.data ?? []) as Array<{
-          catalog_roles?: Relation<{ activo?: boolean; catalog_role_modules?: Array<{ module_key?: string }> }>
-        }>).flatMap((row) =>
-          list(row.catalog_roles)
-            .filter((role) => role.activo !== false)
-            .flatMap((role) => (role.catalog_role_modules ?? []).map((m) => m.module_key))
-        ).filter((key): key is string => Boolean(key))
+          catalog_roles?: Relation<CatalogRoleRef & { catalog_role_modules?: Array<{ module_key?: string }> }>
+        }>).flatMap((row) => list(row.catalog_roles)).filter((role) => role.activo !== false)
+    const moduleKeys = catalogRoles
+      .flatMap((role) => (role.catalog_role_modules ?? []).map((m) => m.module_key))
+      .filter((key): key is string => Boolean(key))
     return resolveAccessCapabilities({
       rol: identity.rol,
       appRole,
@@ -62,6 +63,7 @@ export async function loadAgentCapabilities(identity: CapabilityIdentity): Promi
       areas,
       moduleKeys,
       active: identity.active && usuario.activo !== false,
+      catalogSuperAdmin: catalogRoles.some(isSuperAdminCatalogRole),
     })
   } catch {
     return fallback

@@ -19,18 +19,26 @@ members as (
                 where ua.user_id = u.id)
 ),
 modules as (
-  select m.usuario_id, array_agg(distinct rm.module_key order by rm.module_key) as module_keys
+  select m.usuario_id,
+    array_agg(distinct rm.module_key order by rm.module_key) filter (where rm.module_key is not null) as module_keys,
+    array_agg(distinct cr.nombre order by cr.nombre) as catalog_roles,
+    bool_or(cr.system_key = 'super_admin' or public.normalize_business_role(cr.nombre) = 'super_admin')
+      as catalog_super_admin
   from members m
   join public.usuario_catalog_roles ucr on ucr.user_id = m.usuario_id
   join public.catalog_roles cr on cr.id = ucr.role_id and cr.activo = true
-  join public.catalog_role_modules rm on rm.role_id = cr.id
+  left join public.catalog_role_modules rm on rm.role_id = cr.id
   group by m.usuario_id
 )
 select m.usuario_id, m.nombre, m.rol, m.activo,
   m.okrs_by_usuario_areas, m.okrs_by_usuarios_area,
+  (select array_agg(ur.app_role::text order by ur.app_role::text) from public.user_roles ur
+   where ur.user_id = m.user_id) as app_roles,
+  coalesce(mo.catalog_roles, array[]::text[]) as catalog_roles,
   public.normalize_business_role(m.rol) = 'super_admin'
     or exists (select 1 from public.user_roles ur where ur.user_id = m.user_id
-               and lower(ur.app_role::text) in ('super_admin', 'admin')) as super_or_app_admin,
+               and lower(ur.app_role::text) in ('super_admin', 'admin'))
+    or coalesce(mo.catalog_super_admin, false) as super_or_app_admin,
   split_part(public.normalize_business_role(m.rol), '_', 1) = 'direccion' as direction,
   public.normalize_business_role(m.rol) in ('dg', 'sistemas') as catalog_admin_by_rol,
   coalesce(mo.module_keys, array[]::text[]) as current_module_keys,
@@ -42,7 +50,9 @@ select m.usuario_id, m.nombre, m.rol, m.activo,
   (select count(*) from public.whatsapp_messages w
    where w.operator_usuario_id = m.usuario_id) as inbox_messages_sent_as_operator,
   (select count(*) from public.user_channel_identities i
-   where i.channel = 'whatsapp' and i.metadata ->> 'linked_by' = m.usuario_id::text) as phones_linked_by_user
+   where i.channel = 'whatsapp' and i.metadata ->> 'linked_by' = m.usuario_id::text) as phones_linked_by_user,
+  m.user_id is not null and public.whatsapp_inbox_can_access(m.user_id) as eff_inbox,
+  public.can_use_ai_whatsapp_for_usuario(m.usuario_id) as eff_wa
 from members m
 left join modules mo on mo.usuario_id = m.usuario_id
 order by m.activo desc, m.nombre;
@@ -64,5 +74,26 @@ join public.catalog_roles cr on cr.id = rm.role_id
 where rm.module_key in ('okrs_admin', 'whatsapp_assistant', 'whatsapp_inbox',
                         'whatsapp_settings', 'whatsapp_identity_link')
 order by rm.module_key, cr.nombre;
+
+-- Holders of the super_admin catalog role: every capability, regardless of business role.
+select u.id as usuario_id, u.nombre, u.rol::text as rol, u.activo,
+  split_part(public.normalize_business_role(u.rol::text), '_', 1) = 'direccion' as direction,
+  public.normalize_business_role(u.rol::text) = 'super_admin' as super_admin_by_rol
+from public.usuario_catalog_roles ucr
+join public.catalog_roles cr on cr.id = ucr.role_id
+join public.usuarios u on u.id = ucr.user_id
+where cr.activo = true
+  and (cr.system_key = 'super_admin' or public.normalize_business_role(cr.nombre) = 'super_admin')
+order by u.activo desc, u.nombre;
+
+-- Inactive users whose authentication account still works (RC-05 and self-reactivation exposure).
+select u.id as usuario_id, u.nombre, u.rol::text as rol,
+  au.id is not null as auth_account_exists,
+  coalesce(au.banned_until > now(), false) as auth_banned,
+  au.last_sign_in_at >= now() - interval '60 days' as signed_in_last_60_days
+from public.usuarios u
+left join auth.users au on au.id = u.user_id
+where u.activo = false
+order by u.nombre;
 
 commit;

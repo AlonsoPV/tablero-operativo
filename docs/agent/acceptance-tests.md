@@ -1,5 +1,20 @@
 # Enviardián · pruebas de aceptación R0–R1
 
+## R1 complemento · P0, RC-05 y paridad super_admin · pruebas ejecutadas · 2026-11-19
+
+Todo es local, en PGlite. El diagnóstico remoto fue de sólo lectura (ver `risks-and-dependencies.md`). Para reproducir PROD, el runner deja `get_my_usuario_id` sin filtro de `activo`, otorga UPDATE de `usuarios` a `anon` y usa el `is_current_user_super_admin` con sus tres vías.
+
+| Suite | Cobertura nueva | Resultado |
+| --- | --- | --- |
+| `scripts/test-r1-transversal-database.mjs` | Antes de P0: autoescalamiento a super_admin y autorreactivación (reproduce RD-01). A se niega sin P0. P0 es idempotente y rechaza `public` con CREATE. Tras P0: rol, activo y `user_id` propios rechazados, nombre permitido, DG cambia el rol de otro, RH no es administrador, un Super Admin inactivo no se reactiva, `anon` sin UPDATE. RC-05: antes, el inactivo y la cuenta sin fila leen 3 acciones; después, 0, y los activos conservan su alcance (incluido Dirección en OKRs); 6 políticas restrictivas; rollback y reaplicación. Auditoría con titulares del catálogo super_admin e inactivos con estado de auth. Tras B, ambos perfiles de catálogo super_admin sin cambio | **47/47** |
+| `scripts/test-agent-permissions-database.mjs` (R0) | Regresión | Aprobado |
+| `npx vitest run` | Paridad en 12 perfiles (incluye Líder y Dirección con catálogo super_admin) | 763/763, 118 archivos |
+| `tsc -p tsconfig.api.json`, build de Vite y bundle de la API | — | Aprobados |
+| `tsc -p tsconfig.app.json` y `npm run vercel-build` | — | Fallan sólo por `GuidePanel.tsx(62)` (`createdWorkItems` sin usar), un cambio ajeno sin commitear; no se tocó |
+| ESLint | Archivos TS del cambio | Aprobado. El runner `.mjs` tiene los mismos `no-undef` de `process` y `console` que el runner R0 |
+
+**Desviación del plan.** El plan proponía `20261119145000` para P0, pero la migración A (`140000`) depende de P0, así que se renumeró a `20261119135000`. Además, la guarda de rol y activo pasó de A a P0: A sólo vigila que no se gane un área funcional por el campo de texto.
+
 ## R1 complemento · acceso transversal · pruebas ejecutadas · 2026-11-19
 
 Todo es local. La base de datos es PGlite (PostgreSQL en WASM) y nunca se conecta a Supabase.

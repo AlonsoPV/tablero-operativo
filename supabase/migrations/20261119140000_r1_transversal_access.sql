@@ -11,6 +11,9 @@ begin
      or has_schema_privilege('anon','public','CREATE') then
     raise exception 'Unsafe public schema CREATE privilege; review before applying R1';
   end if;
+  if to_regprocedure('public.guard_usuarios_privileges()') is null then
+    raise exception 'Apply 20261119135000_guard_usuarios_privileges.sql first';
+  end if;
 end $$;
 
 -- Stable relational key for areas whose membership carries a function.
@@ -469,17 +472,13 @@ create policy whatsapp_followup_settings_update_managers on public.whatsapp_foll
   for update to authenticated
   using ((select public.can_configure_whatsapp())) with check ((select public.can_configure_whatsapp()));
 
--- Privilege escalation through profile edits.
--- Direction keeps its R0 trigger; this guard covers every other authenticated caller.
+-- Functional area gained through the free-text profile field.
+-- Identity, role and activation are guarded by guard_usuarios_privileges; Direction keeps its R0 trigger.
 create or replace function public.guard_profile_privileges()
 returns trigger language plpgsql set search_path = pg_catalog, public, pg_temp as $$
 begin
   if auth.uid() is null or public.can_manage_catalogs() or public.can_manage_org_hierarchy() then
     return new;
-  end if;
-  if new.id is distinct from old.id or new.user_id is distinct from old.user_id
-     or new.rol is distinct from old.rol or new.activo is distinct from old.activo then
-    raise exception 'Profile cannot change identity, role or activation' using errcode = '42501';
   end if;
   if new.area is distinct from old.area and exists (
     select 1 from public.areas a
@@ -607,8 +606,9 @@ grant select, insert, update, delete on public.agent_session_context to authenti
 drop policy if exists agent_session_context_owner on public.agent_session_context;
 create policy agent_session_context_owner on public.agent_session_context
   for all to authenticated
-  using (usuario_id = (select public.get_my_usuario_id()))
-  with check (usuario_id = (select public.get_my_usuario_id()) and expires_at <= now() + interval '31 minutes');
+  using (usuario_id = (select public.get_my_usuario_id()) and (select public.okr_active_user()))
+  with check (usuario_id = (select public.get_my_usuario_id()) and (select public.okr_active_user())
+    and expires_at <= now() + interval '31 minutes');
 comment on table public.agent_session_context is
   'R1 conversation context: active query and action IDs only (no text, titles or names). TTL 30 min.';
 

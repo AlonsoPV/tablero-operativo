@@ -1,5 +1,50 @@
 # Enviardián · releases y ejecución R0–R1
 
+## R1 complemento · matriz de transición y orden · 2026-11-19
+
+Resultado de `audit_okrs_area_legacy_grants.sql` en sólo lectura. Nadie pierde acceso SQL con B: los diez miembros del área OKRS en PROD tienen otra vía de Super Admin. Antes de la corrección de paridad (RD-04), la UI y el agente sí habrían quitado el acceso a los cuatro Líderes y a Dirección.
+
+### PROD · miembros activos del área OKRS
+
+Todos tienen hoy acceso efectivo a la bandeja de WhatsApp y al asistente.
+
+| Usuario | Rol | Vía OKRS | Otra vía de administración | Uso real | Tras B | Acción propuesta |
+| --- | --- | --- | --- | --- | --- | --- |
+| Abraham | super_admin | relacional | rol y catálogo super_admin (también Líder) | 1 OKR, 6 KR | Sin cambio | Ninguna |
+| Alonso Perez | super_admin | relacional | rol, `app_role` y catálogo super_admin | WhatsApp vinculado, 3 envíos de bandeja, 8 teléfonos vinculados | Sin cambio | Ninguna. Si deja de ser Super Admin, darle `whatsapp_inbox` y `whatsapp_identity_link` |
+| anoguera | super_admin | sólo texto | rol | — | Sin cambio | Pasar el área a `usuario_areas` o quitarla del texto |
+| Damaris Medrano | super_admin | relacional (área principal RH) | rol y catálogo super_admin (también Líder) | — | Sin cambio | Confirmar si necesita el área OKRS |
+| Monse Rivera | super_admin | ver auditoría | rol y catálogo super_admin | — | Sin cambio | Ninguna |
+| Gerardo Puga | Líder | relacional | catálogo super_admin (también Líder) | 1 OKR, 5 KR | Sin cambio | Revisar RD-03: sustituir por `okrs_admin` si no administra la plataforma |
+| Irhec Vazquez | Líder | relacional | catálogo super_admin | 6 KR | Sin cambio | Revisar RD-03 |
+| Luciana Costas | Líder | texto y relacional | catálogo super_admin | — | Sin cambio | Revisar RD-03 |
+| Nancy Rojo | Líder | relacional | catálogo super_admin | 1 OKR, 5 KR | Sin cambio | Revisar RD-03 |
+| Jorge Gonzalez | Direccion | relacional | catálogo super_admin | 7 KR | Sin cambio | Revisar RD-03: el catálogo super_admin le da escritura global, más que la lectura ejecutiva de Dirección |
+
+**Inactivos en PROD.** Una segunda cuenta de G. Puga (rol y catálogo super_admin) y Hector (Líder). Ambas cuentas de auth siguen sin ban. Primero se banean y después se aplica RC-05; no hace falta migrar sus accesos.
+
+### DEV
+
+En el área OKRS están anoguera y dmorabito (super_admin) y Gerardo Puga (Operativo con catálogo super_admin). Hay 7 titulares del catálogo super_admin: alpeva96, M. Rivera, Abraham, Gerardo Puga, Jorge Gonzalez (Operativo en DEV), anoguera y dmorabito. No hay inactivos y hay 22 usuarios. Los roles difieren de PROD, así que la validación de QA debe usar perfiles sintéticos y no copiar DEV.
+
+### Propuesta RC-05 (local, no aplicada)
+
+`20261119150000_inactive_users_rls.sql` crea `current_usuario_is_active()` (security definer, `search_path` fijo) y la política **restrictiva** `rc05_active_users_only` de SELECT para `authenticated` en las tablas operativas que existan: acciones y sus tablas hijas, `acciones_equipo`, OKRs, KRs, iniciativas y check-ins, `whatsapp_messages`, KPIs, `gaps` y `sprints`. Al ser restrictiva se combina con AND con las permisivas: no amplía nada, sólo exige una fila activa. No cambia `get_my_usuario_id` para no alterar funciones que dependen de él. `service_role` (backend, WhatsApp, voz) no se ve afectado. Rollback: `supabase/scripts/rollback_inactive_users_rls.sql`. Pendiente: catálogos, áreas y `usuarios` siguen legibles para un inactivo; el control principal es banear la cuenta.
+
+### Orden recomendado (cada paso requiere autorización; nada se ejecutó)
+
+| Paso | Acción | Reversión |
+| --- | --- | --- |
+| 1 | P0 `20261119135000_guard_usuarios_privileges.sql` (cierra RD-01) | `supabase/scripts/rollback_guard_usuarios_privileges.sql` (no restaura el UPDATE de `anon`) |
+| 2 | Banear en Auth las dos cuentas inactivas de PROD | Quitar el ban |
+| 3 | RC-05 `20261119150000_inactive_users_rls.sql`, tras confirmar RD-07 | `rollback_inactive_users_rls.sql` |
+| 4 | Reconciliar el historial de migraciones (RD-06) | — |
+| 5 | Cerrar R0 (`20261118150000`, cierra RD-05) | Según el plan R0 |
+| 6 | Migración A `20261119140000`, junto con la paridad TS de catálogo super_admin. A se niega a aplicarse sin P0 | Ver el plan de migración siguiente |
+| 7 | Revisar el catálogo super_admin de los Líderes y de Dirección (RD-03) y asignar módulos explícitos | Reasignar el rol |
+| 8 | Script B | `legacy_okrs_area_grants()` vuelve a true |
+| 9 | `AGENT_ORCHESTRATOR_R1` en QA | Apagar el flag |
+
 ## R1 complemento · plan de migración y decisión · 2026-11-19
 
 **GO desarrollo / NO-GO integración, aplicación remota y revocación.** El complemento está probado localmente en `r1/agente-confiable`. No se aplicó ninguna migración remota, no se ejecutó la auditoría contra datos reales y no se revocó ningún acceso.
