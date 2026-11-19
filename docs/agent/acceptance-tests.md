@@ -1,5 +1,25 @@
 # Enviardián · pruebas de aceptación R0–R1
 
+## R1 complemento · acceso transversal · pruebas ejecutadas · 2026-11-19
+
+Todo es local. La base de datos es PGlite (PostgreSQL en WASM) y nunca se conecta a Supabase.
+
+| Suite | Cobertura | Resultado |
+| --- | --- | --- |
+| `scripts/test-r1-transversal-database.mjs` (PGlite) | Aplica R0, la migración A (dos veces) y el script B. Paridad TS↔SQL en 10 perfiles; ACL y `search_path`; sombra con tablas temporales; RLS de `acciones_diarias`, `okrs`, Team Kanban, `whatsapp_messages`, `whatsapp_followup_settings` y `agent_session_context`; escalamiento por perfil, RPC de áreas y escritura directa; cambio de área, revocación de módulo y desactivación; auditoría en modo sólo lectura; estado tras B; reaplicar A no deshace B; rollback de B | **36/36** |
+| `scripts/test-agent-permissions-database.mjs` (R0) | Regresión de la matriz Dirección | Aprobado |
+| `api/_shared/query/capabilityParity.test.ts` | El mismo fixture JSON que la suite SQL | 10/10 |
+| `src/features/auth/lib/accessCapabilities.test.ts` | Capacidades por perfil, Dirección en `/okrs` sin módulo, separación de rutas WhatsApp, inactivo, módulos explícitos, flag de transición, área por clave | 11/11 |
+| `api/_shared/orchestrator/r1Transversal.test.ts` | Super Admin, OKRS, Dirección, Gerencia, Colaborador e Inactivo; cambio de área; revocación; edición no autorizada; aislamiento entre usuarios; inyección de permisos; consistencia web/WhatsApp/voz; autorizar antes de paginar; contexto entre instancias, TTL y huella | 15/15 |
+| `r1Acceptance.test.ts` | Ajuste intencional: Dirección **sí** lee OKRs sin módulo y sigue sin escribir | Aprobado |
+| `npx vitest run` sobre el commit aislado (worktree sin cambios ajenos) | — | 754/754, 117 archivos; build y ambas suites PGlite aprobadas |
+| `npx vitest run` (árbol de trabajo con cambios UX ajenos sin commitear) | — | 761/761, 118 archivos |
+| `tsc` api y app, `npm run vercel-build`, ESLint sobre los archivos del complemento | — | Aprobados |
+
+**Hallazgo de prueba.** El caso «Pre-R1» confirma que la RPC original de áreas permitía autoasignarse el área OKRS. La migración A lo cierra para todos los usuarios que no son administradores ni pertenecen a RH (RC-02).
+
+**No ejecutado:** JWT y RLS en Supabase real, el script de auditoría contra datos reales, y los canales desplegados con `AGENT_ORCHESTRATOR_R1=1`.
+
 ## R1 · suite de aceptación ejecutada · 2026-11-19
 
 Suite: `api/_shared/orchestrator/r1Acceptance.test.ts`. Ejecuta el `dispatchCopilotTool` **real** (autorización, filtros y truncado del runtime) sobre un Supabase en memoria con el fixture sintético `testing/r1Fixture.ts`. No emula RLS: la paridad con JWT sigue pendiente de QA (R0). Reloj fijo 2026-11-19 10:00 CDMX.

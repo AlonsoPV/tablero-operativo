@@ -17,8 +17,7 @@ import type { Priority } from '@/features/catalogs/types/catalogs.types'
 import { AccionChecklistEditor, type LocalCheckpointDraft } from '@/features/operations/components/AccionChecklistEditor'
 import type { AccionCreateInput, AccionFormInput } from '@/features/operations/schemas/accion.schema'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { useAppRole } from '@/features/auth/hooks/useAppRole'
-import { canAccessAiAssistAndWhatsApp } from '@/features/auth/lib/permissions'
+import { useAccessCapabilities } from '@/features/auth/hooks/useAccessCapabilities'
 import { notificacionesService } from '@/services/notificaciones.service'
 import type { TeamBoard } from './types'
 import { teamKanbanService } from './service'
@@ -99,13 +98,7 @@ export function TeamActionFormDialog({
   onDone,
 }: Props) {
   const { data: currentUser } = useCurrentUser()
-  const { data: appRole } = useAppRole()
-  const canUseWhatsApp = canAccessAiAssistAndWhatsApp(
-    currentUser?.rol,
-    appRole,
-    currentUser?.area,
-    currentUser?.areas
-  )
+  const canUseWhatsApp = useAccessCapabilities().whatsappInbox
   const [mode, setMode] = useState<TeamActionMode>('single')
   const [checklist, setChecklist] = useState<LocalCheckpointDraft[]>([])
   const [errors, setErrors] = useState<string[]>([])

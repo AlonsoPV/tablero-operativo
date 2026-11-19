@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CopilotProposal, CopilotWriteTool } from '../../src/features/ai-support/copilot/types.js'
+import type { AccessCapabilities } from '../../src/features/auth/lib/permissions.js'
 
 export type CopilotBoardScope = 'role' | 'organization'
 
@@ -20,6 +21,8 @@ export type CopilotActor = {
    * Usado para gates de envío (canSendCommunication) en confirm_pending_op.
    */
   guideAccessMode?: 'propose' | 'read' | 'interview_full_read'
+  /** Capacidades derivadas en servidor; ausentes = sólo reglas por rol. */
+  capabilities?: AccessCapabilities
   /** Sesión Guía Retell: se estampa en assistant_pending_ops para aprobar desde la liga. */
   guideSessionId?: string | null
 }

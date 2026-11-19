@@ -5,13 +5,18 @@
  */
 import {
   ACTION_CONTRACTS,
+  authorizeActionPhase,
   proposeAction,
   type ActionOperation,
   type ActionPayloadMap,
   type ActionProposal,
 } from './contracts.js'
-import { AGENT_PERMISSION_MATRIX } from '../query/authorizeQuery.js'
 import type { AgentActor } from '../query/resolveActor.js'
+
+export type SimVerifyResult =
+  | { status: 'verified'; operation: ActionOperation }
+  | { status: 'denied'; reason: string }
+  | { status: 'not_found' }
 
 export type SimAuditEntry = {
   at: string
@@ -68,8 +73,12 @@ export function createActionSimulator(options: { now?: () => number; effectDelay
         log(confirmer.usuarioId, proposal, 'denied')
         return { status: 'denied', reason: 'La propuesta pertenece a otro usuario.' }
       }
-      // Revalidación al confirmar: el rol pudo cambiar entre propuesta y confirmación.
-      if (AGENT_PERMISSION_MATRIX[confirmer.roleClass].propose_write !== 'allow') {
+      // Revalidación al confirmar con capacidades vigentes: rol, área o módulos pudieron cambiar.
+      const proposeStill = authorizeActionPhase(confirmer, 'propose', proposal.operation, proposal.payload as never)
+      const confirmAuth = proposeStill.allowed
+        ? authorizeActionPhase(confirmer, 'confirm', proposal.operation, proposal.payload as never, proposal.actorUsuarioId)
+        : proposeStill
+      if (!confirmAuth.allowed) {
         log(confirmer.usuarioId, proposal, 'denied')
         return { status: 'denied', reason: 'Tu rol ya no permite esta operación.' }
       }
@@ -100,6 +109,13 @@ export function createActionSimulator(options: { now?: () => number; effectDelay
       entry.state = 'done'
       log(confirmer.usuarioId, proposal, 'executed')
       return { status: 'executed', effectId }
+    },
+    /** Verificación posterior: relee el efecto sólo si el actor conserva lectura. */
+    verify(effectId: string, reader: AgentActor): SimVerifyResult {
+      const auth = authorizeActionPhase(reader, 'verify')
+      if (!auth.allowed) return { status: 'denied', reason: auth.reason }
+      const effect = effects.find((item) => item.id === effectId)
+      return effect ? { status: 'verified', operation: effect.operation } : { status: 'not_found' }
     },
   }
 }

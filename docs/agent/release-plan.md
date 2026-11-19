@@ -1,5 +1,29 @@
 # Enviardián · releases y ejecución R0–R1
 
+## R1 complemento · plan de migración y decisión · 2026-11-19
+
+**GO desarrollo / NO-GO integración, aplicación remota y revocación.** El complemento está probado localmente en `r1/agente-confiable`. No se aplicó ninguna migración remota, no se ejecutó la auditoría contra datos reales y no se revocó ningún acceso.
+
+**Usuarios potencialmente afectados.** No se conocen todavía: la lista sale del script `supabase/scripts/audit_okrs_area_legacy_grants.sql`, que se ejecuta con autorización (sólo lectura, sin teléfonos, correos ni mensajes). Grupos que identifica:
+
+1. Miembros del área OKRS, por `usuario_areas` y por texto en `usuarios.area`. **Conservan la lectura transversal.**
+2. De ellos, quienes no tienen otra vía de acceso (ni Super Admin, ni administrador de catálogo, ni módulos explícitos). **Pierden** la administración global de OKRs y WhatsApp al aplicar B.
+3. Su uso real: OKRs y KRs de los que son dueños, acciones de equipo marcadas OKR, mensajes enviados como operador y teléfonos que vincularon. Sirve para decidir qué módulos conservar.
+4. Las filas de área llamadas «OKRS». Si hay más de una, se decide a mano antes de A.
+
+**Plan de migración (no ejecutado).**
+
+| Paso | Acción | Efecto en accesos | Reversión |
+| --- | --- | --- | --- |
+| 0 | Cerrar R0 en QA | — | — |
+| 1 | Aplicar `20261119140000_r1_transversal_access.sql` en QA, después en producción | Ninguno se revoca. Se añaden lectura transversal (área OKRS) y la lectura de OKRs de Dirección. Se cierra la autoasignación del área OKRS. | Restaurar las definiciones anteriores de las funciones y políticas; la tabla de contexto puede quedarse. |
+| 2 | Ejecutar la auditoría y aprobar la matriz de usuarios | Ninguno | — |
+| 3 | Crear o ajustar roles de catálogo con `okrs_admin` y `whatsapp_*`, y asignarlos a los usuarios aprobados | Concede de forma explícita lo que antes era heredado | Quitar los módulos |
+| 4 | Aplicar a mano `supabase/scripts/apply_r1_revoke_legacy_okrs_area.sql` | Fin de los permisos heredados del área OKRS | Reejecutar el script con `select true` |
+| 5 | Activar `AGENT_ORCHESTRATOR_R1` en QA y repetir los escenarios por perfil y canal | — | Apagar el flag |
+
+**Impacto en R2.** La matriz por fase ya está lista: sólo proponen y confirman los perfiles con escritura. La ejecución sigue apagada (`R1_EXECUTION_ENABLED=false`). Marcar una acción como OKR y notificar por WhatsApp quedan ligados a capacidades explícitas.
+
 ## R1 · decisión · 2026-11-19
 
 **GO desarrollo / NO-GO integración y liberación.** R1 está implementado y probado localmente, pero depende de R0, que sigue abierto (tabla siguiente). No se fusiona, despliega ni activa `AGENT_ORCHESTRATOR_R1` hasta que R0 supere sus validaciones remotas.
@@ -15,7 +39,7 @@
 1. Cerrar R0 en QA: RLS/JWT, 401, dos P0001, migración efectiva y rollback.
 2. Rebase de R1 sobre el R0 aprobado y repetir la suite completa y el build.
 3. En QA: aplicar `20261119120000_assistant_op_log_read_audit.sql`, activar el flag y ejecutar los 8 escenarios por canal con las cuentas sintéticas, comparando cifras contra SQL.
-4. Resolver el gate de OKR de Dirección y la persistencia del contexto.
+4. Aplicar el complemento (gate de OKR de Dirección y persistencia del contexto, ya resueltos localmente) según el plan de migración de arriba.
 5. Liberación con autorización expresa y reversión por flag (apagar `AGENT_ORCHESTRATOR_R1` devuelve los tres canales al flujo actual).
 
 R2 (mutaciones reales) no empieza sin autorización; sus contratos y simulador ya están probados.

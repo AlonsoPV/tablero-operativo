@@ -51,7 +51,8 @@ export function createFakeSupabase(db: FakeDb): SupabaseClient {
       if (limitN != null) rows = rows.slice(0, limitN)
       return rows
     }
-    const chain = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chain: Record<string, any> = {
       select: () => chain,
       eq: (col: string, value: unknown) => { filters.push((r) => r[col] === value); return chain },
       gt: (col: string, value: unknown) => { filters.push((r) => String(r[col] ?? '') > String(value)); return chain },
@@ -75,6 +76,27 @@ export function createFakeSupabase(db: FakeDb): SupabaseClient {
       insert: (row: Row) => {
         db.inserts.push({ table, row })
         return Promise.resolve({ data: null, error: null })
+      },
+      upsert: (row: Row, opts?: { onConflict?: string }) => {
+        db.inserts.push({ table, row })
+        const keys = (opts?.onConflict ?? 'id').split(',')
+        const rows = db.tables[table] ?? (db.tables[table] = [])
+        const index = rows.findIndex((existing) => keys.every((k) => existing[k] === row[k]))
+        if (index >= 0) rows[index] = { ...rows[index], ...row }
+        else rows.push({ ...row })
+        return Promise.resolve({ data: null, error: null })
+      },
+      delete: () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const remove: Record<string, any> = {
+          eq: (col: string, value: unknown) => { chain.eq(col, value); return remove },
+          then: (resolve: (value: unknown) => unknown, reject?: (e: unknown) => unknown) => {
+            const doomed = new Set(run())
+            db.tables[table] = (db.tables[table] ?? []).filter((row) => !doomed.has(row))
+            return Promise.resolve({ data: null, error: null }).then(resolve, reject)
+          },
+        }
+        return remove
       },
       maybeSingle: async () => ({ data: run()[0] ?? null, error: null }),
       single: async () => ({ data: run()[0] ?? null, error: null }),

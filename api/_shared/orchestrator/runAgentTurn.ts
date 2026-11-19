@@ -14,8 +14,14 @@ import { todayWallClockCDMX } from '../../../src/lib/dateUtils.js'
 import { buildActiveQueryEntry, isPersonalActionScope } from '../actionQueryContract.js'
 import { proposeAction, type ActionProposal } from '../actions/contracts.js'
 import { authorizeOperation, authorizeQuery } from '../query/authorizeQuery.js'
-import type { ActionItem, ActionsQueryRequest, QueryResult, QueryStatus } from '../query/contracts.js'
-import { queryActions, queryOkrs, type ToolDispatcher } from '../query/index.js'
+import type {
+  ActionItem,
+  ActionsQueryRequest,
+  AggregateQueryRequest,
+  QueryResult,
+  QueryStatus,
+} from '../query/contracts.js'
+import { queryActions, queryAggregate, queryOkrs, type ToolDispatcher } from '../query/index.js'
 import type { QueryAuditEntry, QueryAuditSink } from '../query/queryAudit.js'
 import type { AgentActor } from '../query/resolveActor.js'
 import { UNAVAILABLE_DOMAINS } from '../query/sourceCatalog.js'
@@ -30,11 +36,13 @@ import {
 import { emptyBlocks, statusMessage, type AgentResponse } from './respond.js'
 import {
   emptySessionContext,
+  needsReferenceRehydration,
   sessionContextKey,
   toReferencedActions,
   type SessionContext,
   type SessionContextStore,
 } from './sessionContext.js'
+import { capabilityFingerprint } from '../query/actorCapabilities.js'
 
 /** authz se evalúa dentro de cada handler, antes de consultar; query_interpret incluye ambas fases. */
 export type AgentStage = 'identity' | 'intent' | 'context' | 'query_interpret' | 'respond'
@@ -142,6 +150,34 @@ function wideOrPersonal(actor: AgentActor): ActionsQueryRequest['scope'] {
     entity: 'actions', scope: 'board_authorized', statusGroup: 'open', visual: 'none',
   })
   return wide.allowed ? 'board_authorized' : 'assigned_to_me'
+}
+
+/**
+ * El store compartido guarda sólo IDs: títulos y responsables se releen con la consulta activa y los
+ * permisos vigentes. Lo que ya no es visible se descarta en silencio.
+ */
+async function rehydrateReferences(state: TurnState) {
+  const ids = state.ctx.lastActions.map((item) => item.id)
+  const previous = state.ctx.activeQuery
+  const entity = state.ctx.lastEntity
+  state.ctx = { ...state.ctx, lastActions: [], lastEntity: null }
+  if (!previous || ids.length === 0) return
+  const request: ActionsQueryRequest = {
+    entity: 'actions', scope: previous.scope, statusGroup: previous.status_group, visual: previous.visual, limit: 12,
+  }
+  if (!authorizeQuery(state.actor, request).allowed) return
+  const result = await queryActions(state.actor.copilot, request, state.dispatch)
+  const byId = new Map(result.items.map((item) => [item.id, item]))
+  const kept = ids.flatMap((id) => {
+    const item = byId.get(id)
+    return item ? [item] : []
+  })
+  const entityItem = entity?.kind === 'action' ? byId.get(entity.id) : undefined
+  state.ctx = {
+    ...state.ctx,
+    lastActions: toReferencedActions(kept),
+    lastEntity: entityItem ? { kind: 'action', id: entityItem.id, label: entityItem.title } : null,
+  }
 }
 
 function rememberActions(state: TurnState, request: ActionsQueryRequest, result: QueryResult<ActionItem>) {
@@ -311,6 +347,36 @@ async function handleOkrs(state: TurnState, intent: Extract<AgentIntent, { kind:
   return { response, audit: { status: result.status, entity: 'okrs', total: result.totals.total } }
 }
 
+const GROUP_LABEL = { area: 'área', responsable: 'responsable', estado: 'estado' } as const
+const STATUS_LABEL = { open: 'abiertas', overdue: 'vencidas', blocked: 'bloqueadas' } as const
+
+async function handleAggregate(state: TurnState, intent: Extract<AgentIntent, { kind: 'aggregate_execution' }>) {
+  const wide: AggregateQueryRequest = {
+    entity: 'aggregate', groupBy: intent.groupBy, statusGroup: intent.statusGroup, scope: 'board_authorized',
+  }
+  const authz = authorizeQuery(state.actor, wide)
+  const request: AggregateQueryRequest = authz.allowed ? wide : { ...wide, scope: authz.fallbackScope ?? 'assigned_to_me' }
+  if (!authz.allowed) {
+    const personal = authorizeQuery(state.actor, request)
+    if (!personal.allowed) {
+      return { response: forbidden(personal.reason), audit: { status: 'denied_precheck' as const, entity: 'aggregate', scope: request.scope } }
+    }
+  }
+  const result = await queryAggregate(state.actor.copilot, request, state.dispatch)
+  const response = baseResponse(result.status, result.asOf)
+  const subject = `acciones ${STATUS_LABEL[intent.statusGroup]} por ${GROUP_LABEL[intent.groupBy]}`
+  if (result.status === 'forbidden' || result.status === 'error' || result.status === 'empty') {
+    response.blocks.data.push(statusMessage(result.status, subject, result.error?.message))
+    return { response, audit: { status: result.status, entity: 'aggregate', scope: request.scope } }
+  }
+  response.blocks.data.push(`${result.totals.total} ${subject} en ${scopeLabel(result.scopeApplied)}.`)
+  response.blocks.data.push(...result.items.map((b) => `- ${b.label}: ${b.count}`))
+  if (!authz.allowed) response.blocks.limitations.push(authz.reason)
+  response.blocks.limitations.push(...result.limitations)
+  state.ctx = { ...state.ctx, lastActions: [], lastEntity: null }
+  return { response, audit: { status: result.status, entity: 'aggregate', scope: request.scope, total: result.totals.total } }
+}
+
 async function handleRisk(state: TurnState) {
   const scope = wideOrPersonal(state.actor)
   const base = { entity: 'actions' as const, scope, visual: 'none' as const }
@@ -442,7 +508,14 @@ export async function runAgentTurn(
   stage('identity')
 
   const key = sessionContextKey(actor)
-  const ctx = deps.store.get(key, now()) ?? emptySessionContext(now())
+  const fingerprint = capabilityFingerprint(actor.capabilities)
+  let stored = await deps.store.get(key, now())
+  // Cambio de permisos (área, rol, módulos, activación): el contexto previo no se reutiliza.
+  if (stored?.fingerprint && stored.fingerprint !== fingerprint) {
+    await deps.store.clear(key)
+    stored = null
+  }
+  const ctx = stored ?? emptySessionContext(now())
   const intent = classifyAgentIntent(input.utterance, ctx.activeQuery)
   stage('intent')
 
@@ -461,6 +534,7 @@ export async function runAgentTurn(
       return deps.dispatch(a, name, args) as Promise<CopilotToolResult>
     },
   }
+  if (needsReferenceRehydration(state.ctx)) await rehydrateReferences(state)
   stage('context')
 
   let outcome: {
@@ -478,6 +552,9 @@ export async function runAgentTurn(
       break
     case 'query_okrs':
       outcome = await handleOkrs(state, intent)
+      break
+    case 'aggregate_execution':
+      outcome = await handleAggregate(state, intent)
       break
     case 'analyze_risk':
       outcome = await handleRisk(state)
@@ -497,7 +574,11 @@ export async function runAgentTurn(
   }
   stage('query_interpret')
 
-  deps.store.set(key, { activeQuery: state.ctx.activeQuery, lastActions: state.ctx.lastActions, lastEntity: state.ctx.lastEntity }, now())
+  await deps.store.set(
+    key,
+    { activeQuery: state.ctx.activeQuery, lastActions: state.ctx.lastActions, lastEntity: state.ctx.lastEntity, fingerprint },
+    now()
+  )
 
   if (deps.audit) {
     try {

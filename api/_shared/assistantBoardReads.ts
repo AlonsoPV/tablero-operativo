@@ -1,14 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ROUTES } from '../../src/constants/index.js'
 import {
-  canAccessOkrs,
   canAccessRouteByRole,
   canManageSupportTicketsByRole,
-  canViewAllBoardData,
   isAnalystByRole,
   isAppSuperAdminByAppRole,
   isExcludedFromOrgChartByRole,
   isSuperAdminByRole,
+  resolveAccessCapabilities,
+  type AccessCapabilities,
 } from '../../src/features/auth/lib/permissions.js'
 import { wrapUntrustedToolData } from '../../src/features/ai-support/copilot/matching.js'
 import { PLAN_ACCION_TRACKS } from '../../src/features/plan-accion/data/planAccionContent.js'
@@ -64,6 +64,7 @@ type ActorAccess = {
   areas: string[]
   areaIds: string[]
   moduleKeys: string[] | null
+  capabilities: AccessCapabilities
 }
 
 const MODULE_PATH: Record<string, string> = {
@@ -171,7 +172,7 @@ async function loadActorAccess(actor: BoardActor): Promise<ActorAccess> {
   const pending = (async (): Promise<ActorAccess> => {
     const [{ data: roles }, { data: usuario }, areasRes, modulesRes] = await Promise.all([
       actor.supabase.from('user_roles').select('app_role').eq('user_id', actor.authUserId),
-      actor.supabase.from('usuarios').select('area').eq('id', actor.usuarioId).maybeSingle(),
+      actor.supabase.from('usuarios').select('area, activo').eq('id', actor.usuarioId).maybeSingle(),
       actor.supabase.from('usuario_areas').select('area_id, areas(nombre)').eq('user_id', actor.usuarioId),
       actor.supabase
         .from('usuario_catalog_roles')
@@ -215,7 +216,15 @@ async function loadActorAccess(actor: BoardActor): Promise<ActorAccess> {
       }
       moduleKeys = [...keys]
     }
-    return { appRole, area, areas, areaIds, moduleKeys }
+    const capabilities = resolveAccessCapabilities({
+      rol: actor.rol,
+      appRole,
+      area,
+      areas,
+      moduleKeys,
+      active: usuario?.activo !== false,
+    })
+    return { appRole, area, areas, areaIds, moduleKeys, capabilities }
   })()
   accessCache.set(actor, pending)
   return pending
@@ -224,8 +233,9 @@ async function loadActorAccess(actor: BoardActor): Promise<ActorAccess> {
 function canSeePath(actor: BoardActor, access: ActorAccess, pathname: string): boolean {
   // Piloto interview_full_read: todos los modulos de la organizacion.
   if (actor.boardScope === 'organization') return true
+  if (!access.capabilities.active) return false
   if (pathname === ROUTES.OKRS || pathname.startsWith(`${ROUTES.OKRS}/`)) {
-    if (!canAccessOkrs(actor.rol, access.appRole, access.area, access.areas)) return false
+    return access.capabilities.readAllOkrs
   }
   if (pathname === ROUTES.PLAN_ACCION) {
     return hasPlanAccionAccess({ id: actor.usuarioId }) && canAccessRouteByRole(actor.rol, pathname, access.appRole)
@@ -263,9 +273,9 @@ async function denyUnlessModule(
   return { access }
 }
 
-function seesAllCorporateActions(actor: BoardActor) {
+function seesAllCorporateActions(actor: BoardActor, access: ActorAccess) {
   if (actor.boardScope === 'organization') return true
-  return !isAnalystByRole(actor.rol)
+  return !isAnalystByRole(actor.rol) || access.capabilities.readCrossAreaExecution
 }
 
 function toCorporateAction(row: {
@@ -319,7 +329,7 @@ async function dashboardSummary(actor: BoardActor, tool: CopilotToolName): Promi
   const gate = await denyUnlessModule(actor, tool, 'dashboard')
   if ('kind' in gate) return gate
   const today = todayWallClockCDMX()
-  const seesAll = seesAllCorporateActions(actor)
+  const seesAll = seesAllCorporateActions(actor, gate.access)
   const openLimit = actor.voiceChannel ? VOICE_OPEN_READ_LIMIT : CORPORATE_OPEN_READ_LIMIT
 
   let hechoQ = actor.supabase
@@ -682,7 +692,7 @@ async function toolOkrProgress(actor: BoardActor): Promise<CopilotToolResult> {
 }
 
 async function moduleKpis(supabase: SupabaseClient, query: string) {
-  let q = supabase
+  const q = supabase
     .from('catalog_kpis')
     .select('id,nombre,current_value,meta_objetivo,unidad,calc_type,direction,gap_id,owner_usuario,in_global_portfolio,activo')
     .eq('activo', true)
@@ -742,9 +752,13 @@ async function moduleTeamKanban(actor: BoardActor, access: ActorAccess, query: s
     .is('completed_at', null)
     .order('fecha_limite', { ascending: true })
     .limit(40)
-  if (!canViewAllBoardData(actor.rol, access.appRole) && !isAppSuperAdminByAppRole(access.appRole)) {
-    if (access.areaIds.length > 0) q = q.in('area_id', access.areaIds)
-    else q = q.eq('asignado_a', actor.usuarioId)
+  const caps = access.capabilities
+  if (!caps.superAdmin && !caps.direction) {
+    const own = access.areaIds.length > 0
+      ? `area_id.in.(${access.areaIds.join(',')})`
+      : `asignado_a.eq.${actor.usuarioId}`
+    // Área OKRS: además de su ámbito, solo acciones de equipo marcadas como OKR.
+    q = q.or(caps.okrsArea ? `${own},es_okr.eq.true` : own)
   }
   const { data, error } = await q
   if (error) throw error
@@ -783,7 +797,7 @@ async function moduleTeamKanban(actor: BoardActor, access: ActorAccess, query: s
   }
 }
 
-async function moduleCalendar(actor: BoardActor, query: string) {
+async function moduleCalendar(actor: BoardActor, access: ActorAccess, query: string) {
   const today = todayWallClockCDMX()
   const date = /^\d{4}-\d{2}-\d{2}$/.test(query) ? query : today
   const from = addDays(date, -1)
@@ -795,7 +809,7 @@ async function moduleCalendar(actor: BoardActor, query: string) {
     .lte('fecha', to)
     .order('fecha', { ascending: true })
     .limit(40)
-  if (!seesAllCorporateActions(actor)) actionsQ = actionsQ.eq('responsable', actor.usuarioId)
+  if (!seesAllCorporateActions(actor, access)) actionsQ = actionsQ.eq('responsable', actor.usuarioId)
   const remindersQ = actor.supabase
     .from('calendar_reminders')
     .select('id,titulo,fecha_limite,completed_at,user_id')
@@ -958,7 +972,7 @@ function modulePlanAccion() {
   }
 }
 
-async function moduleReports(actor: BoardActor) {
+async function moduleReports(actor: BoardActor, access: ActorAccess) {
   const today = todayWallClockCDMX()
   const from = addDays(today, -30)
   const rowLimit = actor.voiceChannel ? 120 : 800
@@ -968,7 +982,7 @@ async function moduleReports(actor: BoardActor) {
     .gte('fecha', from)
     .lte('fecha', today)
     .limit(rowLimit)
-  if (!seesAllCorporateActions(actor)) q = q.eq('responsable', actor.usuarioId)
+  if (!seesAllCorporateActions(actor, access)) q = q.eq('responsable', actor.usuarioId)
   const { data, error } = await q
   if (error) throw error
   const rows = (data ?? []) as Array<{ estado?: string | null; prioridad?: string | null; area?: string | null }>
@@ -1026,7 +1040,7 @@ async function toolModuleData(
     case 'team_kanban':
       return readOk('get_module_data', { module, ...(await moduleTeamKanban(actor, access, query)) })
     case 'calendar':
-      return readOk('get_module_data', { module, ...(await moduleCalendar(actor, query)) })
+      return readOk('get_module_data', { module, ...(await moduleCalendar(actor, access, query)) })
     case 'challenges':
       return readOk('get_module_data', { module, ...(await moduleChallenges(actor.supabase, query)) })
     case 'notifications':
@@ -1044,7 +1058,7 @@ async function toolModuleData(
     case 'plan_accion':
       return readOk('get_module_data', { module, ...modulePlanAccion() })
     case 'reports':
-      return readOk('get_module_data', { module, ...(await moduleReports(actor)) })
+      return readOk('get_module_data', { module, ...(await moduleReports(actor, access)) })
     case 'distancias':
       return readOk('get_module_data', { module, ...(await moduleDistancias(actor)) })
     case 'okrs': {
@@ -1078,7 +1092,7 @@ async function toolSearchBoard(actor: BoardActor, query: string): Promise<Copilo
         .select('id,titulo_accion,estado,fecha,responsable')
         .ilike('titulo_accion', `%${escapeIlike(query)}%`)
         .limit(8)
-      if (!seesAllCorporateActions(actor)) q = q.eq('responsable', actor.usuarioId)
+      if (!seesAllCorporateActions(actor, access)) q = q.eq('responsable', actor.usuarioId)
       const { data } = await q
       return clip(data ?? [], 8)
     })

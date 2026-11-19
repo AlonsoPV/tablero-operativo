@@ -1,5 +1,23 @@
 # Enviardián · incidentes, riesgos y dependencias
 
+## R1 complemento · riesgos residuales y dependencias · 2026-11-19
+
+| ID | Riesgo | Severidad | Tratamiento |
+| --- | --- | --- | --- |
+| RC-01 | Al aplicar B, los miembros del área OKRS pierden la administración de OKRs y WhatsApp que heredaban | Alta | B no se aplica hasta ejecutar la auditoría, aprobar la matriz y asignar los módulos. Rollback: `legacy_okrs_area_grants()` vuelve a true. |
+| RC-02 | RH (`can_manage_org_hierarchy`) y los administradores siguen pudiendo asignar el área OKRS. La pertenencia a RH se identifica por nombre | Media | Sin cambio: es una función de administración vigente. Lo prueba la suite SQL. Decidir si RH debe asignar áreas funcionales. |
+| RC-03 | Sin registro histórico de quién asignó el área OKRS: miembros actuales pudieron autoasignarse antes de A | Media | La auditoría separa la pertenencia relacional de la de texto. Revisar cada miembro antes de asignarle módulos. |
+| RC-04 | WhatsApp, voz y el agente usan `service_role`; aplican las capacidades en la aplicación, no por RLS | Media | `loadAgentCapabilities` lee cada turno los datos del servidor; ante un error cae a capacidades sólo por rol, nunca más amplias. |
+| RC-05 | La regla SQL vigente de lectura de `acciones_diarias` deja a un inactivo no Analista leer acciones | Media | Preexistente; no se cambió para no ocultar datos a usuarios sin fila en `usuarios`. La UI y el agente niegan al inactivo. Requiere decisión propia. |
+| RC-06 | Un Super Admin sin fila en `usuarios` no obtiene capacidades SQL de WhatsApp | Baja | Las rutas existentes ya exigían fila activa. Documentado. |
+| RC-07 | Si no existe exactamente un área «OKRS», `system_key` queda vacío y nadie hereda acceso | Baja | La auditoría lista las filas; con más de una, decidir a mano antes de A. |
+| RC-08 | La rehidratación del contexto sólo conserva referencias que el usuario puede releer (máx. 12) | Baja | Por diseño: preferir perder contexto a mostrar datos ya no autorizados. |
+| RC-09 | `get_action_details` sobre acciones ajenas sigue restringido para Analistas del área OKRS | Baja | No se amplió. Ven las acciones en listas y agregados; el detalle de una acción ajena queda pendiente de decisión. |
+
+**Dependencias R0.** El complemento usa `is_current_user_direction`, `can_manage_catalogs` y la guarda Dirección de `20261118150000`. Hasta que R0 supere sus validaciones remotas no se integra ni se aplica. El runner R0 sigue aprobado tras el complemento.
+
+**Riesgos R1 anteriores resueltos localmente:** el gate de OKR de Dirección (ahora `readAllOkrs`) y el contexto en memoria por instancia (ahora `agent_session_context`). Ambos requieren aplicar la migración A en QA.
+
 ## R1 · riesgos y dependencias nuevos · 2026-11-19
 
 | Riesgo o dependencia | Severidad | Tratamiento |

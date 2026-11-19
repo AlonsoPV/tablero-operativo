@@ -24,7 +24,7 @@ import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
 import { useDropdownOptionsByKey } from '@/features/catalogs/hooks/useDropdownOptions'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { isAnalystByRole } from '@/features/auth/lib/permissions'
-import { useCanSeeOkrTags } from '@/features/okrs/useCanSeeOkrTags'
+import { useCanTagOkrActions } from '@/features/okrs/useCanSeeOkrTags'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { DEFAULT_PRIORITY_NOMBRE, priorityDisplayLabel } from '../utils/priorityLabels'
 import { AccionFormField } from './AccionFormSection'
@@ -160,7 +160,7 @@ export function AccionForm({
     isLoading: prioritiesLoading,
   } = usePriorities()
   const { data: currentUser } = useCurrentUser()
-  const canSeeOkrTags = useCanSeeOkrTags()
+  const canTagOkrActions = useCanTagOkrActions()
   const isAnalyst = isAnalystByRole(currentUser?.rol)
   const assignerName = asignadorNombre?.trim() || currentUser?.nombre?.trim() || null
   const showAsignadorNote = Boolean(assignerName)
@@ -441,7 +441,7 @@ export function AccionForm({
         <AccionFormMetaRow
           assignerName={assignerName}
           showAssigner={showAsignadorNote}
-          showOkr={showOkrToggle ?? canSeeOkrTags}
+          showOkr={showOkrToggle ?? canTagOkrActions}
           okrChecked={Boolean(form.watch('es_okr'))}
           okrDisabled={isEditProtectedReadonly}
           onOkrChange={(next) => form.setValue('es_okr', next, { shouldDirty: true })}

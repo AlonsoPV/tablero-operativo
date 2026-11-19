@@ -10,12 +10,15 @@ import {
   type QueryRequest,
   type QueryResult,
   type ActionItem,
+  type AggregateBucket,
   type OkrItem,
 } from './contracts.js'
 import { queryActions, type ToolDispatcher } from './kanbanQuery.js'
 import { queryOkrs } from './okrQuery.js'
+import { queryAggregate } from './aggregateQuery.js'
 
 export * from './contracts.js'
+export { normalizeAggregateToolResult } from './aggregateQuery.js'
 export { normalizeActionsToolResult, type ToolDispatcher } from './kanbanQuery.js'
 export { normalizeOkrToolResult } from './okrQuery.js'
 export { AGENT_SOURCES, UNAVAILABLE_DOMAINS, sourcesFor } from './sourceCatalog.js'
@@ -44,7 +47,11 @@ export async function queryCombined(
   }
 }
 
-export type AnyQueryResult = QueryResult<ActionItem> | QueryResult<OkrItem> | CombinedQueryResult
+export type AnyQueryResult =
+  | QueryResult<ActionItem>
+  | QueryResult<OkrItem>
+  | QueryResult<AggregateBucket>
+  | CombinedQueryResult
 
 export async function runQuery(
   actor: CopilotActor,
@@ -53,7 +60,8 @@ export async function runQuery(
 ): Promise<AnyQueryResult> {
   if (request.entity === 'actions') return queryActions(actor, request, dispatch)
   if (request.entity === 'okrs') return queryOkrs(actor, request, dispatch)
+  if (request.entity === 'aggregate') return queryAggregate(actor, request, dispatch)
   return queryCombined(actor, request, dispatch)
 }
 
-export { queryActions, queryOkrs }
+export { queryActions, queryAggregate, queryOkrs }

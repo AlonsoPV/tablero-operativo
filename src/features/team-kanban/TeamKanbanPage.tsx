@@ -43,9 +43,7 @@ import {
   type FechaCompromisoChangeReasonKey,
 } from '@/features/operations/constants/fechaCompromisoChangeReasons'
 import { whatsappIntegrationService } from '@/services/whatsappIntegration.service'
-import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { useAppRole } from '@/features/auth/hooks/useAppRole'
-import { canAccessAiAssistAndWhatsApp } from '@/features/auth/lib/permissions'
+import { useAccessCapabilities } from '@/features/auth/hooks/useAccessCapabilities'
 import { teamKanbanService } from './service'
 import { teamKanbanQueryKeys } from './queryKeys'
 import {
@@ -1396,14 +1394,7 @@ function TeamActionEditDialog({
   const [draftAssignee, setDraftAssignee] = useState('')
   const [draftPriority, setDraftPriority] = useState('')
   const [whatsappPending, setWhatsappPending] = useState(false)
-  const { data: currentUser } = useCurrentUser()
-  const { data: appRole } = useAppRole()
-  const canUseWhatsApp = canAccessAiAssistAndWhatsApp(
-    currentUser?.rol,
-    appRole,
-    currentUser?.area,
-    currentUser?.areas
-  )
+  const canUseWhatsApp = useAccessCapabilities().whatsappInbox
 
   useEffect(() => {
     setDueReason('')

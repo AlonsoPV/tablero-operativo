@@ -22,11 +22,9 @@ import { toUpdateUserInput } from '../utils/userFormMappers'
 import { toast } from 'sonner'
 import { ArrowLeft } from 'lucide-react'
 import { useOrgChart } from '@/features/org-chart/hooks/useOrgChart'
-import {
-  canAccessAiAssistAndWhatsApp,
-  canEditOrgUserHierarchy,
-} from '@/features/auth/lib/permissions'
+import { canEditOrgUserHierarchy } from '@/features/auth/lib/permissions'
 import { useAppRole } from '@/features/auth/hooks/useAppRole'
+import { useAccessCapabilities } from '@/features/auth/hooks/useAccessCapabilities'
 import { mapManagerUpdateError } from '@/features/org-chart/utils/orgHierarchy'
 import { useAreas } from '@/features/catalogs/hooks/useAreas'
 import { ROUTES } from '@/constants'
@@ -53,12 +51,7 @@ export function UserDetailPage() {
     area: currentUser?.area,
     areas: currentUser?.areas,
   })
-  const canManageWhatsApp = canAccessAiAssistAndWhatsApp(
-    currentUser?.rol,
-    appRole,
-    currentUser?.area,
-    currentUser?.areas
-  )
+  const canManageWhatsApp = useAccessCapabilities().whatsappIdentityLink
 
   const handleFormSubmit = (values: UserFormValues) => {
     if (!id) return

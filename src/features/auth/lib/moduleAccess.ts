@@ -1,7 +1,7 @@
 import { ROUTES } from '@/constants'
 import {
-  canAccessAiAssistAndWhatsApp,
   canAccessOkrs,
+  resolveAccessCapabilities,
   canAccessRouteByRole,
   getDefaultRouteByRole,
   isAppSuperAdminByAppRole,
@@ -25,8 +25,8 @@ const MODULE_ROUTES: Array<[string, string]> = [
   [ROUTES.SETTINGS_CATALOGS, 'settings_catalogs'],
   [ROUTES.SETTINGS_USERS, 'settings_users'],
   [ROUTES.SETTINGS_REMINDERS, 'settings_reminders'],
-  [ROUTES.SETTINGS_WHATSAPP, 'settings_reminders'],
-  [ROUTES.AI_WHATSAPP_SEGUIMIENTO, 'settings_reminders'],
+  [ROUTES.SETTINGS_WHATSAPP, 'whatsapp_settings'],
+  [ROUTES.AI_WHATSAPP_SEGUIMIENTO, 'whatsapp_inbox'],
   [ROUTES.SETTINGS_PROFILE, 'settings_profile'],
   [ROUTES.DASHBOARD_TEAMS, 'team_dashboard'],
   [ROUTES.TEAM_KANBAN, 'team_kanban'],
@@ -91,18 +91,20 @@ export function canAccessRouteWithModules(
   moduleKeys: string[] | null | undefined,
   context?: RouteAccessContext
 ) {
+  const capabilities = resolveAccessCapabilities({
+    rol, appRole, area: context?.area, areas: context?.areas, moduleKeys,
+  })
+  // Lectura transversal de OKRs (Super Admin, Dirección, área OKRS) no depende del catálogo de módulos.
   if (pathname === ROUTES.OKRS || pathname.startsWith(`${ROUTES.OKRS}/`)) {
-    if (!canAccessOkrs(rol, appRole, context?.area, context?.areas)) return false
+    return capabilities.readAllOkrs
   }
 
-  if (
-    matches(pathname, ROUTES.AI_WHATSAPP_SEGUIMIENTO) ||
-    matches(pathname, ROUTES.SETTINGS_WHATSAPP)
-  ) {
-    return canAccessAiAssistAndWhatsApp(rol, appRole, context?.area, context?.areas)
+  if (matches(pathname, ROUTES.AI_WHATSAPP_SEGUIMIENTO)) return capabilities.whatsappInbox
+  if (matches(pathname, ROUTES.SETTINGS_WHATSAPP)) {
+    return capabilities.whatsappSettings || capabilities.whatsappIdentityLink
   }
   if (pathname === ROUTES.AI_ASSIST || matches(pathname, ROUTES.AI_HISTORY)) {
-    return canAccessOkrs(rol, appRole, context?.area, context?.areas)
+    return canAccessOkrs(rol, appRole, context?.area, context?.areas) || capabilities.whatsappAssistant
   }
   if (isDirectionByRole(rol) && !isAppAdminByAppRole(appRole) &&
       (pathname.startsWith('/admin/') ||

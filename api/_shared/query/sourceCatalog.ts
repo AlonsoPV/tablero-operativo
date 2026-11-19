@@ -5,7 +5,7 @@
 import type { QueryEntity, QuerySourceRef } from './contracts.js'
 
 export type SourceDefinition = QuerySourceRef & {
-  entity: Exclude<QueryEntity, 'combined'> | 'people' | 'audit'
+  entity: Exclude<QueryEntity, 'combined' | 'aggregate'> | 'people' | 'audit'
   ownerModule: string
   fields: string[]
   /** Herramientas existentes que leen la fuente; la capa de consulta delega en ellas. */
@@ -27,7 +27,8 @@ export const AGENT_SOURCES: readonly SourceDefinition[] = [
       'verificador_dato', 'verificador_gobierno',
     ],
     readVia: ['get_my_actions', 'get_team_actions', 'get_pending_verifications', 'get_action_details'],
-    authorization: 'RLS de acciones + canUseWideActionScope (Analista solo propias)',
+    authorization:
+      'RLS de acciones + canUseWideActionScope (Analista solo propias salvo lectura transversal: Super Admin, Dirección, área OKRS)',
   },
   {
     id: 'priorities',
@@ -47,7 +48,7 @@ export const AGENT_SOURCES: readonly SourceDefinition[] = [
     ownerModule: 'okrs',
     fields: ['objectives', 'keyResults', 'initiatives'],
     readVia: ['get_okr_progress'],
-    authorization: 'okr_can_view + módulo okrs del actor',
+    authorization: 'okr_can_view (lectura total: Super Admin, Dirección, área OKRS) + módulo okrs para el resto',
   },
   {
     id: 'okr_key_results',
@@ -88,6 +89,6 @@ export const UNAVAILABLE_DOMAINS = [
 ] as const
 
 export function sourcesFor(entity: QueryEntity): QuerySourceRef[] {
-  const wanted = entity === 'combined' ? ['actions', 'okrs'] : [entity]
+  const wanted = entity === 'combined' ? ['actions', 'okrs'] : entity === 'aggregate' ? ['actions'] : [entity]
   return AGENT_SOURCES.filter((s) => wanted.includes(s.entity)).map(({ id, kind, name }) => ({ id, kind, name }))
 }

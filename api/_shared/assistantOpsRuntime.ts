@@ -321,6 +321,24 @@ function readOk(tool: CopilotToolName, data: unknown): CopilotToolResult {
   return { ok: true, tool, kind: 'read', data: wrapUntrustedToolData(data) }
 }
 
+const ACTION_GROUP_BY = ['area', 'responsable', 'estado'] as const
+type ActionGroupBy = (typeof ACTION_GROUP_BY)[number]
+
+function parseActionGroupBy(value: unknown): ActionGroupBy | null {
+  return typeof value === 'string' && (ACTION_GROUP_BY as readonly string[]).includes(value)
+    ? (value as ActionGroupBy)
+    : null
+}
+
+function countActionsBy(rows: ActionRow[], groupBy: ActionGroupBy): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const row of rows) {
+    const key = String(row[groupBy] ?? '').trim() || 'sin_dato'
+    counts[key] = (counts[key] ?? 0) + 1
+  }
+  return counts
+}
+
 async function toolGetMyActions(actor: CopilotActor, args: Record<string, unknown>): Promise<CopilotToolResult> {
   const scope = parseActionQueryScope(args.scope)
   const status_group = parseActionQueryStatusGroup(args.status_group, args.filter)
@@ -331,7 +349,11 @@ async function toolGetMyActions(actor: CopilotActor, args: Record<string, unknow
   const now = Date.now()
   const asOf = new Date().toISOString()
 
-  if (!canUseWideActionScope(scope, { rol: actor.rol, boardScope: actor.boardScope })) {
+  if (!canUseWideActionScope(scope, {
+    rol: actor.rol,
+    boardScope: actor.boardScope,
+    readCrossAreaExecution: actor.capabilities?.readCrossAreaExecution,
+  })) {
     return denied(
       'get_my_actions',
       'No tienes vista de tablero completo. Usa scope assigned_to_me o created_by_me.'
@@ -365,9 +387,13 @@ async function toolGetMyActions(actor: CopilotActor, args: Record<string, unknow
   const total = filtered.length
   const filters_applied = { status_group, visual }
   const population = populationLabel(scope)
+  // Agregados sobre toda la población autorizada y filtrada, antes de recortar items.
+  const groupBy = parseActionGroupBy(args.group_by)
+  const groups = groupBy ? countActionsBy(filtered, groupBy) : undefined
 
   return readOk('get_my_actions', {
     scope,
+    ...(groupBy ? { group_by: groupBy, groups } : {}),
     filters_applied,
     filter: status_group,
     status_group,

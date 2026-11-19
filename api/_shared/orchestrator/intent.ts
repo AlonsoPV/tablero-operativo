@@ -23,6 +23,11 @@ export type AgentIntent =
       restrictedRequest: boolean
     }
   | { kind: 'query_okrs'; period: 'current_quarter' | 'all_active' }
+  | {
+      kind: 'aggregate_execution'
+      groupBy: 'area' | 'responsable' | 'estado'
+      statusGroup: 'open' | 'overdue' | 'blocked'
+    }
   | { kind: 'analyze_risk' }
   | { kind: 'who_most_urgent' }
   | { kind: 'unsupported_metric'; domain: 'finance' }
@@ -35,7 +40,7 @@ function normalize(text: string) {
 }
 
 const OPERATIONAL_TERMS =
-  /\b(accion(es)?|tarea(s)?|pendiente(s)?|vencid[ao]s?|atrasad[ao]s?|retraso|bloquead[ao]s?|bloqueo(s)?|prioridad(es)?|urgente(s)?|asigne|asignad[ao]s?|responsable|kanban|okrs?|objetivo(s)?|kr|key results?|iniciativa(s)?|verificar|verificacion|tengo|cuales|todas?|en rojo)\b/
+  /\b(accion(es)?|tarea(s)?|pendiente(s)?|vencid[ao]s?|atrasad[ao]s?|retraso|bloquead[ao]s?|bloqueo(s)?|ejecucion|prioridad(es)?|urgente(s)?|asigne|asignad[ao]s?|responsable|kanban|okrs?|objetivo(s)?|kr|key results?|iniciativa(s)?|verificar|verificacion|tengo|cuales|todas?|en rojo)\b/
 
 const FINANCE = /\b(dinero|pesos|dolares|costo(s)?|cuesta|perdiendo|perdida(s)?|ingreso(s)?|ventas?|presupuesto|margen|utilidad(es)?|financier[ao]s?)\b|\$/
 
@@ -85,6 +90,21 @@ export function classifyAgentIntent(
   }
 
   if (!OPERATIONAL_TERMS.test(text)) return { kind: 'unknown' }
+
+  const groupBy = /\bpor (area|areas|departamento)s?\b/.test(text)
+    ? 'area'
+    : /\bpor (responsable|persona|colaborador)(es|s)?\b/.test(text)
+      ? 'responsable'
+      : /\bpor estado(s)?\b/.test(text)
+        ? 'estado'
+        : null
+  if (groupBy && /\b(accion(es)?|tareas?|vencid[ao]s?|atrasad[ao]s?|bloquead[ao]s?|bloqueos?|pendientes?|abiertas?|ejecucion)\b/.test(text)) {
+    return {
+      kind: 'aggregate_execution',
+      groupBy,
+      statusGroup: /\b(vencid|atrasad|retraso)/.test(text) ? 'overdue' : /\bbloque/.test(text) ? 'blocked' : 'open',
+    }
+  }
 
   if (interpreted.intent === 'query' && interpreted.module === 'okrs') {
     return {

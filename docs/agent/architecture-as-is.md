@@ -1,5 +1,25 @@
 # Enviardián · arquitectura actual R0–R1
 
+## R1 complemento · acceso transversal: estado previo y hallazgos · 2026-11-19
+
+Matriz **anterior** al complemento, reconstruida del código de `r1/agente-confiable` (`permissions.ts`, `moduleAccess.ts`, `assistantBoardReads.ts` y las migraciones vigentes). La matriz nueva está en `architecture-target.md`.
+
+| Capacidad | Super Admin | Dirección | Área OKRS | Gerencia | Colaborador (Analista) | Inactivo |
+| --- | --- | --- | --- | --- | --- | --- |
+| Leer todos los OKRs | Sí | SQL sí (R0); UI y agente no, sin el módulo `okrs` en su rol de catálogo | Sí | Por ámbito | Por ámbito | UI no; SQL no |
+| Leer acciones de otras áreas | Sí | Sí | **No** si su rol es Analista | Sí (regla «no analista») | Sólo propias | Agente no |
+| Team Kanban | Todo | Todo | Sólo su ámbito | Su ámbito | Su ámbito | No |
+| Administrar OKRs de cualquier área y marcar acciones OKR | Sí | No | **Sí, heredado del nombre del área** | Líder del equipo | No | No |
+| WhatsApp: asistente, bandeja, configuración y vínculo de teléfonos | Sí | No | **Sí, los cuatro juntos, heredados del área** | No | No | No |
+
+**Hallazgos.**
+
+- El área OKRS se identificaba por **nombre de texto** (`usuarios.area` o `areas.nombre`), sin clave estable.
+- **Escalamiento existente:** cualquier usuario activo podía agregarse el área OKRS en su perfil con `settings_users_set_areas` o editar `usuarios.area`. Con eso obtenía administración global de OKRs y acceso completo a WhatsApp. Lo reproduce la prueba SQL «Pre-R1».
+- Dirección no veía OKRs en la UI ni en el agente sin el módulo `okrs`, aunque R0 decidió que sí los consulta (la discrepancia anotada abajo).
+- Lectura, edición y administración global de OKRs compartían una sola regla (`canAccessOkrs` / `okr_manage_scope`). Bandeja, uso, configuración y vínculo de WhatsApp compartían otra (`canAccessAiAssistAndWhatsApp` / `whatsapp_inbox_can_access`).
+- La regla SQL de lectura de `acciones_diarias` sólo restringe a Analistas. Un usuario **inactivo** que no es Analista conserva lectura SQL de acciones. Es preexistente y el complemento no la cambia (riesgo RC-05).
+
 ## R1 · inventario focalizado E1/E2/E3 · 2026-11-19
 
 Rama local `r1/agente-confiable` sobre `r0/estabilizacion` (R0 commiteado tal como estaba en el árbol, sin cambios). Sin push, merge, despliegue ni migraciones remotas. Las correcciones R0 y el rediseño UX de entrada (`feat/assistant-entry-ux`) quedan en ramas separadas.

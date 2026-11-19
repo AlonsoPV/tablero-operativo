@@ -10,6 +10,8 @@ import {
   isDirectionByRole,
   isLeaderByRole,
   isSuperAdminByRole,
+  resolveAccessCapabilities,
+  type AccessCapabilities,
 } from '../../../src/features/auth/lib/permissions.js'
 
 export type AgentChannel = 'web' | 'whatsapp' | 'voice'
@@ -26,6 +28,8 @@ export type AgentActor = {
   /** Límite de aislamiento vigente: proyecto Supabase (no hay tenant_id en el esquema). */
   project: string
   boardScope: CopilotBoardScope
+  /** Derivadas en servidor (actorCapabilities.ts); se recalculan en cada turno. */
+  capabilities: AccessCapabilities
   copilot: CopilotActor
 }
 
@@ -55,9 +59,10 @@ function projectRef(): string {
 
 export function resolveActor(
   identity: VerifiedIdentity,
-  input: { channel: AgentChannel; sessionId: string }
+  input: { channel: AgentChannel; sessionId: string; capabilities?: AccessCapabilities }
 ): AgentActor {
   const boardScope = identity.boardScope ?? 'role'
+  const capabilities = input.capabilities ?? resolveAccessCapabilities({ rol: identity.rol, active: identity.active })
   return {
     authUserId: identity.authUserId,
     usuarioId: identity.usuarioId,
@@ -67,6 +72,7 @@ export function resolveActor(
     sessionId: input.sessionId,
     project: projectRef(),
     boardScope,
+    capabilities,
     copilot: {
       supabase: identity.supabase,
       usuarioId: identity.usuarioId,
@@ -75,6 +81,7 @@ export function resolveActor(
       accessToken: identity.accessToken,
       boardScope,
       voiceChannel: input.channel === 'voice',
+      capabilities,
     },
   }
 }
@@ -83,6 +90,7 @@ export function resolveActor(
 const AUTHORITY_FIELDS = [
   'rol', 'role', 'app_role', 'usuario_id', 'usuarioId', 'user_id', 'authUserId', 'auth_user_id',
   'boardScope', 'board_scope', 'is_admin', 'permissions', 'roleClass', 'area', 'areas', 'project',
+  'capabilities', 'module_keys', 'moduleKeys', 'super_admin', 'okrs_area',
 ]
 
 export function stripAuthorityFields(args: Record<string, unknown>): Record<string, unknown> {

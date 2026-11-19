@@ -71,7 +71,7 @@ describe('R1 · escenarios conversacionales', () => {
     expect(r.intent).toBe('query_actions')
     expect(r.response.references.map((x) => x.id)).toEqual(['a1'])
     expect(r.response.blocks.data[0]).toBe('1 vencidas en tus acciones como responsable.')
-    expect(h.store.get('u-lead:web:s1')?.activeQuery).toMatchObject({ scope: 'assigned_to_me', status_group: 'overdue' })
+    expect((await h.store.get('u-lead:web:s1'))?.activeQuery).toMatchObject({ scope: 'assigned_to_me', status_group: 'overdue' })
     // Una vencida ajena (a5 de Ana) no se mezcla en el alcance personal.
     expect(r.text).not.toContain('Actualizar SOP')
   })
@@ -84,7 +84,7 @@ describe('R1 · escenarios conversacionales', () => {
       'La más urgente es «Cerrar inventario» (Retraso, 2026-11-17).',
       'Responsable: Laura Lider.',
     ])
-    expect(h.store.get('u-lead:web:s1')?.lastEntity).toMatchObject({ kind: 'action', id: 'a1' })
+    expect((await h.store.get('u-lead:web:s1'))?.lastEntity).toMatchObject({ kind: 'action', id: 'a1' })
   })
 
   it('4 · «¿Cómo vamos con los objetivos del trimestre?» usa cifras reales y declara KR sin datos', async () => {
@@ -170,11 +170,13 @@ describe('R1 · permisos, contexto y errores', () => {
     expect(r.response.blocks.data[0]).toBe('7 abiertas en acciones del tablero autorizado.')
   })
 
-  it('Dirección sin módulo okrs en su rol de catálogo recibe forbidden (gate vigente, discrepancia documentada)', async () => {
+  it('Dirección lee OKRs sin módulo okrs en su rol de catálogo (lectura ejecutiva) y no puede proponer cambios', async () => {
     const h = harness()
     const r = await turn(h, R1_USERS.directionNoOkr, '¿Cómo vamos con los OKRs?')
-    expect(r.response.status).toBe('forbidden')
-    expect(r.text).not.toContain('Crecer ventas')
+    expect(r.response.status).toBe('ok')
+    expect(r.text).toContain('Crecer ventas')
+    const write = await turn(h, R1_USERS.directionNoOkr, 'Crea una acción para revisar ventas.')
+    expect(write.response.status).toBe('forbidden')
   })
 
   it('desambigua homónimos antes de consultar acciones de una persona', async () => {
@@ -195,9 +197,9 @@ describe('R1 · permisos, contexto y errores', () => {
   it('el contexto expira a los 30 minutos y no se comparte entre canales', async () => {
     const h = harness()
     await turn(h, R1_USERS.lead, '¿Cuáles están vencidas?')
-    expect(h.store.get('u-lead:web:s1')).not.toBeNull()
-    expect(h.store.get('u-lead:whatsapp:s1')).toBeNull()
-    expect(h.store.get('u-lead:web:s1', Date.now() + 31 * 60 * 1000)).toBeNull()
+    expect(await h.store.get('u-lead:web:s1')).not.toBeNull()
+    expect(await h.store.get('u-lead:whatsapp:s1')).toBeNull()
+    expect(await h.store.get('u-lead:web:s1', Date.now() + 31 * 60 * 1000)).toBeNull()
   })
 
   it('descarta campos de autoridad inyectados por el cliente o el modelo', () => {

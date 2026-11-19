@@ -7,8 +7,22 @@ import { supabaseQueryAuditSink } from '../query/queryAudit.js'
 import { resolveActor, type AgentChannel, type VerifiedIdentity } from '../query/resolveActor.js'
 import { composeText } from './respond.js'
 import { runAgentTurn, type AgentTurnDeps, type AgentTurnResult } from './runAgentTurn.js'
-import { defaultSessionContextStore, emptySessionContext, sessionContextKey } from './sessionContext.js'
+import {
+  createSupabaseSessionContextStore,
+  defaultSessionContextStore,
+  emptySessionContext,
+  sessionContextKey,
+  type SessionContextStore,
+} from './sessionContext.js'
+import { loadAgentCapabilities } from '../query/actorCapabilities.js'
 import type { ActionActiveQuery } from '../../../src/features/ai-support/actionQuery/types.js'
+import type { AccessCapabilities } from '../../../src/features/auth/lib/permissions.js'
+
+/** Web y WhatsApp comparten contexto entre instancias; voz rehidrata desde consult_log. */
+function defaultStoreForChannel(input: { identity: VerifiedIdentity; channel: AgentChannel }): SessionContextStore {
+  if (input.channel === 'voice') return defaultSessionContextStore
+  return createSupabaseSessionContextStore(input.identity.supabase)
+}
 
 export function isAgentOrchestratorEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return env.AGENT_ORCHESTRATOR_R1 === '1'
@@ -47,13 +61,15 @@ export async function runChannelTurn(
     /** Consulta activa persistida por el canal (p. ej. consult_log de voz) para rehidratar tras cold start. */
     seedActiveQuery?: ActionActiveQuery | null
   },
-  overrides: Partial<AgentTurnDeps> = {}
+  overrides: Partial<AgentTurnDeps> & { capabilities?: AccessCapabilities } = {}
 ): Promise<ChannelTurn> {
-  const actor = resolveActor(input.identity, { channel: input.channel, sessionId: input.sessionId })
-  const store = overrides.store ?? defaultSessionContextStore
+  // Capacidades recalculadas en cada turno desde datos del servidor (nunca del cliente ni del modelo).
+  const capabilities = overrides.capabilities ?? await loadAgentCapabilities(input.identity)
+  const actor = resolveActor(input.identity, { channel: input.channel, sessionId: input.sessionId, capabilities })
+  const store = overrides.store ?? defaultStoreForChannel(input)
   const key = sessionContextKey(actor)
-  if (input.seedActiveQuery && !store.get(key)) {
-    store.set(key, { ...emptySessionContext(), activeQuery: input.seedActiveQuery })
+  if (input.seedActiveQuery && !(await store.get(key))) {
+    await store.set(key, { ...emptySessionContext(), activeQuery: input.seedActiveQuery })
   }
   const result = await runAgentTurn(
     { actor, utterance: input.utterance },

@@ -1,5 +1,43 @@
 # Enviardián · arquitectura objetivo
 
+## R1 complemento · capacidades explícitas y lectura transversal · 2026-11-19
+
+No hay un sistema de permisos paralelo. Los permisos nuevos son módulos de `app_modules`, asignados mediante roles de catálogo (`catalog_roles` → `catalog_role_modules`). Una sola derivación produce las capacidades: `resolveAccessCapabilities` en TS y `access_capabilities_for_usuario` en SQL. Un fixture compartido prueba la paridad entre ambas.
+
+**Matriz nueva.** «Transición» significa que `legacy_okrs_area_grants()` vale true (tras la migración A). «Tras B» significa después del script manual de revocación.
+
+| Capacidad | Super Admin | Dirección | Área OKRS | Gerencia | Colaborador | Inactivo |
+| --- | --- | --- | --- | --- | --- | --- |
+| `readAllOkrs`: OKRs, KRs, iniciativas e indicadores | Sí | Sí, sin módulo | Sí | Por ámbito | Por ámbito | No |
+| `readCrossAreaExecution`: acciones corporativas de todas las áreas | Sí | Sí | Sí (también si es Analista) | Regla vigente «no analista» | Sólo propias | No |
+| Team Kanban | Todo | Todo | Su ámbito + acciones `es_okr` | Su ámbito | Su ámbito | No |
+| `adminAllOkrs`: editar OKRs de cualquier área y marcar OKR | Sí | **No** | Transición sí; tras B sólo con `okrs_admin` | Líder del equipo | No | No |
+| `whatsappAssistant` / `whatsappInbox` / `whatsappSettings` / `whatsappIdentityLink` | Sí | **No** | Transición sí; tras B por módulo | Por módulo | Por módulo | No |
+| `readAllOrganizationalData`, `manageAll` | Sí | No | No | No | No | No |
+
+Los administradores de catálogo (DG, Sistemas, app admin) conservan `adminAllOkrs`, como antes. Las capacidades sólo **elevan lecturas** en el agente (`effectiveDecision`); nunca habilitan escritura.
+
+**SQL (`20261119140000_r1_transversal_access.sql`, local).**
+
+| Objeto | Cambio |
+| --- | --- |
+| `areas.system_key` | Clave funcional `okrs`, única y rellenada sólo si existe exactamente un área llamada «OKRS». Los permisos dependen de la clave, no del nombre editable. |
+| `app_modules` | `okrs_admin`, `whatsapp_assistant`, `whatsapp_inbox`, `whatsapp_settings`, `whatsapp_identity_link`. |
+| Funciones por usuario (sólo `service_role`) | `usuario_in_area_key`, `usuario_has_module`, `usuario_is_super_admin`, `usuario_is_direction`, `usuario_is_catalog_admin`, `access_capabilities_for_usuario`. |
+| Funciones del usuario actual (`authenticated`) | `my_access_capabilities`, `current_user_capability`, `can_read_all_okrs`, `can_read_cross_area_execution`, `can_admin_all_okrs`, `can_use_whatsapp_inbox`, `can_configure_whatsapp`, `can_link_whatsapp_identities`. |
+| Reescritas | `okr_can_view` (+ lectura total), `okr_manage_scope` y `okr_can_tag_actions` (admin global explícito), `team_kanban_can_view` (+ OKR para el área OKRS), `can_use_ai_whatsapp[_for_usuario]`, `whatsapp_inbox_can_access`, las cuatro RPC de bandeja, `admin_upsert/clear_whatsapp_identity` y `settings_users_set_areas`. |
+| Políticas | `acciones_select_role_scoped` (+ `can_read_cross_area_execution`), `whatsapp_messages_select_inbox`, lectura y edición de `whatsapp_followup_settings`. Las funciones se evalúan una vez por consulta con `(select …)`. |
+| Guardas | `guard_profile_privileges` (rol, activo, identidad y área funcional por texto) y `guard_functional_area_membership` (altas y bajas del área OKRS sólo por administrador u organigrama). |
+| `agent_session_context` | Contexto del agente. RLS sólo para el dueño; `expires_at` ≤ 31 min; carga ≤ 16 KB, únicamente IDs y orden. |
+
+Todas las funciones usan `search_path = pg_catalog, public, pg_temp`, y la migración rechaza dueños no confiables y un esquema `public` con CREATE abierto. `legacy_okrs_area_grants()` se crea sólo una vez: reaplicar A no deshace la revocación B.
+
+**Agente.** `loadAgentCapabilities` lee cada turno los datos confiables del servidor (rol, área relacional, módulos y estado activo). `stripAuthorityFields` descarta `capabilities`, `module_keys`, `super_admin` y `okrs_area` si llegan del cliente o del modelo. `aggregate_execution` («¿cuántas acciones por área / responsable / estado?») cuenta sobre la población autorizada **antes** de paginar y devuelve un máximo de 12 grupos; sin lectura transversal, cae a alcance propio y lo declara como limitación.
+
+**Contexto web y WhatsApp.** `createSupabaseSessionContextStore` guarda la sesión con el ID hasheado (sha256), TTL de 30 min y entrada compartida entre instancias. Si cambia la huella de capacidades del usuario, el contexto se invalida. Las referencias se **releen** con la consulta autorizada antes de reutilizarlas. Voz sigue en memoria y rehidrata desde `consult_log`.
+
+**Continuidad R2.** `authorizeActionPhase` por fase (query, propose, confirm, execute, verify) y por perfil (`R2_PHASE_MATRIX`). Dirección y Analista no proponen ni confirman. El área OKRS propone según su rol base. `execute` sigue `disabled_r1` para todos. `tag_okr_action` exige `adminAllOkrs`, y una notificación por WhatsApp exige `whatsappInbox`. `confirm` revalida con las capacidades vigentes; `verify` relee el efecto.
+
 ## R1 · núcleo compartido implementado localmente · 2026-11-19
 
 El núcleo **envuelve** el runtime existente; no lo reemplaza. `dispatchCopilotTool`, el catálogo, RLS, predicados SQL de R0, Retell y los transportes WhatsApp siguen siendo los mismos. Los canales sólo adaptan formato.
@@ -24,14 +62,14 @@ flowchart LR
 | --- | --- | --- |
 | `api/_shared/query/contracts.ts` | `QueryRequest`, `QueryResult<T>`, `CombinedQueryResult` | `status` ∈ ok, empty, forbidden, partial, error. `partial` sólo cuando la fuente se truncó o una parte se denegó; recortar la lista mostrada es una limitación, no parcialidad. |
 | `query/resolveActor.ts` | `AgentActor` | Identidad sólo de la sesión verificada (JWT, vínculo WhatsApp validado por RPC, sesión Guía). `stripAuthorityFields` descarta rol, IDs y alcance enviados por cliente o modelo. |
-| `query/authorizeQuery.ts` | `AGENT_PERMISSION_MATRIX` | Guarda previa que nunca amplía: la lectura amplia reutiliza `canUseWideActionScope`; OKRs siguen sujetos al gate de módulo; `execute_write` es `disabled_r1` o `deny` para todos. Dirección: lectura sí, proponer/ejecutar no. |
+| `query/authorizeQuery.ts` | `AGENT_PERMISSION_MATRIX` | Guarda previa que nunca amplía: la lectura amplia reutiliza `canUseWideActionScope`; OKRs según `readAllOkrs` o el gate de módulo (ver complemento); `execute_write` es `disabled_r1` o `deny` para todos. Dirección: lectura sí, proponer/ejecutar no. |
 | `orchestrator/runAgentTurn.ts` | `AgentTurnResult` | identidad → intención → contexto → autorización → consulta e interpretación → respuesta + auditoría + traza por etapa. `unknown` → `handled=false` y el canal sigue con su LLM. |
 | `orchestrator/respond.ts` | `AgentResponse` | Cuatro bloques separados. La interpretación que no es dato se rotula como inferencia. Finanzas y otros dominios sin fuente se declaran limitación; nunca se estiman. |
 | `actions/contracts.ts` y `actions/simulator.ts` | `ACTION_CONTRACTS`, `ActionProposal`, `buildIdempotencyKey` | R2 preparado: create_action, update_status, register_blocker y notify_responsable. Ejecución real `R1_EXECUTION_ENABLED=false`; la ejecución futura reutiliza `assistant_pending_ops` y `confirmPendingOp`. |
 
 **Activación.** Los tres adaptadores están detrás de `AGENT_ORCHESTRATOR_R1=1`, apagado por defecto. WhatsApp sigue en sólo lectura: una intención de escritura no crea propuestas y continúa por el flujo existente. Voz sólo intercepta herramientas de lectura con `utterance`. Retell no cambia de configuración.
 
-**Contexto en serverless.** El store es memoria por instancia: suficiente para pruebas y turnos consecutivos en la misma instancia. Para integración se necesita persistencia por sesión (para web/WhatsApp, `consult_log` o una tabla con TTL); queda registrado como dependencia de CV-02.
+**Contexto en serverless.** Resuelto localmente en el complemento con `agent_session_context` (ver arriba). La migración no está aplicada en ningún entorno remoto.
 
 ## Condiciones de estabilización R0 · 2026-11-19
 

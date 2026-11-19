@@ -8,7 +8,7 @@ import type {
   ActionQueryVisual,
 } from '../../../src/features/ai-support/actionQuery/types.js'
 
-export type QueryEntity = 'actions' | 'okrs' | 'combined'
+export type QueryEntity = 'actions' | 'okrs' | 'combined' | 'aggregate'
 
 /**
  * ok: datos completos · empty: consulta válida sin filas · forbidden: el actor no tiene alcance ·
@@ -44,7 +44,19 @@ export type CombinedQueryRequest = {
   okrs: Omit<OkrsQueryRequest, 'entity'>
 }
 
-export type QueryRequest = ActionsQueryRequest | OkrsQueryRequest | CombinedQueryRequest
+export type AggregateGroupBy = 'area' | 'responsable' | 'estado'
+
+/** Conteos sobre toda la población autorizada (nunca sobre una página de resultados). */
+export type AggregateQueryRequest = {
+  entity: 'aggregate'
+  groupBy: AggregateGroupBy
+  statusGroup: ActionQueryStatusGroup
+  scope: ActionQueryScope
+}
+
+export type AggregateBucket = { key: string; label: string; count: number }
+
+export type QueryRequest = ActionsQueryRequest | OkrsQueryRequest | CombinedQueryRequest | AggregateQueryRequest
 
 export type ActionItem = {
   id: string

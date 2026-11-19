@@ -21,16 +21,15 @@ import {
 import { Button } from '@/components/ui/button'
 import { AccionForm } from './AccionForm'
 import { ActionOkrLinks } from '@/features/okrs/ActionOkrLinks'
-import { useCanSeeOkrTags } from '@/features/okrs/useCanSeeOkrTags'
+import { useCanSeeOkrTags, useCanTagOkrActions } from '@/features/okrs/useCanSeeOkrTags'
 import { AccionFormSection } from './AccionFormSection'
 import { AccionDialogHeaderMeta } from './AccionDialogHeaderMeta'
 import { AccionEvidenciasSection } from './AccionEvidenciasSection'
 import { AccionComentarios } from './AccionComentarios'
 import { useCreateAccion, useDeleteAccion, useUpdateAccion, useAccion } from '../hooks'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
-import { useAppRole } from '@/features/auth/hooks/useAppRole'
+import { useAccessCapabilities } from '@/features/auth/hooks/useAccessCapabilities'
 import {
-  canAccessAiAssistAndWhatsApp,
   canEditActionGeneralByRole,
   canManageActionsByRole,
   isAnalystByRole,
@@ -137,7 +136,6 @@ export function AccionFormDialog({
     isLoading: isCurrentUserLoading,
     isFetching: isCurrentUserFetching,
   } = useCurrentUser()
-  const { data: appRole } = useAppRole()
   const createAccion = useCreateAccion()
   const updateAccion = useUpdateAccion()
   const deleteAccion = useDeleteAccion()
@@ -146,15 +144,11 @@ export function AccionFormDialog({
   const accionLive = accionFreshQuery.data ?? accion ?? null
   const { data: priorities = [] } = usePriorities()
   const canSeeOkrTags = useCanSeeOkrTags()
+  const canTagOkrActions = useCanTagOkrActions()
   const isAnalyst = isAnalystByRole(currentUser?.rol)
   const isSuperAdmin = isSuperAdminByRole(currentUser?.rol)
   const canManageActions = canManageActionsByRole(currentUser?.rol)
-  const canUseWhatsApp = canAccessAiAssistAndWhatsApp(
-    currentUser?.rol,
-    appRole,
-    currentUser?.area,
-    currentUser?.areas
-  )
+  const canUseWhatsApp = useAccessCapabilities().whatsappInbox
   const canEditActionGeneral =
     canEditActionGeneralByRole(currentUser?.rol) || isSuperAdmin
   const isActionCreator = !!accionLive?.created_by && accionLive.created_by === currentUser?.id
@@ -624,7 +618,7 @@ export function AccionFormDialog({
             sprint_id: values.sprint_id ?? null,
             responsable_bloqueo: values.responsable_bloqueo ?? null,
             // Desde OKRs (defaultEsOkr) siempre persistimos el tag aunque el toggle esté oculto.
-            ...(canSeeOkrTags || (!isEdit && defaultEsOkr)
+            ...(canTagOkrActions || (!isEdit && defaultEsOkr)
               ? {
                   es_okr: Boolean(
                     values.es_okr ?? (!isEdit && defaultEsOkr)
@@ -911,7 +905,7 @@ export function AccionFormDialog({
             isSubmitting={isMutating}
             isEdit={isEdit}
             readonlyStrategicFields={isEditProtectedReadonly}
-            showOkrToggle={canSeeOkrTags || (!isEdit && defaultEsOkr)}
+            showOkrToggle={canTagOkrActions || (!isEdit && defaultEsOkr)}
             onPrioridadChange={setLivePrioridad}
             accionPrioridadId={
               accionLive
