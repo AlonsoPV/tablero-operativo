@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import { useAreas } from '@/features/catalogs/hooks/useAreas'
-import { isAdminByRole, isDirectionByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
+import { isAdminByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
 import {
   useChallenge,
   useChallengeComments,
@@ -82,7 +82,7 @@ export function ChallengeDetailPage() {
 
   const openForParticipation = challenge ? isChallengeOpen(challenge) : false
   const canManageChallenge = Boolean(
-    currentUser && (isAdminByRole(currentUser.rol) || isDirectionByRole(currentUser.rol) || isSuperAdminByRole(currentUser.rol))
+    currentUser && (isAdminByRole(currentUser.rol) || isSuperAdminByRole(currentUser.rol))
   )
 
   const handleVote = async () => {

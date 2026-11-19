@@ -6,6 +6,15 @@ import {
 } from './moduleAccess'
 
 describe('module access', () => {
+  it('never turns executive module assignments into administrative authority', () => {
+    for (const role of ['Direccion', 'Dirección general']) {
+      for (const route of ['/settings/users', '/settings/catalogs', '/settings/academy/modules', '/admin/challenges']) {
+        expect(canAccessRouteWithModules(role, route, null, ['settings_users', 'settings_catalogs', 'settings_academy', 'challenges'])).toBe(false)
+      }
+      expect(canAccessRouteWithModules(role, '/asistente-ia', null, [], { area: 'Comercial' })).toBe(true)
+      expect(canAccessRouteWithModules(role, '/asistente-ia/seguimiento-whatsapp', null, [], { area: 'Comercial' })).toBe(false)
+    }
+  })
   it('resuelve rutas principales y rutas hijas', () => {
     expect(moduleKeyForPath('/dashboard')).toBe('dashboard')
     expect(moduleKeyForPath('/challenges')).toBe('challenges')
@@ -32,7 +41,7 @@ describe('module access', () => {
     expect(canAccessRouteWithModules('Analista', '/calendario', null, ['calendar'])).toBe(true)
     expect(canAccessRouteWithModules('Analista', '/disciplina', null, ['discipline'])).toBe(true)
     expect(canAccessRouteWithModules('Operativo', '/admin/challenges', null, ['challenges'])).toBe(false)
-    expect(canAccessRouteWithModules('Direccion', '/admin/challenges', null, ['challenges'])).toBe(true)
+    expect(canAccessRouteWithModules('Direccion', '/admin/challenges', null, ['challenges'])).toBe(false)
     expect(canAccessRouteWithModules('Operativo', '/kanban-equipos', null, ['team_kanban'])).toBe(true)
     expect(canAccessRouteWithModules('Direccion', '/kanban-equipos', null, [])).toBe(true)
     expect(canAccessRouteWithModules('Operativo', '/kanban-equipos', 'super_admin', [])).toBe(true)
@@ -42,12 +51,12 @@ describe('module access', () => {
     expect(canAccessRouteWithModules('Operativo', '/kanban', null, null)).toBe(true)
   })
 
-  it('restringe Asistente IA y WhatsApp a area OKRS o Super Admin', () => {
+  it('permite consultas ejecutivas sin conceder gestion de WhatsApp', () => {
     expect(
       canAccessRouteWithModules('Direccion', '/asistente-ia', null, ['ai_assist'], {
         area: 'Comercial',
       })
-    ).toBe(false)
+    ).toBe(true)
     expect(
       canAccessRouteWithModules('Direccion', '/asistente-ia', null, ['ai_assist'], {
         area: 'OKRS',
@@ -75,12 +84,12 @@ describe('module access', () => {
     ).toBe(true)
   })
 
-  it('restringe OKRs a usuarios del area OKRS', () => {
+  it('permite OKRs a Direccion y mantiene las restricciones de los demas roles', () => {
     expect(
       canAccessRouteWithModules('Direccion', '/okrs', null, ['okrs'], {
         area: 'Comercial',
       })
-    ).toBe(false)
+    ).toBe(true)
     expect(
       canAccessRouteWithModules('Direccion', '/okrs', null, ['okrs'], {
         area: 'OKRS',

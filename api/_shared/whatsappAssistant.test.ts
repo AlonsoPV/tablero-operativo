@@ -41,14 +41,14 @@ async function send(text: string): Promise<Response> {
   return response
 }
 
-it('answers a repeated board query while a pending draft exists and keeps that draft out of context', async () => {
+it.each(['ai', 'automation'])('answers a repeated board query without replaying a pending draft from %s', async (source) => {
   const query = '¿Cómo van los OKRs?'
   const history = {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     order: vi.fn().mockReturnThis(),
     limit: vi.fn().mockResolvedValue({ data: [
-      { direction: 'outbound', source: 'ai', body_text: 'Prepare este borrador de Google. Correo pendiente.' },
+      { direction: 'outbound', source, body_text: 'Prepare este borrador de Google. Correo pendiente.' },
       { direction: 'inbound', source: 'contact', body_text: 'Consulta el tablero' },
       { direction: 'inbound', source: 'contact', body_text: query },
     ] }),

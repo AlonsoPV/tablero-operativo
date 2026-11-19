@@ -51,24 +51,11 @@ const ANALYST_ALLOWED_ROUTES = [
 const DIRECTION_ALLOWED_ROUTES = [
   ROUTES.DASHBOARD,
   ROUTES.DASHBOARD_TEAMS,
-  ...ANALYST_ALLOWED_ROUTES,
+  ...ANALYST_ALLOWED_ROUTES.filter(route =>
+    route !== ROUTES.AI_WHATSAPP_SEGUIMIENTO && route !== ROUTES.SETTINGS_WHATSAPP),
   ROUTES.TEAM_KANBAN,
   ROUTES.TEAM_KANBAN_BOARD,
-  ROUTES.SETTINGS_USERS,
-  ROUTES.SETTINGS_USERS_DETAIL,
   ROUTES.ORG_CHART,
-  ROUTES.SETTINGS_REMINDERS,
-  ROUTES.SETTINGS_CATALOGS,
-  ROUTES.SETTINGS_CATALOGS_ROLES,
-  ROUTES.SETTINGS_CATALOGS_AREAS,
-  ROUTES.SETTINGS_CATALOGS_STATUSES,
-  ROUTES.SETTINGS_CATALOGS_PRIORITIES,
-  ROUTES.SETTINGS_CATALOGS_DROPDOWNS,
-  ROUTES.SETTINGS_CATALOGS_DROPDOWNS_OPTIONS,
-  ROUTES.SETTINGS_CATALOGS_KPIS,
-  ROUTES.SETTINGS_CATALOGS_GAPS,
-  ROUTES.SETTINGS_ACADEMY_MODULES,
-  ROUTES.ADMIN_CHALLENGES,
 ] as const
 
 /** Rutas del bloque «Por Liberar» y módulos no disponibles para Operativo. */
@@ -164,7 +151,7 @@ export function canManageSupportTicketsByRole(rol: string | null | undefined): b
 }
 
 export function canManageAcademyModulesByRole(rol: string | null | undefined): boolean {
-  return isSuperAdminByRole(rol) || isDirectionByRole(rol)
+  return isSuperAdminByRole(rol)
 }
 
 /**
@@ -271,8 +258,8 @@ export function canAccessOkrs(
 }
 
 /**
- * Asistente IA + WhatsApp (bandeja, settings, envíos):
- * mismo alcance que OKRs — área OKRS o Super Admin.
+ * Gestión de WhatsApp (bandeja, configuración y envíos):
+ * área OKRS o Super Admin. Las consultas ejecutivas usan canAccessOkrs.
  */
 export function canAccessAiAssistAndWhatsApp(
   rol?: string | null,
@@ -280,11 +267,12 @@ export function canAccessAiAssistAndWhatsApp(
   area?: string | null,
   areas?: string[] | null
 ): boolean {
-  return canAccessOkrs(rol, appRole, area, areas)
+  return isSuperAdminByRole(rol) || isAppSuperAdminByAppRole(appRole) ||
+    userBelongsToArea('OKRS', area, areas)
 }
 
 export function canManageActionsByRole(rol: string | null | undefined): boolean {
-  return isSuperAdminByRole(rol) || isDirectionByRole(rol)
+  return isSuperAdminByRole(rol)
 }
 
 export function canEditActionGeneralByRole(rol: string | null | undefined): boolean {

@@ -34,7 +34,6 @@ import {
   canEditActionGeneralByRole,
   canManageActionsByRole,
   isAnalystByRole,
-  isDirectionByRole,
   isSuperAdminByRole,
 } from '@/features/auth/lib/permissions'
 import { usersAdminService } from '@/features/users/services/users.service'
@@ -149,7 +148,6 @@ export function AccionFormDialog({
   const canSeeOkrTags = useCanSeeOkrTags()
   const isAnalyst = isAnalystByRole(currentUser?.rol)
   const isSuperAdmin = isSuperAdminByRole(currentUser?.rol)
-  const isDirection = isDirectionByRole(currentUser?.rol)
   const canManageActions = canManageActionsByRole(currentUser?.rol)
   const canUseWhatsApp = canAccessAiAssistAndWhatsApp(
     currentUser?.rol,
@@ -158,7 +156,7 @@ export function AccionFormDialog({
     currentUser?.areas
   )
   const canEditActionGeneral =
-    canEditActionGeneralByRole(currentUser?.rol) || isSuperAdmin || isDirection
+    canEditActionGeneralByRole(currentUser?.rol) || isSuperAdmin
   const isActionCreator = !!accionLive?.created_by && accionLive.created_by === currentUser?.id
   const isActionResponsible = !!accionLive?.responsable && accionLive.responsable === currentUser?.id
   const canFullyEditAction = !isEdit || isActionCreator || canEditActionGeneral
@@ -171,7 +169,7 @@ export function AccionFormDialog({
     !isAnalyst &&
     accionLive.estado !== 'Hecho' &&
     accionLive.estado !== 'Verificado' &&
-    (isSuperAdmin || isDirection || isActionCreator || isActionResponsible)
+    (isSuperAdmin || isActionCreator || isActionResponsible)
   const canDeleteAccion = isEdit && isSuperAdmin
   const isEditProtectedReadonly = isEdit && !isEditPermissionPending && !canFullyEditAction
   const canManageChecklistStructure = isActionCreator || canManageActions

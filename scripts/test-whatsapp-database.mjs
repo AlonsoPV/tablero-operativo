@@ -35,6 +35,19 @@ async function q(sql, args = []) {
   return (await db.query(sql, args)).rows
 }
 await q("insert into whatsapp_followup_jobs(accion_id,usuario_id,status) values($1,$2,'pending')", [a,u])
+// Synthetic P0001 after the checkpoint update must roll the whole RPC back.
+// This reproduces atomic failure semantics, not the unknown historical cause.
+await db.exec(`create function qa_reject_close() returns trigger language plpgsql as $$
+begin raise exception 'synthetic_close_failure' using errcode='P0001'; end;$$;
+create trigger qa_reject_close before update on acciones_diarias for each row execute function qa_reject_close();`)
+await assert.rejects(q('select whatsapp_apply_action($1,$2,$3,$4,$5)',
+  ['synthetic-p0001', u, a, 'done', '15550002222']), /synthetic_close_failure/)
+assert.equal((await q('select estado from acciones_diarias'))[0].estado, 'Pendiente')
+assert.equal((await q('select completado from accion_checkpoints'))[0].completado, false)
+assert.equal((await q('select status from whatsapp_followup_jobs'))[0].status, 'pending')
+assert.equal((await q('select count(*)::int n from whatsapp_action_receipts'))[0].n, 0)
+assert.equal((await q('select count(*)::int n from whatsapp_result_requests'))[0].n, 0)
+await db.exec('drop trigger qa_reject_close on acciones_diarias; drop function qa_reject_close()')
 await assert.rejects(
   q('select whatsapp_apply_action($1,$2,$3,$4,$5)', [
     'forged',
@@ -213,5 +226,5 @@ await assert.rejects(
 await db.exec('reset role')
 await db.close()
 console.log(
-  'WhatsApp database: migration reapplication, atomic authorization, Hecho, block reason, team mapping, dedup, leases, safe retries and RLS passed.'
+  'WhatsApp database: migration reapplication, atomic P0001 rollback, authorization, Hecho, block reason, team mapping, dedup, leases, safe retries and RLS passed.'
 )

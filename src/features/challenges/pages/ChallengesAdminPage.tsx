@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { useUsers } from '@/features/users/hooks/useUsers'
 import { useAreas } from '@/features/catalogs/hooks/useAreas'
-import { isAdminByRole, isDirectionByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
+import { isAdminByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
 import { notificacionesService } from '@/services/notificaciones.service'
 import { ChallengeFormDialog } from '../components/ChallengeFormDialog'
 import {
@@ -44,7 +44,7 @@ import {
 const ALL = 'all'
 
 function canManageChallenges(rol: string | null | undefined) {
-  return isAdminByRole(rol) || isDirectionByRole(rol) || isSuperAdminByRole(rol)
+  return isAdminByRole(rol) || isSuperAdminByRole(rol)
 }
 
 export function ChallengesAdminPage() {

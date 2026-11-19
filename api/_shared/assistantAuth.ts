@@ -1,9 +1,10 @@
 /**
  * Auth compartida para endpoints privados del Asistente IA / Guía en Vercel.
- * Valida JWT Supabase y restringe a área OKRS o Super Admin.
+ * Valida JWT Supabase y acceso del módulo, incluyendo consultas de Dirección.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { VercelRequestLike } from './http.js'
+import { isDirectionByRole } from '../../src/features/auth/lib/permissions.js'
 
 export type AssistantAuthSuccess = {
   ok: true
@@ -171,13 +172,13 @@ export async function requireAssistantAuth(
 
   if (requireAiScope) {
     const privileged = await isSuperAdminAssistantUser(supabase, authData.user.id, rol)
-    if (!privileged) {
+    if (!privileged && !isDirectionByRole(rol)) {
       const inOkrs = await belongsToOkrsArea(supabase, usuario.id as string, area)
       if (!inOkrs) {
         return {
           ok: false,
           status: 403,
-          error: 'El Asistente IA solo esta disponible para el area OKRs y Super Admin.',
+          error: 'El Asistente IA requiere acceso OKRs, Super Admin o Dirección para consultas ejecutivas.',
         }
       }
     }

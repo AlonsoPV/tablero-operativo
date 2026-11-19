@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
 import type { Usuario } from '@/types'
-import { isAdminByRole, isDirectionByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
+import { isAdminByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
 import { ChallengeIdeaCard } from './ChallengeIdeaCard'
 import { ChallengeIdeaFormDialog } from './ChallengeIdeaFormDialog'
 import { useChallengeIdeas, useToggleChallengeIdeaVote } from '../hooks/useChallengeIdeas'
@@ -28,7 +28,7 @@ export function ChallengeIdeasSection({
   const [sort, setSort] = useState<ChallengeIdeaSort>('top')
   const [dialogOpen, setDialogOpen] = useState(false)
   const canManage = Boolean(
-    currentUser && (isAdminByRole(currentUser.rol) || isDirectionByRole(currentUser.rol) || isSuperAdminByRole(currentUser.rol))
+    currentUser && (isAdminByRole(currentUser.rol) || isSuperAdminByRole(currentUser.rol))
   )
   const { data: ideas = [], isLoading, isError, error, refetch } = useChallengeIdeas(
     challenge.id,

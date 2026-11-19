@@ -188,7 +188,7 @@ async function loadHistory(supabase: SupabaseClient, waId: string, usuarioId: st
     const content = typeof row.body_text === 'string' ? row.body_text.trim() : ''
     if (!content) continue
     const role: 'user' | 'assistant' = row.direction === 'inbound' ? 'user' : 'assistant'
-    if (role === 'assistant' && row.source === 'ai' &&
+    if (role === 'assistant' &&
       (content.startsWith('Prepare este borrador de Google.') || content.startsWith('Prepare esta propuesta.'))) continue
     chars += content.length
     if (chars > HISTORY_CHARS && kept.length > 0) break
@@ -315,7 +315,7 @@ export default defineApiHandler(async (req, res) => {
     return res.status(500).json({ error: 'Falta SUPABASE_SERVICE_ROLE_KEY en el servidor.' })
   }
 
-  const { data: allowed, error: accessError } = await supabase.rpc('can_use_ai_whatsapp_for_usuario', {
+  const { data: allowed, error: accessError } = await supabase.rpc('can_query_ai_whatsapp_for_usuario', {
     p_usuario_id: usuarioId,
   })
   if (accessError) {
@@ -323,7 +323,7 @@ export default defineApiHandler(async (req, res) => {
     return res.status(403).json({ error: 'No se pudo validar acceso al asistente.' })
   }
   if (allowed !== true) {
-    return res.status(403).json({ error: 'El asistente por WhatsApp solo esta disponible para OKRS y Super Admin.' })
+    return res.status(403).json({ error: 'Las consultas requieren acceso OKRS, Super Admin o Dirección.' })
   }
 
   const { data: usuario, error: usuarioError } = await supabase

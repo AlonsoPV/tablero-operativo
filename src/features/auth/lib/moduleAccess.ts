@@ -6,6 +6,8 @@ import {
   getDefaultRouteByRole,
   isAppSuperAdminByAppRole,
   isAnalystByRole,
+  isDirectionByRole,
+  isAppAdminByAppRole,
   isSuperAdminByRole,
 } from './permissions'
 
@@ -94,12 +96,18 @@ export function canAccessRouteWithModules(
   }
 
   if (
-    matches(pathname, ROUTES.AI_ASSIST) ||
-    matches(pathname, ROUTES.AI_HISTORY) ||
     matches(pathname, ROUTES.AI_WHATSAPP_SEGUIMIENTO) ||
     matches(pathname, ROUTES.SETTINGS_WHATSAPP)
   ) {
     return canAccessAiAssistAndWhatsApp(rol, appRole, context?.area, context?.areas)
+  }
+  if (pathname === ROUTES.AI_ASSIST || matches(pathname, ROUTES.AI_HISTORY)) {
+    return canAccessOkrs(rol, appRole, context?.area, context?.areas)
+  }
+  if (isDirectionByRole(rol) && !isAppAdminByAppRole(appRole) &&
+      (pathname.startsWith('/admin/') ||
+       (pathname.startsWith('/settings/') && !matches(pathname, ROUTES.SETTINGS_PROFILE)))) {
+    return false
   }
 
   // La regla de seguridad del Kanban por Equipos siempre prevalece sobre el catalogo de modulos.

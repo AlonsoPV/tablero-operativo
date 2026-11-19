@@ -171,7 +171,7 @@ function runtime(db: any) {
     'Deno',
     'createClient',
     js +
-      '\nreturn {processWhatsAppPayload,handleInboundCommand,findUsuarioByWa,graphSendMessage,checkedWorkerClient,workerContexts,runInboundWorker};'
+      '\nreturn {processWhatsAppPayload,handleInboundCommand,findUsuarioByWa,graphSendMessage,checkedWorkerClient,workerContexts,runInboundWorker,replyAi};'
   )(
     {
       env: { get: (k: string) => env[k] },
@@ -221,6 +221,21 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllGlobals())
 describe('Edge WhatsApp real router/worker code', () => {
+  it('persists AI replies using a source allowed by the Inbox schema', async () => {
+    const db = database()
+    await runtime(db).replyAi(db, phone, 'Respuesta de prueba', user)
+    expect(db.tables.whatsapp_messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        direction: 'outbound', source: 'automation',
+        payload: expect.objectContaining({ source: 'webhook_ai_reply', flow: 'agent' }),
+      }),
+    ]))
+  })
+  it('propagates AI reply failures to the durable worker', async () => {
+    const db = database()
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('timeout'))
+    await expect(runtime(db).replyAi(db, phone, 'Respuesta de prueba', user)).rejects.toThrow('timeout')
+  })
   it('rejects unauthenticated worker calls before accessing the queue', async () => {
     const db = database()
     expect((await runtime(db).runInboundWorker(new Request('https://test/?worker=1', {method: 'POST'}))).status).toBe(403)

@@ -18,7 +18,7 @@ import {
 } from './permissions'
 
 describe('role route permissions', () => {
-  it('allows Direccion to use analyst views plus users, academy modules and catalogs', () => {
+  it('allows executive views without administrative routes for Direccion', () => {
     const role = 'Direccion'
 
     expect(isDirectionByRole(role)).toBe(true)
@@ -30,14 +30,14 @@ describe('role route permissions', () => {
     expect(canAccessRouteByRole(role, ROUTES.CALENDARIO)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.NOTIFICACIONES)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_PROFILE)).toBe(true)
-    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_USERS)).toBe(true)
-    expect(canAccessRouteByRole(role, '/settings/users/example-id')).toBe(true)
-    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_ACADEMY_MODULES)).toBe(true)
-    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS)).toBe(true)
-    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS_KPIS)).toBe(true)
+    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_USERS)).toBe(false)
+    expect(canAccessRouteByRole(role, '/settings/users/example-id')).toBe(false)
+    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_ACADEMY_MODULES)).toBe(false)
+    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS)).toBe(false)
+    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS_KPIS)).toBe(false)
     expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(true)
     expect(canAccessRouteByRole(role, ROUTES.ORG_CHART)).toBe(true)
-    expect(canManageAcademyModulesByRole(role)).toBe(true)
+    expect(canManageAcademyModulesByRole(role)).toBe(false)
     expect(usesOperationalDashboardByRole(role)).toBe(true)
   })
 
@@ -130,8 +130,8 @@ describe('role route permissions', () => {
     expect(canAccessOkrs('Direccion', null, 'OKRS')).toBe(true)
   })
 
-  it('limits Asistente IA and WhatsApp to OKRS area, Direccion or Super Admin', () => {
-    expect(canAccessAiAssistAndWhatsApp('Direccion', null, 'Comercial')).toBe(true)
+  it('keeps WhatsApp operations restricted to explicit OKRS or Super Admin access', () => {
+    expect(canAccessAiAssistAndWhatsApp('Direccion', null, 'Comercial')).toBe(false)
     expect(canAccessAiAssistAndWhatsApp('Direccion', null, 'OKRS')).toBe(true)
     expect(canAccessAiAssistAndWhatsApp('Operativo', null, 'OKRS')).toBe(true)
     expect(canAccessAiAssistAndWhatsApp('Operativo', null, 'Operaciones')).toBe(false)
@@ -140,13 +140,13 @@ describe('role route permissions', () => {
     expect(canAccessAiAssistAndWhatsApp('Operativo', 'admin', 'Comercial')).toBe(false)
   })
 
-  it('allows Super Admin and Direccion to fully manage actions', () => {
+  it('keeps global action management separate from executive Direction reads', () => {
     expect(canManageActionsByRole('super_admin')).toBe(true)
     expect(canManageActionsByRole('Super Admin')).toBe(true)
-    expect(canManageActionsByRole('Direccion')).toBe(true)
-    expect(canManageActionsByRole('Dirección general')).toBe(true)
-    expect(canEditActionGeneralByRole('Direccion')).toBe(true)
-    expect(canEditActionGeneralByRole('Dirección general')).toBe(true)
+    expect(canManageActionsByRole('Direccion')).toBe(false)
+    expect(canManageActionsByRole('Dirección general')).toBe(false)
+    expect(canEditActionGeneralByRole('Direccion')).toBe(false)
+    expect(canEditActionGeneralByRole('Dirección general')).toBe(false)
   })
 
   it('keeps Analista limited even if app_role is elevated accidentally', () => {

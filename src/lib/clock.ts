@@ -12,12 +12,14 @@ function readNodeEnv(name: string): string | undefined {
     process?: { env?: Record<string, string | undefined> }
   }
   const value = runtime.process?.env?.[name]
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+  return typeof value === 'string' ? value.trim() : undefined
 }
 
 function readFixedNow(): string | undefined {
   const fromProcess = readNodeEnv('VITE_DEV_FIXED_NOW')
-  if (fromProcess) return fromProcess
+  // An explicitly empty runtime override disables a demo date embedded by Vite.
+  // Absence (browser without process.env) still falls back to the Vite setting.
+  if (fromProcess !== undefined) return fromProcess || undefined
   try {
     return (import.meta as ViteImportMeta).env?.VITE_DEV_FIXED_NOW?.trim() || undefined
   } catch {

@@ -1,5 +1,5 @@
 import { executeDailySummaryUpdate, proposeDailySummaryUpdate, readDailySummary } from './assistantDailySummary.js'
-import { canManageActionsByRole, isAnalystByRole } from '../../src/features/auth/lib/permissions.js'
+import { isAnalystByRole } from '../../src/features/auth/lib/permissions.js'
 import { isCopilotWriteTool } from '../../src/features/ai-support/copilot/catalog.js'
 import { isGoogleWriteTool, type CopilotWorkspacePreview } from '../../src/features/ai-support/copilot/googleWorkspace.js'
 import { isCommunicationWriteTool } from '../../src/features/ai-support/copilot/communicationTools.js'
@@ -551,6 +551,9 @@ async function proposeUpdate(actor: CopilotActor, args: Record<string, unknown>)
   const resolved = await resolveAction(actor, args)
   if ('missing' in resolved) return denied('update_action', resolved.missing)
   if ('question' in resolved) return clarification('update_action', resolved)
+  if (!await canWriteAction(actor, resolved, 'update_action')) {
+    return denied('update_action', 'La edición completa corresponde al creador o a un administrador autorizado.')
+  }
 
   const patch: Record<string, unknown> = {}
   const fields: CopilotProposal['fields'] = []
@@ -674,11 +677,8 @@ async function proposeDone(actor: CopilotActor, args: Record<string, unknown>): 
   const resolved = await resolveAction(actor, args)
   if ('missing' in resolved) return denied('mark_action_done', resolved.missing)
   if ('question' in resolved) return clarification('mark_action_done', resolved)
-  const canClose =
-    canManageActionsByRole(actor.rol) ||
-    resolved.responsable === actor.usuarioId ||
-    resolved.created_by === actor.usuarioId
-  if (!canClose) return denied('mark_action_done', 'Solo el responsable, quien la creó o Dirección pueden marcar Hecho.')
+  const canClose = await canWriteAction(actor, resolved, 'mark_action_done')
+  if (!canClose) return denied('mark_action_done', 'Solo el responsable, quien la creó o un administrador autorizado pueden marcar Hecho.')
   const { data: pending } = await actor.supabase
     .from('accion_checkpoints')
     .select('id,texto,obligatorio')
@@ -713,7 +713,7 @@ async function proposeVerify(actor: CopilotActor, args: Record<string, unknown>)
   const resolved = await resolveAction(actor, args)
   if ('missing' in resolved) return denied('verify_action', resolved.missing)
   if ('question' in resolved) return clarification('verify_action', resolved)
-  const canVerify = canManageActionsByRole(actor.rol) || resolved.created_by === actor.usuarioId
+  const canVerify = await canWriteAction(actor, resolved, 'verify_action')
   if (!canVerify) {
     return denied(
       'verify_action',
@@ -1148,7 +1148,22 @@ type PendingRow = {
   session_id?: string | null
 }
 
+async function canWriteAction(actor: CopilotActor, action: ActionRow, tool: string): Promise<boolean> {
+  if (tool === 'mark_action_done' && action.responsable === actor.usuarioId) return true
+  const rpc = tool === 'update_action' ? 'can_edit_accion_general_as' : 'can_manage_accion_full_as'
+  const { data, error } = await actor.supabase.rpc(rpc, {
+    p_accion_id: action.id, p_usuario_id: actor.usuarioId,
+  })
+  if (error) throw new Error('PERMISSION_DENIED: No se pudo validar la autorización de la acción.')
+  return data === true
+}
+
 async function executePayload(actor: CopilotActor, tool: string, payload: Record<string, unknown>) {
+  if (tool === 'update_action' || tool === 'verify_action' || tool === 'mark_action_done') {
+    const action = await loadAction(actor, String(payload.action_id))
+    const ownsOperation = action && await canWriteAction(actor, action, tool)
+    if (!ownsOperation) throw new Error('PERMISSION_DENIED: Ya no tienes autorización sobre esa acción.')
+  }
   if (tool === 'create_action') {
     const actionId = crypto.randomUUID()
     const checkpoints = sanitizeCheckpoints(payload.checkpoints)

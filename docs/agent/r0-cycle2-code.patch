@@ -1,0 +1,2028 @@
+diff --git a/api/_shared/assistantAuth.ts b/api/_shared/assistantAuth.ts
+index ab05f85..ffef207 100644
+--- a/api/_shared/assistantAuth.ts
++++ b/api/_shared/assistantAuth.ts
+@@ -1,9 +1,10 @@
+ /**
+  * Auth compartida para endpoints privados del Asistente IA / Guía en Vercel.
+- * Valida JWT Supabase y restringe a área OKRS o Super Admin.
++ * Valida JWT Supabase y acceso del módulo, incluyendo consultas de Dirección.
+  */
+ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+ import type { VercelRequestLike } from './http.js'
++import { isDirectionByRole } from '../../src/features/auth/lib/permissions.js'
+ 
+ export type AssistantAuthSuccess = {
+   ok: true
+@@ -171,13 +172,13 @@ export async function requireAssistantAuth(
+ 
+   if (requireAiScope) {
+     const privileged = await isSuperAdminAssistantUser(supabase, authData.user.id, rol)
+-    if (!privileged) {
++    if (!privileged && !isDirectionByRole(rol)) {
+       const inOkrs = await belongsToOkrsArea(supabase, usuario.id as string, area)
+       if (!inOkrs) {
+         return {
+           ok: false,
+           status: 403,
+-          error: 'El Asistente IA solo esta disponible para el area OKRs y Super Admin.',
++          error: 'El Asistente IA requiere acceso OKRs, Super Admin o Dirección para consultas ejecutivas.',
+         }
+       }
+     }
+diff --git a/api/_shared/assistantOpsRuntime.test.ts b/api/_shared/assistantOpsRuntime.test.ts
+index 79c8a60..17ae679 100644
+--- a/api/_shared/assistantOpsRuntime.test.ts
++++ b/api/_shared/assistantOpsRuntime.test.ts
+@@ -1,7 +1,65 @@
+-import { describe, expect, it } from 'vitest'
+-import { analystCanSeeAction } from './assistantOpsRuntime.js'
++import { describe, expect, it, vi } from 'vitest'
++import { analystCanSeeAction, dispatchCopilotTool, confirmPendingOp } from './assistantOpsRuntime.js'
++
++function executiveFixture() {
++  const actionUpdate = vi.fn()
++  const rpc = vi.fn(async () => ({ data: false, error: null }))
++  const from = (table: string) => {
++    const data = table === 'acciones_diarias'
++      ? { id: 'foreign', responsable: 'peer', created_by: 'peer', estado: 'Pendiente' }
++      : { id: 'proposal', usuario_id: 'executive', tool: 'update_action', status: 'pending',
++          expires_at: '2999-01-01', payload: { action_id: 'foreign', patch: { descripcion_accion: 'Change' } } }
++    const result = { data, error: null }
++    const chain = {
++      select: () => chain,
++      eq: () => chain,
++      gt: () => chain,
++      insert: () => chain,
++      update: (value: unknown) => { if (table === 'acciones_diarias') actionUpdate(value); return chain },
++      maybeSingle: async () => result,
++      then: (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve),
++    }
++    return chain
++  }
++  return {
++    actor: { supabase: { from, rpc } as never, usuarioId: 'executive', authUserId: 'auth', rol: 'Direccion' },
++    rpc, actionUpdate,
++  }
++}
++
++it('rejects executive edits when the existing SQL permission predicate denies the action', async () => {
++  const test = executiveFixture()
++  const result = await dispatchCopilotTool(test.actor, 'update_action', {
++    action_id: 'foreign', descripcion_accion: 'Change',
++  })
++  expect(result.kind).toBe('denied')
++  expect(test.rpc).toHaveBeenCalledWith('can_edit_accion_general_as', {
++    p_accion_id: 'foreign', p_usuario_id: 'executive',
++  })
++  expect(test.actionUpdate).not.toHaveBeenCalled()
++})
++
++it('revalidates authorization at confirmation before an executive update is executed', async () => {
++  const test = executiveFixture()
++  await expect(confirmPendingOp(test.actor, 'proposal')).rejects.toThrow('PERMISSION_DENIED')
++  expect(test.actionUpdate).not.toHaveBeenCalled()
++})
+ 
+ describe('analyst action scope', () => {
++  const fixtures = {
++    actor: '00000000-0000-0000-0000-000000000001',
++    peer: '00000000-0000-0000-0000-000000000002',
++    otherProjectActor: '00000000-0000-0000-0000-000000000003',
++  }
++
++  it.each([
++    ['own action', fixtures.actor, true],
++    ['peer action', fixtures.peer, false],
++    ['foreign fixture owner', fixtures.otherProjectActor, false],
++  ])('isolates analyst reads for %s without an organization override', (_label, responsable, expected) => {
++    expect(analystCanSeeAction('Analista', fixtures.actor, { responsable })).toBe(expected)
++  })
++
+   it('hides an action whose owner is someone else', () => {
+     expect(analystCanSeeAction('Analista', 'me', { responsable: 'otra-persona' })).toBe(false)
+     expect(analystCanSeeAction('Analista', 'me', { responsable: 'me' })).toBe(true)
+diff --git a/api/_shared/assistantOpsRuntime.ts b/api/_shared/assistantOpsRuntime.ts
+index f6836e2..18a8955 100644
+--- a/api/_shared/assistantOpsRuntime.ts
++++ b/api/_shared/assistantOpsRuntime.ts
+@@ -1,5 +1,5 @@
+ import { executeDailySummaryUpdate, proposeDailySummaryUpdate, readDailySummary } from './assistantDailySummary.js'
+-import { canManageActionsByRole, isAnalystByRole } from '../../src/features/auth/lib/permissions.js'
++import { isAnalystByRole } from '../../src/features/auth/lib/permissions.js'
+ import { isCopilotWriteTool } from '../../src/features/ai-support/copilot/catalog.js'
+ import { isGoogleWriteTool, type CopilotWorkspacePreview } from '../../src/features/ai-support/copilot/googleWorkspace.js'
+ import { isCommunicationWriteTool } from '../../src/features/ai-support/copilot/communicationTools.js'
+@@ -551,6 +551,9 @@ async function proposeUpdate(actor: CopilotActor, args: Record<string, unknown>)
+   const resolved = await resolveAction(actor, args)
+   if ('missing' in resolved) return denied('update_action', resolved.missing)
+   if ('question' in resolved) return clarification('update_action', resolved)
++  if (!await canWriteAction(actor, resolved, 'update_action')) {
++    return denied('update_action', 'La edición completa corresponde al creador o a un administrador autorizado.')
++  }
+ 
+   const patch: Record<string, unknown> = {}
+   const fields: CopilotProposal['fields'] = []
+@@ -674,11 +677,8 @@ async function proposeDone(actor: CopilotActor, args: Record<string, unknown>):
+   const resolved = await resolveAction(actor, args)
+   if ('missing' in resolved) return denied('mark_action_done', resolved.missing)
+   if ('question' in resolved) return clarification('mark_action_done', resolved)
+-  const canClose =
+-    canManageActionsByRole(actor.rol) ||
+-    resolved.responsable === actor.usuarioId ||
+-    resolved.created_by === actor.usuarioId
+-  if (!canClose) return denied('mark_action_done', 'Solo el responsable, quien la creó o Dirección pueden marcar Hecho.')
++  const canClose = await canWriteAction(actor, resolved, 'mark_action_done')
++  if (!canClose) return denied('mark_action_done', 'Solo el responsable, quien la creó o un administrador autorizado pueden marcar Hecho.')
+   const { data: pending } = await actor.supabase
+     .from('accion_checkpoints')
+     .select('id,texto,obligatorio')
+@@ -713,7 +713,7 @@ async function proposeVerify(actor: CopilotActor, args: Record<string, unknown>)
+   const resolved = await resolveAction(actor, args)
+   if ('missing' in resolved) return denied('verify_action', resolved.missing)
+   if ('question' in resolved) return clarification('verify_action', resolved)
+-  const canVerify = canManageActionsByRole(actor.rol) || resolved.created_by === actor.usuarioId
++  const canVerify = await canWriteAction(actor, resolved, 'verify_action')
+   if (!canVerify) {
+     return denied(
+       'verify_action',
+@@ -1148,7 +1148,22 @@ type PendingRow = {
+   session_id?: string | null
+ }
+ 
++async function canWriteAction(actor: CopilotActor, action: ActionRow, tool: string): Promise<boolean> {
++  if (tool === 'mark_action_done' && action.responsable === actor.usuarioId) return true
++  const rpc = tool === 'update_action' ? 'can_edit_accion_general_as' : 'can_manage_accion_full_as'
++  const { data, error } = await actor.supabase.rpc(rpc, {
++    p_accion_id: action.id, p_usuario_id: actor.usuarioId,
++  })
++  if (error) throw new Error('PERMISSION_DENIED: No se pudo validar la autorización de la acción.')
++  return data === true
++}
++
+ async function executePayload(actor: CopilotActor, tool: string, payload: Record<string, unknown>) {
++  if (tool === 'update_action' || tool === 'verify_action' || tool === 'mark_action_done') {
++    const action = await loadAction(actor, String(payload.action_id))
++    const ownsOperation = action && await canWriteAction(actor, action, tool)
++    if (!ownsOperation) throw new Error('PERMISSION_DENIED: Ya no tienes autorización sobre esa acción.')
++  }
+   if (tool === 'create_action') {
+     const actionId = crypto.randomUUID()
+     const checkpoints = sanitizeCheckpoints(payload.checkpoints)
+diff --git a/api/_shared/whatsappAssistant.test.ts b/api/_shared/whatsappAssistant.test.ts
+index 3d4f667..97d6a49 100644
+--- a/api/_shared/whatsappAssistant.test.ts
++++ b/api/_shared/whatsappAssistant.test.ts
+@@ -41,14 +41,14 @@ async function send(text: string): Promise<Response> {
+   return response
+ }
+ 
+-it('answers a repeated board query while a pending draft exists and keeps that draft out of context', async () => {
++it.each(['ai', 'automation'])('answers a repeated board query without replaying a pending draft from %s', async (source) => {
+   const query = '¿Cómo van los OKRs?'
+   const history = {
+     select: vi.fn().mockReturnThis(),
+     eq: vi.fn().mockReturnThis(),
+     order: vi.fn().mockReturnThis(),
+     limit: vi.fn().mockResolvedValue({ data: [
+-      { direction: 'outbound', source: 'ai', body_text: 'Prepare este borrador de Google. Correo pendiente.' },
++      { direction: 'outbound', source, body_text: 'Prepare este borrador de Google. Correo pendiente.' },
+       { direction: 'inbound', source: 'contact', body_text: 'Consulta el tablero' },
+       { direction: 'inbound', source: 'contact', body_text: query },
+     ] }),
+diff --git a/api/_shared/whatsappEdgeRuntime.test.ts b/api/_shared/whatsappEdgeRuntime.test.ts
+index 4aae3b7..afbb8bd 100644
+--- a/api/_shared/whatsappEdgeRuntime.test.ts
++++ b/api/_shared/whatsappEdgeRuntime.test.ts
+@@ -171,7 +171,7 @@ function runtime(db: any) {
+     'Deno',
+     'createClient',
+     js +
+-      '\nreturn {processWhatsAppPayload,handleInboundCommand,findUsuarioByWa,graphSendMessage,checkedWorkerClient,workerContexts,runInboundWorker};'
++      '\nreturn {processWhatsAppPayload,handleInboundCommand,findUsuarioByWa,graphSendMessage,checkedWorkerClient,workerContexts,runInboundWorker,replyAi};'
+   )(
+     {
+       env: { get: (k: string) => env[k] },
+@@ -221,6 +221,21 @@ beforeEach(() => {
+ })
+ afterEach(() => vi.unstubAllGlobals())
+ describe('Edge WhatsApp real router/worker code', () => {
++  it('persists AI replies using a source allowed by the Inbox schema', async () => {
++    const db = database()
++    await runtime(db).replyAi(db, phone, 'Respuesta de prueba', user)
++    expect(db.tables.whatsapp_messages).toEqual(expect.arrayContaining([
++      expect.objectContaining({
++        direction: 'outbound', source: 'automation',
++        payload: expect.objectContaining({ source: 'webhook_ai_reply', flow: 'agent' }),
++      }),
++    ]))
++  })
++  it('propagates AI reply failures to the durable worker', async () => {
++    const db = database()
++    vi.mocked(fetch).mockRejectedValueOnce(new Error('timeout'))
++    await expect(runtime(db).replyAi(db, phone, 'Respuesta de prueba', user)).rejects.toThrow('timeout')
++  })
+   it('rejects unauthenticated worker calls before accessing the queue', async () => {
+     const db = database()
+     expect((await runtime(db).runInboundWorker(new Request('https://test/?worker=1', {method: 'POST'}))).status).toBe(403)
+diff --git a/api/whatsapp-assistant.ts b/api/whatsapp-assistant.ts
+index 2721f08..344426b 100644
+--- a/api/whatsapp-assistant.ts
++++ b/api/whatsapp-assistant.ts
+@@ -188,7 +188,7 @@ async function loadHistory(supabase: SupabaseClient, waId: string, usuarioId: st
+     const content = typeof row.body_text === 'string' ? row.body_text.trim() : ''
+     if (!content) continue
+     const role: 'user' | 'assistant' = row.direction === 'inbound' ? 'user' : 'assistant'
+-    if (role === 'assistant' && row.source === 'ai' &&
++    if (role === 'assistant' &&
+       (content.startsWith('Prepare este borrador de Google.') || content.startsWith('Prepare esta propuesta.'))) continue
+     chars += content.length
+     if (chars > HISTORY_CHARS && kept.length > 0) break
+@@ -315,7 +315,7 @@ export default defineApiHandler(async (req, res) => {
+     return res.status(500).json({ error: 'Falta SUPABASE_SERVICE_ROLE_KEY en el servidor.' })
+   }
+ 
+-  const { data: allowed, error: accessError } = await supabase.rpc('can_use_ai_whatsapp_for_usuario', {
++  const { data: allowed, error: accessError } = await supabase.rpc('can_query_ai_whatsapp_for_usuario', {
+     p_usuario_id: usuarioId,
+   })
+   if (accessError) {
+@@ -323,7 +323,7 @@ export default defineApiHandler(async (req, res) => {
+     return res.status(403).json({ error: 'No se pudo validar acceso al asistente.' })
+   }
+   if (allowed !== true) {
+-    return res.status(403).json({ error: 'El asistente por WhatsApp solo esta disponible para OKRS y Super Admin.' })
++    return res.status(403).json({ error: 'Las consultas requieren acceso OKRS, Super Admin o Dirección.' })
+   }
+ 
+   const { data: usuario, error: usuarioError } = await supabase
+diff --git a/src/features/auth/lib/moduleAccess.test.ts b/src/features/auth/lib/moduleAccess.test.ts
+index 4669dfd..bb011aa 100644
+--- a/src/features/auth/lib/moduleAccess.test.ts
++++ b/src/features/auth/lib/moduleAccess.test.ts
+@@ -6,6 +6,15 @@ import {
+ } from './moduleAccess'
+ 
+ describe('module access', () => {
++  it('never turns executive module assignments into administrative authority', () => {
++    for (const role of ['Direccion', 'Dirección general']) {
++      for (const route of ['/settings/users', '/settings/catalogs', '/settings/academy/modules', '/admin/challenges']) {
++        expect(canAccessRouteWithModules(role, route, null, ['settings_users', 'settings_catalogs', 'settings_academy', 'challenges'])).toBe(false)
++      }
++      expect(canAccessRouteWithModules(role, '/asistente-ia', null, [], { area: 'Comercial' })).toBe(true)
++      expect(canAccessRouteWithModules(role, '/asistente-ia/seguimiento-whatsapp', null, [], { area: 'Comercial' })).toBe(false)
++    }
++  })
+   it('resuelve rutas principales y rutas hijas', () => {
+     expect(moduleKeyForPath('/dashboard')).toBe('dashboard')
+     expect(moduleKeyForPath('/challenges')).toBe('challenges')
+@@ -32,7 +41,7 @@ describe('module access', () => {
+     expect(canAccessRouteWithModules('Analista', '/calendario', null, ['calendar'])).toBe(true)
+     expect(canAccessRouteWithModules('Analista', '/disciplina', null, ['discipline'])).toBe(true)
+     expect(canAccessRouteWithModules('Operativo', '/admin/challenges', null, ['challenges'])).toBe(false)
+-    expect(canAccessRouteWithModules('Direccion', '/admin/challenges', null, ['challenges'])).toBe(true)
++    expect(canAccessRouteWithModules('Direccion', '/admin/challenges', null, ['challenges'])).toBe(false)
+     expect(canAccessRouteWithModules('Operativo', '/kanban-equipos', null, ['team_kanban'])).toBe(true)
+     expect(canAccessRouteWithModules('Direccion', '/kanban-equipos', null, [])).toBe(true)
+     expect(canAccessRouteWithModules('Operativo', '/kanban-equipos', 'super_admin', [])).toBe(true)
+@@ -42,12 +51,12 @@ describe('module access', () => {
+     expect(canAccessRouteWithModules('Operativo', '/kanban', null, null)).toBe(true)
+   })
+ 
+-  it('restringe Asistente IA y WhatsApp a area OKRS o Super Admin', () => {
++  it('permite consultas ejecutivas sin conceder gestion de WhatsApp', () => {
+     expect(
+       canAccessRouteWithModules('Direccion', '/asistente-ia', null, ['ai_assist'], {
+         area: 'Comercial',
+       })
+-    ).toBe(false)
++    ).toBe(true)
+     expect(
+       canAccessRouteWithModules('Direccion', '/asistente-ia', null, ['ai_assist'], {
+         area: 'OKRS',
+@@ -75,12 +84,12 @@ describe('module access', () => {
+     ).toBe(true)
+   })
+ 
+-  it('restringe OKRs a usuarios del area OKRS', () => {
++  it('permite OKRs a Direccion y mantiene las restricciones de los demas roles', () => {
+     expect(
+       canAccessRouteWithModules('Direccion', '/okrs', null, ['okrs'], {
+         area: 'Comercial',
+       })
+-    ).toBe(false)
++    ).toBe(true)
+     expect(
+       canAccessRouteWithModules('Direccion', '/okrs', null, ['okrs'], {
+         area: 'OKRS',
+diff --git a/src/features/auth/lib/moduleAccess.ts b/src/features/auth/lib/moduleAccess.ts
+index d472b13..f0855a3 100644
+--- a/src/features/auth/lib/moduleAccess.ts
++++ b/src/features/auth/lib/moduleAccess.ts
+@@ -6,6 +6,8 @@ import {
+   getDefaultRouteByRole,
+   isAppSuperAdminByAppRole,
+   isAnalystByRole,
++  isDirectionByRole,
++  isAppAdminByAppRole,
+   isSuperAdminByRole,
+ } from './permissions'
+ 
+@@ -94,13 +96,19 @@ export function canAccessRouteWithModules(
+   }
+ 
+   if (
+-    matches(pathname, ROUTES.AI_ASSIST) ||
+-    matches(pathname, ROUTES.AI_HISTORY) ||
+     matches(pathname, ROUTES.AI_WHATSAPP_SEGUIMIENTO) ||
+     matches(pathname, ROUTES.SETTINGS_WHATSAPP)
+   ) {
+     return canAccessAiAssistAndWhatsApp(rol, appRole, context?.area, context?.areas)
+   }
++  if (pathname === ROUTES.AI_ASSIST || matches(pathname, ROUTES.AI_HISTORY)) {
++    return canAccessOkrs(rol, appRole, context?.area, context?.areas)
++  }
++  if (isDirectionByRole(rol) && !isAppAdminByAppRole(appRole) &&
++      (pathname.startsWith('/admin/') ||
++       (pathname.startsWith('/settings/') && !matches(pathname, ROUTES.SETTINGS_PROFILE)))) {
++    return false
++  }
+ 
+   // La regla de seguridad del Kanban por Equipos siempre prevalece sobre el catalogo de modulos.
+   if (
+diff --git a/src/features/auth/lib/permissions.test.ts b/src/features/auth/lib/permissions.test.ts
+index 4b3c95b..e6ef437 100644
+--- a/src/features/auth/lib/permissions.test.ts
++++ b/src/features/auth/lib/permissions.test.ts
+@@ -18,7 +18,7 @@ import {
+ } from './permissions'
+ 
+ describe('role route permissions', () => {
+-  it('allows Direccion to use analyst views plus users, academy modules and catalogs', () => {
++  it('allows executive views without administrative routes for Direccion', () => {
+     const role = 'Direccion'
+ 
+     expect(isDirectionByRole(role)).toBe(true)
+@@ -30,14 +30,14 @@ describe('role route permissions', () => {
+     expect(canAccessRouteByRole(role, ROUTES.CALENDARIO)).toBe(true)
+     expect(canAccessRouteByRole(role, ROUTES.NOTIFICACIONES)).toBe(true)
+     expect(canAccessRouteByRole(role, ROUTES.SETTINGS_PROFILE)).toBe(true)
+-    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_USERS)).toBe(true)
+-    expect(canAccessRouteByRole(role, '/settings/users/example-id')).toBe(true)
+-    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_ACADEMY_MODULES)).toBe(true)
+-    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS)).toBe(true)
+-    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS_KPIS)).toBe(true)
++    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_USERS)).toBe(false)
++    expect(canAccessRouteByRole(role, '/settings/users/example-id')).toBe(false)
++    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_ACADEMY_MODULES)).toBe(false)
++    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS)).toBe(false)
++    expect(canAccessRouteByRole(role, ROUTES.SETTINGS_CATALOGS_KPIS)).toBe(false)
+     expect(canAccessRouteByRole(role, ROUTES.AI_ASSIST)).toBe(true)
+     expect(canAccessRouteByRole(role, ROUTES.ORG_CHART)).toBe(true)
+-    expect(canManageAcademyModulesByRole(role)).toBe(true)
++    expect(canManageAcademyModulesByRole(role)).toBe(false)
+     expect(usesOperationalDashboardByRole(role)).toBe(true)
+   })
+ 
+@@ -130,8 +130,8 @@ describe('role route permissions', () => {
+     expect(canAccessOkrs('Direccion', null, 'OKRS')).toBe(true)
+   })
+ 
+-  it('limits Asistente IA and WhatsApp to OKRS area, Direccion or Super Admin', () => {
+-    expect(canAccessAiAssistAndWhatsApp('Direccion', null, 'Comercial')).toBe(true)
++  it('keeps WhatsApp operations restricted to explicit OKRS or Super Admin access', () => {
++    expect(canAccessAiAssistAndWhatsApp('Direccion', null, 'Comercial')).toBe(false)
+     expect(canAccessAiAssistAndWhatsApp('Direccion', null, 'OKRS')).toBe(true)
+     expect(canAccessAiAssistAndWhatsApp('Operativo', null, 'OKRS')).toBe(true)
+     expect(canAccessAiAssistAndWhatsApp('Operativo', null, 'Operaciones')).toBe(false)
+@@ -140,13 +140,13 @@ describe('role route permissions', () => {
+     expect(canAccessAiAssistAndWhatsApp('Operativo', 'admin', 'Comercial')).toBe(false)
+   })
+ 
+-  it('allows Super Admin and Direccion to fully manage actions', () => {
++  it('keeps global action management separate from executive Direction reads', () => {
+     expect(canManageActionsByRole('super_admin')).toBe(true)
+     expect(canManageActionsByRole('Super Admin')).toBe(true)
+-    expect(canManageActionsByRole('Direccion')).toBe(true)
+-    expect(canManageActionsByRole('Dirección general')).toBe(true)
+-    expect(canEditActionGeneralByRole('Direccion')).toBe(true)
+-    expect(canEditActionGeneralByRole('Dirección general')).toBe(true)
++    expect(canManageActionsByRole('Direccion')).toBe(false)
++    expect(canManageActionsByRole('Dirección general')).toBe(false)
++    expect(canEditActionGeneralByRole('Direccion')).toBe(false)
++    expect(canEditActionGeneralByRole('Dirección general')).toBe(false)
+   })
+ 
+   it('keeps Analista limited even if app_role is elevated accidentally', () => {
+diff --git a/src/features/auth/lib/permissions.ts b/src/features/auth/lib/permissions.ts
+index 15f6d43..3357258 100644
+--- a/src/features/auth/lib/permissions.ts
++++ b/src/features/auth/lib/permissions.ts
+@@ -51,24 +51,11 @@ const ANALYST_ALLOWED_ROUTES = [
+ const DIRECTION_ALLOWED_ROUTES = [
+   ROUTES.DASHBOARD,
+   ROUTES.DASHBOARD_TEAMS,
+-  ...ANALYST_ALLOWED_ROUTES,
++  ...ANALYST_ALLOWED_ROUTES.filter(route =>
++    route !== ROUTES.AI_WHATSAPP_SEGUIMIENTO && route !== ROUTES.SETTINGS_WHATSAPP),
+   ROUTES.TEAM_KANBAN,
+   ROUTES.TEAM_KANBAN_BOARD,
+-  ROUTES.SETTINGS_USERS,
+-  ROUTES.SETTINGS_USERS_DETAIL,
+   ROUTES.ORG_CHART,
+-  ROUTES.SETTINGS_REMINDERS,
+-  ROUTES.SETTINGS_CATALOGS,
+-  ROUTES.SETTINGS_CATALOGS_ROLES,
+-  ROUTES.SETTINGS_CATALOGS_AREAS,
+-  ROUTES.SETTINGS_CATALOGS_STATUSES,
+-  ROUTES.SETTINGS_CATALOGS_PRIORITIES,
+-  ROUTES.SETTINGS_CATALOGS_DROPDOWNS,
+-  ROUTES.SETTINGS_CATALOGS_DROPDOWNS_OPTIONS,
+-  ROUTES.SETTINGS_CATALOGS_KPIS,
+-  ROUTES.SETTINGS_CATALOGS_GAPS,
+-  ROUTES.SETTINGS_ACADEMY_MODULES,
+-  ROUTES.ADMIN_CHALLENGES,
+ ] as const
+ 
+ /** Rutas del bloque «Por Liberar» y módulos no disponibles para Operativo. */
+@@ -164,7 +151,7 @@ export function canManageSupportTicketsByRole(rol: string | null | undefined): b
+ }
+ 
+ export function canManageAcademyModulesByRole(rol: string | null | undefined): boolean {
+-  return isSuperAdminByRole(rol) || isDirectionByRole(rol)
++  return isSuperAdminByRole(rol)
+ }
+ 
+ /**
+@@ -271,8 +258,8 @@ export function canAccessOkrs(
+ }
+ 
+ /**
+- * Asistente IA + WhatsApp (bandeja, settings, envíos):
+- * mismo alcance que OKRs — área OKRS o Super Admin.
++ * Gestión de WhatsApp (bandeja, configuración y envíos):
++ * área OKRS o Super Admin. Las consultas ejecutivas usan canAccessOkrs.
+  */
+ export function canAccessAiAssistAndWhatsApp(
+   rol?: string | null,
+@@ -280,11 +267,12 @@ export function canAccessAiAssistAndWhatsApp(
+   area?: string | null,
+   areas?: string[] | null
+ ): boolean {
+-  return canAccessOkrs(rol, appRole, area, areas)
++  return isSuperAdminByRole(rol) || isAppSuperAdminByAppRole(appRole) ||
++    userBelongsToArea('OKRS', area, areas)
+ }
+ 
+ export function canManageActionsByRole(rol: string | null | undefined): boolean {
+-  return isSuperAdminByRole(rol) || isDirectionByRole(rol)
++  return isSuperAdminByRole(rol)
+ }
+ 
+ export function canEditActionGeneralByRole(rol: string | null | undefined): boolean {
+diff --git a/src/features/challenges/components/ChallengeIdeasSection.tsx b/src/features/challenges/components/ChallengeIdeasSection.tsx
+index b228508..a30c3c8 100644
+--- a/src/features/challenges/components/ChallengeIdeasSection.tsx
++++ b/src/features/challenges/components/ChallengeIdeasSection.tsx
+@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
+ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+ import { SectionCard, SectionCardBody, SectionCardHeader } from '@/components/SectionCard'
+ import type { Usuario } from '@/types'
+-import { isAdminByRole, isDirectionByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
++import { isAdminByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
+ import { ChallengeIdeaCard } from './ChallengeIdeaCard'
+ import { ChallengeIdeaFormDialog } from './ChallengeIdeaFormDialog'
+ import { useChallengeIdeas, useToggleChallengeIdeaVote } from '../hooks/useChallengeIdeas'
+@@ -28,7 +28,7 @@ export function ChallengeIdeasSection({
+   const [sort, setSort] = useState<ChallengeIdeaSort>('top')
+   const [dialogOpen, setDialogOpen] = useState(false)
+   const canManage = Boolean(
+-    currentUser && (isAdminByRole(currentUser.rol) || isDirectionByRole(currentUser.rol) || isSuperAdminByRole(currentUser.rol))
++    currentUser && (isAdminByRole(currentUser.rol) || isSuperAdminByRole(currentUser.rol))
+   )
+   const { data: ideas = [], isLoading, isError, error, refetch } = useChallengeIdeas(
+     challenge.id,
+diff --git a/src/features/challenges/pages/ChallengeDetailPage.tsx b/src/features/challenges/pages/ChallengeDetailPage.tsx
+index 962b8de..e3b2dd4 100644
+--- a/src/features/challenges/pages/ChallengeDetailPage.tsx
++++ b/src/features/challenges/pages/ChallengeDetailPage.tsx
+@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils'
+ import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
+ import { useUsers } from '@/features/users/hooks/useUsers'
+ import { useAreas } from '@/features/catalogs/hooks/useAreas'
+-import { isAdminByRole, isDirectionByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
++import { isAdminByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
+ import {
+   useChallenge,
+   useChallengeComments,
+@@ -82,7 +82,7 @@ export function ChallengeDetailPage() {
+ 
+   const openForParticipation = challenge ? isChallengeOpen(challenge) : false
+   const canManageChallenge = Boolean(
+-    currentUser && (isAdminByRole(currentUser.rol) || isDirectionByRole(currentUser.rol) || isSuperAdminByRole(currentUser.rol))
++    currentUser && (isAdminByRole(currentUser.rol) || isSuperAdminByRole(currentUser.rol))
+   )
+ 
+   const handleVote = async () => {
+diff --git a/src/features/challenges/pages/ChallengeIdeaDetailPage.tsx b/src/features/challenges/pages/ChallengeIdeaDetailPage.tsx
+index 63a5c35..04192bb 100644
+--- a/src/features/challenges/pages/ChallengeIdeaDetailPage.tsx
++++ b/src/features/challenges/pages/ChallengeIdeaDetailPage.tsx
+@@ -11,7 +11,7 @@ import { formatDateTimeCDMX } from '@/lib/dateUtils'
+ import { cn } from '@/lib/utils'
+ import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
+ import { useUsers } from '@/features/users/hooks/useUsers'
+-import { isAdminByRole, isDirectionByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
++import { isAdminByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
+ import { notificacionesService } from '@/services/notificaciones.service'
+ import { useChallenge } from '../hooks/useChallenges'
+ import {
+@@ -65,7 +65,7 @@ export function ChallengeIdeaDetailPage() {
+   }, [currentUser?.id, currentUser?.nombre, users])
+ 
+   const canManage = Boolean(
+-    currentUser && (isAdminByRole(currentUser.rol) || isDirectionByRole(currentUser.rol) || isSuperAdminByRole(currentUser.rol))
++    currentUser && (isAdminByRole(currentUser.rol) || isSuperAdminByRole(currentUser.rol))
+   )
+   const openForParticipation = challenge ? isChallengeOpen(challenge) : false
+   const ownIdea = idea?.author_user_id === currentUser?.id
+diff --git a/src/features/challenges/pages/ChallengesAdminPage.tsx b/src/features/challenges/pages/ChallengesAdminPage.tsx
+index 4e84d12..c55deb7 100644
+--- a/src/features/challenges/pages/ChallengesAdminPage.tsx
++++ b/src/features/challenges/pages/ChallengesAdminPage.tsx
+@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils'
+ import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
+ import { useUsers } from '@/features/users/hooks/useUsers'
+ import { useAreas } from '@/features/catalogs/hooks/useAreas'
+-import { isAdminByRole, isDirectionByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
++import { isAdminByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
+ import { notificacionesService } from '@/services/notificaciones.service'
+ import { ChallengeFormDialog } from '../components/ChallengeFormDialog'
+ import {
+@@ -44,7 +44,7 @@ import {
+ const ALL = 'all'
+ 
+ function canManageChallenges(rol: string | null | undefined) {
+-  return isAdminByRole(rol) || isDirectionByRole(rol) || isSuperAdminByRole(rol)
++  return isAdminByRole(rol) || isSuperAdminByRole(rol)
+ }
+ 
+ export function ChallengesAdminPage() {
+diff --git a/src/features/operations/components/AccionFormDialog.tsx b/src/features/operations/components/AccionFormDialog.tsx
+index 8124614..a5e073e 100644
+--- a/src/features/operations/components/AccionFormDialog.tsx
++++ b/src/features/operations/components/AccionFormDialog.tsx
+@@ -34,7 +34,6 @@ import {
+   canEditActionGeneralByRole,
+   canManageActionsByRole,
+   isAnalystByRole,
+-  isDirectionByRole,
+   isSuperAdminByRole,
+ } from '@/features/auth/lib/permissions'
+ import { usersAdminService } from '@/features/users/services/users.service'
+@@ -149,7 +148,6 @@ export function AccionFormDialog({
+   const canSeeOkrTags = useCanSeeOkrTags()
+   const isAnalyst = isAnalystByRole(currentUser?.rol)
+   const isSuperAdmin = isSuperAdminByRole(currentUser?.rol)
+-  const isDirection = isDirectionByRole(currentUser?.rol)
+   const canManageActions = canManageActionsByRole(currentUser?.rol)
+   const canUseWhatsApp = canAccessAiAssistAndWhatsApp(
+     currentUser?.rol,
+@@ -158,7 +156,7 @@ export function AccionFormDialog({
+     currentUser?.areas
+   )
+   const canEditActionGeneral =
+-    canEditActionGeneralByRole(currentUser?.rol) || isSuperAdmin || isDirection
++    canEditActionGeneralByRole(currentUser?.rol) || isSuperAdmin
+   const isActionCreator = !!accionLive?.created_by && accionLive.created_by === currentUser?.id
+   const isActionResponsible = !!accionLive?.responsable && accionLive.responsable === currentUser?.id
+   const canFullyEditAction = !isEdit || isActionCreator || canEditActionGeneral
+@@ -171,7 +169,7 @@ export function AccionFormDialog({
+     !isAnalyst &&
+     accionLive.estado !== 'Hecho' &&
+     accionLive.estado !== 'Verificado' &&
+-    (isSuperAdmin || isDirection || isActionCreator || isActionResponsible)
++    (isSuperAdmin || isActionCreator || isActionResponsible)
+   const canDeleteAccion = isEdit && isSuperAdmin
+   const isEditProtectedReadonly = isEdit && !isEditPermissionPending && !canFullyEditAction
+   const canManageChecklistStructure = isActionCreator || canManageActions
+diff --git a/src/lib/whatsappInboundWorker.test.ts b/src/lib/whatsappInboundWorker.test.ts
+index 701a318..3d53e29 100644
+--- a/src/lib/whatsappInboundWorker.test.ts
++++ b/src/lib/whatsappInboundWorker.test.ts
+@@ -13,7 +13,7 @@ const settings = new Map([
+ ])
+ type Body = Record<string, unknown>
+ type Event = { key: string; sender: string; kind: string; payload: Body }
+-type Job = Event & { id: string; event_key: string; attempts: number; lease_token: string; effect: boolean; status: string }
++type Job = Event & { id: string; event_key: string; attempts: number; lease_token: string; effect: boolean; status: string; created_at: string }
+ let code: string
+ 
+ beforeAll(async () => {
+@@ -41,10 +41,13 @@ afterEach(() => {
+ function harness() {
+   const jobs = new Map<string, Job>()
+   const receipts = new Map<string, Body>()
++  const inbox = new Map<string, Body>()
+   const finishes: Body[] = []
+   const linkedUser = { id: 'identity-id', usuario_id: 'user-id', external_user_id: '5215551234567' }
+   let linked = true
+   let failActionsOnce = false
++  let failInboxOnce = false
++  let mutationError: string | null = null
+   let handler!: (request: Request) => Promise<Response>
+ 
+   function from(table: string) {
+@@ -52,6 +55,23 @@ function harness() {
+     let payload: Body = {}
+     const filters: Body = {}
+     const run = () => {
++      if (table === 'whatsapp_messages') {
++        const key = String(filters.meta_message_id ?? payload.meta_message_id ?? '')
++        if (operation === 'insert') {
++          if (failInboxOnce) {
++            failInboxOnce = false
++            return { data: null, error: { code: 'XX000' } }
++          }
++          if (inbox.has(key)) return { data: null, error: { code: '23505', message: 'meta_message_id' } }
++          inbox.set(key, { id: key, ...payload })
++        }
++        if (operation === 'update') {
++          const entry = [...inbox.values()].find(row => row.id === filters.id)
++          if (entry) Object.assign(entry, payload)
++          return { data: entry, error: null }
++        }
++        return { data: inbox.get(key) ?? null, error: null }
++      }
+       if (table === 'external_inbound_messages') {
+         if (operation === 'insert') {
+           const id = String(payload.external_update_id)
+@@ -75,7 +95,7 @@ function harness() {
+     }
+     const builder = {
+       select: () => builder,
+-      update: () => { operation = 'update'; return builder },
++      update: (row: Body) => { operation = 'update'; payload = row; return builder },
+       insert: (row: Body) => { operation = 'insert'; payload = row; return builder },
+       eq: (column: string, value: unknown) => { filters[column] = value; return builder },
+       or: () => builder,
+@@ -99,6 +119,7 @@ function harness() {
+           jobs.set(event.key, {
+             ...event, id: `job-${jobs.size + 1}`, event_key: event.key, attempts: 0,
+             lease_token: 'lease-test', effect: false, status: 'pending',
++            created_at: new Date(Date.now() - 1000).toISOString(),
+           })
+         }
+       }
+@@ -111,6 +132,7 @@ function harness() {
+       return { data: [job], error: null }
+     }
+     if (name === 'whatsapp_apply_action') {
++      if (mutationError) return { data: null, error: { code: mutationError } }
+       return {
+         data: { ok: true, accionId: args.p_accion, askResult: true, resultLabel: 'Realizada' },
+         error: null,
+@@ -125,7 +147,7 @@ function harness() {
+     }
+     return { data: null, error: null }
+   })
+-  const fetchMock = vi.fn(async (_url: string, _options: RequestInit) =>
++  const fetchMock = vi.fn<(url: string, options: RequestInit) => Promise<Response>>(async () =>
+     Response.json({ messages: [{ id: 'wamid.reply' }] }))
+   vi.stubGlobal('fetch', fetchMock)
+   new Function('require', 'Deno', code)(
+@@ -150,15 +172,55 @@ function harness() {
+     }))
+   }
+   return {
+-    jobs, receipts, finishes, fetchMock, rpc, runWorker, webhook,
++    jobs, receipts, inbox, finishes, fetchMock, rpc, runWorker, webhook,
+     unlink: () => { linked = false },
+     failNextActionRead: () => { failActionsOnce = true },
++    failNextInboxWrite: () => { failInboxOnce = true },
++    failMutationWith: (code: string) => { mutationError = code },
+   }
+ }
+ 
+ const message = { id: 'wamid.in', from: '5215551234567' }
+ 
+ describe('WhatsApp Edge webhook and worker', () => {
++  it('completes the signed intake, queue, Inbox, reply and delivery chain with simulated Meta', async () => {
++    const test = harness()
++    const intake = await test.webhook({ ...message, type: 'text', text: { body: 'Hola' } })
++    expect(intake.status).toBe(200)
++    expect(test.jobs.get('message:' + message.id)?.status).toBe('pending')
++    expect(test.fetchMock).not.toHaveBeenCalled()
++    await test.runWorker()
++    expect(test.inbox.get(message.id)?.direction).toBe('inbound')
++    expect(test.inbox.get('wamid.reply')).toMatchObject({
++      direction: 'outbound', delivery_status: 'sent',
++      payload: expect.objectContaining({ correlation_id: 'job-1' }),
++    })
++    await test.webhook({
++      id: 'wamid.reply', recipient_id: message.from, status: 'delivered',
++      timestamp: String(Math.floor(Date.now() / 1000)),
++    }, 'statuses')
++    await test.runWorker()
++    expect(test.inbox.get('wamid.reply')).toMatchObject({
++      delivery_status: 'delivered', delivered_at: expect.any(String),
++    })
++    expect(test.fetchMock).toHaveBeenCalledOnce()
++    expect(test.finishes).toHaveLength(2)
++    expect(test.finishes.every(result => result.p_ok === true)).toBe(true)
++  })
++  it('separates queue, processing and provider timing using the queue job ID', async () => {
++    const log = vi.spyOn(console, 'info').mockImplementation(() => {})
++    const test = harness()
++    await test.webhook({ ...message, type: 'text', text: { body: 'Hola' } })
++    await test.runWorker()
++    const events = log.mock.calls.map(([value]) => {
++      try { return JSON.parse(String(value)) } catch { return null }
++    }).filter(Boolean)
++    expect(events).toEqual(expect.arrayContaining([
++      expect.objectContaining({ stage: 'claimed', correlation_id: 'job-1', queue_ms: expect.any(Number) }),
++      expect.objectContaining({ stage: 'completed', correlation_id: 'job-1', processing_ms: expect.any(Number) }),
++      expect.objectContaining({ event: 'WHATSAPP_REPLY_SENT', job_id: 'job-1', provider_duration_ms: expect.any(Number) }),
++    ]))
++  })
+   it.each([
+     [{ type: 'text', text: { body: 'Hola' } }, 'Hola. Soy el asistente'],
+     [{ type: 'text', text: { body: 'Mis acciones' } }, 'Revisar inventario'],
+@@ -173,6 +235,9 @@ describe('WhatsApp Edge webhook and worker', () => {
+     expect(test.fetchMock).toHaveBeenCalledOnce()
+     expect(JSON.parse(String(test.fetchMock.mock.calls[0]?.[1].body)).text.body).toContain(expected)
+     expect(test.finishes[0]?.p_ok).toBe(true)
++    expect(test.inbox.get(message.id)).toMatchObject({
++      direction: 'inbound', source: 'contact', meta_message_id: message.id,
++    })
+   })
+ 
+   it('keeps duplicate Meta deliveries to one job and one reply', async () => {
+@@ -182,7 +247,33 @@ describe('WhatsApp Edge webhook and worker', () => {
+     await test.webhook(input)
+     await test.runWorker()
+     expect(test.jobs.size).toBe(1)
++    expect([...test.inbox.values()].filter(row => row.direction === 'inbound')).toHaveLength(1)
++    expect(test.fetchMock).toHaveBeenCalledOnce()
++  })
++
++  it('records a conversational message even when its later routing needs a retry', async () => {
++    const test = harness()
++    test.failNextActionRead()
++    await test.webhook({ ...message, type: 'text', text: { body: 'Mis acciones' } })
++    await test.runWorker()
++    expect(test.inbox.get(message.id)?.direction).toBe('inbound')
++    expect(test.finishes[0]?.p_ok).toBe(false)
++  })
++
++  it('retries an Inbox persistence failure before sending any reply', async () => {
++    const test = harness()
++    test.failNextInboxWrite()
++    await test.webhook({ ...message, type: 'text', text: { body: 'Hola' } })
++    await test.runWorker()
++    expect(test.fetchMock).not.toHaveBeenCalled()
++    expect(test.finishes[0]).toMatchObject({ p_ok: false, p_error: 'database_XX000' })
++    expect(test.receipts.size).toBe(0)
++    const job = test.jobs.get('message:' + message.id)!
++    job.status = 'pending'
++    await test.runWorker()
+     expect(test.fetchMock).toHaveBeenCalledOnce()
++    expect([...test.inbox.values()].filter(row => row.direction === 'inbound')).toHaveLength(1)
++    expect(test.finishes[1]?.p_ok).toBe(true)
+   })
+ 
+   it('resumes the job after a failure that happened after saving the inbound receipt', async () => {
+@@ -244,6 +335,33 @@ describe('WhatsApp Edge webhook and worker', () => {
+     expect(test.jobs.get(`message:${message.id}`)?.status).toBe('review')
+   })
+ 
++  it('holds a P0001 action failure for review without claiming success or replaying it', async () => {
++    const test = harness()
++    test.failMutationWith('P0001')
++    await test.webhook({
++      ...message, type: 'interactive',
++      interactive: { button_reply: {
++        id: 'act:00000000-0000-0000-0000-000000000001:done', title: 'Realizada',
++      } },
++    })
++    await test.runWorker()
++    await test.webhook({
++      ...message, type: 'interactive',
++      interactive: { button_reply: {
++        id: 'act:00000000-0000-0000-0000-000000000001:done', title: 'Realizada',
++      } },
++    })
++    await test.runWorker()
++    expect([...test.inbox.values()].filter(row => row.direction === 'inbound')).toHaveLength(1)
++    expect(test.jobs.size).toBe(1)
++    expect(test.jobs.get(`message:${message.id}`)?.status).toBe('review')
++    expect(test.finishes[0]).toMatchObject({ p_ok: false, p_error: 'database_P0001' })
++    expect(test.rpc.mock.calls.filter(([name]) => name === 'whatsapp_apply_action')).toHaveLength(1)
++    expect(test.fetchMock).toHaveBeenCalledOnce()
++    const notice = JSON.parse(String(test.fetchMock.mock.calls[0]?.[1]?.body))
++    expect(notice.text.body).toBe('No pude completar la consulta o actualización en este momento. No he podido confirmar el resultado.')
++  })
++
+   it('retries a confirmed rate limit without replaying an accepted reply', async () => {
+     const test = harness()
+     test.fetchMock.mockResolvedValueOnce(Response.json({ error: {} }, { status: 429 }))
+diff --git a/supabase/functions/whatsapp-followup-dispatcher/index.ts b/supabase/functions/whatsapp-followup-dispatcher/index.ts
+index fcb3841..6ca4841 100644
+--- a/supabase/functions/whatsapp-followup-dispatcher/index.ts
++++ b/supabase/functions/whatsapp-followup-dispatcher/index.ts
+@@ -353,19 +353,21 @@ function dispatcherAuthorized(req: Request): boolean {
+   if (token && anonKey && token === anonKey) return true
+   if (expected && token === expected) return true
+ 
+-  // Cron suele llegar sin Vault configurado (Authorization vacío / secret vacío).
+-  // Sin WHATSAPP_DISPATCHER_SECRET: no bloquear el worker (igual que webhook sin App Secret).
+-  if (!expected) {
+-    console.warn('whatsapp-followup-dispatcher missing WHATSAPP_DISPATCHER_SECRET; allowing request')
+-    return true
+-  }
+   return false
+ }
+ 
+ function unauthorized() {
++  console.warn(JSON.stringify({
++    event: 'WHATSAPP_DISPATCHER_AUTH_REJECTED',
++    code: 'UNAUTHORIZED',
++    layer: 'edge_function',
++  }))
+   return new Response(JSON.stringify({ error: 'unauthorized' }), {
+     status: 401,
+-    headers: { 'Content-Type': 'application/json' },
++    headers: {
++      'Content-Type': 'application/json',
++      'x-whatsapp-auth-layer': 'edge_function',
++    },
+   })
+ }
+ 
+diff --git a/supabase/functions/whatsapp-webhook/index.ts b/supabase/functions/whatsapp-webhook/index.ts
+index 86d782b..0bba01a 100644
+--- a/supabase/functions/whatsapp-webhook/index.ts
++++ b/supabase/functions/whatsapp-webhook/index.ts
+@@ -634,6 +634,7 @@ async function graphSendMessage(supabase, body: Record<string, unknown>) {
+   await context?.mark('provider_request')
+   if (context) context.uncertain = true
+   const url = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`
++  const providerStartedAt = performance.now()
+   const response = await fetch(url, {
+     method: 'POST',
+     headers: {
+@@ -661,6 +662,8 @@ async function graphSendMessage(supabase, body: Record<string, unknown>) {
+   whatsappTrace('WHATSAPP_REPLY_SENT', {
+     ...workerTrace(context),
+     outbound_meta_id: extractMessageId(json),
++    provider_duration_ms: Math.round(performance.now() - providerStartedAt),
++    accepted_at: new Date().toISOString(),
+   })
+   return { ok: response.ok, status: response.status, json, raw }
+ }
+@@ -901,10 +904,19 @@ async function upsertThreadMessage(
+   if (metaId) {
+     const { data: existing } = await supabase
+       .from('whatsapp_messages')
+-      .select('id')
++      .select('id,payload')
+       .eq('meta_message_id', metaId)
+       .maybeSingle()
+-    if (existing?.id) return existing.id as string
++    if (existing?.id) {
++      const incomingPayload = row.payload as Record<string, unknown> | undefined
++      if (row.direction === 'inbound' && incomingPayload?.flow) {
++        const { error } = await supabase.from('whatsapp_messages')
++          .update({ payload: { ...existing.payload, ...incomingPayload } })
++          .eq('id', existing.id)
++        if (error) throw error
++      }
++      return existing.id as string
++    }
+   }
+   const { data, error } = await supabase
+     .from('whatsapp_messages')
+@@ -921,8 +933,7 @@ async function upsertThreadMessage(
+         .maybeSingle()
+       return (again?.id as string | undefined) ?? null
+     }
+-    console.error('whatsapp_messages insert failed', error)
+-    return null
++    throw error
+   }
+   return (data?.id as string | undefined) ?? null
+ }
+@@ -1049,6 +1060,12 @@ async function applyMetaStatus(
+         .from('whatsapp_messages')
+         .update(patch)
+         .eq('id', current.id)
++      whatsappTrace('WHATSAPP_DELIVERY_UPDATED', {
++        job_id: current.payload?.correlation_id,
++        outbound_meta_id: metaId,
++        status,
++        provider_event_at: ts,
++      })
+     }
+   }
+ 
+@@ -1440,7 +1457,7 @@ async function replyAi(
+       wa_id: to,
+       usuario_id: usuarioId ?? null,
+       direction: 'outbound',
+-      source: 'ai',
++      source: 'automation',
+       message_kind: canButtons ? 'interactive' : 'text',
+       body_text: body,
+       meta_message_id: metaId,
+@@ -1452,11 +1469,17 @@ async function replyAi(
+         request: graphBody,
+         response: result.json,
+         source: 'webhook_ai_reply',
++        correlation_id: workerContexts.get(supabase)?.id,
+         flow: 'agent',
+       },
+     })
+   } catch (error) {
+-    console.error('whatsapp ai reply failed', error)
++    whatsappTrace('WHATSAPP_PROCESSING_FAILED', {
++      ...workerTrace(workerContexts.get(supabase)),
++      stage: 'ai_reply',
++      code: 'ai_reply_failed',
++    })
++    throw error
+   }
+ }
+ 
+@@ -1466,7 +1489,7 @@ async function canUseAiWhatsApp(
+ ): Promise<boolean> {
+   if (!whatsappAiEnabled()) return false
+   const { data: allowed, error } = await supabase.rpc(
+-    'can_use_ai_whatsapp_for_usuario',
++    'can_query_ai_whatsapp_for_usuario',
+     {
+       p_usuario_id: usuarioId,
+     }
+@@ -1642,7 +1665,7 @@ async function maybeHandleWhatsAppAi(
+   let allowed = input.aiAllowed
+   if (allowed === undefined) {
+     const { data: rpcAllowed, error } = await supabase.rpc(
+-      'can_use_ai_whatsapp_for_usuario',
++      'can_query_ai_whatsapp_for_usuario',
+       {
+         p_usuario_id: input.usuarioId,
+       }
+@@ -2438,6 +2461,18 @@ async function processWhatsAppPayload(payload, supabase) {
+             ...workerTrace(context),
+             linked: Boolean(identity?.usuario_id),
+           })
++          await upsertThreadMessage(supabase, {
++            wa_id: waId,
++            usuario_id: identity?.usuario_id ?? null,
++            direction: 'inbound',
++            source: 'contact',
++            message_kind: message.type ?? 'unknown',
++            body_text: inboundPreview(message),
++            meta_message_id: message.id ?? null,
++            delivery_status: 'delivered',
++            delivered_at: new Date().toISOString(),
++            payload: { message, value, source: 'webhook_inbound', correlation_id: context?.id },
++          })
+           const { error: inboundError } = await supabase
+             .from('external_inbound_messages')
+             .insert({
+@@ -3756,6 +3791,8 @@ async function runInboundWorker(req) {
+     }
+     const job = data?.[0]
+     if (!job) break
++    const claimedAt = new Date()
++    const processingStartedAt = performance.now()
+     const client = checkedWorkerClient(base, job)
+     let ok = false,
+       code = null
+@@ -3767,6 +3804,10 @@ async function runInboundWorker(req) {
+           stage: 'claimed',
+           attempt: job.attempts,
+           kind: job.kind,
++          claimed_at: claimedAt.toISOString(),
++          queue_ms: job.created_at
++            ? Math.max(0, claimedAt.getTime() - Date.parse(job.created_at))
++            : null,
+         })
+       )
+       await processWhatsAppPayload(job.payload, client)
+@@ -3818,6 +3859,7 @@ async function runInboundWorker(req) {
+         event: 'whatsapp_processing',
+         correlation_id: job.id,
+         stage: ok ? 'completed' : 'attention_required',
++        processing_ms: Math.round(performance.now() - processingStartedAt),
+       })
+     )
+   }
+diff --git a/api/_shared/assistantDirectionAuth.test.ts b/api/_shared/assistantDirectionAuth.test.ts
+new file mode 100644
+index 0000000..e14c97e
+--- /dev/null
++++ b/api/_shared/assistantDirectionAuth.test.ts
+@@ -0,0 +1,41 @@
++import { afterEach, beforeEach, expect, it, vi } from 'vitest'
++import { requireAssistantAuth } from './assistantAuth'
++
++const fixture = vi.hoisted(() => ({
++  profile: { id: 'profile', rol: 'Direccion', area: 'Comercial', activo: true },
++}))
++vi.mock('@supabase/supabase-js', () => ({
++  createClient: () => ({
++    auth: { getUser: async () => ({ data: { user: { id: 'auth-user' } }, error: null }) },
++    from: (table: string) => {
++      const result = { data: table === 'usuarios' ? fixture.profile : [], error: null }
++      const query = {
++        select: () => query,
++        eq: () => query,
++        maybeSingle: async () => result,
++        then: (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve),
++      }
++      return query
++    },
++  }),
++}))
++beforeEach(() => {
++  vi.stubEnv('SUPABASE_URL', 'https://qa.test')
++  vi.stubEnv('SUPABASE_ANON_KEY', 'test-key')
++  fixture.profile = { id: 'profile', rol: 'Direccion', area: 'Comercial', activo: true }
++})
++afterEach(() => vi.unstubAllEnvs())
++const request = { headers: { authorization: 'Bearer session-test' } } as never
++
++it('authenticates executive queries outside OKRS without assigning an admin role', async () => {
++  const result = await requireAssistantAuth(request)
++  expect(result).toMatchObject({ ok: true, rol: 'Direccion', usuarioId: 'profile' })
++})
++it('still rejects inactive executive profiles', async () => {
++  fixture.profile.activo = false
++  expect(await requireAssistantAuth(request)).toMatchObject({ ok: false, status: 403 })
++})
++it('keeps existing module restrictions for other profiles', async () => {
++  fixture.profile.rol = 'Operativo'
++  expect(await requireAssistantAuth(request)).toMatchObject({ ok: false, status: 403 })
++})
+diff --git a/api/_shared/whatsappDispatcher.test.ts b/api/_shared/whatsappDispatcher.test.ts
+new file mode 100644
+index 0000000..2e00b08
+--- /dev/null
++++ b/api/_shared/whatsappDispatcher.test.ts
+@@ -0,0 +1,46 @@
++import { readFileSync } from 'node:fs'
++import ts from 'typescript'
++import { expect, it, vi } from 'vitest'
++
++const source = readFileSync('supabase/functions/whatsapp-followup-dispatcher/index.ts', 'utf8')
++  .replace(/^import .*createClient.*\r?\n/m, '')
++const js = ts.transpileModule(source, {
++  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
++}).outputText
++
++function runtime(env: Record<string, string> = {}) {
++  let handler: (req: Request) => Promise<Response>
++  const createClient = vi.fn(() => { throw new Error('Unexpected database access') })
++  new Function('Deno', 'createClient', js)({
++    env: { get: (key: string) => env[key] },
++    serve: (value: typeof handler) => { handler = value },
++  }, createClient)
++  return { request: (headers = {}) => handler(new Request('https://example.test', {
++    method: 'POST', headers,
++  })), createClient }
++}
++
++it.each([
++  ['missing environment', {}, {}],
++  ['missing caller credential', { WHATSAPP_DISPATCHER_SECRET: 'test-secret' }, {}],
++  ['mismatched caller credential', { WHATSAPP_DISPATCHER_SECRET: 'test-secret' }, {
++    'x-dispatcher-secret': 'different',
++  }],
++])('rejects %s before accessing jobs', async (_label, env, headers) => {
++  const test = runtime(env as Record<string, string>)
++  const response = await test.request(headers)
++  expect(response.status).toBe(401)
++  expect(response.headers.get('x-whatsapp-auth-layer')).toBe('edge_function')
++  expect(await response.json()).toEqual({ error: 'unauthorized' })
++  expect(test.createClient).not.toHaveBeenCalled()
++})
++
++it.each([
++  [{ WHATSAPP_DISPATCHER_SECRET: 'test-secret' }, { 'x-dispatcher-secret': 'test-secret' }],
++  [{ SUPABASE_ANON_KEY: 'test-anon' }, { authorization: 'Bearer test-anon' }],
++  [{ SUPABASE_SERVICE_ROLE_KEY: 'test-service' }, { apikey: 'test-service' }],
++])('preserves existing valid credentials', async (env, headers) => {
++  const test = runtime({ SUPABASE_URL: 'https://db.test', SUPABASE_SERVICE_ROLE_KEY: 'test-service', ...env })
++  await test.request(headers)
++  expect(test.createClient).toHaveBeenCalledOnce()
++})
+diff --git a/scripts/test-agent-permissions-database.mjs b/scripts/test-agent-permissions-database.mjs
+new file mode 100644
+index 0000000..57c9dbf
+--- /dev/null
++++ b/scripts/test-agent-permissions-database.mjs
+@@ -0,0 +1,247 @@
++import { readFileSync } from 'node:fs'
++import { pathToFileURL } from 'node:url'
++import assert from 'node:assert/strict'
++
++// Isolated PostgreSQL/WASM. Never connects to a Supabase project.
++const { PGlite } = await import(pathToFileURL(process.env.WHATSAPP_PGLITE_PATH).href)
++const db = new PGlite()
++const migration = 'supabase/migrations/20261118150000_direction_executive_scope.sql'
++function definition(file, name) {
++  const text = readFileSync(file, 'utf8')
++  const match = text.match(new RegExp('CREATE OR REPLACE FUNCTION public\\.' + name + '\\([\\s\\S]*?\\$\\$;', 'i'))
++  assert.ok(match, name)
++  return match[0]
++}
++function policy(file, name) {
++  const match = readFileSync(file, 'utf8').match(new RegExp('CREATE POLICY ' + name + '[\\s\\S]*?;', 'i'))
++  assert.ok(match, name)
++  return match[0]
++}
++const direction = '00000000-0000-0000-0000-000000000001'
++const peer = '00000000-0000-0000-0000-000000000002'
++const admin = '00000000-0000-0000-0000-000000000003'
++const analyst = '00000000-0000-0000-0000-000000000004'
++const company = '20000000-0000-0000-0000-000000000001'
++const team = '20000000-0000-0000-0000-000000000002'
++const own = '10000000-0000-0000-0000-000000000001'
++const foreign = '10000000-0000-0000-0000-000000000002'
++const query = async (sql, values = []) => (await db.query(sql, values)).rows
++const flag = async (sql, values = []) => (await query(sql, values))[0].value
++try {
++  await db.exec(`
++    create role anon; create role authenticated; create role service_role bypassrls;
++    create schema auth;
++    create function auth.uid() returns uuid language sql stable as $$
++      select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid;
++    $$;
++    create function auth.role() returns text language sql stable as $$ select current_user::text; $$;
++    grant usage on schema public,auth to authenticated,service_role;
++    grant execute on function auth.uid() to authenticated,service_role;
++    create table usuarios(id uuid primary key,user_id uuid,rol text,activo boolean,area text);
++    create table user_roles(user_id uuid,app_role text);
++    create table areas(id uuid primary key,nombre text);
++    create table usuario_areas(user_id uuid,area_id uuid);
++    create table catalog_roles(id uuid primary key,nombre text,system_key text,activo boolean);
++    create table usuario_catalog_roles(user_id uuid,role_id uuid);
++    create table okrs(id uuid primary key,scope text,area_id uuid,owner_user_id uuid);
++    create table okr_key_results(id uuid primary key,okr_id uuid,owner_user_id uuid);
++    create table acciones_diarias(id uuid primary key,responsable uuid,created_by uuid,updated_by uuid,titulo_accion text);
++    create table acciones_equipo(id uuid primary key,lider_id uuid,asignado_a uuid,creado_por uuid);
++    create table accion_comentarios(accion_id uuid,asignado uuid,etiquetas text[]);
++    create table priorities(id uuid primary key,nombre text);
++    create table academy_modules(id uuid primary key,title text);
++    create schema storage;
++    create table storage.objects(id uuid primary key,bucket_id text);
++    create function normalize_business_role(value text) returns text language sql immutable as $$
++      select replace(lower(value),' ','_');
++    $$;
++    create function get_my_usuario_id() returns uuid language sql security definer stable as $$
++      select id from usuarios where user_id=auth.uid() and activo;
++    $$;
++    create function has_business_role(value text) returns boolean language sql security definer stable as $$
++      select exists(select 1 from usuarios where user_id=auth.uid() and activo and normalize_business_role(rol)=normalize_business_role(value));
++    $$;
++    create function is_current_user_super_admin() returns boolean language sql security definer stable as $$
++      select has_business_role('super_admin') or exists(select 1 from user_roles where user_id=auth.uid() and app_role='super_admin');
++    $$;
++    create function is_super_admin() returns boolean language sql stable as $$ select is_current_user_super_admin(); $$;
++    create function is_app_admin() returns boolean language sql security definer stable as $$
++      select exists(select 1 from user_roles where user_id=auth.uid() and app_role in ('admin','super_admin'));
++    $$;
++    create function is_business_admin() returns boolean language sql stable as $$
++      select has_business_role('DG') or has_business_role('Sistemas') or has_business_role('super_admin');
++    $$;
++    create function is_business_analyst() returns boolean language sql stable as $$ select has_business_role('Analista'); $$;
++    create function user_belongs_to_area_name(value text) returns boolean language sql security definer stable as $$
++      select exists(select 1 from usuarios where user_id=auth.uid() and activo and area=value);
++    $$;
++    create function team_kanban_is_leader(value uuid) returns boolean language sql stable as $$ select false; $$;
++    create function can_use_ai_whatsapp_for_usuario(value uuid) returns boolean language sql security definer stable as $$
++      select exists(select 1 from usuarios where id=value and activo and (rol='super_admin' or area='OKRS'));
++    $$;
++    insert into usuarios values
++      ('${direction}','${direction}','Direccion',true,'Comercial'),
++      ('${peer}','${peer}','Operativo',true,'Operaciones'),
++      ('${admin}','${admin}','super_admin',true,'Comercial'),
++      ('${analyst}','${analyst}','Analista',true,'Operaciones');
++    insert into areas values('40000000-0000-0000-0000-000000000001','Otro equipo');
++    insert into okrs values
++      ('${company}','company',null,'${peer}'),
++      ('${team}','team','40000000-0000-0000-0000-000000000001','${peer}');
++    insert into acciones_diarias values
++      ('${own}','${direction}','${direction}',null,'Own fixture'),
++      ('${foreign}','${peer}','${peer}',null,'Foreign fixture');
++    insert into priorities values('50000000-0000-0000-0000-000000000001','Fixture');
++    insert into academy_modules values('50000000-0000-0000-0000-000000000002','Fixture');
++    insert into storage.objects values('50000000-0000-0000-0000-000000000003','academia');
++  `)
++  for (const [file, name] of [
++    ['20260729163000_super_admin_can_manage_all_catalogs.sql', 'can_manage_catalogs'],
++    ['20260803123000_fix_direction_action_general_edit.sql', 'is_action_privileged_usuario'],
++    ['20260803123000_fix_direction_action_general_edit.sql', 'has_kanban_action_editor_role'],
++    ['20260803123000_fix_direction_action_general_edit.sql', 'can_edit_accion_general_as'],
++    ['20260803123000_fix_direction_action_general_edit.sql', 'can_edit_accion_general'],
++    ['20260717120000_ensure_accion_full_permission_helpers.sql', 'can_manage_accion_full_as'],
++    ['20260924120000_okr_management.sql', 'okr_active_user'],
++    ['20261029120000_super_admin_view_all_okrs.sql', 'okr_manage_scope'],
++    ['20261029120000_super_admin_view_all_okrs.sql', 'okr_can_view'],
++    ['20260712120000_usuario_areas_and_self_hierarchy.sql', 'can_manage_org_hierarchy'],
++    ['20260823120000_challenges_module.sql', 'can_manage_challenges'],
++    ['20260714130000_manual_gamification_rules.sql', 'can_edit_manual_gamification'],
++    ['20260712160000_team_kanban_module.sql', 'team_kanban_is_admin'],
++    ['20260712160000_team_kanban_module.sql', 'team_kanban_can_view'],
++    ['20260722143000_team_kanban_direction_role_variants.sql', 'team_kanban_is_direction_role'],
++    ['20260722143000_team_kanban_direction_role_variants.sql', 'team_kanban_is_super_admin'],
++  ]) await db.exec(definition('supabase/migrations/' + file, name))
++  await db.exec(`
++    alter table okrs enable row level security;
++    alter table acciones_diarias enable row level security;
++    alter table priorities enable row level security;
++    grant select,update on okrs,acciones_diarias,priorities to authenticated;
++    grant select on accion_comentarios to authenticated;
++    grant select,update on usuarios to authenticated;
++    alter table usuarios enable row level security;
++    create policy user_read on usuarios for select to authenticated using(true);
++    create policy user_update on usuarios for update to authenticated using(user_id=auth.uid() or can_manage_catalogs());
++    alter table academy_modules enable row level security;
++    alter table storage.objects enable row level security;
++    grant usage on schema storage to authenticated;
++    grant select,update on academy_modules,storage.objects to authenticated;
++    create policy legacy_academy on academy_modules for all to authenticated
++      using(has_business_role('Direccion') or is_super_admin())
++      with check(has_business_role('Direccion') or is_super_admin());
++    create policy storage_read on storage.objects for select to authenticated using(true);
++    create policy legacy_academy_storage on storage.objects for update to authenticated
++      using(has_business_role('Direccion') or is_super_admin())
++      with check(has_business_role('Direccion') or is_super_admin());
++    create policy catalog_update on priorities for update to authenticated
++      using(can_manage_catalogs()) with check(can_manage_catalogs());
++    create policy catalog_read on priorities for select to authenticated using(true);
++    create policy okr_update on okrs for update to authenticated
++      using(okr_manage_scope(area_id)) with check(okr_manage_scope(area_id));
++  `)
++  await db.exec(policy('supabase/migrations/20260924120000_okr_management.sql','okrs_select_authenticated'))
++  await db.exec(policy('supabase/migrations/20260701123000_stabilize_action_read_for_responsible_comments.sql','acciones_select_role_scoped'))
++  await db.exec(policy('supabase/migrations/20260803123000_fix_direction_action_general_edit.sql','acciones_update_responsable_creator_or_admin'))
++  const asUser = async id => {
++    await db.exec('reset role')
++    await query("select set_config('request.jwt.claim.sub',$1,false)", [id])
++    await db.exec('set role authenticated')
++  }
++  await asUser(direction)
++  assert.equal(await flag('select can_manage_catalogs() as value'),true)
++  assert.equal(await flag('select is_action_privileged_usuario($1) as value',[direction]),true)
++  await db.exec('reset role')
++  await db.exec(readFileSync(migration,'utf8'))
++  await db.exec('grant create on schema public to authenticated')
++  await assert.rejects(db.exec(readFileSync(migration,'utf8')),/Unsafe public schema CREATE/)
++  await db.exec('rollback; revoke create on schema public from authenticated')
++  await db.exec('alter function public.has_business_role(text) owner to authenticated')
++  await assert.rejects(db.exec(readFileSync(migration,'utf8')),/Untrusted permission function owner/)
++  await db.exec('rollback; alter function public.has_business_role(text) owner to current_user')
++  await db.exec(readFileSync(migration,'utf8'))
++  await db.exec(readFileSync(migration,'utf8'))
++  await asUser(direction)
++  await db.exec('create temporary table user_roles(user_id uuid, app_role text)')
++  await query("insert into pg_temp.user_roles values($1,'admin')",[direction])
++  assert.equal(await flag('select public.can_manage_catalogs() as value'),false,
++    'Temporary relations must not influence SECURITY DEFINER permission helpers')
++  await db.exec('drop table pg_temp.user_roles')
++  assert.equal(await flag('select can_manage_catalogs() as value'),false)
++  assert.equal(await flag('select is_action_privileged_usuario($1) as value',[direction]),false)
++  assert.equal(await flag('select can_manage_org_hierarchy() as value'),false)
++  assert.equal(await flag('select can_manage_challenges() as value'),false)
++  assert.equal(await flag('select can_edit_manual_gamification() as value'),false)
++  assert.equal(await flag('select team_kanban_is_admin() as value'),false)
++  assert.equal(await flag('select team_kanban_is_super_admin() as value'),false)
++  await assert.rejects(query("update usuarios set rol='super_admin' where id=$1",[direction]),/Executive profile/)
++  await assert.rejects(query("update usuarios set area='OKRS' where id=$1",[direction]),/Executive profile/)
++  assert.equal((await query('select id from okrs')).length,2)
++  assert.equal((await query('select id from acciones_diarias')).length,2)
++  assert.equal((await query("update acciones_diarias set titulo_accion='Approved own' where id=$1 returning id",[own])).length,1)
++  assert.equal((await query("update acciones_diarias set titulo_accion='Denied' where id=$1 returning id",[foreign])).length,0)
++  assert.equal((await query("update priorities set nombre='Denied' returning id")).length,0)
++  assert.equal((await query("update academy_modules set title='Denied' returning id")).length,0)
++  assert.equal((await query("update storage.objects set bucket_id=bucket_id returning id")).length,0)
++  assert.equal((await query("update okrs set scope=scope returning id")).length,0)
++  assert.equal(await flag('select can_manage_accion_full_as($1,$2) as value',[foreign,direction]),false)
++  await db.exec('reset role')
++  await query("update usuarios set rol='Direccion general' where id=$1",[direction])
++  await asUser(direction)
++  assert.equal((await query('select id from okrs')).length,2)
++  assert.equal(await flag('select can_manage_catalogs() as value'),false)
++  assert.equal(await flag('select is_action_privileged_usuario($1) as value',[direction]),false)
++  await assert.rejects(query("update usuarios set rol='super_admin' where id=$1",[direction]),/Executive profile/)
++  await db.exec('reset role')
++  await query("update usuarios set rol='Direccion' where id=$1",[direction])
++  await asUser(direction)
++  await assert.rejects(query('select can_query_ai_whatsapp_for_usuario($1)',[direction]),/permission denied/)
++  await db.exec('reset role; set role service_role')
++  assert.equal(await flag('select can_query_ai_whatsapp_for_usuario($1) as value',[direction]),true)
++  assert.equal(await flag('select can_use_ai_whatsapp_for_usuario($1) as value',[direction]),false)
++  await asUser(peer)
++  assert.equal((await query('select id from okrs')).length,2) // The fixture owns both.
++  await db.exec('reset role')
++  await query("insert into catalog_roles values('60000000-0000-0000-0000-000000000001','Direccion general','direccion',true)")
++  await query("insert into usuario_catalog_roles values($1,'60000000-0000-0000-0000-000000000001')",[peer])
++  await asUser(peer)
++  assert.equal(await flag('select is_current_user_direction() as value'),true)
++  assert.equal(await flag('select can_manage_catalogs() as value'),false)
++  await assert.rejects(query("update usuarios set rol='super_admin' where id=$1",[peer]),/Executive profile/)
++  await db.exec('reset role')
++  await query('delete from usuario_catalog_roles where user_id=$1',[peer])
++  await asUser(analyst)
++  assert.equal((await query('select id from okrs')).length,1)
++  assert.equal((await query('select id from acciones_diarias')).length,0)
++  await asUser(admin)
++  assert.equal(await flag('select can_manage_catalogs() as value'),true)
++  assert.equal((await query("update acciones_diarias set titulo_accion='Admin fixture' where id=$1 returning id",[foreign])).length,1)
++  await db.exec('reset role')
++  await query("insert into user_roles values($1,'admin')",[direction])
++  await asUser(direction)
++  assert.equal(await flag('select can_manage_catalogs() as value'),true)
++  assert.equal(await flag('select is_action_privileged_usuario($1) as value',[direction]),true)
++  await db.exec('reset role')
++  await query('update usuarios set activo=false where id=$1',[direction])
++  await asUser(direction)
++  assert.equal(await flag('select can_manage_catalogs() as value'),false)
++  assert.equal(await flag('select is_action_privileged_usuario($1) as value',[direction]),false)
++  await assert.rejects(query('update usuarios set activo=true where id=$1',[direction]),/Executive profile/)
++  await db.exec('reset role')
++  await query('update usuarios set activo=true where id=$1',[direction])
++  await query('delete from user_roles where user_id=$1',[direction])
++  const securityBeforeRollback = await query(
++    "select proname, prosrc, proacl, proconfig from pg_proc where pronamespace='public'::regnamespace order by oid")
++  await db.exec(readFileSync('supabase/scripts/rollback_direction_executive_scope.sql','utf8'))
++  assert.deepEqual(await query(
++    "select proname, prosrc, proacl, proconfig from pg_proc where pronamespace='public'::regnamespace order by oid"),
++    securityBeforeRollback)
++  await asUser(direction)
++  assert.equal(await flag('select can_manage_catalogs() as value'),false)
++  assert.equal(await flag('select is_action_privileged_usuario($1) as value',[direction]),false)
++  await db.exec('reset role')
++  await db.exec(readFileSync(migration,'utf8'))
++  console.log('Local PostgreSQL: migration, RLS, explicit grants, security-preserving rollback and reapply passed.')
++} finally {
++  await db.close()
++}
+diff --git a/scripts/test-agent-rls.mjs b/scripts/test-agent-rls.mjs
+new file mode 100644
+index 0000000..95f9eba
+--- /dev/null
++++ b/scripts/test-agent-rls.mjs
+@@ -0,0 +1,128 @@
++import { readFileSync } from 'node:fs'
++import assert from 'node:assert/strict'
++
++// Only read sessions and rows. Mutation/communication tests use the existing mock suites.
++const productionProject = 'xhpasmjzuwifmjhrsumb'
++const tables = new Set([
++  'acciones_diarias', 'okrs', 'okr_key_results',
++  'assistant_pending_ops', 'whatsapp_messages', 'whatsapp_inbound_jobs',
++])
++const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
++const fixtureIds = {
++  ownAction: '10000000-0000-0000-0000-000000000001',
++  createdAction: '10000000-0000-0000-0000-000000000002',
++  foreignAction: '10000000-0000-0000-0000-000000000003',
++  companyOkr: '20000000-0000-0000-0000-000000000001',
++  teamOkr: '20000000-0000-0000-0000-000000000002',
++  ownDraft: '30000000-0000-0000-0000-000000000001',
++  foreignDraft: '30000000-0000-0000-0000-000000000002',
++}
++
++async function run() {
++  const args = process.argv.slice(2)
++  if (!args.includes('--run')) {
++    console.log(JSON.stringify({
++      mode: 'plan_only',
++      fixtureIds,
++      actors: ['admin_A', 'direction_A', 'analyst_A', 'peer_A', 'admin_B'],
++      prerequisites: [
++        'Approved staging project and migrated schema',
++        'Synthetic rows and expected IDs per authenticated QA session',
++        'Direction read/admin policy approved before freezing expected results',
++        'Separate project B for organization-boundary checks',
++      ],
++      manifest: {
++        url: 'https://APPROVED_QA_REF.supabase.co',
++        anonKeyEnv: 'QA_ANON_KEY',
++        actors: [{
++          label: 'analyst_A',
++          tokenEnv: 'QA_ANALYST_A_JWT',
++          authUserId: '00000000-0000-0000-0000-000000000001',
++          expectedAuthHttp: 200,
++          cases: [{
++            label: 'private-draft-isolation',
++            table: 'assistant_pending_ops',
++            ids: [fixtureIds.ownDraft, fixtureIds.foreignDraft],
++            expectedIds: [fixtureIds.ownDraft],
++            expectedHttp: 200,
++          }],
++        }],
++      },
++    }, null, 2))
++    return
++  }
++
++  const manifestIndex = args.indexOf('--manifest')
++  assert.ok(manifestIndex >= 0 && args[manifestIndex + 1], 'Manifest required')
++  const manifest = JSON.parse(readFileSync(args[manifestIndex + 1], 'utf8'))
++  const base = new URL(manifest.url)
++  assert.equal(base.protocol, 'https:', 'HTTPS required')
++  assert.ok(/^[a-z0-9-]+\.supabase\.co$/.test(base.hostname), 'Expected QA Supabase host')
++  assert.notEqual(base.hostname.split('.')[0], productionProject, 'Production test execution is blocked')
++  assert.equal(base.username + base.password + base.search + base.hash, '', 'Unexpected URL fields')
++  assert.equal(base.pathname, '/', 'Expected project origin')
++  const anonKey = process.env[manifest.anonKeyEnv]
++  assert.ok(anonKey, 'QA API key required')
++  assert.ok(Array.isArray(manifest.actors) && manifest.actors.length, 'QA actors required')
++  const results = []
++
++  for (const actor of manifest.actors) {
++    const token = process.env[actor.tokenEnv]
++    assert.ok(token, 'QA session required')
++    const claims = JSON.parse(Buffer.from(token.split('.')[1] || '', 'base64url').toString())
++    assert.equal(claims.role, 'authenticated', 'Use a user session, never a service role token')
++    const headers = { apikey: anonKey, Authorization: 'Bearer ' + token }
++    const identityResponse = await fetch(new URL('/auth/v1/user', base), {
++      method: 'GET', headers, signal: AbortSignal.timeout(15000),
++    })
++    const expectedAuthHttp = actor.expectedAuthHttp ?? 200
++    assert.ok([200, 401, 403].includes(expectedAuthHttp), 'Unexpected expected auth status')
++    const validAuthStatus = identityResponse.status === expectedAuthHttp
++    results.push({ actor: actor.label, case: 'authenticated-session',
++      http: identityResponse.status, passed: validAuthStatus })
++    if (!validAuthStatus || expectedAuthHttp !== 200) continue
++    const identity = await identityResponse.json()
++    assert.ok(uuid.test(actor.authUserId), 'Expected auth UUID required')
++    assert.equal(identity.id, actor.authUserId, 'Unexpected QA identity')
++    assert.ok(Array.isArray(actor.cases) && actor.cases.length, 'Expected read cases required')
++
++    for (const test of actor.cases) {
++      assert.ok(tables.has(test.table), 'Unexpected test table')
++      assert.ok(Array.isArray(test.ids) && test.ids.length > 0 && test.ids.length <= 50, 'Fixture IDs required')
++      assert.ok(test.ids.every(id => uuid.test(id)), 'Invalid fixture UUID')
++      assert.ok(Array.isArray(test.expectedIds) && test.expectedIds.every(id => test.ids.includes(id)), 'Invalid expected set')
++      assert.ok([200, 401, 403].includes(test.expectedHttp), 'Expected HTTP required')
++      const url = new URL('/rest/v1/' + test.table, base)
++      url.searchParams.set('select', 'id')
++      url.searchParams.set('id', 'in.(' + test.ids.join(',') + ')')
++      url.searchParams.set('limit', '50')
++      const start = performance.now()
++      const response = await fetch(url, {
++        method: 'GET', headers, signal: AbortSignal.timeout(15000),
++      })
++      const elapsedMs = Math.round(performance.now() - start)
++      const body = await response.json()
++      let correctIds = test.expectedIds.length === 0
++      if (response.status === 200) {
++        assert.ok(Array.isArray(body), 'Expected rows')
++        correctIds = JSON.stringify(body.map(row => row.id).sort()) ===
++          JSON.stringify([...test.expectedIds].sort())
++      }
++      results.push({
++        actor: actor.label, case: test.label, table: test.table,
++        http: response.status, duration_ms: elapsedMs,
++        passed: response.status === test.expectedHttp && correctIds,
++      })
++    }
++  }
++  console.log(JSON.stringify({ mode: 'qa_read_only', results }, null, 2))
++  if (results.some(result => !result.passed)) process.exitCode = 1
++}
++
++run().catch(error => {
++  console.error(JSON.stringify({
++    mode: 'qa_read_only', failed: true,
++    error: error instanceof assert.AssertionError ? error.message : error.name,
++  }))
++  process.exitCode = 1
++})
+diff --git a/supabase/migrations/20261118150000_direction_executive_scope.sql b/supabase/migrations/20261118150000_direction_executive_scope.sql
+new file mode 100644
+index 0000000..3d2fbfb
+--- /dev/null
++++ b/supabase/migrations/20261118150000_direction_executive_scope.sql
+@@ -0,0 +1,260 @@
++-- R0: executive reads are independent from administrative/write privileges.
++-- Organization boundary remains the existing Supabase project.
++begin;
++
++-- Definer functions require a schema that callers cannot populate with objects.
++do $$
++begin
++  if has_schema_privilege('authenticated','public','CREATE')
++     or has_schema_privilege('anon','public','CREATE')
++     or has_schema_privilege('authenticated','auth','CREATE')
++     or has_schema_privilege('anon','auth','CREATE') then
++    raise exception 'Unsafe public schema CREATE privilege or auth schema ACL; review before applying R0';
++  end if;
++  if exists (
++    select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
++    where n.nspname='auth' and p.proname in ('uid','role')
++      and (pg_has_role('authenticated'::regrole,p.proowner,'MEMBER')
++           or pg_has_role('anon'::regrole,p.proowner,'MEMBER'))
++  ) then
++    raise exception 'Untrusted authentication function owner';
++  end if;
++end $$;
++
++create or replace function public.can_manage_catalogs()
++returns boolean language sql security definer stable set search_path = public as $$
++  select exists (select 1 from public.usuarios u where u.user_id = auth.uid() and u.activo = true)
++    and (public.is_current_user_super_admin()
++    or public.is_app_admin()
++    or public.is_super_admin()
++    or public.is_business_admin()
++    or public.has_business_role('DG')
++    or public.has_business_role('Sistemas'));
++$$;
++
++create or replace function public.is_current_user_direction()
++returns boolean language sql stable security definer set search_path = public as $$
++  select exists (select 1 from public.usuarios u
++    where u.user_id = auth.uid()
++      and (split_part(public.normalize_business_role(u.rol::text), '_', 1) = 'direccion'
++        or exists (
++          select 1 from public.usuario_catalog_roles ucr
++          join public.catalog_roles cr on cr.id = ucr.role_id
++          where ucr.user_id = u.id and cr.activo = true
++            and (split_part(public.normalize_business_role(cr.nombre), '_', 1) = 'direccion'
++              or split_part(public.normalize_business_role(coalesce(cr.system_key,'')), '_', 1) = 'direccion')
++        )));
++$$;
++revoke all on function public.is_current_user_direction() from public, anon;
++grant execute on function public.is_current_user_direction() to authenticated, service_role;
++
++create or replace function public.can_manage_org_hierarchy()
++returns boolean language sql stable security definer set search_path = public as $$
++  select public.can_manage_catalogs() or public.user_belongs_to_area_name('RH');
++$$;
++
++create or replace function public.can_manage_challenges()
++returns boolean language sql stable set search_path = public as $$
++  select public.can_manage_catalogs() or public.has_business_role('DG')
++    or public.has_business_role('Sistemas') or public.has_business_role('super_admin');
++$$;
++
++create or replace function public.can_edit_manual_gamification()
++returns boolean language sql stable set search_path = public as $$
++  select auth.uid() is not null
++    and (public.is_super_admin() or public.has_business_role('super_admin'));
++$$;
++
++create or replace function public.team_kanban_is_admin(p_user uuid default auth.uid())
++returns boolean language sql stable security definer set search_path = public as $$
++  select exists (select 1 from public.usuarios u
++    left join public.user_roles ur on ur.user_id = u.user_id
++    where u.user_id = p_user and u.activo = true
++      and (lower(u.rol::text) in ('administrador','super admin','super_admin')
++        or ur.app_role::text in ('admin','super_admin')));
++$$;
++
++create or replace function public.team_kanban_is_super_admin()
++returns boolean language sql stable security definer set search_path = public as $$
++  select auth.uid() is not null and public.is_current_user_super_admin();
++$$;
++
++create or replace function public.team_kanban_can_view(
++  p_action public.acciones_equipo, p_auth_user uuid default auth.uid())
++returns boolean language sql stable set search_path = public as $$
++  select public.team_kanban_is_admin(p_auth_user)
++    or exists (select 1 from public.usuarios u where u.user_id = p_auth_user
++      and u.activo = true and (
++        split_part(public.normalize_business_role(u.rol::text), '_', 1) = 'direccion'
++        or u.id = p_action.lider_id or u.id = p_action.asignado_a or u.id = p_action.creado_por));
++$$;
++
++create or replace function public.is_action_privileged_usuario(p_usuario_id uuid)
++returns boolean language sql security definer stable set search_path = public as $$
++  select exists (
++    select 1 from public.usuarios u
++    where u.id = p_usuario_id and u.activo = true
++      and public.normalize_business_role(u.rol::text) = 'super_admin'
++  ) or exists (
++    select 1 from public.usuarios u
++    join public.user_roles ur on ur.user_id = u.user_id
++    where u.id = p_usuario_id and u.activo = true
++      and lower(ur.app_role::text) in ('super_admin', 'admin')
++  ) or exists (
++    select 1 from public.usuarios u
++    join public.usuario_catalog_roles ucr on ucr.user_id = u.id
++    join public.catalog_roles cr on cr.id = ucr.role_id
++    where u.id = p_usuario_id and u.activo = true and cr.activo = true
++      and (public.normalize_business_role(coalesce(cr.system_key, '')) = 'super_admin'
++           or public.normalize_business_role(cr.nombre) = 'super_admin')
++  );
++$$;
++
++create or replace function public.okr_can_view(p_id uuid)
++returns boolean language sql stable security definer set search_path = public as $$
++  select public.okr_active_user() and (
++    public.is_current_user_super_admin()
++    or exists (
++      select 1 from public.usuarios u
++      where u.user_id = auth.uid() and u.activo = true
++        and split_part(public.normalize_business_role(u.rol::text), '_', 1) = 'direccion'
++        and exists (select 1 from public.okrs o where o.id = p_id)
++    )
++    or exists (
++      select 1 from public.okrs o where o.id = p_id and (
++        o.scope = 'company' or public.okr_manage_scope(o.area_id)
++        or o.owner_user_id = public.get_my_usuario_id()
++        or exists (select 1 from public.usuario_areas ua
++                   where ua.area_id = o.area_id and ua.user_id = public.get_my_usuario_id())
++        or exists (select 1 from public.usuarios u join public.areas a on a.nombre = u.area
++                   where u.user_id = auth.uid() and a.id = o.area_id)
++        or exists (select 1 from public.okr_key_results k
++                   where k.okr_id = o.id and k.owner_user_id = public.get_my_usuario_id())
++      )
++    )
++  );
++$$;
++
++-- Keep can_use_ai_whatsapp_for_usuario unchanged for WhatsApp operations.
++-- This separate query capability grants no Inbox/configuration access.
++create or replace function public.can_query_ai_whatsapp_for_usuario(p_usuario_id uuid)
++returns boolean language sql stable security definer set search_path = public as $$
++  select public.can_use_ai_whatsapp_for_usuario(p_usuario_id)
++    or exists (
++      select 1 from public.usuarios u
++      where u.id = p_usuario_id and u.user_id is not null and u.activo = true
++        and split_part(public.normalize_business_role(u.rol::text), '_', 1) = 'direccion'
++    );
++$$;
++revoke all on function public.can_query_ai_whatsapp_for_usuario(uuid) from public, anon, authenticated;
++grant execute on function public.can_query_ai_whatsapp_for_usuario(uuid) to service_role;
++grant execute on function public.can_edit_accion_general_as(uuid, uuid),
++  public.can_manage_accion_full_as(uuid, uuid) to service_role;
++
++comment on function public.can_manage_catalogs() is
++  'Catalog administration requires an explicit app/business administrator grant; Direction alone grants executive reads.';
++comment on function public.is_action_privileged_usuario(uuid) is
++  'Global action privilege requires explicit administrator grants; creator/responsible rules are evaluated per operation.';
++comment on function public.okr_can_view(uuid) is
++  'Active Direction users read executive OKRs within this project; mutation policies retain separate authorization.';
++
++-- Restrictive guards also cover older permissive policies that mention Direction directly.
++-- They preserve existing access for other roles and independent admin assignments.
++do $$
++declare target text; operation text; clause text;
++begin
++  foreach target in array array[
++    'gaps','catalog_kpis','academy_modules','statuses','priorities','areas',
++    'catalog_roles','dropdown_catalogs','dropdown_options','app_modules',
++    'catalog_role_modules','usuario_catalog_roles','user_roles','manual_gamification_rules',
++    'usuarios'
++  ] loop
++    if to_regclass('public.' || target) is null then continue; end if;
++    foreach operation in array array['insert','update','delete'] loop
++      clause := '(not public.is_current_user_direction() or public.can_manage_catalogs())';
++      if target = 'usuarios' and operation = 'update' then
++        clause := '(not public.is_current_user_direction() or user_id = auth.uid() or public.can_manage_org_hierarchy())';
++      end if;
++      execute format('drop policy if exists %I on public.%I', 'r0_direction_' || operation, target);
++      execute format('create policy %I on public.%I as restrictive for %s to authenticated %s',
++        'r0_direction_' || operation, target, operation,
++        case operation
++          when 'insert' then 'with check ' || clause
++          when 'delete' then 'using ' || clause
++          else 'using ' || clause || ' with check ' || clause
++        end);
++    end loop;
++  end loop;
++end $$;
++
++do $$
++declare operation text; clause text :=
++  '(bucket_id <> ''academia'' or not public.is_current_user_direction() or public.can_manage_catalogs())';
++begin
++  if to_regclass('storage.objects') is not null then
++    foreach operation in array array['insert','update','delete'] loop
++      execute format('drop policy if exists %I on storage.objects', 'r0_direction_academia_' || operation);
++      execute format('create policy %I on storage.objects as restrictive for %s to authenticated %s',
++        'r0_direction_academia_' || operation, operation,
++        case operation when 'insert' then 'with check ' || clause
++          when 'delete' then 'using ' || clause
++          else 'using ' || clause || ' with check ' || clause end);
++    end loop;
++  end if;
++end $$;
++
++-- Self-profile editing must not turn executive access into another role or OKRS membership.
++create or replace function public.guard_direction_profile_privileges()
++returns trigger language plpgsql set search_path = public as $$
++begin
++  if auth.role() = 'authenticated'
++     and (split_part(public.normalize_business_role(old.rol::text), '_', 1) = 'direccion'
++          or public.is_current_user_direction())
++     and not public.can_manage_catalogs() and (
++       new.id is distinct from old.id or new.user_id is distinct from old.user_id
++       or new.rol is distinct from old.rol or new.area is distinct from old.area
++       or new.activo is distinct from old.activo
++     ) then
++    raise exception 'Executive profile cannot change identity, role, access area or activation'
++      using errcode = '42501';
++  end if;
++  return new;
++end $$;
++drop trigger if exists guard_direction_profile_privileges on public.usuarios;
++create trigger guard_direction_profile_privileges before update on public.usuarios
++for each row execute function public.guard_direction_profile_privileges();
++
++-- pg_temp must follow trusted schemas, including inside transitive permission helpers.
++do $$
++declare routine record;
++begin
++  for routine in
++    select p.oid::regprocedure as signature, r.rolname as owner_name, p.proowner as owner_oid
++    from pg_proc p join pg_namespace n on n.oid=p.pronamespace
++    join pg_roles r on r.oid=p.proowner
++    where n.nspname='public' and p.prokind='f' and p.proname in (
++      'can_manage_catalogs','is_current_user_direction','can_manage_org_hierarchy',
++      'can_manage_challenges','can_edit_manual_gamification',
++      'team_kanban_is_admin','team_kanban_is_super_admin','team_kanban_can_view',
++      'is_action_privileged_usuario','okr_can_view','can_query_ai_whatsapp_for_usuario',
++      'guard_direction_profile_privileges',
++      'is_current_user_super_admin','is_app_admin','is_super_admin','is_business_admin',
++      'normalize_business_role',
++      'has_business_role','get_my_usuario_id','user_belongs_to_area_name',
++      'okr_active_user','okr_manage_scope','team_kanban_is_leader',
++      'can_edit_accion_general_as','can_edit_accion_general',
++      'can_manage_accion_full_as','has_kanban_action_editor_role',
++      'can_use_ai_whatsapp_for_usuario'
++    )
++  loop
++    if routine.owner_name in ('authenticated','anon')
++       or pg_has_role('authenticated'::regrole, routine.owner_oid, 'MEMBER')
++       or pg_has_role('anon'::regrole, routine.owner_oid, 'MEMBER') then
++      raise exception 'Untrusted permission function owner; review ownership before applying R0';
++    end if;
++    execute format('alter function %s set search_path to pg_catalog, public, pg_temp', routine.signature);
++  end loop;
++end $$;
++
++notify pgrst, 'reload schema';
++commit;
+diff --git a/supabase/scripts/audit_agent_r0_readonly.sql b/supabase/scripts/audit_agent_r0_readonly.sql
+new file mode 100644
+index 0000000..94467dc
+--- /dev/null
++++ b/supabase/scripts/audit_agent_r0_readonly.sql
+@@ -0,0 +1,116 @@
++-- R0 diagnostics. Run by an authorized operator. Returns metadata, never headers or secrets.
++begin read only;
++
++select jobid, jobname, active, schedule,
++       position('x-dispatcher-secret' in command) > 0 as has_dispatcher_header,
++       position('whatsapp_dispatcher_secret' in command) > 0 as uses_lowercase_vault_name,
++       position('WHATSAPP_DISPATCHER_SECRET' in command) > 0 as uses_uppercase_name,
++       position('PASTE_ANON_KEY' in command) > 0 as has_unreplaced_placeholder
++from cron.job
++where jobname in ('whatsapp-followup-dispatcher', 'whatsapp-inbound-worker');
++
++select r.jobid, r.runid, r.status, r.start_time, r.end_time
++from cron.job_run_details r
++join cron.job j on j.jobid = r.jobid
++where j.jobname in ('whatsapp-followup-dispatcher', 'whatsapp-inbound-worker')
++order by r.start_time desc
++limit 30;
++
++-- These HTTP rows require a matching request ID/log to attribute them to a function.
++-- Historical rows may no longer be retained. Do not infer a caller from time alone.
++select id as http_request_id, status_code, timed_out, created,
++       headers ->> 'x-deno-execution-id' as edge_execution_id,
++       headers ->> 'sb-error-code' as gateway_error_code,
++       headers ->> 'x-whatsapp-auth-layer' as declared_auth_layer,
++       coalesce(content ~ '"error"[[:space:]]*:[[:space:]]*"unauthorized"', false)
++         as has_function_unauthorized_body,
++       coalesce(content ~* 'invalid jwt|missing authorization|jwt expired', false)
++         as has_gateway_jwt_message
++from net._http_response
++where status_code in (401, 403, 503)
++order by created desc
++limit 30;
++
++select schemaname, tablename, policyname, permissive, roles, cmd, qual, with_check
++from pg_policies
++where schemaname = 'public'
++  and tablename in (
++    'usuarios', 'user_roles', 'acciones_diarias', 'accion_comentarios',
++    'okrs', 'okr_key_results', 'okr_initiatives',
++    'assistant_pending_ops', 'assistant_op_log',
++    'whatsapp_messages', 'whatsapp_inbound_jobs',
++    'gaps','catalog_kpis','academy_modules','statuses','priorities','areas',
++    'catalog_roles','dropdown_catalogs','dropdown_options','app_modules',
++    'catalog_role_modules','usuario_catalog_roles','manual_gamification_rules'
++  )
++order by tablename, policyname;
++
++select p.proname, pg_get_function_identity_arguments(p.oid) as arguments,
++       pg_get_userbyid(p.proowner) as owner_name,
++       p.prosecdef as security_definer, p.proconfig, p.proacl,
++       has_function_privilege('anon', p.oid, 'EXECUTE') as anon_execute,
++       has_function_privilege('authenticated', p.oid, 'EXECUTE') as authenticated_execute,
++       has_function_privilege('service_role', p.oid, 'EXECUTE') as service_execute,
++       md5(pg_get_functiondef(p.oid)) as definition_hash,
++       pg_get_functiondef(p.oid) as permission_function_definition
++from pg_proc p
++join pg_namespace n on n.oid = p.pronamespace
++where n.nspname = 'public'
++  and p.proname in (
++    'can_manage_catalogs', 'is_business_admin',
++    'is_action_privileged_usuario', 'can_manage_accion_full_as',
++    'okr_can_view', 'okr_manage_scope', 'can_use_ai_whatsapp',
++    'can_use_ai_whatsapp_for_usuario', 'whatsapp_mark_effect'
++    ,'can_manage_org_hierarchy','can_manage_challenges','can_edit_manual_gamification',
++    'team_kanban_is_admin','team_kanban_is_super_admin','team_kanban_can_view',
++    'can_query_ai_whatsapp_for_usuario','is_current_user_direction',
++    'guard_direction_profile_privileges','can_edit_accion_general_as',
++    'get_my_usuario_id','normalize_business_role','has_business_role',
++    'is_current_user_super_admin','is_app_admin','is_super_admin',
++    'user_belongs_to_area_name','okr_active_user','team_kanban_is_leader',
++    'can_edit_accion_general','has_kanban_action_editor_role'
++  )
++order by p.proname, arguments;
++
++-- Snapshot metadata needed to compare the candidate against the effective schema.
++-- Do not export user rows, Vault, cron commands, messages or provider credentials.
++select n.nspname as schema_name, c.relname as table_name,
++       c.relrowsecurity as rls_enabled, c.relforcerowsecurity as force_rls,
++       pg_get_userbyid(c.relowner) as owner_name, c.relacl
++from pg_class c join pg_namespace n on n.oid=c.relnamespace
++where n.nspname='public' and c.relkind in ('r','p')
++  and c.relname in ('usuarios','user_roles','usuario_catalog_roles','catalog_roles',
++    'usuario_areas','areas','acciones_diarias','okrs','okr_key_results','okr_initiatives',
++    'assistant_pending_ops','whatsapp_messages','whatsapp_inbound_jobs')
++order by c.relname;
++
++select event_object_schema, event_object_table, trigger_name, action_timing,
++       event_manipulation, action_statement
++from information_schema.triggers
++where event_object_schema='public' and event_object_table in (
++  'usuarios','acciones_diarias','accion_checkpoints','whatsapp_action_receipts',
++  'whatsapp_followup_jobs','whatsapp_result_requests','whatsapp_flow_sessions'
++)
++order by event_object_table, trigger_name;
++
++select policyname, permissive, roles, cmd, qual, with_check
++from pg_policies where schemaname='storage' and tablename='objects'
++order by policyname;
++
++select has_schema_privilege('anon','public','CREATE') as anon_can_create,
++       has_schema_privilege('authenticated','public','CREATE') as authenticated_can_create,
++       has_schema_privilege('anon','auth','CREATE') as anon_can_create_in_auth,
++       has_schema_privilege('authenticated','auth','CREATE') as authenticated_can_create_in_auth;
++
++select j.id, j.status, j.stage, j.error_code, j.attempts, j.effect_started,
++       exists(select 1 from public.whatsapp_action_receipts r
++              where r.event_key = j.id::text) as has_action_receipt,
++       exists(select 1 from public.whatsapp_team_receipts r
++              where r.event_key = j.id::text) as has_team_receipt
++from public.whatsapp_inbound_jobs j
++where j.id in (
++  '2e1aa063-aad8-42cc-8b74-b79cb3147afd',
++  'b5188f3f-020e-4f6e-b21f-df3fd053993e'
++);
++
++commit;
+diff --git a/supabase/scripts/rollback_direction_executive_scope.sql b/supabase/scripts/rollback_direction_executive_scope.sql
+new file mode 100644
+index 0000000..8d4bcde
+--- /dev/null
++++ b/supabase/scripts/rollback_direction_executive_scope.sql
+@@ -0,0 +1,42 @@
++-- Safe R0 rollback verification. Roll back only to security-compatible app/Edge artifacts.
++-- Keep the approved database security floor. This file performs no schema/data/ACL changes.
++begin read only;
++
++do $$
++begin
++  if to_regprocedure('public.can_query_ai_whatsapp_for_usuario(uuid)') is null
++     or to_regprocedure('public.is_current_user_direction()') is null then
++    raise exception 'Approved R0 security baseline missing; stop rollback and review forward migration';
++  end if;
++  if not exists (
++    select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid
++    join pg_namespace n on n.oid=c.relnamespace
++    where n.nspname='public' and c.relname='usuarios'
++      and t.tgname='guard_direction_profile_privileges' and t.tgenabled <> 'D'
++  ) then
++    raise exception 'Approved profile guard missing; stop rollback';
++  end if;
++  if not exists (
++    select 1 from pg_policies where schemaname='public'
++      and tablename='usuarios' and policyname='r0_direction_update'
++      and permissive='RESTRICTIVE'
++  ) then
++    raise exception 'Approved restrictive policy missing; stop rollback';
++  end if;
++  if has_function_privilege('anon','public.can_query_ai_whatsapp_for_usuario(uuid)','EXECUTE')
++     or has_function_privilege('authenticated','public.can_query_ai_whatsapp_for_usuario(uuid)','EXECUTE')
++     or not has_function_privilege('service_role','public.can_query_ai_whatsapp_for_usuario(uuid)','EXECUTE') then
++    raise exception 'Unexpected query gate ACL; stop rollback';
++  end if;
++end $$;
++
++select p.proname, pg_get_function_identity_arguments(p.oid) as arguments,
++       md5(pg_get_functiondef(p.oid)) as definition_hash, p.proacl, p.proconfig
++from pg_proc p join pg_namespace n on n.oid=p.pronamespace
++where n.nspname='public' and p.proname in (
++  'can_manage_catalogs','is_action_privileged_usuario','okr_can_view',
++  'can_query_ai_whatsapp_for_usuario','guard_direction_profile_privileges'
++)
++order by p.proname, arguments;
++
++commit;
+diff --git a/src/lib/clock.ts b/src/lib/clock.ts
+index 4271a14..b5efeb1 100644
+--- a/src/lib/clock.ts
++++ b/src/lib/clock.ts
+@@ -12,12 +12,14 @@ function readNodeEnv(name: string): string | undefined {
+     process?: { env?: Record<string, string | undefined> }
+   }
+   const value = runtime.process?.env?.[name]
+-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
++  return typeof value === 'string' ? value.trim() : undefined
+ }
+ 
+ function readFixedNow(): string | undefined {
+   const fromProcess = readNodeEnv('VITE_DEV_FIXED_NOW')
+-  if (fromProcess) return fromProcess
++  // An explicitly empty runtime override disables a demo date embedded by Vite.
++  // Absence (browser without process.env) still falls back to the Vite setting.
++  if (fromProcess !== undefined) return fromProcess || undefined
+   try {
+     return (import.meta as ViteImportMeta).env?.VITE_DEV_FIXED_NOW?.trim() || undefined
+   } catch {
+diff --git a/src/lib/clock.test.ts b/src/lib/clock.test.ts
+new file mode 100644
+index 0000000..2687b89
+--- /dev/null
++++ b/src/lib/clock.test.ts
+@@ -0,0 +1,28 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { getAppNow, getAppTimeMs } from './clock'
++
++describe('application clock override precedence', () => {
++  const now = new Date('2026-11-18T18:00:00.000Z')
++  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(now) })
++  afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers() })
++
++  it('uses an explicit demo timestamp when requested', () => {
++    vi.stubEnv('VITE_DEV_FIXED_NOW', '2026-04-10T16:58:00-06:00')
++    expect(getAppNow().toISOString()).toBe('2026-04-10T22:58:00.000Z')
++  })
++
++  it('uses the system clock when the runtime explicitly clears the demo override', () => {
++    vi.stubEnv('VITE_DEV_FIXED_NOW', '')
++    expect(getAppNow().getTime()).toBe(now.getTime())
++    expect(getAppTimeMs()).toBe(now.getTime())
++  })
++
++  it('does not reuse a demo timestamp after it is cleared or becomes invalid', () => {
++    vi.stubEnv('VITE_DEV_FIXED_NOW', '2026-04-10T16:58:00-06:00')
++    expect(getAppTimeMs()).not.toBe(now.getTime())
++    for (const value of ['  ', 'invalid']) {
++      vi.stubEnv('VITE_DEV_FIXED_NOW', value)
++      expect(getAppTimeMs()).toBe(now.getTime())
++    }
++  })
++})
+diff --git a/scripts/test-whatsapp-database.mjs b/scripts/test-whatsapp-database.mjs
+index 86c4091..b26cd3b 100644
+--- a/scripts/test-whatsapp-database.mjs
++++ b/scripts/test-whatsapp-database.mjs
+@@ -35,6 +35,19 @@ async function q(sql, args = []) {
+   return (await db.query(sql, args)).rows
+ }
+ await q("insert into whatsapp_followup_jobs(accion_id,usuario_id,status) values($1,$2,'pending')", [a,u])
++// Synthetic P0001 after the checkpoint update must roll the whole RPC back.
++// This reproduces atomic failure semantics, not the unknown historical cause.
++await db.exec(`create function qa_reject_close() returns trigger language plpgsql as $$
++begin raise exception 'synthetic_close_failure' using errcode='P0001'; end;$$;
++create trigger qa_reject_close before update on acciones_diarias for each row execute function qa_reject_close();`)
++await assert.rejects(q('select whatsapp_apply_action($1,$2,$3,$4,$5)',
++  ['synthetic-p0001', u, a, 'done', '15550002222']), /synthetic_close_failure/)
++assert.equal((await q('select estado from acciones_diarias'))[0].estado, 'Pendiente')
++assert.equal((await q('select completado from accion_checkpoints'))[0].completado, false)
++assert.equal((await q('select status from whatsapp_followup_jobs'))[0].status, 'pending')
++assert.equal((await q('select count(*)::int n from whatsapp_action_receipts'))[0].n, 0)
++assert.equal((await q('select count(*)::int n from whatsapp_result_requests'))[0].n, 0)
++await db.exec('drop trigger qa_reject_close on acciones_diarias; drop function qa_reject_close()')
+ await assert.rejects(
+   q('select whatsapp_apply_action($1,$2,$3,$4,$5)', [
+     'forged',
+@@ -213,5 +226,5 @@ await assert.rejects(
+ await db.exec('reset role')
+ await db.close()
+ console.log(
+-  'WhatsApp database: migration reapplication, atomic authorization, Hecho, block reason, team mapping, dedup, leases, safe retries and RLS passed.'
++  'WhatsApp database: migration reapplication, atomic P0001 rollback, authorization, Hecho, block reason, team mapping, dedup, leases, safe retries and RLS passed.'
+ )

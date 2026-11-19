@@ -353,19 +353,21 @@ function dispatcherAuthorized(req: Request): boolean {
   if (token && anonKey && token === anonKey) return true
   if (expected && token === expected) return true
 
-  // Cron suele llegar sin Vault configurado (Authorization vacío / secret vacío).
-  // Sin WHATSAPP_DISPATCHER_SECRET: no bloquear el worker (igual que webhook sin App Secret).
-  if (!expected) {
-    console.warn('whatsapp-followup-dispatcher missing WHATSAPP_DISPATCHER_SECRET; allowing request')
-    return true
-  }
   return false
 }
 
 function unauthorized() {
+  console.warn(JSON.stringify({
+    event: 'WHATSAPP_DISPATCHER_AUTH_REJECTED',
+    code: 'UNAUTHORIZED',
+    layer: 'edge_function',
+  }))
   return new Response(JSON.stringify({ error: 'unauthorized' }), {
     status: 401,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-whatsapp-auth-layer': 'edge_function',
+    },
   })
 }
 

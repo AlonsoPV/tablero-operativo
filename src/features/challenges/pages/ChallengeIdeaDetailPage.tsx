@@ -11,7 +11,7 @@ import { formatDateTimeCDMX } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { useUsers } from '@/features/users/hooks/useUsers'
-import { isAdminByRole, isDirectionByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
+import { isAdminByRole, isSuperAdminByRole } from '@/features/auth/lib/permissions'
 import { notificacionesService } from '@/services/notificaciones.service'
 import { useChallenge } from '../hooks/useChallenges'
 import {
@@ -65,7 +65,7 @@ export function ChallengeIdeaDetailPage() {
   }, [currentUser?.id, currentUser?.nombre, users])
 
   const canManage = Boolean(
-    currentUser && (isAdminByRole(currentUser.rol) || isDirectionByRole(currentUser.rol) || isSuperAdminByRole(currentUser.rol))
+    currentUser && (isAdminByRole(currentUser.rol) || isSuperAdminByRole(currentUser.rol))
   )
   const openForParticipation = challenge ? isChallengeOpen(challenge) : false
   const ownIdea = idea?.author_user_id === currentUser?.id

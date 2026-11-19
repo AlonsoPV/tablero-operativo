@@ -13,7 +13,7 @@ const settings = new Map([
 ])
 type Body = Record<string, unknown>
 type Event = { key: string; sender: string; kind: string; payload: Body }
-type Job = Event & { id: string; event_key: string; attempts: number; lease_token: string; effect: boolean; status: string }
+type Job = Event & { id: string; event_key: string; attempts: number; lease_token: string; effect: boolean; status: string; created_at: string }
 let code: string
 
 beforeAll(async () => {
@@ -41,10 +41,13 @@ afterEach(() => {
 function harness() {
   const jobs = new Map<string, Job>()
   const receipts = new Map<string, Body>()
+  const inbox = new Map<string, Body>()
   const finishes: Body[] = []
   const linkedUser = { id: 'identity-id', usuario_id: 'user-id', external_user_id: '5215551234567' }
   let linked = true
   let failActionsOnce = false
+  let failInboxOnce = false
+  let mutationError: string | null = null
   let handler!: (request: Request) => Promise<Response>
 
   function from(table: string) {
@@ -52,6 +55,23 @@ function harness() {
     let payload: Body = {}
     const filters: Body = {}
     const run = () => {
+      if (table === 'whatsapp_messages') {
+        const key = String(filters.meta_message_id ?? payload.meta_message_id ?? '')
+        if (operation === 'insert') {
+          if (failInboxOnce) {
+            failInboxOnce = false
+            return { data: null, error: { code: 'XX000' } }
+          }
+          if (inbox.has(key)) return { data: null, error: { code: '23505', message: 'meta_message_id' } }
+          inbox.set(key, { id: key, ...payload })
+        }
+        if (operation === 'update') {
+          const entry = [...inbox.values()].find(row => row.id === filters.id)
+          if (entry) Object.assign(entry, payload)
+          return { data: entry, error: null }
+        }
+        return { data: inbox.get(key) ?? null, error: null }
+      }
       if (table === 'external_inbound_messages') {
         if (operation === 'insert') {
           const id = String(payload.external_update_id)
@@ -75,7 +95,7 @@ function harness() {
     }
     const builder = {
       select: () => builder,
-      update: () => { operation = 'update'; return builder },
+      update: (row: Body) => { operation = 'update'; payload = row; return builder },
       insert: (row: Body) => { operation = 'insert'; payload = row; return builder },
       eq: (column: string, value: unknown) => { filters[column] = value; return builder },
       or: () => builder,
@@ -99,6 +119,7 @@ function harness() {
           jobs.set(event.key, {
             ...event, id: `job-${jobs.size + 1}`, event_key: event.key, attempts: 0,
             lease_token: 'lease-test', effect: false, status: 'pending',
+            created_at: new Date(Date.now() - 1000).toISOString(),
           })
         }
       }
@@ -111,6 +132,7 @@ function harness() {
       return { data: [job], error: null }
     }
     if (name === 'whatsapp_apply_action') {
+      if (mutationError) return { data: null, error: { code: mutationError } }
       return {
         data: { ok: true, accionId: args.p_accion, askResult: true, resultLabel: 'Realizada' },
         error: null,
@@ -125,7 +147,7 @@ function harness() {
     }
     return { data: null, error: null }
   })
-  const fetchMock = vi.fn(async (_url: string, _options: RequestInit) =>
+  const fetchMock = vi.fn<(url: string, options: RequestInit) => Promise<Response>>(async () =>
     Response.json({ messages: [{ id: 'wamid.reply' }] }))
   vi.stubGlobal('fetch', fetchMock)
   new Function('require', 'Deno', code)(
@@ -150,15 +172,55 @@ function harness() {
     }))
   }
   return {
-    jobs, receipts, finishes, fetchMock, rpc, runWorker, webhook,
+    jobs, receipts, inbox, finishes, fetchMock, rpc, runWorker, webhook,
     unlink: () => { linked = false },
     failNextActionRead: () => { failActionsOnce = true },
+    failNextInboxWrite: () => { failInboxOnce = true },
+    failMutationWith: (code: string) => { mutationError = code },
   }
 }
 
 const message = { id: 'wamid.in', from: '5215551234567' }
 
 describe('WhatsApp Edge webhook and worker', () => {
+  it('completes the signed intake, queue, Inbox, reply and delivery chain with simulated Meta', async () => {
+    const test = harness()
+    const intake = await test.webhook({ ...message, type: 'text', text: { body: 'Hola' } })
+    expect(intake.status).toBe(200)
+    expect(test.jobs.get('message:' + message.id)?.status).toBe('pending')
+    expect(test.fetchMock).not.toHaveBeenCalled()
+    await test.runWorker()
+    expect(test.inbox.get(message.id)?.direction).toBe('inbound')
+    expect(test.inbox.get('wamid.reply')).toMatchObject({
+      direction: 'outbound', delivery_status: 'sent',
+      payload: expect.objectContaining({ correlation_id: 'job-1' }),
+    })
+    await test.webhook({
+      id: 'wamid.reply', recipient_id: message.from, status: 'delivered',
+      timestamp: String(Math.floor(Date.now() / 1000)),
+    }, 'statuses')
+    await test.runWorker()
+    expect(test.inbox.get('wamid.reply')).toMatchObject({
+      delivery_status: 'delivered', delivered_at: expect.any(String),
+    })
+    expect(test.fetchMock).toHaveBeenCalledOnce()
+    expect(test.finishes).toHaveLength(2)
+    expect(test.finishes.every(result => result.p_ok === true)).toBe(true)
+  })
+  it('separates queue, processing and provider timing using the queue job ID', async () => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const test = harness()
+    await test.webhook({ ...message, type: 'text', text: { body: 'Hola' } })
+    await test.runWorker()
+    const events = log.mock.calls.map(([value]) => {
+      try { return JSON.parse(String(value)) } catch { return null }
+    }).filter(Boolean)
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ stage: 'claimed', correlation_id: 'job-1', queue_ms: expect.any(Number) }),
+      expect.objectContaining({ stage: 'completed', correlation_id: 'job-1', processing_ms: expect.any(Number) }),
+      expect.objectContaining({ event: 'WHATSAPP_REPLY_SENT', job_id: 'job-1', provider_duration_ms: expect.any(Number) }),
+    ]))
+  })
   it.each([
     [{ type: 'text', text: { body: 'Hola' } }, 'Hola. Soy el asistente'],
     [{ type: 'text', text: { body: 'Mis acciones' } }, 'Revisar inventario'],
@@ -173,6 +235,9 @@ describe('WhatsApp Edge webhook and worker', () => {
     expect(test.fetchMock).toHaveBeenCalledOnce()
     expect(JSON.parse(String(test.fetchMock.mock.calls[0]?.[1].body)).text.body).toContain(expected)
     expect(test.finishes[0]?.p_ok).toBe(true)
+    expect(test.inbox.get(message.id)).toMatchObject({
+      direction: 'inbound', source: 'contact', meta_message_id: message.id,
+    })
   })
 
   it('keeps duplicate Meta deliveries to one job and one reply', async () => {
@@ -182,7 +247,33 @@ describe('WhatsApp Edge webhook and worker', () => {
     await test.webhook(input)
     await test.runWorker()
     expect(test.jobs.size).toBe(1)
+    expect([...test.inbox.values()].filter(row => row.direction === 'inbound')).toHaveLength(1)
     expect(test.fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it('records a conversational message even when its later routing needs a retry', async () => {
+    const test = harness()
+    test.failNextActionRead()
+    await test.webhook({ ...message, type: 'text', text: { body: 'Mis acciones' } })
+    await test.runWorker()
+    expect(test.inbox.get(message.id)?.direction).toBe('inbound')
+    expect(test.finishes[0]?.p_ok).toBe(false)
+  })
+
+  it('retries an Inbox persistence failure before sending any reply', async () => {
+    const test = harness()
+    test.failNextInboxWrite()
+    await test.webhook({ ...message, type: 'text', text: { body: 'Hola' } })
+    await test.runWorker()
+    expect(test.fetchMock).not.toHaveBeenCalled()
+    expect(test.finishes[0]).toMatchObject({ p_ok: false, p_error: 'database_XX000' })
+    expect(test.receipts.size).toBe(0)
+    const job = test.jobs.get('message:' + message.id)!
+    job.status = 'pending'
+    await test.runWorker()
+    expect(test.fetchMock).toHaveBeenCalledOnce()
+    expect([...test.inbox.values()].filter(row => row.direction === 'inbound')).toHaveLength(1)
+    expect(test.finishes[1]?.p_ok).toBe(true)
   })
 
   it('resumes the job after a failure that happened after saving the inbound receipt', async () => {
@@ -242,6 +333,33 @@ describe('WhatsApp Edge webhook and worker', () => {
     expect(test.fetchMock).toHaveBeenCalledOnce()
     expect(test.finishes[0]).toMatchObject({ p_ok: false, p_error: 'provider_http_502' })
     expect(test.jobs.get(`message:${message.id}`)?.status).toBe('review')
+  })
+
+  it('holds a P0001 action failure for review without claiming success or replaying it', async () => {
+    const test = harness()
+    test.failMutationWith('P0001')
+    await test.webhook({
+      ...message, type: 'interactive',
+      interactive: { button_reply: {
+        id: 'act:00000000-0000-0000-0000-000000000001:done', title: 'Realizada',
+      } },
+    })
+    await test.runWorker()
+    await test.webhook({
+      ...message, type: 'interactive',
+      interactive: { button_reply: {
+        id: 'act:00000000-0000-0000-0000-000000000001:done', title: 'Realizada',
+      } },
+    })
+    await test.runWorker()
+    expect([...test.inbox.values()].filter(row => row.direction === 'inbound')).toHaveLength(1)
+    expect(test.jobs.size).toBe(1)
+    expect(test.jobs.get(`message:${message.id}`)?.status).toBe('review')
+    expect(test.finishes[0]).toMatchObject({ p_ok: false, p_error: 'database_P0001' })
+    expect(test.rpc.mock.calls.filter(([name]) => name === 'whatsapp_apply_action')).toHaveLength(1)
+    expect(test.fetchMock).toHaveBeenCalledOnce()
+    const notice = JSON.parse(String(test.fetchMock.mock.calls[0]?.[1]?.body))
+    expect(notice.text.body).toBe('No pude completar la consulta o actualización en este momento. No he podido confirmar el resultado.')
   })
 
   it('retries a confirmed rate limit without replaying an accepted reply', async () => {
