@@ -19,7 +19,7 @@ import {
   sanitizeMessages,
 } from '../src/lib/assistantPrompts.js'
 import { buildAssistantUiFromToolResults } from '../src/features/ai-support/chatViews/buildViewsFromToolResults.js'
-import { isAgentOrchestratorEnabled, runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
+import { isAgentOrchestratorEnabled, runChannelTurn, uiForTurn, webSessionId } from './_shared/orchestrator/channelAdapters.js'
 import { EMPTY_MODEL_TURN_MESSAGE } from './_shared/orchestrator/respond.js'
 
 type GeminiContent = {
@@ -103,8 +103,10 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Solicitud invalida.' })
     }
 
-    const { mode, messages, actionContext, okrContext, boardContext, requestId } = body as {
+    const { mode, messages, actionContext, okrContext, boardContext, requestId, responseFormat, conversationId } = body as {
       requestId?: unknown
+      conversationId?: unknown
+      responseFormat?: unknown
       mode?: unknown
       messages?: unknown
       actionContext?: unknown
@@ -173,18 +175,23 @@ export default defineApiHandler(async (req, res) => {
           accessToken: auth.token,
         },
         channel: 'web',
-        sessionId: typeof requestId === 'string' ? requestId.split(':')[0]!.slice(0, 80) : 'web',
+        sessionId: webSessionId(conversationId, requestId),
         utterance: lastUserMessage,
+        responseFormat,
       })
       if (turn.handled) {
         return res.status(200).json({
           answer: turn.text,
           proposals: [],
           clarification: turn.clarification,
+          ui: uiForTurn(turn, turn.text),
           toolTrace: turn.toolsUsed.map((tool) => ({ tool, kind: 'read' })),
           agent: {
             intent: turn.intent,
             status: turn.response.status,
+            format: turn.format,
+            formatSelected: turn.formatSelected,
+            offerDetail: turn.offerDetail,
             blocks: turn.response.blocks,
             references: turn.response.references,
             executionEnabled: false,
