@@ -55,13 +55,24 @@ import {
 } from '../../src/lib/accionNotificationEmail.js'
 
 import {
+  actionIdForOp,
+  createQaActionExecutor,
+  gateCopilotConfirmation,
   gateR2Confirmation,
+  isCopilotGatedTool,
   isR2AgentTool,
+  isRpcClaimedTool,
   logR2Denied,
   type ActionExecutor,
   type BoardWrite,
+  type ExecutorTool,
 } from './actions/r2Runtime.js'
-import { resolveR2ExecutionMode, type R2ExecutionMode } from './actions/executionMode.js'
+import {
+  isCopilotR2GateEnabled,
+  qaProjectRef,
+  resolveR2ExecutionMode,
+  type R2ExecutionMode,
+} from './actions/executionMode.js'
 import type { AgentChannel } from './query/resolveActor.js'
 
 export type { CopilotActor } from './assistantPending.js'
@@ -1368,6 +1379,17 @@ async function executePayload(
 /** Ejecutor de escrituras existente; R2 lo reutiliza para create_action y notify_action_email. */
 export const executeBoardWrite: BoardWrite = executePayload
 
+/**
+ * Opciones R2 para la confirmación HTTP. Sólo en modo qa (variables del servidor, proyecto QA
+ * autorizado) se inyecta un ejecutor; en cualquier otro caso la puerta responde "no habilitada".
+ */
+export function r2OptionsFromServerEnv(env: Record<string, string | undefined> = process.env) {
+  const mode = resolveR2ExecutionMode(env)
+  const projectRef = mode === 'qa' ? qaProjectRef(env) : null
+  if (!projectRef) return undefined
+  return { mode, executor: createQaActionExecutor({ boardWrite: executeBoardWrite, projectRef }), channel: 'web' as const }
+}
+
 export async function confirmPendingOp(
   actor: CopilotActor,
   opId: string,
@@ -1387,6 +1409,10 @@ export async function confirmPendingOp(
 
   const sendsCommunication =
     isCommunicationWriteTool(row.tool) || row.tool.startsWith('gmail_') || (row.tool === 'notify_action_email' || row.tool === 'notify_user_email')
+  const r2Mode = options?.r2?.mode ?? resolveR2ExecutionMode()
+  if (r2Mode === 'qa' && (sendsCommunication || isGoogleWriteTool(row.tool))) {
+    throw new Error('EXECUTION_DISABLED: En QA los proveedores reales están deshabilitados; los avisos sólo se registran en el buzón QA.')
+  }
   if ((sendsCommunication || row.tool === 'update_daily_action_summary') && (options?.fromTool || !actor.accessToken)) {
     throw new Error('PERMISSION_DENIED: Aprueba el envío desde una sesión web autenticada.')
   }
@@ -1412,15 +1438,20 @@ export async function confirmPendingOp(
     )
   }
 
+  const gatedCopilot = isCopilotGatedTool(row.tool) && isCopilotR2GateEnabled()
   let r2Executor: ActionExecutor | null = null
-  if (isR2AgentTool(row.tool)) {
+  if (isR2AgentTool(row.tool) || gatedCopilot) {
+    const gateOptions = {
+      fromTool: options?.fromTool,
+      mode: r2Mode,
+      executor: options?.r2?.executor,
+      channel: options?.r2?.channel,
+    }
+    const gateRow = { usuario_id: row.usuario_id, payload: row.payload }
     try {
-      r2Executor = await gateR2Confirmation(actor, { tool: row.tool, usuario_id: row.usuario_id, payload: row.payload }, {
-        fromTool: options?.fromTool,
-        mode: options?.r2?.mode ?? resolveR2ExecutionMode(),
-        executor: options?.r2?.executor,
-        channel: options?.r2?.channel,
-      })
+      r2Executor = isR2AgentTool(row.tool)
+        ? await gateR2Confirmation(actor, { ...gateRow, tool: row.tool }, gateOptions)
+        : await gateCopilotConfirmation(actor, { ...gateRow, tool: row.tool as Parameters<typeof gateCopilotConfirmation>[1]['tool'] }, gateOptions)
     } catch (err) {
       await logR2Denied(actor, row.tool, opId, row.resource_id)
       throw err
@@ -1462,17 +1493,22 @@ export async function confirmPendingOp(
     }
   }
 
-  const { data: claimed, error: claimError } = await actor.supabase
-    .from('assistant_pending_ops')
-    .update({ status: 'executing' })
-    .eq('id', opId)
-    .eq('status', 'pending')
-    .eq('payload', JSON.stringify(row.payload ?? {}))
-    .gt('expires_at', new Date().toISOString())
-    .select('id')
-    .maybeSingle()
-
-  if (claimError) throw new Error('DATABASE_ERROR: No se pudo reservar la operación.')
+  let claimed: unknown
+  if (r2Executor && isRpcClaimedTool(row.tool)) {
+    claimed = (await r2Executor.claim(actor, { id: opId, payload: row.payload })) ? { id: opId } : null
+  } else {
+    const { data: claimedRow, error: claimError } = await actor.supabase
+      .from('assistant_pending_ops')
+      .update({ status: 'executing' })
+      .eq('id', opId)
+      .eq('status', 'pending')
+      .eq('payload', JSON.stringify(row.payload ?? {}))
+      .gt('expires_at', new Date().toISOString())
+      .select('id')
+      .maybeSingle()
+    if (claimError) throw new Error('DATABASE_ERROR: No se pudo reservar la operación.')
+    claimed = claimedRow
+  }
   if (!claimed) {
     const { data: again } = await actor.supabase
       .from('assistant_pending_ops')
@@ -1499,11 +1535,20 @@ export async function confirmPendingOp(
         throw new Error('El registro cambió después de la vista previa. Pide una nueva confirmación.')
       }
     }
-    if (r2Executor && isR2AgentTool(row.tool)) {
+    if (r2Executor && isRpcClaimedTool(row.tool)) {
+      const tool = row.tool as ExecutorTool
       const ctx = { opId, expectedUpdatedAt: row.expected_updated_at }
-      result = await r2Executor.execute(actor, row.tool, row.payload ?? {}, ctx)
-      if (!(await r2Executor.verify(actor, row.tool, row.payload ?? {}, result, ctx))) {
+      result = await r2Executor.execute(actor, tool, row.payload ?? {}, ctx)
+      if (!(await r2Executor.verify(actor, tool, row.payload ?? {}, result, ctx))) {
         throw new Error('VERIFICATION_FAILED: No se pudo comprobar el efecto. Consulta el estado antes de reintentar.')
+      }
+    } else if (r2Executor && row.tool === 'create_action') {
+      const actionId = actionIdForOp(opId)
+      try {
+        result = await executePayload(actor, row.tool, row.payload ?? {}, { actionId })
+      } catch (err) {
+        if (!(await loadAction(actor, actionId))) throw err
+        result = { id: actionId, href: actionHref(actionId), created: true, replayed: true }
       }
     } else {
       result = isCommunicationWriteTool(row.tool)

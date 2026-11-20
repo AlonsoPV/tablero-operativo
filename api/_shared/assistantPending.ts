@@ -2,6 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CopilotProposal, CopilotWriteTool } from '../../src/features/ai-support/copilot/types.js'
 import type { AccessCapabilities } from '../../src/features/auth/lib/permissions.js'
 import type { R2AgentTool } from './actions/r2Runtime.js'
+import { hashIntent, isCopilotGatedTool } from './actions/contracts.js'
+import { isCopilotR2GateEnabled } from './actions/executionMode.js'
 
 export type CopilotBoardScope = 'role' | 'organization'
 
@@ -67,6 +69,10 @@ export async function createPendingOp(
   },
   attempt = 0
 ): Promise<CopilotProposal> {
+  if (!input.requestKey && isCopilotGatedTool(input.tool) && isCopilotR2GateEnabled()) {
+    const intent = { resourceId: input.resourceId ?? null, payload: input.payload }
+    input = { ...input, requestKey: hashIntent(actor.usuarioId, input.tool, intent), releaseStaleRequestKey: true }
+  }
   const expiresAt = new Date(Date.now() + (input.ttlMs ?? BOARD_PENDING_TTL_MS)).toISOString()
   const preview = {
     title: input.proposal.title,

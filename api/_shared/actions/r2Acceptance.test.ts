@@ -4,17 +4,18 @@
  * Supabase en memoria y RPC simulada: no valida RLS con JWT reales (pendiente de QA autorizada).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { confirmPendingOp, dispatchCopilotTool } from '../assistantOpsRuntime.js'
+import { confirmPendingOp, dispatchCopilotTool, executeBoardWrite, r2OptionsFromServerEnv } from '../assistantOpsRuntime.js'
 import { memoryQueryAuditSink } from '../query/queryAudit.js'
 import { runAgentTurn } from '../orchestrator/runAgentTurn.js'
 import type { FakeDb } from '../orchestrator/testing/fakeSupabase.js'
 import { r1Store, R1_NOW_ISO, R1_TODAY, R1_USERS } from '../orchestrator/testing/r1Fixture.js'
 import { createR2Db, r2Actor, simulatedExecutorFor } from '../orchestrator/testing/r2Fixture.js'
-import { R2_EXECUTION_DISABLED_MESSAGE, resolveR2ExecutionMode } from './executionMode.js'
+import { R2_EXECUTION_DISABLED_MESSAGE, qaProjectRef, resolveR2ExecutionMode } from './executionMode.js'
 import {
   actionIdForOp,
-  createRpcActionExecutor,
+  createQaActionExecutor,
   proposeR2Operation,
+  readBlockHistory,
   readR2Evidence,
   type R2Operation,
   type SimulatedOutboxEntry,
@@ -69,6 +70,37 @@ describe('R2 · modo de ejecución y puerta de confirmación', () => {
     expect(resolveR2ExecutionMode({ R2_EXECUTION_MODE: 'rpc' })).toBe('disabled')
   })
 
+  it('qa exige proyecto en la allowlist, nunca DEV/PROD ni producción, sólo desde process.env', () => {
+    const qa = { R2_EXECUTION_MODE: 'qa', SUPABASE_URL: 'https://qaprojectaaaaaaaaaaaa.supabase.co', R2_QA_PROJECT_REFS: 'qaprojectaaaaaaaaaaaa' }
+    expect(resolveR2ExecutionMode(qa)).toBe('qa')
+    expect(resolveR2ExecutionMode({ ...qa, VERCEL: '1', VERCEL_ENV: 'preview' })).toBe('qa')
+    expect(qaProjectRef(qa)).toBe('qaprojectaaaaaaaaaaaa')
+    expect(resolveR2ExecutionMode({ ...qa, R2_QA_PROJECT_REFS: '' })).toBe('disabled')
+    expect(resolveR2ExecutionMode({ ...qa, R2_QA_PROJECT_REFS: 'otroqaaaaaaaaaaaaaaa' })).toBe('disabled')
+    expect(resolveR2ExecutionMode({ ...qa, VERCEL_ENV: 'production' })).toBe('disabled')
+    expect(resolveR2ExecutionMode({ ...qa, NODE_ENV: 'production' })).toBe('disabled')
+    for (const blocked of ['tgiuevzlyptzlfgxsfhj', 'xhpasmjzuwifmjhrsumb']) {
+      expect(resolveR2ExecutionMode({ ...qa, SUPABASE_URL: `https://${blocked}.supabase.co`, R2_QA_PROJECT_REFS: blocked })).toBe('disabled')
+      // Una allowlist contaminada con DEV/PROD invalida el modo completo.
+      expect(resolveR2ExecutionMode({ ...qa, R2_QA_PROJECT_REFS: `qaprojectaaaaaaaaaaaa,${blocked}` })).toBe('disabled')
+    }
+    expect(resolveR2ExecutionMode({ ...qa, SUPABASE_URL: 'http://127.0.0.1:54321' })).toBe('disabled')
+    expect(r2OptionsFromServerEnv({})).toBeUndefined()
+    expect(r2OptionsFromServerEnv(qa)).toMatchObject({ mode: 'qa', executor: { kind: 'qa' } })
+  })
+
+  it('el ejecutor debe corresponder al modo: qa con simulated o simulated con qa queda deshabilitado', async () => {
+    const w = world()
+    const id = await proposed(w.db, R1_USERS.jorge1, 'update_status', { accionId: 'a8', estado: 'En_Ejecucion' })
+    const actor = await r2Actor(w.db, R1_USERS.jorge1)
+    const qaExecutor = createQaActionExecutor({ boardWrite: executeBoardWrite, projectRef: 'qafixturerefaaaaaaaa' })
+    await expect(confirmPendingOp(actor.copilot, id, { r2: { mode: 'simulated', executor: qaExecutor } }))
+      .rejects.toThrow('EXECUTION_DISABLED')
+    await expect(confirmPendingOp(actor.copilot, id, { r2: { mode: 'qa', executor: simulatedExecutorFor(actor, w.outbox) } }))
+      .rejects.toThrow('EXECUTION_DISABLED')
+    expect(action(w.db, 'a8').estado).toBe('Pendiente')
+  })
+
   it('en canales reales la confirmación responde «ejecución no habilitada» y no toca datos', async () => {
     const w = world()
     const id = await proposed(w.db, R1_USERS.jorge1, 'update_status', { accionId: 'a8', estado: 'En_Ejecucion' })
@@ -79,15 +111,25 @@ describe('R2 · modo de ejecución y puerta de confirmación', () => {
     expect(logOf(w.db, id)).toEqual(['proposed', 'denied'])
   })
 
-  it('el ejecutor rpc es inalcanzable: ningún modo actual lo admite', async () => {
+  it('puerta en BD cerrada (sin seed QA): el claim se rechaza y no hay efecto', async () => {
+    const w = world()
+    w.db.tables.agent_execution_gate = []
+    const id = await proposed(w.db, R1_USERS.jorge1, 'update_status', { accionId: 'a8', estado: 'En_Ejecucion' })
+    await expect(confirm(w, R1_USERS.jorge1, id)).rejects.toThrow('execution_disabled')
+    expect(op(w.db, id).status).toBe('pending')
+    expect(action(w.db, 'a8').estado).toBe('Pendiente')
+  })
+
+  it('ruta directa: fijar executing a mano y llamar la RPC sin claim se rechaza', async () => {
     const w = world()
     const id = await proposed(w.db, R1_USERS.jorge1, 'update_status', { accionId: 'a8', estado: 'En_Ejecucion' })
-    const actor = await r2Actor(w.db, R1_USERS.jorge1)
-    const rpc = createRpcActionExecutor({
-      boardWrite: vi.fn(), whatsappWrite: vi.fn(), resolveWhatsappPhone: vi.fn(),
+    op(w.db, id).status = 'executing'
+    const client = (await r2Actor(w.db, R1_USERS.jorge1)).copilot.supabase
+    const { error } = await client.rpc('agent_apply_action_status', {
+      p_pending_op_id: id, p_accion_id: 'a8', p_estado: 'En_Ejecucion', p_motivo: null,
+      p_expected_updated_at: op(w.db, id).expected_updated_at,
     })
-    await expect(confirmPendingOp(actor.copilot, id, { r2: { mode: 'simulated', executor: rpc } }))
-      .rejects.toThrow('EXECUTION_DISABLED')
+    expect(error?.message).toContain('not_confirmed')
     expect(action(w.db, 'a8').estado).toBe('Pendiente')
   })
 
@@ -165,7 +207,7 @@ describe('AT-07 · actualizar estado', () => {
 })
 
 describe('AT-08 · registrar bloqueo', () => {
-  it('exige motivo; el responsable lo deja en comentario y la creadora también en causa_raiz', async () => {
+  it('exige motivo; la causa reportada queda como comentario bloqueo_reportado y nunca en causa_raiz', async () => {
     const w = world()
     const short = await propose(w.db, R1_USERS.jorge1, 'register_blocker', { accionId: 'a8', motivo: 'no' })
     expect(short).toMatchObject({ ok: false, missing: ['motivo'] })
@@ -174,11 +216,37 @@ describe('AT-08 · registrar bloqueo', () => {
     await confirm(w, R1_USERS.jorge1, id)
     expect(action(w.db, 'a8').estado).toBe('Bloqueado')
     expect(action(w.db, 'a8').causa_raiz).toBeUndefined()
-    expect(w.db.tables.accion_comentarios).toEqual([expect.objectContaining({ accion_id: 'a8', contenido: expect.stringContaining('Falta material') })])
+    expect(w.db.tables.accion_comentarios).toEqual([expect.objectContaining({
+      accion_id: 'a8', contenido: 'Causa reportada: Falta material del proveedor', tipo_comentario: 'bloqueo_reportado', created_by: R1_USERS.jorge1.id,
+    })])
 
+    // También con edición general (la creadora) la causa reportada no se convierte en causa raíz.
     const lead = await proposed(w.db, R1_USERS.lead, 'register_blocker', { accionId: 'a2', motivo: 'Sin presupuesto aprobado' })
     await confirm(w, R1_USERS.lead, lead)
-    expect(action(w.db, 'a2')).toMatchObject({ estado: 'Bloqueado', causa_raiz: 'Sin presupuesto aprobado' })
+    expect(action(w.db, 'a2').estado).toBe('Bloqueado')
+    expect(action(w.db, 'a2').causa_raiz).toBeUndefined()
+    expect(op(w.db, lead).result).toMatchObject({ causaReportada: true })
+  })
+
+  it('historial de bloqueos: responsable y creador lo consultan; Analista, Dirección y otros no', async () => {
+    const w = world()
+    const id = await proposed(w.db, R1_USERS.jorge1, 'register_blocker', { accionId: 'a8', motivo: 'Falta material del proveedor' })
+    await confirm(w, R1_USERS.jorge1, id)
+    const mine = await readBlockHistory(await r2Actor(w.db, R1_USERS.jorge1), 'a8')
+    expect(mine).toMatchObject({
+      ok: true,
+      history: {
+        reportes: [expect.objectContaining({ contenido: 'Causa reportada: Falta material del proveedor', tipo: 'bloqueo_reportado' })],
+        recibos: [expect.objectContaining({ pendingOpId: id, estadoNuevo: 'Bloqueado' })],
+      },
+    })
+    const creatorId = String(action(w.db, 'a8').created_by)
+    const creator = Object.values(R1_USERS).find((u) => u.id === creatorId)
+    if (creator) expect(await readBlockHistory(await r2Actor(w.db, creator), 'a8')).toMatchObject({ ok: true })
+    for (const user of [R1_USERS.analyst, R1_USERS.direction, R1_USERS.maria]) {
+      if (user.id === creatorId) continue
+      expect(await readBlockHistory(await r2Actor(w.db, user), 'a8')).toMatchObject({ ok: false })
+    }
   })
 })
 
@@ -367,5 +435,60 @@ describe('R2 · canales sólo llegan a la propuesta', () => {
     expect(w.db.tables.assistant_pending_ops).toEqual([])
     expect(fromLog(w.db)).toEqual([])
     expect(action(w.db, 'a8').estado).toBe('Pendiente')
+  })
+})
+
+describe('R2 · ejecutor qa (sesión del usuario, buzón qa_outbox)', () => {
+  const QA_REF = 'qafixturerefaaaaaaaa'
+  function qaWorld() {
+    const w = world()
+    w.db.tables.qa_outbox = []
+    w.db.unique = { ...w.db.unique, qa_outbox: [['idempotency_key']] }
+    w.db.rpcs = {
+      ...w.db.rpcs,
+      agent_execution_environment: () => QA_REF,
+      qa_whatsapp_linked: (args) => (w.db.tables.user_channel_identities ?? [])
+        .some((i) => i.usuario_id === args.p_usuario_id && i.channel === 'whatsapp' && i.status === 'active'),
+    }
+    return w
+  }
+  async function confirmQa(w: ReturnType<typeof world>, user: User, id: string, projectRef = QA_REF) {
+    const actor = await r2Actor(w.db, user)
+    return confirmPendingOp(actor.copilot, id, {
+      r2: { mode: 'qa', executor: createQaActionExecutor({ boardWrite: executeBoardWrite, projectRef }) },
+    })
+  }
+
+  it('estado y aviso se ejecutan con la sesión del usuario; el aviso queda sólo en qa_outbox, una vez', async () => {
+    const w = qaWorld()
+    const status = await proposed(w.db, R1_USERS.jorge1, 'update_status', { accionId: 'a8', estado: 'En_Ejecucion' })
+    expect((await confirmQa(w, R1_USERS.jorge1, status)).status).toBe('confirmed')
+    expect(action(w.db, 'a8').estado).toBe('En_Ejecucion')
+
+    const notify = await proposed(w.db, R1_USERS.lead, 'notify_responsable', { accionId: 'a4', canal: 'whatsapp' })
+    await confirmQa(w, R1_USERS.lead, notify)
+    await confirmQa(w, R1_USERS.lead, notify)
+    expect(w.db.tables.qa_outbox).toEqual([expect.objectContaining({
+      idempotency_key: `agent-notify:${notify}`, canal: 'whatsapp', to_usuario_id: R1_USERS.maria.id, sender_usuario_id: R1_USERS.lead.id,
+    })])
+    expect(w.outbox).toEqual([])
+  })
+
+  it('si la BD declara otro proyecto QA, no se ejecuta (CONFIGURATION_ERROR)', async () => {
+    const w = qaWorld()
+    const id = await proposed(w.db, R1_USERS.jorge1, 'update_status', { accionId: 'a8', estado: 'En_Ejecucion' })
+    await expect(confirmQa(w, R1_USERS.jorge1, id, 'otroproyectoaaaaaaaa')).rejects.toThrow('CONFIGURATION_ERROR')
+    expect(op(w.db, id).status).toBe('pending')
+    expect(action(w.db, 'a8').estado).toBe('Pendiente')
+  })
+
+  it('en qa las herramientas de comunicación del copiloto no llegan a proveedores reales', async () => {
+    const w = qaWorld()
+    w.db.tables.assistant_pending_ops!.push({
+      id: 'mail', usuario_id: R1_USERS.lead.id, tool: 'notify_action_email', resource_id: 'a8', payload: { usuario_id: R1_USERS.jorge1.id },
+      preview: {}, status: 'pending', expires_at: '2026-11-19T16:10:00.000Z',
+    })
+    await expect(confirmQa(w, R1_USERS.lead, 'mail')).rejects.toThrow('EXECUTION_DISABLED')
+    expect(op(w.db, 'mail').status).toBe('pending')
   })
 })

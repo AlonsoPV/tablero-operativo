@@ -1,8 +1,8 @@
 /**
  * R2 (local): operaciones accionables del agente sobre assistant_pending_ops y confirmPendingOp.
  * Consulta → Propuesta → Confirmación → Revalidación → Ejecución → Evidencia.
- * Sólo ejecuta con R2_EXECUTION_MODE=simulated y un ActionExecutor simulado inyectado;
- * en Vercel el modo es siempre disabled y la confirmación responde "ejecución no habilitada".
+ * Sólo ejecuta con R2_EXECUTION_MODE=simulated (ejecutor en memoria) o qa (proyecto QA autorizado,
+ * ejecutor qa); en producción el modo es siempre disabled y la confirmación responde "ejecución no habilitada".
  */
 import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -10,7 +10,6 @@ import type { CopilotProposal } from '../../../src/features/ai-support/copilot/t
 import { evidenceOrPlaceholder } from '../../../src/features/ai-support/creationDraft.js'
 import { todayWallClockCDMX } from '../../../src/lib/dateUtils.js'
 import { createPendingOp, insertAssistantOpLog, type CopilotActor } from '../assistantPending.js'
-import { withContentHash } from '../workspaceHash.js'
 import { loadAgentCapabilities } from '../query/actorCapabilities.js'
 import { resolveActor, type AgentActor, type AgentChannel } from '../query/resolveActor.js'
 import {
@@ -18,7 +17,10 @@ import {
   ACTION_PROPOSAL_TTL_MS,
   authorizeActionPhase,
   buildIdempotencyKey,
+  COPILOT_GATED_TOOLS,
+  isCopilotGatedTool,
   type ActionContract,
+  type CopilotGatedTool,
   type ActionPayloadMap,
   type NotifyResponsablePayload,
 } from './contracts.js'
@@ -40,6 +42,8 @@ export const R2_TOOL_FOR: Record<R2Operation, R2AgentTool> = {
   register_blocker: 'agent_register_blocker',
   notify_responsable: 'agent_notify_responsable',
 }
+
+export { COPILOT_GATED_TOOLS, isCopilotGatedTool, type CopilotGatedTool }
 
 export function isR2AgentTool(tool: string): tool is R2AgentTool {
   return Object.prototype.hasOwnProperty.call(R2_AGENT_TOOLS, tool)
@@ -296,9 +300,7 @@ export async function gateR2Confirmation(
   if (options.fromTool) {
     throw new Error('PERMISSION_DENIED: Sólo tú puedes confirmar esta operación; el asistente no confirma por ti.')
   }
-  if (options.mode !== 'simulated' || !options.executor || options.executor.kind !== 'simulated') {
-    throw new Error(R2_EXECUTION_DISABLED_MESSAGE)
-  }
+  const executor = executorForMode(options)
   const agent = await reloadAgentActor(actor, options.channel)
   const operation = R2_AGENT_TOOLS[row.tool]
   const payload = contractPayloadOf(row.tool, row.payload ?? {}) as ActionPayloadMap[typeof operation]
@@ -306,7 +308,75 @@ export async function gateR2Confirmation(
     const auth = authorizeActionPhase(agent, phase, operation, payload, row.usuario_id, options.mode)
     if (!auth.allowed) throw new Error(`PERMISSION_DENIED: ${auth.reason}`)
   }
-  return options.executor
+  await executor.prepare?.(actor)
+  return executor
+}
+
+/** El ejecutor debe corresponder al modo: simulated↔simulated, qa↔qa. Cualquier otro caso queda deshabilitado. */
+function executorForMode(options: R2ConfirmOptions): ActionExecutor {
+  const executor = options.executor
+  const matches = executor && (options.mode === 'simulated' || options.mode === 'qa') && executor.kind === options.mode
+  if (!matches) throw new Error(R2_EXECUTION_DISABLED_MESSAGE)
+  return executor
+}
+
+/** Herramientas cuya transición pending→executing sólo puede hacer agent_claim_pending_op. */
+export function isRpcClaimedTool(tool: string): boolean {
+  return isR2AgentTool(tool) || tool === 'mark_action_done'
+}
+
+function copilotContractPayload(tool: CopilotGatedTool, p: Record<string, unknown>) {
+  const accionId = String(p.action_id ?? '')
+  switch (tool) {
+    case 'create_action':
+      return { titulo: String(p.titulo_accion ?? ''), responsableId: String(p.responsable ?? ''), fecha: String(p.fecha ?? '') }
+    case 'update_action':
+      return { accionId, campos: Object.keys((p.patch ?? {}) as Record<string, unknown>) }
+    case 'add_action_comment':
+      return { accionId, contenido: String(p.contenido ?? '') }
+    case 'update_checklist_item':
+      return { accionId, checkpointId: String(p.checkpoint_id ?? ''), completado: p.completado === true }
+    case 'mark_action_done':
+      return { accionId, estado: 'Hecho' }
+    case 'verify_action':
+      return { accionId }
+  }
+}
+
+/**
+ * Puerta del copiloto web (COPILOT_R2_GATE): misma puerta que R2 sobre el mismo confirmPendingOp.
+ * verify_action conserva su regla propia: sólo creador o gestión completa, confirmación humana.
+ */
+export async function gateCopilotConfirmation(
+  actor: CopilotActor,
+  row: { tool: CopilotGatedTool; usuario_id: string; payload: Record<string, unknown> | null },
+  options: R2ConfirmOptions
+): Promise<ActionExecutor> {
+  if (options.fromTool) {
+    throw new Error('PERMISSION_DENIED: Sólo tú puedes confirmar esta operación; el asistente no confirma por ti.')
+  }
+  const executor = executorForMode(options)
+  const agent = await reloadAgentActor(actor, options.channel ?? 'web')
+  const operation = COPILOT_GATED_TOOLS[row.tool]
+  const payload = copilotContractPayload(row.tool, row.payload ?? {}) as ActionPayloadMap[typeof operation]
+  const missing = (ACTION_CONTRACTS[operation] as ActionContract<typeof operation>).validate(payload)
+  if (missing.length) throw new Error(`VALIDATION_FAILED: Faltan datos: ${missing.join(', ')}.`)
+  for (const phase of ['confirm', 'execute'] as const) {
+    const auth = authorizeActionPhase(agent, phase, operation, payload, row.usuario_id, options.mode)
+    if (!auth.allowed) throw new Error(`PERMISSION_DENIED: ${auth.reason}`)
+  }
+  if (row.tool === 'verify_action') {
+    const { data, error } = await actor.supabase.rpc('can_manage_accion_full_as', {
+      p_accion_id: (payload as { accionId: string }).accionId,
+      p_usuario_id: actor.usuarioId,
+    })
+    if (error) throw new Error('DATABASE_ERROR: No se pudo validar el permiso de verificación.')
+    if (data !== true) {
+      throw new Error('PERMISSION_DENIED: La verificación corresponde a quien creó la acción o a Super Admin.')
+    }
+  }
+  await executor.prepare?.(actor)
+  return executor
 }
 
 export type NotifyInput = {
@@ -322,12 +392,18 @@ export type NotifyAdapter = (actor: CopilotActor, input: NotifyInput) => Promise
 
 export type ExecutionContext = { opId: string; expectedUpdatedAt: string | null }
 
-/** Puerto de ejecución: simulated (pruebas/local) o rpc (inalcanzable mientras el modo sea disabled). */
+export type ExecutorTool = R2AgentTool | 'mark_action_done'
+
+/** Puerto de ejecución: simulated (pruebas/local) o qa (JWT reales en el proyecto QA, avisos en qa_outbox). */
 export type ActionExecutor = {
-  kind: 'simulated' | 'rpc'
-  execute(actor: CopilotActor, tool: R2AgentTool, payload: Record<string, unknown>, ctx: ExecutionContext): Promise<Record<string, unknown>>
+  kind: 'simulated' | 'qa'
+  /** Verificación previa del entorno (qa: la BD debe declarar el mismo proyecto QA). */
+  prepare?(actor: CopilotActor): Promise<void>
+  /** pending→executing vía agent_claim_pending_op; false si la operación ya no está vigente o cambió. */
+  claim(actor: CopilotActor, row: { id: string; payload: Record<string, unknown> | null }): Promise<boolean>
+  execute(actor: CopilotActor, tool: ExecutorTool, payload: Record<string, unknown>, ctx: ExecutionContext): Promise<Record<string, unknown>>
   /** Relee el efecto después de ejecutar; false deja la operación pendiente con error. */
-  verify(actor: CopilotActor, tool: R2AgentTool, payload: Record<string, unknown>, result: Record<string, unknown>, ctx: ExecutionContext): Promise<boolean>
+  verify(actor: CopilotActor, tool: ExecutorTool, payload: Record<string, unknown>, result: Record<string, unknown>, ctx: ExecutionContext): Promise<boolean>
 }
 
 export type BoardWrite = (
@@ -354,12 +430,22 @@ function buildExecutor(
     client: (actor: CopilotActor) => SupabaseClient
     boardWrite: BoardWrite
     notify: { email: NotifyAdapter; whatsapp: NotifyAdapter }
-    delivered?: (key: string) => boolean
+    delivered?: (actor: CopilotActor, key: string) => Promise<boolean>
+    prepare?: (actor: CopilotActor) => Promise<void>
   }
 ): ActionExecutor {
   const scoped = (actor: CopilotActor): CopilotActor => ({ ...actor, supabase: deps.client(actor) })
   return {
     kind,
+    prepare: deps.prepare,
+    async claim(actor, row) {
+      const { data, error } = await deps.client(actor).rpc('agent_claim_pending_op', {
+        p_op_id: row.id,
+        p_payload: row.payload ?? {},
+      })
+      if (error) throw new Error(errorMessage(error, 'No se pudo reservar la operación.'))
+      return data === true
+    },
     async execute(actor, tool, payload, ctx) {
       const target = scoped(actor)
       if (tool === 'agent_create_action') {
@@ -372,11 +458,11 @@ function buildExecutor(
           throw error
         }
       }
-      if (tool === 'agent_set_action_status' || tool === 'agent_register_blocker') {
+      if (tool === 'agent_set_action_status' || tool === 'agent_register_blocker' || tool === 'mark_action_done') {
         const { data, error } = await target.supabase.rpc('agent_apply_action_status', {
           p_pending_op_id: ctx.opId,
-          p_accion_id: payload.accionId,
-          p_estado: tool === 'agent_register_blocker' ? 'Bloqueado' : payload.estado,
+          p_accion_id: payload.accionId ?? payload.action_id,
+          p_estado: tool === 'agent_register_blocker' ? 'Bloqueado' : tool === 'mark_action_done' ? 'Hecho' : payload.estado,
           p_motivo: payload.motivo ?? null,
           p_expected_updated_at: ctx.expectedUpdatedAt,
         })
@@ -402,13 +488,14 @@ function buildExecutor(
     async verify(actor, tool, payload, result, ctx) {
       const client = deps.client(actor)
       if (tool === 'agent_notify_responsable') {
-        return Boolean(result.id) && (deps.delivered ? deps.delivered(`agent-notify:${ctx.opId}`) : true)
+        return Boolean(result.id) && (deps.delivered ? await deps.delivered(actor, `agent-notify:${ctx.opId}`) : true)
       }
-      const id = tool === 'agent_create_action' ? String(result.id ?? '') : String(payload.accionId ?? '')
+      const id = tool === 'agent_create_action' ? String(result.id ?? '') : String(payload.accionId ?? payload.action_id ?? '')
       const row = id ? await loadActionRow(client, id) : null
       if (!row) return false
       if (tool === 'agent_create_action') return row.titulo_accion === payload.titulo_accion && row.responsable === payload.responsable
       if (tool === 'agent_register_blocker') return row.estado === 'Bloqueado'
+      if (tool === 'mark_action_done') return row.estado === 'Hecho'
       return row.estado === payload.estado
     },
   }
@@ -435,7 +522,7 @@ export function createSimulatedActionExecutor(deps: {
   return buildExecutor('simulated', {
     client: () => deps.store,
     boardWrite: deps.boardWrite,
-    delivered: (key) => deps.outbox.some((e) => e.idempotencyKey === key),
+    delivered: async (_actor, key) => deps.outbox.some((e) => e.idempotencyKey === key),
     notify: {
       email: async (_actor, input) => record(input),
       whatsapp: async (_actor, input) => {
@@ -457,33 +544,45 @@ export function createSimulatedActionExecutor(deps: {
 }
 
 /**
- * Ejecutor real (RPC con el JWT del usuario y proveedores reales). Ningún modo actual lo admite:
- * gateR2Confirmation exige un ejecutor simulado. Queda para QA autorizada.
+ * Ejecutor QA: RPC y escrituras con el JWT del usuario (RLS real) en el proyecto QA autorizado.
+ * Los avisos nunca llegan a proveedores: quedan en qa_outbox (tabla que sólo crea el seed QA).
+ * Antes de ejecutar comprueba que la BD declare el mismo proyecto QA que el servidor.
  */
-export function createRpcActionExecutor(deps: {
-  boardWrite: BoardWrite
-  whatsappWrite: (actor: CopilotActor, payload: Record<string, unknown>, opId: string) => Promise<Record<string, unknown>>
-  resolveWhatsappPhone: (usuarioId: string) => Promise<string | null>
-}): ActionExecutor {
-  return buildExecutor('rpc', {
+export function createQaActionExecutor(deps: { boardWrite: BoardWrite; projectRef: string }): ActionExecutor {
+  const record: NotifyAdapter = async (actor, input) => {
+    if (input.canal === 'whatsapp') {
+      const { data, error } = await actor.supabase.rpc('qa_whatsapp_linked', { p_usuario_id: input.toUserId })
+      if (error) throw new Error('CONFIGURATION_ERROR: El entorno QA no tiene el buzón simulado.')
+      if (data !== true) throw new Error('MISSING_CONTACT: El responsable no tiene WhatsApp vinculado.')
+    }
+    const row = {
+      idempotency_key: input.idempotencyKey,
+      canal: input.canal,
+      sender_usuario_id: actor.usuarioId,
+      to_usuario_id: input.toUserId,
+      accion_id: input.accionId,
+      titulo: input.titulo,
+      body: input.body,
+    }
+    const { data, error } = await actor.supabase.from('qa_outbox').insert(row).select('id').maybeSingle()
+    if (!error) return { id: String((data as { id?: string } | null)?.id ?? '') }
+    if ((error as { code?: string }).code !== '23505') throw new Error('DATABASE_ERROR: No se pudo registrar el aviso QA.')
+    const { data: prior } = await actor.supabase.from('qa_outbox').select('id').eq('idempotency_key', input.idempotencyKey).maybeSingle()
+    return { id: String((prior as { id?: string } | null)?.id ?? '') }
+  }
+  return buildExecutor('qa', {
     client: (actor) => actor.supabase,
     boardWrite: deps.boardWrite,
-    notify: {
-      email: async (actor, input) => {
-        const result = await deps.boardWrite(actor, 'notify_action_email', {
-          usuario_id: input.toUserId,
-          tipo: 'responsable',
-          email_payload: { accion_id: input.accionId, titulo_accion: input.titulo, mensaje: input.body },
-        })
-        return { id: String(result.email_id ?? result.id ?? '') }
-      },
-      whatsapp: async (actor, input) => {
-        const phone = await deps.resolveWhatsappPhone(input.toUserId)
-        if (!phone) throw new Error('MISSING_CONTACT: El responsable no tiene WhatsApp vinculado.')
-        const opId = input.idempotencyKey.replace(/^agent-notify:/, '')
-        const result = await deps.whatsappWrite(actor, withContentHash({ to_user_id: input.toUserId, to_phone: phone, body: input.body }), opId)
-        return { id: String(result.id ?? '') }
-      },
+    notify: { email: record, whatsapp: record },
+    delivered: async (actor, key) => {
+      const { data } = await actor.supabase.from('qa_outbox').select('id').eq('idempotency_key', key).maybeSingle()
+      return Boolean(data)
+    },
+    prepare: async (actor) => {
+      const { data, error } = await actor.supabase.rpc('agent_execution_environment')
+      if (error || data !== deps.projectRef) {
+        throw new Error('CONFIGURATION_ERROR: La base de datos no corresponde al proyecto QA autorizado.')
+      }
     },
   })
 }
@@ -509,6 +608,24 @@ export async function readR2Evidence(actor: AgentActor, opId: string) {
     .eq('pending_op_id', opId)
     .maybeSingle()
   return { ok: true as const, op, log: log ?? [], receipt: receipt ?? null }
+}
+
+/**
+ * Historial de bloqueos reportados (comentarios bloqueo_reportado y recibos del agente).
+ * La RPC decide quién lo ve: responsable, creador, edición general o Super Admin.
+ */
+export async function readBlockHistory(actor: AgentActor, accionId: string) {
+  const auth = authorizeActionPhase(actor, 'query')
+  if (!auth.allowed) return { ok: false as const, reason: auth.reason }
+  const { data, error } = await actor.copilot.supabase.rpc('agent_action_block_history', { p_accion_id: accionId })
+  if (error) {
+    const denied = /not_authorized|not_found/.test(errorMessage(error, ''))
+    return {
+      ok: false as const,
+      reason: denied ? 'No tienes permiso para ver los bloqueos de esa acción.' : 'No se pudo consultar el historial de bloqueos.',
+    }
+  }
+  return { ok: true as const, history: data as Record<string, unknown> }
 }
 
 export async function logR2Denied(actor: CopilotActor, tool: string, opId: string, resourceId: string | null) {

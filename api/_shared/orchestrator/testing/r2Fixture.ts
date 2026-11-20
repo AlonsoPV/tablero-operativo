@@ -1,6 +1,7 @@
 /**
- * Fixture R2: el mismo universo sintético de R1, con tablas mutables y la RPC
- * agent_apply_action_status simulada con las reglas de la migración 20261120120000
+ * Fixture R2: el mismo universo sintético de R1, con tablas mutables y las RPC
+ * agent_claim_pending_op, agent_apply_action_status y agent_action_block_history simuladas con
+ * las reglas de la migración 20261120120000
  * (la versión SQL se prueba en scripts/test-r2-action-status-database.mjs).
  * No sustituye la validación de RLS con JWT reales.
  */
@@ -34,22 +35,45 @@ function fail(code: string, message: string): never {
   throw new Error(`${code}: ${message}`)
 }
 
-export function simulatedApplyActionStatus(db: FakeDb, args: Row, session: FakeSession) {
+const executionAllowed = (db: FakeDb) => (db.tables.agent_execution_gate ?? []).some((g) => g.enabled === true)
+
+function activeMe(db: FakeDb, session: FakeSession) {
   const me = session.usuarioId
   const user = userOf(db, me)
   if (!me || !user || user.activo === false) fail('not_authorized', 'usuario inactivo o sin sesion')
+  return { me, user }
+}
+
+const CLAIMABLE = ['agent_create_action', 'agent_set_action_status', 'agent_register_blocker', 'agent_notify_responsable', 'mark_action_done']
+
+/** Paridad de agent_claim_pending_op: puerta en BD, operación propia, vigente y con el payload confirmado. */
+export function simulatedClaimPendingOp(db: FakeDb, args: Row, session: FakeSession) {
+  if (!executionAllowed(db)) fail('execution_disabled', 'la ejecucion del agente no esta habilitada en este entorno')
+  const { me } = activeMe(db, session)
+  const op = db.tables.assistant_pending_ops!.find((o) => o.id === args.p_op_id)
+  if (!op || op.usuario_id !== me) fail('not_authorized', 'la operacion no pertenece al usuario')
+  if (!CLAIMABLE.includes(String(op.tool))) fail('invalid_operation', 'herramienta')
+  if (op.status !== 'pending' || Date.parse(String(op.expires_at)) <= Date.now() ||
+    JSON.stringify(op.payload) !== JSON.stringify(args.p_payload)) return false
+  Object.assign(op, { status: 'executing', claimed_at: new Date().toISOString() })
+  return true
+}
+
+export function simulatedApplyActionStatus(db: FakeDb, args: Row, session: FakeSession) {
+  if (!executionAllowed(db)) fail('execution_disabled', 'la ejecucion del agente no esta habilitada en este entorno')
+  const { me, user } = activeMe(db, session)
   const receipts = (db.tables.agent_action_receipts ??= [])
   const prior = receipts.find((r) => r.pending_op_id === args.p_pending_op_id && r.usuario_id === me)
   if (prior) return { ...(prior.result as Row), replayed: true }
 
   const op = db.tables.assistant_pending_ops!.find((o) => o.id === args.p_pending_op_id)
   if (!op || op.usuario_id !== me) fail('not_authorized', 'la operacion no pertenece al usuario')
-  if (op.status !== 'executing') fail('not_confirmed', 'la operacion no esta confirmada')
-  if (op.tool !== 'agent_set_action_status' && op.tool !== 'agent_register_blocker') fail('invalid_operation', 'herramienta')
+  if (op.status !== 'executing' || !op.claimed_at) fail('not_confirmed', 'la operacion no esta confirmada')
+  if (!['agent_set_action_status', 'agent_register_blocker', 'mark_action_done'].includes(String(op.tool))) fail('invalid_operation', 'herramienta')
   const payload = op.payload as Row
-  const expectedEstado = op.tool === 'agent_register_blocker' ? 'Bloqueado' : payload.estado
+  const expectedEstado = op.tool === 'agent_register_blocker' ? 'Bloqueado' : op.tool === 'mark_action_done' ? 'Hecho' : payload.estado
   const motivo = String(args.p_motivo ?? '').trim() || null
-  if (payload.accionId !== args.p_accion_id || expectedEstado !== args.p_estado ||
+  if ((payload.accionId ?? payload.action_id) !== args.p_accion_id || expectedEstado !== args.p_estado ||
     (String(payload.motivo ?? '').trim() || null) !== motivo || op.expected_updated_at !== args.p_expected_updated_at) {
     fail('payload_mismatch', 'los parametros no coinciden con la confirmacion')
   }
@@ -69,27 +93,54 @@ export function simulatedApplyActionStatus(db: FakeDb, args: Row, session: FakeS
   if (action.estado === estado) fail('no_change', 'la accion ya tiene ese estado')
 
   const before = String(action.estado)
-  let cause = false
   if (estado === 'Hecho') {
     const pending = (db.tables.accion_checkpoints ?? []).filter((c) => c.accion_id === action.id && c.activo !== false && !c.completado)
     if (pending.length) fail('checkpoints', 'No puedes marcar esta accion como Hecha porque aun existen puntos de validacion pendientes.')
     Object.assign(action, { estado: 'Hecho', completed_by: me, updated_at: tick() })
   } else if (estado === 'Bloqueado') {
     if (!motivo || motivo.length < 5) fail('block_reason_required', 'el motivo debe tener al menos 5 caracteres')
-    cause = canEditGeneral(db, action.id, me)
-    Object.assign(action, { estado: 'Bloqueado', ...(cause ? { causa_raiz: motivo } : {}), updated_at: tick() })
+    Object.assign(action, { estado: 'Bloqueado', updated_at: tick() })
     ;(db.tables.accion_comentarios ??= []).push({
-      accion_id: action.id, contenido: `Bloqueo registrado con Enviardian: ${motivo}`, created_by: me, tipo_comentario: 'comentario',
+      accion_id: action.id, contenido: `Causa reportada: ${motivo}`, created_by: me, tipo_comentario: 'bloqueo_reportado', created_at: tick(),
     })
   } else {
     Object.assign(action, { estado, updated_at: tick() })
   }
   const result = {
-    ok: true, accionId: action.id, estadoAnterior: before, estado: action.estado, causaRaiz: cause,
-    comentario: estado === 'Bloqueado', updatedAt: action.updated_at,
+    ok: true, accionId: action.id, estadoAnterior: before, estado: action.estado,
+    causaReportada: estado === 'Bloqueado', updatedAt: action.updated_at,
   }
-  receipts.push({ pending_op_id: op.id, usuario_id: me, accion_id: action.id, tool: op.tool, estado_anterior: before, estado_nuevo: action.estado, result })
+  receipts.push({ pending_op_id: op.id, usuario_id: me, accion_id: action.id, tool: op.tool, estado_anterior: before, estado_nuevo: action.estado, result, created_at: tick() })
   return result
+}
+
+/** Paridad de agent_action_block_history: responsable, creador, edición general o Super Admin. */
+export function simulatedBlockHistory(db: FakeDb, args: Row, session: FakeSession) {
+  const { me } = activeMe(db, session)
+  const action = db.tables.acciones_diarias!.find((a) => a.id === args.p_accion_id)
+  if (!action) fail('not_found', 'accion no encontrada')
+  if (action.responsable !== me && action.created_by !== me && !canEditGeneral(db, action.id, me)) {
+    fail('not_authorized', 'sin permiso sobre la accion')
+  }
+  return {
+    accionId: action.id,
+    estado: action.estado,
+    reportes: (db.tables.accion_comentarios ?? [])
+      .filter((c) => c.accion_id === action.id &&
+        (c.tipo_comentario === 'bloqueo_reportado' || String(c.contenido).startsWith('Bloqueo reportado por WhatsApp:')))
+      .map((c) => ({ contenido: c.contenido, createdBy: c.created_by, createdAt: c.created_at, tipo: c.tipo_comentario })),
+    recibos: (db.tables.agent_action_receipts ?? [])
+      .filter((r) => r.accion_id === action.id)
+      .map((r) => ({ pendingOpId: r.pending_op_id, usuarioId: r.usuario_id, tool: r.tool, estadoAnterior: r.estado_anterior, estadoNuevo: r.estado_nuevo })),
+  }
+}
+
+/** Gestión completa (verify_action): creador o Super Admin. */
+function canManageFull(db: FakeDb, accionId: unknown, usuarioId: unknown) {
+  const action = db.tables.acciones_diarias!.find((a) => a.id === accionId)
+  const user = userOf(db, String(usuarioId))
+  if (!action || !user || user.activo === false) return false
+  return action.created_by === usuarioId || norm(user.rol) === 'super_admin'
 }
 
 export function createR2Db(): FakeDb {
@@ -100,6 +151,8 @@ export function createR2Db(): FakeDb {
     assistant_pending_ops: [],
     assistant_op_log: [],
     agent_action_receipts: [],
+    // Equivale al seed QA: sin esta fila la puerta en BD rechaza claim y ejecución.
+    agent_execution_gate: [{ id: true, enabled: true, project_ref: 'qafixturerefaaaaaaaa' }],
     accion_comentarios: [],
     accion_checkpoints: [],
     user_channel_identities: [
@@ -114,7 +167,10 @@ export function createR2Db(): FakeDb {
   db.rpcs = {
     ...db.rpcs,
     can_edit_accion_general_as: (args) => canEditGeneral(db, args.p_accion_id, args.p_usuario_id),
+    can_manage_accion_full_as: (args) => canManageFull(db, args.p_accion_id, args.p_usuario_id),
+    agent_claim_pending_op: (args, session) => simulatedClaimPendingOp(db, args, session),
     agent_apply_action_status: (args, session) => simulatedApplyActionStatus(db, args, session),
+    agent_action_block_history: (args, session) => simulatedBlockHistory(db, args, session),
   }
   return db
 }

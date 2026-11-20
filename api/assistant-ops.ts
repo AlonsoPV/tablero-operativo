@@ -1,6 +1,11 @@
 import { defineApiHandler, readRequestBody } from './_shared/http.js'
 import { checkAssistantRateLimit, createServiceRoleClient, requireAssistantAuth } from './_shared/assistantAuth.js'
-import { cancelPendingOp, confirmPendingOp, editActionEmailPendingOp } from './_shared/assistantOpsRuntime.js'
+import {
+  cancelPendingOp,
+  confirmPendingOp,
+  editActionEmailPendingOp,
+  r2OptionsFromServerEnv,
+} from './_shared/assistantOpsRuntime.js'
 import { editGooglePendingOp, listSessionGoogleOps } from './_shared/assistantGoogleTools.js'
 import { searchLinkedWhatsappPeople } from './_shared/resolveCommunicationRecipient.js'
 import { editWhatsappPendingOp } from './_shared/assistantCommunicationDrafts.js'
@@ -113,7 +118,7 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Accion invalida. Usa confirm, cancel o edit.' })
     }
 
-    const result = await confirmPendingOp(actor, opId)
+    const result = await confirmPendingOp(actor, opId, { r2: r2OptionsFromServerEnv() })
     return res.status(200).json(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'No se pudo completar la operacion.'

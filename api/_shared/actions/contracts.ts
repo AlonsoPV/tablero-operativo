@@ -25,7 +25,7 @@ export type PhaseDecision = 'allow' | 'deny' | 'own' | 'role' | 'disabled_r1'
 export const R2_PHASE_MATRIX: Record<AgentProfile, Record<ActionPhase, PhaseDecision>> = {
   super_admin: { query: 'allow', propose: 'allow', confirm: 'own', execute: 'disabled_r1', verify: 'allow' },
   direction: { query: 'allow', propose: 'deny', confirm: 'deny', execute: 'deny', verify: 'allow' },
-  okrs_area: { query: 'allow', propose: 'role', confirm: 'own', execute: 'disabled_r1', verify: 'allow' },
+  okrs_area: { query: 'allow', propose: 'role', confirm: 'role', execute: 'disabled_r1', verify: 'allow' },
   leader: { query: 'allow', propose: 'allow', confirm: 'own', execute: 'disabled_r1', verify: 'allow' },
   operative: { query: 'allow', propose: 'allow', confirm: 'own', execute: 'disabled_r1', verify: 'allow' },
   analyst: { query: 'allow', propose: 'deny', confirm: 'deny', execute: 'deny', verify: 'allow' },
@@ -63,12 +63,22 @@ export type TagOkrActionPayload = {
   esOkr: boolean
 }
 
+/** Copiloto web por la puerta R2 (COPILOT_R2_GATE): mismas herramientas, contratos explícitos. */
+export type UpdateFieldsPayload = { accionId: string; campos: string[] }
+export type AddCommentPayload = { accionId: string; contenido: string }
+export type UpdateCheckpointPayload = { accionId: string; checkpointId: string; completado: boolean }
+export type VerifyActionPayload = { accionId: string }
+
 export type ActionPayloadMap = {
   create_action: CreateActionPayload
   update_status: UpdateStatusPayload
   register_blocker: RegisterBlockerPayload
   notify_responsable: NotifyResponsablePayload
   tag_okr_action: TagOkrActionPayload
+  update_fields: UpdateFieldsPayload
+  add_comment: AddCommentPayload
+  update_checkpoint: UpdateCheckpointPayload
+  verify_action: VerifyActionPayload
 }
 
 export type ActionOperation = keyof ActionPayloadMap
@@ -153,6 +163,52 @@ export const ACTION_CONTRACTS: { [O in ActionOperation]: ActionContract<O> } = {
       return missing
     },
   },
+  update_fields: {
+    operation: 'update_fields',
+    executesVia: 'update_action → confirmPendingOp (trigger de estados y RLS de edición general)',
+    requiredFields: ['accionId', 'campos'],
+    preconditions: ['can_edit_accion_general_as', 'El patch excluye estado', 'CAS por updated_at'],
+    validate(p) {
+      const missing: string[] = []
+      if (!p.accionId) missing.push('accion')
+      if (!Array.isArray(p.campos) || p.campos.length === 0 || p.campos.includes('estado')) missing.push('campos')
+      return missing
+    },
+  },
+  add_comment: {
+    operation: 'add_comment',
+    executesVia: 'add_action_comment → confirmPendingOp',
+    requiredFields: ['accionId', 'contenido'],
+    preconditions: ['Acción visible para el actor (RLS de comentarios)'],
+    validate(p) {
+      const missing: string[] = []
+      if (!p.accionId) missing.push('accion')
+      if (!p.contenido || !p.contenido.trim()) missing.push('contenido')
+      return missing
+    },
+  },
+  update_checkpoint: {
+    operation: 'update_checkpoint',
+    executesVia: 'update_checklist_item → set_accion_checkpoint_completado',
+    requiredFields: ['accionId', 'checkpointId', 'completado'],
+    preconditions: ['Reglas de set_accion_checkpoint_completado'],
+    validate(p) {
+      const missing: string[] = []
+      if (!p.accionId) missing.push('accion')
+      if (!p.checkpointId) missing.push('checkpoint')
+      if (typeof p.completado !== 'boolean') missing.push('completado')
+      return missing
+    },
+  },
+  verify_action: {
+    operation: 'verify_action',
+    executesVia: 'verify_action → confirmPendingOp (sólo creador o Super Admin, confirmación humana)',
+    requiredFields: ['accionId'],
+    preconditions: ['can_manage_accion_full_as', 'Estado Hecho', 'Nunca desde una herramienta del modelo'],
+    validate(p) {
+      return p.accionId ? [] : ['accion']
+    },
+  },
 }
 
 export type PhaseAuthorization = { allowed: true } | { allowed: false; reason: string }
@@ -160,7 +216,7 @@ export type PhaseAuthorization = { allowed: true } | { allowed: false; reason: s
 /**
  * Autoriza una fase con las capacidades vigentes del actor (recalculadas por turno).
  * proposerUsuarioId aplica a confirm/execute: sólo el autor confirma su propuesta.
- * disabled_r1 sólo se levanta con R2_EXECUTION_MODE=simulated (nunca en Vercel).
+ * disabled_r1 sólo se levanta con R2_EXECUTION_MODE=simulated (local) o qa (proyecto QA autorizado).
  */
 export function authorizeActionPhase<O extends ActionOperation>(
   actor: AgentActor,
@@ -177,7 +233,7 @@ export function authorizeActionPhase<O extends ActionOperation>(
   let decision = R2_PHASE_MATRIX[profile][phase]
   if (decision === 'role') {
     const base = AGENT_PERMISSION_MATRIX[actor.roleClass].propose_write
-    decision = base === 'allow' ? 'allow' : 'deny'
+    decision = base !== 'allow' ? 'deny' : phase === 'propose' ? 'allow' : 'own'
   }
   if (decision === 'deny') {
     return {
@@ -188,7 +244,7 @@ export function authorizeActionPhase<O extends ActionOperation>(
     }
   }
   if (decision === 'disabled_r1') {
-    if (executionMode !== 'simulated') {
+    if (executionMode !== 'simulated' && executionMode !== 'qa') {
       return { allowed: false, reason: 'La ejecución de operaciones aún no está habilitada en R1.' }
     }
     decision = 'own'
@@ -221,6 +277,27 @@ export function buildIdempotencyKey<O extends ActionOperation>(
   operation: O,
   payload: ActionPayloadMap[O]
 ): string {
+  return hashIntent(usuarioId, operation, payload)
+}
+
+/** Herramientas de escritura del copiloto web que pasan por la puerta R2 cuando COPILOT_R2_GATE=1. */
+export const COPILOT_GATED_TOOLS = {
+  create_action: 'create_action',
+  update_action: 'update_fields',
+  add_action_comment: 'add_comment',
+  update_checklist_item: 'update_checkpoint',
+  mark_action_done: 'update_status',
+  verify_action: 'verify_action',
+} as const satisfies Record<string, ActionOperation>
+
+export type CopilotGatedTool = keyof typeof COPILOT_GATED_TOOLS
+
+export function isCopilotGatedTool(tool: string): tool is CopilotGatedTool {
+  return Object.prototype.hasOwnProperty.call(COPILOT_GATED_TOOLS, tool)
+}
+
+/** Misma derivación para payloads almacenados de herramientas del copiloto. */
+export function hashIntent(usuarioId: string, operation: string, payload: unknown): string {
   return createHash('sha256').update(`${usuarioId}|${operation}|${stableStringify(payload)}`).digest('hex').slice(0, 32)
 }
 
