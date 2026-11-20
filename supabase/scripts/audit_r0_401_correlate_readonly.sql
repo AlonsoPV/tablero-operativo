@@ -1,5 +1,6 @@
--- R0 · correlación 401 (solo lectura). No content, no command, no payloads.
--- Confirmar jobname de los jobid 5 y 6, capa de auth y cola de seguimientos.
+-- R0 · correlación 401. Inspección previa a PROD. BEGIN READ ONLY. Solo SELECT.
+-- Lee cron.command solo para booleanos; no lo exporta. No content HTTP ni payloads.
+-- No cambia el dispatcher. El conteo de followups es el volumen de riesgo si se reautentica.
 begin read only;
 
 select jobid, jobname, active, schedule,
@@ -9,8 +10,7 @@ select jobid, jobname, active, schedule,
        command ~* 'paste_anon_key' as has_unreplaced_placeholder,
        command ~* 'x-dispatcher-secret' as has_dispatcher_header
 from cron.job
-where jobid in (5, 6)
-   or jobname in ('whatsapp-followup-dispatcher', 'whatsapp-inbound-worker');
+where jobname in ('whatsapp-followup-dispatcher', 'whatsapp-inbound-worker');
 
 select id as http_request_id, status_code, created,
        headers ->> 'x-deno-execution-id' as edge_execution_id,
