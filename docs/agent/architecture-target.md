@@ -1,22 +1,49 @@
 # Enviardián · arquitectura objetivo
 
-## R2 · agente accionable (local) · 2026-11-19
+## R2 · agente accionable (local) · actualizado con QA controlado · 2026-11-19
 
-R2 reutiliza `ACTION_CONTRACTS`, `R2_PHASE_MATRIX`, `assistant_pending_ops` y `confirmPendingOp`; no hay otro sistema de confirmaciones.
+R2 reutiliza `ACTION_CONTRACTS`, `R2_PHASE_MATRIX`, `assistant_pending_ops` y `confirmPendingOp`; no hay otro sistema de confirmaciones ni un segundo motor de ejecución.
 
 | Fase | Dónde | Regla |
 | --- | --- | --- |
 | Consulta y propuesta | `proposeR2Operation` (`api/_shared/actions/r2Runtime.ts`) | `authorizeActionPhase('propose')` con las capacidades del turno, validación del contrato y datos resueltos en servidor: responsable activo, acción visible, `updated_at` y destinatario = responsable. Guarda la operación pendiente con `request_key = buildIdempotencyKey(usuario, operación, payload)` y vence en 10 minutos |
-| Confirmación | `confirmPendingOp` → `gateR2Confirmation` | Nunca desde una herramienta del modelo (`fromTool`). Exige `R2_EXECUTION_MODE=simulated` y un ejecutor simulado. Recarga rol, activación y capacidades y autoriza `confirm` y `execute`. Si la autorización falla, se registra `denied` |
-| Revalidación | `confirmPendingOp` | Reserva atómica `pending→executing` comparando el payload y el vencimiento; conflicto si cambió `updated_at` |
-| Ejecución | `ActionExecutor` | `create_action` usa el ejecutor existente con id determinista. `update_status` y `register_blocker` usan la RPC `agent_apply_action_status`. `notify_responsable` usa adaptadores de correo y Graph simulados |
-| Evidencia | `verify` + `readR2Evidence` | Relee el efecto; si no se comprueba, la operación vuelve a `pending` con `error_message`. Se conservan bitácora, resultado y recibo SQL |
+| Confirmación | `confirmPendingOp` → `gateR2Confirmation` | Nunca desde una herramienta del modelo (`fromTool`). El ejecutor debe corresponder al modo (`simulated`↔`simulated`, `qa`↔`qa`). Recarga rol, activación y capacidades y autoriza `confirm` y `execute`. En `qa`, además comprueba que la BD declare el mismo proyecto QA (`agent_execution_environment()`). Si algo falla, se registra `denied` |
+| Revalidación | `agent_claim_pending_op` | Reserva `pending→executing` en SQL: operación propia, vigente, con el payload confirmado y con la puerta en BD abierta. Escribe `claimed_at`. Conflicto si cambió `updated_at` |
+| Ejecución | `ActionExecutor` | `create_action` usa el ejecutor existente con id determinista. `update_status` y `register_blocker` usan la RPC `agent_apply_action_status`. `notify_responsable` usa buzones simulados (memoria en `simulated`, `qa_outbox` en `qa`) |
+| Evidencia | `verify` + `readR2Evidence` | Relee el efecto; si no se comprueba, la operación vuelve a `pending` con `error_message` y `claimed_at` se limpia. Se conservan bitácora, resultado y recibo SQL |
 
 **Herramientas.** `agent_create_action`, `agent_set_action_status`, `agent_register_blocker` y `agent_notify_responsable`. No forman parte del catálogo del copiloto.
 
-**Modo.** `R2_EXECUTION_MODE` vale `disabled` por defecto, y siempre con `VERCEL`, `VERCEL_ENV` o `NODE_ENV=production`. `simulated` sólo aplica en pruebas y desarrollo local. El ejecutor `rpc` (JWT del usuario y proveedores reales) no es alcanzable con ningún modo actual.
+**Modo (`api/_shared/actions/executionMode.ts`).** Sólo se lee de `process.env`; ningún parámetro del cliente lo cambia.
 
-**RPC `agent_apply_action_status`** (`20261120120000`, local). Es security definer con `search_path` fijo. Exige un usuario activo y una operación propia en `executing`, de la herramienta correcta y con los mismos parámetros confirmados. Hace FOR UPDATE de la acción y CAS por `updated_at`. Autoriza al responsable o a quien tenga `can_edit_accion_general_as`, y niega a Analista y a Dirección sin privilegio explícito. Hecho delega en `try_set_accion_hecho` (checkpoints) y Verificado nunca se asigna. Bloqueado exige un motivo de al menos 5 caracteres y escribe el comentario en la misma transacción. Guarda un recibo por `pending_op_id` en `agent_action_receipts`, legible sólo por su dueño, y lo devuelve si se repite la llamada.
+| Modo | Se activa cuando | Ejecutor |
+| --- | --- | --- |
+| `disabled` | Por defecto; siempre con `VERCEL_ENV` o `NODE_ENV` = `production` | Ninguno: «ejecución no habilitada» |
+| `simulated` | `R2_EXECUTION_MODE=simulated` fuera de Vercel | Memoria (pruebas y desarrollo local) |
+| `qa` | `R2_EXECUTION_MODE=qa`, la referencia de `SUPABASE_URL` está en `R2_QA_PROJECT_REFS`, no es DEV (`tgiuevzlyptzlfgxsfhj`) ni PROD (`xhpasmjzuwifmjhrsumb`), la allowlist no contiene DEV/PROD y no es producción | `createQaActionExecutor`: RPC y escrituras con el JWT del usuario; avisos en `qa_outbox`. `api/assistant-ops.ts` lo inyecta vía `r2OptionsFromServerEnv()` |
+
+En `qa`, las herramientas de comunicación y de Google del copiloto se niegan («proveedores reales deshabilitados»).
+
+**Segundo factor en BD.** `agent_execution_allowed()` es falso salvo que exista una fila habilitada en `agent_execution_gate`. La migración no la crea; sólo `supabase/scripts/qa/seed_qa_environment.sql`, que además crea `qa_outbox` (RLS: inserta y lee sólo el emisor o destinatario) y `qa_whatsapp_linked()`. En DEV/PROD la ejecución queda cerrada aunque el servidor se configurara mal.
+
+**RPC `agent_claim_pending_op`** (`20261120120000`, local). Security definer, `search_path` fijo. Exige la puerta abierta, un usuario activo y una operación propia de una herramienta del agente o `mark_action_done`. Devuelve `false` si ya no está pendiente, venció o cambió el payload. El trigger `assistant_pending_ops_guard_agent_claim` impide a `authenticated`/`anon` escribir `claimed_at` y pasar una operación `agent_*` a `executing`, y limpia `claimed_at` cuando la operación vuelve a `pending`.
+
+**RPC `agent_apply_action_status`** (`20261120120000`, local). Security definer, `search_path` fijo. Exige la puerta abierta, un usuario activo y una operación propia en `executing` con `claimed_at`, de la herramienta correcta y con los mismos parámetros confirmados. Hace FOR UPDATE de la acción y CAS por `updated_at`. Autoriza al responsable o a quien tenga `can_edit_accion_general_as`, y niega a Analista y a Dirección sin privilegio explícito. Hecho delega en `try_set_accion_hecho` (checkpoints) y Verificado nunca se asigna. Bloqueado exige un motivo de al menos 5 caracteres y **nunca escribe `causa_raiz`**: la causa reportada queda como comentario `tipo_comentario='bloqueo_reportado'` con el texto «Causa reportada: …», en la misma transacción. Guarda un recibo por `pending_op_id` en `agent_action_receipts`, legible sólo por su dueño, y lo devuelve si se repite la llamada.
+
+**RPC `agent_action_block_history(p_accion_id)`.** Security definer, `search_path` fijo. Sólo para responsable, creador, edición general o Super Admin. Devuelve los comentarios `bloqueo_reportado` (y los «Bloqueo reportado por WhatsApp:» previos) y los recibos del agente sobre la acción. En TS, `readBlockHistory` la invoca tras autorizar la fase `query`.
+
+**Copiloto web por la puerta R2 (`COPILOT_R2_GATE`).** Flag del servidor, apagado por defecto e ignorado en producción. Con el flag apagado el copiloto conserva su flujo actual. Con el flag encendido, en el mismo `confirmPendingOp`:
+
+| Herramienta | Contrato | Ejecución |
+| --- | --- | --- |
+| `create_action` | `create_action` | Ejecutor existente con `actionIdForOp` (reintento sin duplicar) |
+| `update_action` | `update_fields` (el patch no puede incluir `estado`) | Ejecutor existente |
+| `add_action_comment` | `add_comment` | Ejecutor existente |
+| `update_checklist_item` | `update_checkpoint` | Ejecutor existente (`set_accion_checkpoint_completado`) |
+| `mark_action_done` | `update_status` con Hecho | Claim + `agent_apply_action_status` (recibo) |
+| `verify_action` | `verify_action` | Ejecutor existente; sólo creador o Super Admin (`can_manage_accion_full_as`), confirmación humana, nunca `fromTool` |
+
+Las propuestas reciben `request_key` (`hashIntent`) y se recargan actor y capacidades en la confirmación. Las herramientas de comunicación (`notify_action_email`, `notify_user_email`, `whatsapp_prepare_send`) no cambian de ruta; en modo `qa` se niegan. `api/_shared/guideWork.ts` (Guía) inserta acciones directamente y queda fuera de la puerta (R2-11).
 
 **Canales.** El orquestador reconoce las intenciones de estado, bloqueo y aviso al responsable, y sólo llega a la propuesta validada (`proposeAction`, sin persistir), avisando que la ejecución no está habilitada. Web la muestra cuando `AGENT_ORCHESTRATOR_R1=1`. WhatsApp y voz ignoran `write_request` y siguen su flujo vigente.
 

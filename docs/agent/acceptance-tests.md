@@ -4,17 +4,18 @@
 
 Cada rama corrió en su propio worktree limpio, con `npm ci` y `node_modules` propio, sin cambios ajenos. vitest se ejecuta con `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` ficticios: sin `.env`, tres suites que crean el cliente al importarse no cargan.
 
-| Suite | `integration/r1-hotfix` | `r2/agente-accionable` |
-| --- | --- | --- |
-| `tsc -p tsconfig.api.json` / `tsconfig.app.json` | Aprobados | Aprobados |
-| `npm run vercel-build` | Aprobado | Aprobado |
-| `npx vitest run` | 756/756, 117 archivos | 778/778, 118 archivos |
-| `test-agent-permissions-database.mjs` (R0) | Aprobado | Aprobado |
-| `test-r1-transversal-database.mjs` | **49/49**: suma `136000` tras `135000` e impide autoasignar RH por texto, RPC de áreas e inserción directa | 49/49 |
-| `test-hotfix-usuarios-guard.mjs` | 31/31, con R0 y A leídos del árbol | 31/31 |
-| `test-whatsapp-database.mjs` / `test-okr-database.mjs` | Aprobados | Aprobados |
-| `test-r2-action-status-database.mjs` | — | **14/14** |
-| ESLint en los archivos TS de R2 | — | Aprobado |
+| Suite | `integration/r1-hotfix` | `r2/agente-accionable` | `r2/qa-consolidacion` |
+| --- | --- | --- | --- |
+| `tsc -p tsconfig.api.json` / `tsconfig.app.json` | Aprobados | Aprobados | Aprobados |
+| `npm run vercel-build` | Aprobado | Aprobado | Aprobado |
+| `npx vitest run` | 756/756, 117 archivos | 778/778, 118 archivos | **797/797, 119 archivos** |
+| `test-agent-permissions-database.mjs` (R0) | Aprobado | Aprobado | Aprobado |
+| `test-r1-transversal-database.mjs` | **49/49**: suma `136000` tras `135000` e impide autoasignar RH por texto, RPC de áreas e inserción directa | 49/49 | 49/49 |
+| `test-hotfix-usuarios-guard.mjs` | 31/31, con R0 y A leídos del árbol | 31/31 | 31/31 |
+| `test-whatsapp-database.mjs` / `test-okr-database.mjs` | Aprobados | Aprobados | Aprobados |
+| `test-r2-action-status-database.mjs` | — | 14/14 | **20/20** |
+| `r2Acceptance.test.ts` / `copilotR2Gate.test.ts` | — | 22 / — | **29 / 12** |
+| ESLint en los archivos cambiados (TS y scripts) | — | Aprobado | Aprobado |
 
 Las validaciones de integración pedidas están cubiertas así:
 
@@ -27,26 +28,34 @@ Las validaciones de integración pedidas están cubiertas así:
 **`scripts/test-r2-action-status-database.mjs` (PGlite).** Usa las definiciones reales más recientes de los permisos de acción, de `try_set_accion_hecho`, del trigger de estados y de `assistant_pending_ops`. Las sesiones corren como `authenticated` con claims JWT simulados. Comprueba:
 
 - La migración se niega a aplicarse sin dependencias y es idempotente.
-- `anon` no tiene EXECUTE y los clientes no escriben recibos.
+- Puerta en BD: sin la fila del seed QA, claim y RPC responden `execution_disabled`.
+- Grants: `anon` no ejecuta ninguna de las RPC; `authenticated` sí. Los clientes no escriben recibos ni leen o escriben `agent_execution_gate`. Las RPC son security definer con `search_path=public`.
+- Ruta directa: un cliente no puede fijar `executing` en operaciones `agent_*` ni escribir `claimed_at`; la RPC sin claim responde `not_confirmed`, también para `mark_action_done` movido a mano.
+- Claim: una sola vez, sólo pendiente, vigente y con el payload confirmado; volver a `pending` limpia `claimed_at`; herramienta ajena, `invalid_operation`.
 - Un recibo por operación vuelve idempotente la repetición.
 - CAS por `updated_at`.
 - Vínculo con la confirmación: sólo el dueño, sólo en `executing` y sólo con los mismos parámetros.
 - Verificado nunca se asigna y una acción verificada no cambia.
 - Hecho con checkpoints pendientes se revierte por completo.
-- Bloqueo: motivo de al menos 5 caracteres; comentario siempre y `causa_raiz` sólo con edición general.
+- Bloqueo: motivo de al menos 5 caracteres; comentario `bloqueo_reportado` «Causa reportada: …» y `causa_raiz` intacta, también para la creadora con edición general.
+- Historial de bloqueos: responsable, creadora y Super Admin lo leen (incluye los reportes de WhatsApp previos y los recibos); Analista, Dirección, ajenos e inactivos no.
+- `mark_action_done` (copiloto con `COPILOT_R2_GATE`) pasa por claim y RPC con recibo.
 - Atomicidad ante un fallo del comentario.
-- Se niega a usuarios ajenos, Analista, Dirección e inactivos; Super Admin acumulativo.
+- Se niega a usuarios ajenos, Analista, Dirección e inactivos (también en el claim); Super Admin acumulativo.
 - RLS de recibos.
-- Rollback y reaplicación.
+- Rollback: retira RPC, puerta, guard, `claimed_at` y recibos; conserva estados y comentarios; al reaplicar, la puerta queda cerrada.
+- Seed QA: rechaza el marcador, DEV y PROD; con una referencia QA abre la puerta y crea `qa_outbox` con RLS de filas propias.
 
-**`api/_shared/actions/r2Acceptance.test.ts` (22 escenarios, simulados).**
+**`api/_shared/actions/r2Acceptance.test.ts` (29 escenarios, simulados).**
 
 | Caso | Evidencia |
 | --- | --- |
-| Modo | `disabled` por defecto y forzado en Vercel y producción; confirmar sin ejecutor responde «ejecución no habilitada», no toca datos y registra `denied`. El ejecutor `rpc` es inalcanzable. `fromTool` nunca confirma |
+| Modo | `disabled` por defecto y forzado en producción; `simulated` nunca en Vercel. `qa` sólo con la referencia en la allowlist, nunca DEV/PROD (ni en la allowlist), ni producción, ni URL local. Confirmar sin ejecutor responde «ejecución no habilitada», no toca datos y registra `denied`. Un ejecutor que no corresponde al modo queda deshabilitado. `fromTool` nunca confirma |
+| Puerta en BD y ruta directa | Sin la fila del seed el claim se niega sin efecto; fijar `executing` a mano y llamar la RPC responde `not_confirmed` |
 | AT-06 | Responsable resuelto en servidor (desambiguación de homónimos), fecha no pasada, una sola acción con id determinista por operación |
 | AT-07 | Cambio de estado con recibo. Verificado no se propone. Hecho con checkpoint pendiente deja la operación `pending` con `error_message` y el reintento cierra una vez |
-| AT-08 | Motivo obligatorio. El responsable deja comentario y la creadora además `causa_raiz` |
+| AT-08 | Motivo obligatorio. La causa reportada queda como comentario `bloqueo_reportado` y `causa_raiz` no cambia, ni para la creadora. Historial: responsable y creadora sí; Analista, Dirección y otros no |
+| Ejecutor `qa` | Estado y aviso con la sesión del usuario; el aviso queda una sola vez en `qa_outbox` y nunca en proveedores. Si la BD declara otro proyecto, `CONFIGURATION_ERROR` sin efecto. Las comunicaciones del copiloto se niegan en `qa` |
 | AT-09 | Exige `whatsappInbox`. Destinatario = responsable, con teléfono de su vínculo activo. Sin vínculo falla sin enviar y queda pendiente; tras vincular se envía una vez |
 | AT-10 | Correo único al responsable, sin reenvío al reconfirmar. No se notifica a uno mismo. Un usuario sin permiso sobre la acción no notifica. Si el responsable cambió, no se envía |
 | AT-16 | Evidencia del autor: estado, resultado, recibo y bitácora (`proposed`, `executed`); otro usuario no la lee |
@@ -58,7 +67,16 @@ Las validaciones de integración pedidas están cubiertas así:
 | Alcance de la IA | Campos de autoridad inyectados no amplían permisos ni llegan al payload |
 | Canales | Bloqueo, estado y aviso sólo producen propuesta; Verificado se niega; no se crean operaciones |
 
-**Sin ejecutar:** RLS y RPC con JWT reales en DEV o QA, proveedores reales y canales desplegados. Las pruebas simuladas no sustituyen esa validación.
+**`api/_shared/actions/copilotR2Gate.test.ts` (12 escenarios, simulados).**
+
+| Flag | Evidencia |
+| --- | --- |
+| Apagado (defecto) | El flag está apagado por defecto, sólo `'1'` lo enciende y producción lo ignora. `create_action` crea con id aleatorio como hoy; `mark_action_done` confirmado desde herramienta usa `try_set_accion_hecho` sin claim ni recibo; las propuestas no llevan `request_key` |
+| Encendido | Sin modo de ejecución se niega sin efecto. `create_action` usa `actionIdForOp` y no duplica al reconfirmar. La misma intención da una sola propuesta (`request_key`). `mark_action_done` pasa por claim y RPC con recibo. `fromTool` se niega. `verify_action`: el responsable no verifica, la creadora sí. Analista y Dirección no confirman. Un cambio de rol tras proponer se niega con el rol vigente (cubre R2-10). `update_action` no puede cambiar `estado`. En producción se ignora el flag |
+
+**Matriz JWT preparada (no ejecutada): `scripts/qa/run-jwt-suite.mjs`.** Detalle y orden en `qa-r1-r2.md`. Cubre JWT-01 a JWT-16: sesiones reales, puerta en BD, ruta directa, ejecución única con recibo, bloqueo sin `causa_raiz`, historial por perfil, Analista y Dirección sin ejecución, inactivo, Super Admin acumulativo, lectura por perfil (observación), JWT de B rechazado en A, cambio de rol, concurrencia, vencimiento, Verificado y cero filas nuevas en proveedores.
+
+**Sin ejecutar:** RLS y RPC con JWT reales en QA, proveedores reales y canales desplegados. Las pruebas simuladas no sustituyen esa validación.
 
 ## R1 complemento · P0, RC-05 y paridad super_admin · pruebas ejecutadas · 2026-11-19
 

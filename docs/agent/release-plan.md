@@ -1,5 +1,33 @@
 # Enviardián · releases y ejecución R0–R1
 
+## QA controlado R1/R2 y consolidación de operaciones · 2026-11-19
+
+Rama local `r2/qa-consolidacion`, creada desde `r2/agente-accionable` (`e0eceb1`). Sólo commits locales: sin push, merge, despliegue, migración remota ni recursos creados. Todo lo nuevo está apagado por defecto. Runbook en `qa-r1-r2.md`.
+
+| Cambio | Estado |
+| --- | --- |
+| Modo `qa` (allowlist de referencias, bloqueo fijo de DEV/PROD, nunca producción, sólo `process.env`) con ejecutor `qa` (JWT del usuario, avisos en `qa_outbox`) conectado en `api/assistant-ops.ts` | Implementado y probado en local |
+| Puerta en BD `agent_execution_allowed()` + claim `agent_claim_pending_op` con `claimed_at` (cierra la ruta directa R2-09) | En `20261120120000`, probado en PGlite |
+| Seed QA (`supabase/scripts/qa/seed_qa_environment.sql`) y scripts `provision-qa-accounts.mjs` / `run-jwt-suite.mjs` | Preparados; **no ejecutados** |
+| Copiloto por la puerta R2 con `COPILOT_R2_GATE` (sin segundo motor; `verify_action` separado) | Implementado; flag apagado, ignorado en producción |
+| Bloqueo por responsable: sin `causa_raiz`, comentario `bloqueo_reportado`, `agent_action_block_history` | En `20261120120000` (editada en sitio: local, sin aplicar) |
+| Matriz R2: área OKRS confirma con la misma base que propone (R2-10) | Corregido |
+
+| Release | Veredicto | Motivo |
+| --- | --- | --- |
+| R1 | GO integración local / NO-GO liberación | Sin cambios funcionales en esta rama; falta la matriz JWT en QA |
+| R2 | GO preparación de QA / NO-GO liberación | 797 pruebas vitest, 20 checks SQL y regresiones R0/R1/hotfix/WhatsApp/OKR aprobados. Falta ejecutar `run-jwt-suite.mjs` con JWT reales en QA A/B |
+
+**Migraciones pendientes (ninguna aplicada):** `20261119120000` (R1) en QA; `20261120120000_agent_apply_action_status.sql` corregida, sólo en QA; seed QA sólo en QA A. Nunca en DEV ni PROD.
+
+**Autorizaciones necesarias** (ninguna se ejecutó):
+
+1. Crear los proyectos QA A y QA B (Micro, 48 h).
+2. Aplicar en QA únicamente la base del esquema y las migraciones hasta `20261120120000`, y el seed QA en A.
+3. Aprovisionar las 10 cuentas sintéticas `example.invalid` con `provision-qa-accounts.mjs --apply`.
+4. Configurar una preview de QA con `R2_EXECUTION_MODE=qa`, `R2_QA_PROJECT_REFS` y, para validar el copiloto, `COPILOT_R2_GATE=1`.
+5. Ejecutar `run-jwt-suite.mjs` y revisar el reporte antes de cualquier decisión de liberación.
+
 ## Integración R1 y arranque controlado de R2 · 2026-11-19
 
 Todo es local: hubo commits locales, pero ningún push, merge a `main`, despliegue ni migración remota. DEV y PROD se consultaron sólo con SELECT.
@@ -25,8 +53,8 @@ Todo es local: hubo commits locales, pero ningún push, merge a `main`, desplieg
 1. Aplicar `20261120120000_agent_apply_action_status.sql` en DEV o QA (rollback: `supabase/scripts/rollback_agent_apply_action_status.sql`).
 2. Crear cuentas sintéticas para Responsable, Creadora, Analista, Dirección, Super Admin e Inactivo, y obtener sus JWT.
 3. Activar `AGENT_ORCHESTRATOR_R1` en QA para validar las propuestas por canal.
-4. Ejecutar el modo simulado contra DEV con proveedores simulados. Requiere un modo de QA explícito, porque hoy el ejecutor `rpc` es inalcanzable.
-5. Decidir si los copilotos actuales migran a la puerta R2 (ver R2-01 en `risks-and-dependencies.md`).
+4. ~~Ejecutar el modo simulado contra DEV~~ Sustituido por el modo `qa` sobre proyectos QA dedicados (sección superior); DEV queda excluido.
+5. Decidir si los copilotos actuales migran a la puerta R2: preparado detrás de `COPILOT_R2_GATE` (sección superior, R2-01).
 
 ## R1 complemento · matriz de transición y orden · 2026-11-19
 
