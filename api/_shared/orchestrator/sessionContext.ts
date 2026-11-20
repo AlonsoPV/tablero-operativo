@@ -205,8 +205,7 @@ export function createSupabaseSessionContextStore(
           .eq('channel', parsed.channel)
           .eq('session_hash', parsed.sessionHash)
           .maybeSingle()
-        if (error) return fallback.get(key, now)
-        if (!data) return null
+        if (error || !data) return fallback.get(key, now)
         const row = data as { payload: unknown; capability_fingerprint: string; expires_at: string; updated_at: string }
         if (Date.parse(row.expires_at) <= now) {
           await store.clear(key)
@@ -227,7 +226,7 @@ export function createSupabaseSessionContextStore(
       await fallback.set(key, value, now)
       if (!parsed) return
       try {
-        await supabase.from('agent_session_context').upsert(
+        const { error } = await supabase.from('agent_session_context').upsert(
           {
             usuario_id: parsed.usuarioId,
             channel: parsed.channel,
@@ -239,8 +238,14 @@ export function createSupabaseSessionContextStore(
           },
           { onConflict: 'usuario_id,channel,session_hash' }
         )
-      } catch {
-        /* best-effort: el turno ya respondió */
+        if (error) {
+          console.error('agent_session_context: no se persistió el turno', error.code ?? error.message)
+        }
+      } catch (error) {
+        console.error(
+          'agent_session_context: fallo al persistir',
+          error instanceof Error ? error.message : error
+        )
       }
     },
     async clear(key) {

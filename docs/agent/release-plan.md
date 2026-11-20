@@ -1,5 +1,43 @@
 # Enviardián · releases y ejecución R0–R1
 
+## Correcciones QA y cierre R1 · 2026-11-19
+
+Rama local `qa/supabase-local` sobre `4413296`. Correcciones de QA-R1-01, QA-R1-02 y QA-R1-03, modo `qa` local opt-in (`QA_LOCAL=1`) y revalidación con JWT reales. Sin push, merge, despliegue ni cambios en DEV o PROD. La evidencia previa en `scrumban-qa/evidence/` se conserva; las capturas nuevas usan prefijo `cierre-`.
+
+| Pieza | Validado en QA (local) | Resultado |
+| --- | --- | --- |
+| R0 | No | Las validaciones remotas siguen abiertas |
+| R1 | Sí | JWT-01 a JWT-16 16/16. Persistencia SHA-256: F4 Super Admin y Área OKRS correctas. R2-A2 identifica la acción |
+| Formatos | Sí | Directivas y selector aplican en la web. Reporte muestra el resumen operativo. «Análisis» cabe a 320, 390 y 768 px |
+| R2 | Sí, HTTP en modo `qa` local | Propuesta → confirmación (`/api/assistant-ops`) → autorización → ejecución → recibo: 7/7. Idempotencia y concurrencia correctas. Avisos a proveedores: 0 |
+
+| Verificación | Resultado |
+| --- | --- |
+| `vitest run` | 122 archivos, 885 pruebas |
+| `run-jwt-suite.mjs` | 16/16 |
+| `run-api-matrix.mjs` | 21/21 |
+| `run-r2-http.mjs` | 7/7 |
+| Matriz visual | Selector, directivas, Reporte y Análisis correctos en escritorio y móvil. Super Admin ve «Aprobar y ejecutar» cuando la lista pasó por el orquestador |
+
+### GO/NO-GO por release
+
+| Release | Veredicto |
+| --- | --- |
+| R0 | NO-GO liberación. No forma parte de esta validación |
+| R1 | GO en QA local. NO-GO producción: falta preview QA remoto y queda el residual QA-R1-04 (listas Auto en el cliente no alimentan «esa acción» en el servidor) |
+| Formatos R1 | GO en QA local. NO-GO producción hasta el mismo preview remoto |
+| R2 | GO para seguir en QA local con `QA_LOCAL=1`. NO-GO habilitar fuera de QA y NO-GO producción. Tras esta sesión la ejecución queda deshabilitada |
+
+### Siguiente paso (condiciones exactas)
+
+1. Preview QA **hosted** (`*.supabase.co` en `R2_QA_PROJECT_REFS`), nunca DEV/PROD, con `R2_EXECUTION_MODE=qa` y `AGENT_ORCHESTRATOR_R1=1`.
+2. Repetir JWT-01 a JWT-16, la matriz API 21 y `run-r2-http.mjs` contra ese preview.
+3. Decidir QA-R1-04: delegar también las listas Auto al orquestador, o sincronizar el contexto local.
+4. QA-DB-01 (`accion_evidencias.created_at` vs `uploaded_at`) en un ticket aparte, con SELECT de sólo lectura en DEV.
+5. Las seis migraciones de R2-15: no reescribir historia; proponer migraciones forward-only (abajo en riesgos) y exigir autorización antes de aplicarlas.
+
+`AGENT_ORCHESTRATOR_R1` y `R2_EXECUTION_MODE=qa` sólo viven en `.env.qa.local` (gitignored).
+
 ## QA local sin costo R1/R2 · 2026-11-19
 
 Rama local `qa/supabase-local`, base `integration/r1-r2-cierre` (`2303bb9`). Dos instancias de Supabase local (QA A y QA B) en WSL2 con Docker Engine, 228 migraciones aplicadas sólo en ellas y cuentas sintéticas. Sin costo, sin push, merge ni despliegue, y sin cambios en DEV ni PROD. `AGENT_ORCHESTRATOR_R1`, `R2_EXECUTION_MODE` y `COPILOT_R2_GATE` sólo se encendieron en `.env.qa.local` (ignorado por git) para el servidor QA local. Procedimiento y detalle en `qa-r1-r2.md`; hallazgos en `risks-and-dependencies.md`.

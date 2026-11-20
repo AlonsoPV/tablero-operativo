@@ -1,5 +1,30 @@
 # Enviardián · incidentes, riesgos y dependencias
 
+## Correcciones QA R1 · 2026-11-19
+
+Rama `qa/supabase-local`. Los tres bloqueos de R1 se corrigieron en código y se revalidaron. No se modificaron migraciones históricas ni DEV/PROD.
+
+| ID | Estado | Qué se hizo |
+| --- | --- | --- |
+| QA-R1-01 | **Corregido** | `capabilityFingerprint()` es SHA-256 hex (64) de capacidades canonizadas. El upsert registra el error en consola; `get()` cae a memoria si no hay fila. F4 Super Admin / Área OKRS y R2-A2 pasan |
+| QA-R1-02 | **Corregido** | `parseFormatDirective` vive en `src/features/ai-support/responseFormat.ts`. Precedencia sobre personas. Directivas y formatos distintos de Auto se delegan al orquestador. «modo reporte» / «automático» ya no se tratan como nombres |
+| QA-R1-03 | **Corregido** | El selector de formato va en su propia fila, `whitespace-nowrap` y `overflow-x-auto`. «Análisis» cabe a 320, 390 y 768 px |
+| QA-R2-01 | **Corregido (local)** | `localQaProjectRef()` exige `QA_LOCAL=1`, http loopback, puerto en `QA_LOCAL_PORTS` y ref `qalocal…` en la allowlist. Vercel y producción siguen en `disabled`. No se ampliaron destinos `*.supabase.co` |
+| QA-R1-04 | **Abierto, no bloquea formatos** | En Auto, `runConversationTurn` sigue resolviendo listas Kanban en el cliente. Esa lista no escribe `agent_session_context`, así que «marca esa acción» en el servidor responde «Faltan datos: accion». Con Reporte/Directo/Análisis (o por API) el contexto sí existe. Propuesta: delegar también las listas Auto, o publicar el contexto local |
+| QA-DB-01 | **Abierto, independiente** | `get_operational_okr_dashboard` (`20260820120000` ~L334) usa `accion_evidencias.created_at`; la columna es `uploaded_at` (42703). No forma parte de R1/R2. No se toca el histórico. Ticket aparte, SELECT de sólo lectura en DEV para clasificar deriva vs defecto previo |
+| R2-15 | **Documentado, sin reescritura** | Seis migraciones no se aplican limpias desde cero. Los parches siguen sólo en la copia de instancia (`prepare-instance.mjs`). Corrección segura propuesta, **no aplicada**: migraciones nuevas forward-only (drop+recreate de `try_set_accion_hecho`; no-op del UUID real; no alterar `auth.users` si no somos dueños; `cron.unschedule` defensivo). Requieren autorización expresa. Nunca editar los archivos históricos |
+
+### Seis migraciones que requieren parche (réplica local)
+
+| Migración | Problema | Corrección segura propuesta (nueva migración, no reescribir) |
+| --- | --- | --- |
+| `20260313190000` | Asigna super_admin a un UUID real fijo | Dejar el histórico; no repetir el grant. El parche local lo sustituye por `select 1` |
+| `20260601170000` | `ALTER TABLE auth.users` sin ser dueño en local | No-op si `current_user` no es el dueño; no tocar `auth.users` en una migración nueva |
+| `20260625161411` | Cambia el tipo de retorno de `try_set_accion_hecho` | `DROP FUNCTION IF EXISTS` + `CREATE` en una migración nueva, idéntica al cuerpo vigente |
+| `20260629201032` | `cron.schedule` hacia DEV/PROD | No reprogramar. En réplicas, dejar `cron.job` vacío |
+| `20261103121000` | Igual, cron hacia refs remotas | Igual |
+| `20261104140000` | Igual | Igual |
+
 ## QA local R1/R2 · hallazgos · 2026-11-19
 
 Rama local `qa/supabase-local` (base `2303bb9`), Supabase local en WSL2 con dos instancias aisladas y cuentas sintéticas. Detalle y evidencia en `qa-r1-r2.md`. Ningún hallazgo se corrigió en esta sesión.

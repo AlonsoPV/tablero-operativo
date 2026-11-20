@@ -256,6 +256,39 @@ describe('conversation e2e sequence (Fase 13)', () => {
     expect(turn.handled).toBe(false)
   })
 
+  it('format directives take precedence over person matching and do not invent a name', () => {
+    for (const message of ['modo reporte', 'automático', 'formato directo', 'Análisis']) {
+      const turn = run(message, null)
+      expect(turn.handled).toBe(false)
+      if (turn.handled) throw new Error('expected handoff')
+      expect(turn.reason).toBe('format_directive')
+    }
+  })
+
+  it('delegates to the orchestrator when a format other than Auto is selected', () => {
+    const turn = runConversationTurn({
+      message: 'Que acciones tengo abiertas?',
+      previous: null,
+      snapshot,
+      people,
+      responseFormat: 'report',
+    })
+    expect(turn.handled).toBe(false)
+    if (turn.handled) throw new Error('expected handoff')
+    expect(turn.reason).toBe('format_selected')
+  })
+
+  it('keeps the local kanban path in Auto without a format command', () => {
+    const turn = runConversationTurn({
+      message: 'Que acciones tengo abiertas?',
+      previous: null,
+      snapshot,
+      people,
+      responseFormat: 'auto',
+    })
+    expect(turn.handled).toBe(true)
+  })
+
   it('hands off email/WhatsApp even when the body mentions acciones', () => {
     const email = run(
       'Envia un correo a alpeva96@gmail.com con el resumen de sus acciones',

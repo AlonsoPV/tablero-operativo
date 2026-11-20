@@ -89,6 +89,27 @@ describe('R2 · modo de ejecución y puerta de confirmación', () => {
     expect(r2OptionsFromServerEnv(qa)).toMatchObject({ mode: 'qa', executor: { kind: 'qa' } })
   })
 
+  it('qa local exige QA_LOCAL=1, loopback, puerto declarado y ref qalocal; no se activa en Vercel', () => {
+    const local = {
+      R2_EXECUTION_MODE: 'qa',
+      QA_LOCAL: '1',
+      QA_LOCAL_PORTS: '54421,54521',
+      QA_LOCAL_REF: 'qalocala000000000000',
+      SUPABASE_URL: 'http://127.0.0.1:54421',
+      R2_QA_PROJECT_REFS: 'qalocala000000000000',
+    }
+    expect(resolveR2ExecutionMode(local)).toBe('qa')
+    expect(qaProjectRef(local)).toBe('qalocala000000000000')
+    expect(resolveR2ExecutionMode({ ...local, QA_LOCAL: undefined })).toBe('disabled')
+    expect(resolveR2ExecutionMode({ ...local, SUPABASE_URL: 'https://127.0.0.1:54421' })).toBe('disabled')
+    expect(resolveR2ExecutionMode({ ...local, SUPABASE_URL: 'http://10.0.0.5:54421' })).toBe('disabled')
+    expect(resolveR2ExecutionMode({ ...local, VERCEL: '1' })).toBe('disabled')
+    expect(resolveR2ExecutionMode({ ...local, VERCEL_ENV: 'preview' })).toBe('disabled')
+    expect(resolveR2ExecutionMode({ ...local, NODE_ENV: 'production' })).toBe('disabled')
+    expect(resolveR2ExecutionMode({ ...local, QA_LOCAL_REF: 'tgiuevzlyptzlfgxsfhj' })).toBe('disabled')
+    expect(resolveR2ExecutionMode({ ...local, R2_QA_PROJECT_REFS: 'tgiuevzlyptzlfgxsfhj,qalocala000000000000' })).toBe('disabled')
+  })
+
   it('el ejecutor debe corresponder al modo: qa con simulated o simulated con qa queda deshabilitado', async () => {
     const w = world()
     const id = await proposed(w.db, R1_USERS.jorge1, 'update_status', { accionId: 'a8', estado: 'En_Ejecucion' })

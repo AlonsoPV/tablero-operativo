@@ -6,6 +6,7 @@
  */
 import type {
   CopilotClarification,
+  CopilotProposal,
   CopilotToolResult,
 } from '../../../src/features/ai-support/copilot/types.js'
 import { draftFromRequest } from '../../../src/features/ai-support/creationDraft.js'
@@ -13,6 +14,8 @@ import { parseDueDateHint } from '../../../src/features/ai-support/parseWorkFact
 import { todayWallClockCDMX } from '../../../src/lib/dateUtils.js'
 import { buildActiveQueryEntry, isPersonalActionScope } from '../actionQueryContract.js'
 import { proposeAction, type ActionProposal } from '../actions/contracts.js'
+import { resolveR2ExecutionMode } from '../actions/executionMode.js'
+import { proposeR2Operation } from '../actions/r2Runtime.js'
 import { authorizeOperation, authorizeQuery } from '../query/authorizeQuery.js'
 import type {
   ActionItem,
@@ -75,7 +78,7 @@ export type AgentTurnResult = {
   intent: AgentIntent['kind']
   response: AgentResponse
   clarification?: CopilotClarification
-  proposal?: ActionProposal
+  proposal?: ActionProposal | CopilotProposal
   /** Formato aplicado (Automático ya resuelto) y el elegido por el usuario o la sesión. */
   format: ResolvedFormat
   formatSelected: ResponseFormat
@@ -623,7 +626,7 @@ async function handleUnsupportedMetric(state: TurnState) {
   return { response, audit: { status: 'partial' as const, entity: 'actions', scope, total: overdue.totals.total } }
 }
 
-function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent, { kind: 'write_request' }>) {
+async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent, { kind: 'write_request' }>) {
   const auth = authorizeOperation(state.actor, 'propose_write')
   if (!auth.allowed) {
     return { response: forbidden(auth.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
@@ -635,6 +638,18 @@ function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent, { kin
     const mentionsBlocker = /bloque/i.test(intent.request)
     const origen = mentionsBlocker && blockedRefs.length === 1 ? blockedRefs[0]! : null
     const due = parseDueDateHint(intent.request, state.today)
+    if (resolveR2ExecutionMode() === 'qa') {
+      const persisted = await proposeR2Operation(state.actor, 'create_action', {
+        titulo: draft.title || intent.request.slice(0, 70),
+        responsableId: null,
+        fecha: due.dateYmd,
+        origenAccionId: origen?.id ?? null,
+      })
+      if (!persisted.ok) return { response: forbidden(persisted.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
+      response.blocks.data.push(persisted.proposal.summary)
+      response.blocks.limitations.push('Confirma desde esta sesión para aplicar el cambio en QA. No se envió nada a proveedores.')
+      return { response, proposal: persisted.proposal, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
+    }
     const proposed = proposeAction(state.actor, 'create_action', {
       titulo: draft.title || intent.request.slice(0, 70),
       responsableId: null,
@@ -667,7 +682,7 @@ function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent, { kin
 }
 
 /** R2 en canales: sólo llega a la propuesta validada; la confirmación y ejecución quedan fuera del canal. */
-function handleR2WriteRequest(
+async function handleR2WriteRequest(
   state: TurnState,
   intent: Extract<AgentIntent, { kind: 'write_request' }>,
   target: { id: string; label: string } | null,
@@ -680,6 +695,20 @@ function handleR2WriteRequest(
     }
   }
   const accionId = target?.id ?? ''
+  if (resolveR2ExecutionMode() === 'qa') {
+    const persisted = intent.operation === 'update_status'
+      ? await proposeR2Operation(state.actor, 'update_status', {
+        accionId,
+        estado: intent.estado as 'Pendiente' | 'En_Ejecucion' | 'Hecho',
+      })
+      : intent.operation === 'register_blocker'
+        ? await proposeR2Operation(state.actor, 'register_blocker', { accionId, motivo: intent.motivo ?? '' })
+        : await proposeR2Operation(state.actor, 'notify_responsable', { accionId, canal: intent.canal ?? 'email' })
+    if (!persisted.ok) return { response: forbidden(persisted.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
+    response.blocks.data.push(persisted.proposal.summary)
+    response.blocks.limitations.push('Confirma desde esta sesión para aplicar el cambio en QA. No se envió nada a proveedores.')
+    return { response, proposal: persisted.proposal, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
+  }
   const proposed = intent.operation === 'update_status'
     ? proposeAction(state.actor, 'update_status', { accionId, estado: intent.estado as 'Pendiente' | 'En_Ejecucion' | 'Hecho' })
     : intent.operation === 'register_blocker'
@@ -841,7 +870,7 @@ export async function runAgentTurn(
   let outcome: {
     response: AgentResponse
     clarification?: CopilotClarification
-    proposal?: ActionProposal
+    proposal?: ActionProposal | CopilotProposal
     audit: Partial<QueryAuditEntry>
   }
   switch (intent.kind) {
@@ -864,7 +893,7 @@ export async function runAgentTurn(
       outcome = await handleUnsupportedMetric(state)
       break
     case 'write_request':
-      outcome = handleWriteRequest(state, intent)
+      outcome = await handleWriteRequest(state, intent)
       break
     case 'clarify': {
       const response = baseResponse('clarification')

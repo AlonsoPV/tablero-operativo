@@ -1,5 +1,20 @@
 # Enviardián · QA controlado R1/R2
 
+## Revalidación tras correcciones · 2026-11-19
+
+Rama `qa/supabase-local`. JWT, matriz API, HTTP R2 y matriz visual se volvieron a ejecutar contra QA A/B locales. Evidencia nueva en `scrumban-qa/evidence/cierre-*`; las capturas `escritorio-*` / `movil-*` del 19-nov se conservan.
+
+| Suite | Resultado | Reporte |
+| --- | --- | --- |
+| JWT-01 a JWT-16 | 16/16 | `.qa/jwt-report-1795151903980.json` |
+| Matriz API F1–F8 y R2-A–G | 21/21 (antes 18/21) | `.qa/api-matrix-1795151920797.json` |
+| HTTP R2-H1–H7 | 7/7 | `.qa/r2-http-1795151945297.json` |
+| `vitest run` | 122 archivos, 885 pruebas | — |
+
+Modo `qa` local: `QA_LOCAL=1`, `QA_LOCAL_REF`, `QA_LOCAL_PORTS` y `R2_EXECUTION_MODE=qa` en el servidor Vite (`.env.qa.local`). `scripts/qa/run-r2-http.mjs` cubre propuesta → `POST /api/assistant-ops` confirm → recibo, reintento idempotente, dos confirmaciones concurrentes, Dirección sin confirmar ops ajenas, y 0 filas en proveedores.
+
+Matriz visual (escritorio 1024, móvil 320/390/768): Auto/Directo/Reporte/Análisis visibles; «modo reporte» vuelve a presentar Resumen operativo y marca Reporte; «automático» vuelve a Auto. Super Admin muestra «Aprobar y ejecutar» cuando la lista previa fue al orquestador. Residual QA-R1-04: lista en Auto por el cliente no deja contexto de «esa acción» en el servidor.
+
 Guía para validar R1 y R2 con sesiones JWT reales sin tocar DEV ni PROD. Todo lo descrito está preparado en la rama local `r2/qa-consolidacion`; **nada se ha creado, aplicado ni ejecutado en ningún entorno remoto**.
 
 ## Qué protege el modo QA

@@ -395,6 +395,22 @@ describe('persistencia de la preferencia', () => {
     expect(toPersistedPayload({ activeQuery: null, lastActions: [], lastEntity: null, responseFormat: 'otro' as ResponseFormat }).responseFormat).toBe('auto')
   })
 
+  it('Super Admin y Área OKRS persisten «modo reporte» (huella SHA-256 ≤ 128)', async () => {
+    for (const user of [R1_USERS.superAdmin, R1_USERS.okrsAnalyst]) {
+      const db = createR1Db()
+      db.tables.agent_session_context = []
+      const store = createSupabaseSessionContextStore(createFakeSupabase(db), createMemorySessionContextStore())
+      const h = harness(store, db)
+      await turn(h, user, '¿Qué tengo pendiente hoy?')
+      await turn(h, user, 'modo reporte')
+      const next = await turn(h, user, '¿Qué tengo pendiente hoy?')
+      expect(next.formatSelected).toBe('report')
+      const row = db.tables.agent_session_context![0]!
+      expect(String(row.capability_fingerprint)).toMatch(/^[a-f0-9]{64}$/)
+      expect(String(row.capability_fingerprint).length).toBeLessThanOrEqual(128)
+    }
+  })
+
   it('al cambiar las capacidades se reinicia (Automático) junto con el contexto', async () => {
     const h = harness()
     await turn(h, R1_USERS.lead, 'modo reporte')

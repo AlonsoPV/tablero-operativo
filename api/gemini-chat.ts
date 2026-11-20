@@ -180,9 +180,10 @@ export default defineApiHandler(async (req, res) => {
         responseFormat,
       })
       if (turn.handled) {
+        const persistedProposal = turn.proposal && 'tool' in turn.proposal ? turn.proposal : null
         return res.status(200).json({
           answer: turn.text,
-          proposals: [],
+          proposals: persistedProposal ? [persistedProposal] : [],
           clarification: turn.clarification,
           ui: uiForTurn(turn, turn.text),
           toolTrace: turn.toolsUsed.map((tool) => ({ tool, kind: 'read' })),

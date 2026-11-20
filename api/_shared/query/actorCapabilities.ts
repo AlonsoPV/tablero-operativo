@@ -2,6 +2,7 @@
  * Capacidades del actor leídas en servidor (rol, app_role, áreas y módulos de catálogo).
  * Misma derivación que public.access_capabilities_for_usuario; nunca usa datos del cliente ni del modelo.
  */
+import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   isSuperAdminCatalogRole,
@@ -70,11 +71,34 @@ export async function loadAgentCapabilities(identity: CapabilityIdentity): Promi
   }
 }
 
-/** Huella estable de las capacidades; si cambia, el contexto conversacional previo se descarta. */
+/** Orden fijo de claves; cualquier capacidad efectiva (true o false) entra en la huella. */
+export const CAPABILITY_FINGERPRINT_KEYS = [
+  'active',
+  'superAdmin',
+  'direction',
+  'okrsArea',
+  'legacyOkrsAreaGrants',
+  'readAllOrganizationalData',
+  'readAllOkrs',
+  'readCrossAreaExecution',
+  'manageAll',
+  'adminAllOkrs',
+  'whatsappAssistant',
+  'whatsappInbox',
+  'whatsappSettings',
+  'whatsappIdentityLink',
+] as const satisfies ReadonlyArray<keyof AccessCapabilities>
+
+/** Representación canónica de las capacidades efectivas (antes del hash). */
+export function canonicalCapabilityPayload(capabilities: AccessCapabilities): string {
+  return CAPABILITY_FINGERPRINT_KEYS.map((key) => `${key}:${capabilities[key] ? 1 : 0}`).join('|')
+}
+
+/**
+ * Huella estable (SHA-256 hex, 64 caracteres) de las capacidades efectivas.
+ * Si cambia un permiso, el contexto conversacional previo se descarta.
+ * Cabe en el CHECK de `agent_session_context.capability_fingerprint` (≤ 128).
+ */
 export function capabilityFingerprint(capabilities: AccessCapabilities): string {
-  return Object.entries(capabilities)
-    .filter(([, value]) => value === true)
-    .map(([key]) => key)
-    .sort()
-    .join(',') || 'none'
+  return createHash('sha256').update(canonicalCapabilityPayload(capabilities), 'utf8').digest('hex')
 }

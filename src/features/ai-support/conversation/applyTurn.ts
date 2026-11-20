@@ -4,6 +4,7 @@ import {
 } from '@/features/ai-support/actionQuery/mergeArgs'
 import { matchPeopleByName, type NamedPerson } from '@/features/ai-support/copilot/matching'
 import { looksLikeCommsPrepare } from '@/features/ai-support/operationalSemantics/classifyCreateWork'
+import { parseFormatDirective } from '@/features/ai-support/responseFormat'
 import {
   initialConversationState,
   toActiveQuery,
@@ -183,6 +184,19 @@ export function applyConversationTurn(input: ApplyTurnInput): ApplyTurnResult {
   const message = input.message.trim()
   const prev = input.previous
   const now = new Date().toISOString()
+
+  // Directiva de formato («modo reporte», «automático»): no es un nombre de persona.
+  // El orquestador aplica el formato y, si hay resto, consulta una sola vez.
+  if (parseFormatDirective(message)) {
+    const state = {
+      ...(prev ?? initialConversationState()),
+      entity: 'none' as const,
+      intent: 'handoff' as const,
+      pendingClarification: null,
+      updatedAt: now,
+    }
+    return { kind: 'handoff', state, reason: 'format_directive' }
+  }
 
   // --- Aclaración pendiente ---
   if (prev?.pendingClarification?.kind === 'person') {

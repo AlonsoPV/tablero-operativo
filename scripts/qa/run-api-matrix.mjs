@@ -81,7 +81,7 @@ check('F4', 'Dirección: «modo reporte» persiste en la conversación y conserv
 check('F5', 'Dirección: «automático» vuelve a Auto; otra conversación arranca en Auto', d.a4.fmt === 'auto' && d.a5.fmt === 'auto' && d.other.fmt === 'auto', { a4: d.a4.fmt, a5: d.a5.fmt, other: d.other.fmt })
 for (const k of ['super_admin', 'okrs_area']) {
   const s = await directiveFlow(T[k])
-  check(`F4-${k}`, `${k}: «modo reporte» persiste en la conversación`, s.a3.fmt === 'report', { a2: s.a2.fmt, a3: s.a3.fmt }, 'QA-R1-01 (capability_fingerprint > 128)')
+  check(`F4-${k}`, `${k}: «modo reporte» persiste en la conversación`, s.a3.fmt === 'report', { a2: s.a2.fmt, a3: s.a3.fmt })
 }
 
 // F6–F8: alcance y denegaciones en los cuatro formatos.
@@ -109,7 +109,7 @@ const p2 = await ask(T.super_admin, 'marca esa acción como verificada', { conve
 const p3 = await ask(T.super_admin, 'registra un bloqueo en esa acción porque falta material', { conversationId: c5 })
 const p4 = await ask(T.super_admin, 'avisa al responsable de esa acción por whatsapp', { conversationId: c5 })
 check('R2-A', 'Super Admin: cambio de estado por chat queda en propuesta, executionEnabled=false', p1.body.agent?.status === 'proposal' && p1.body.agent?.executionEnabled === false, { list: brief(list), p1: brief(p1) })
-check('R2-A2', 'Super Admin: la propuesta identifica la acción del turno anterior', !/falta indicar/.test(String(p1.body.answer)), brief(p1), 'QA-R1-01 (sin contexto de sesión)')
+check('R2-A2', 'Super Admin: la propuesta identifica la acción del turno anterior', !/falta indicar/.test(String(p1.body.answer)), brief(p1))
 check('R2-B', 'Verificado se niega desde el agente', p2.body.agent?.status === 'forbidden' && /verific/i.test(String(p2.body.answer)), brief(p2))
 check('R2-C', 'bloqueo y aviso: propuestas sin envío', [p3, p4].every((r) => r.body.agent?.status === 'proposal' && r.body.agent?.executionEnabled === false), { p3: brief(p3), p4: brief(p4) })
 const roleOut = {}

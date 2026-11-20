@@ -1068,6 +1068,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
             previous: conversationState,
             snapshot: operationalSnapshot,
             people: conversationPeople,
+            responseFormat,
           })
           if (turn.handled) {
             setConversationState(turn.reply.state)
@@ -1088,7 +1089,11 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
           setConversationState(turn.state.entity === 'none' ? null : turn.state)
         }
 
-        if (operationalSnapshot && (intent === 'okrs' || intent === 'team_delay')) {
+        if (
+          operationalSnapshot &&
+          (intent === 'okrs' || intent === 'team_delay') &&
+          responseFormat === 'auto'
+        ) {
           const priorUserMessages = nextMessages
             .filter((row) => row.role === 'user')
             .map((row) => row.content)
@@ -1370,36 +1375,38 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         )}
       >
         {!isPopup ? (
-          <div className="flex items-center gap-1.5">
-            <WorkIntentToggle value={writeIntent} onChange={setWriteIntent} />
+          <div className="flex flex-col gap-1.5">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <WorkIntentToggle value={writeIntent} onChange={setWriteIntent} className="shrink-0" />
+              <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
+                <div className="flex w-max gap-1">
+                  {suggestionChips.slice(0, conversationState ? 5 : 3).map((suggestion, index) => (
+                    <button
+                      key={`${suggestion}-${index}`}
+                      type="button"
+                      onClick={() => void handleSend(suggestion)}
+                      className={cn(
+                        'max-w-[11rem] shrink-0 truncate rounded-full px-2 py-1 text-[10px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                        activeOkrContext
+                          ? 'bg-primary/10 text-primary hover:bg-primary/15'
+                          : activeActionContext
+                            ? 'bg-red-500/10 text-red-800 hover:bg-red-500/15 dark:text-red-200'
+                            : 'bg-muted/55 text-muted-foreground hover:bg-muted hover:text-foreground'
+                      )}
+                      disabled={loading}
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
             <WorkIntentToggle<ResponseFormat>
               value={responseFormat}
               onChange={setResponseFormat}
               options={FORMAT_OPTIONS}
               aria-label="Formato de respuesta"
             />
-            <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
-              <div className="flex w-max gap-1">
-                {suggestionChips.slice(0, conversationState ? 5 : 3).map((suggestion, index) => (
-                  <button
-                    key={`${suggestion}-${index}`}
-                    type="button"
-                    onClick={() => void handleSend(suggestion)}
-                    className={cn(
-                      'max-w-[11rem] shrink-0 truncate rounded-full px-2 py-1 text-[10px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      activeOkrContext
-                        ? 'bg-primary/10 text-primary hover:bg-primary/15'
-                        : activeActionContext
-                          ? 'bg-red-500/10 text-red-800 hover:bg-red-500/15 dark:text-red-200'
-                          : 'bg-muted/55 text-muted-foreground hover:bg-muted hover:text-foreground'
-                    )}
-                    disabled={loading}
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
         ) : (
           <WorkIntentToggle<ResponseFormat>
