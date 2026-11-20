@@ -1061,6 +1061,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
           hasSelectedOkr: activeOkrContext,
         })
         const hasExplicitFocus = activeActionContext || activeOkrContext
+        const orchestratorEnabled = __AGENT_ORCHESTRATOR_R1__ === true
 
         if (operationalSnapshot) {
           const turn = runConversationTurn({
@@ -1069,6 +1070,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
             snapshot: operationalSnapshot,
             people: conversationPeople,
             responseFormat,
+            orchestratorEnabled,
           })
           if (turn.handled) {
             setConversationState(turn.reply.state)
@@ -1090,6 +1092,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         }
 
         if (
+          !orchestratorEnabled &&
           operationalSnapshot &&
           (intent === 'okrs' || intent === 'team_delay') &&
           responseFormat === 'auto'

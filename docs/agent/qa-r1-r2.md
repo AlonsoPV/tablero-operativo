@@ -1,5 +1,60 @@
 # Enviardián · QA controlado R1/R2
 
+## Cierre QA-R1-04 · 2026-11-19
+
+Rama `qa/supabase-local` (HEAD `f0bc1ca` más cambios locales de este cierre). Sin push, merge, preview alojada ni cambios en DEV/PROD. Evidencia nueva en `scrumban-qa/evidence/r104-*`; se conservan `cierre-*`, `escritorio-*` y `movil-*`.
+
+Con `AGENT_ORCHESTRATOR_R1=1`, Auto ya no resuelve listas Kanban/OKR en el cliente. Vite inyecta el mismo flag (`__AGENT_ORCHESTRATOR_R1__` desde `AGENT_ORCHESTRATOR_R1`). `runConversationTurn` hace handoff `orchestrator` antes de consultar el snapshot local; `tryFactualAssistantReply` no corre. Si `runChannelTurn` lanza, `/api/gemini-chat` responde 502 y no cae a Gemini. Con el flag apagado el Auto local no cambia. Quedan locales el selector, chips de intención, carril y WorkIntentToggle.
+
+| Suite | Resultado | Reporte |
+| --- | --- | --- |
+| `vitest run` | 122 archivos, 889 pruebas | — |
+| JWT-01 a JWT-16 | 16/16 | `.qa/jwt-report-1795153264691.json` |
+| Matriz API F1–F8 y R2-A–G | 21/21 (F4 Super Admin / Área OKRS y R2-A2 con contexto) | `.qa/api-matrix-1795153282529.json` |
+| HTTP R2-H1–H7 | 7/7 | `.qa/r2-http-1795153287680.json` (`R2_EXECUTION_MODE=qa` sólo en el proceso Vite de esta pasada) |
+
+### Continuidad Auto (Super Admin, `/asistente-ia`)
+
+Secuencia en Auto con orquestador: lista operativa (DATOS + Corte, no «Faltan datos: accion») → «¿Cuál está vencida?» con el mismo alcance → «Marca esa acción como hecha» propone `QA R2 · acción de la creadora` con **Aprobar y ejecutar** (no se pulsó; 0 escrituras) → «Cambia a modo reporte» marca Reporte sin reconsultar → «¿Y las de mi equipo?» sigue en el orquestador. Evidencia: `r104-escritorio-propuesta.png`.
+
+Selector Auto / Directo / Reporte / Análisis visible a 320, 390 y 768 px (`r104-movil-*-selector.png`; a 768, Análisis `right=271`).
+
+El chip «Cuantas hay en el tablero?» sigue yendo al interpretador de módulo `org` (`bau_dashboard`) y, con clave Gemini dummy, puede 400. No forma parte de QA-R1-04.
+
+### Analista
+
+`qa-r2-analista` no tiene módulo de asistente: `/asistente-ia` redirige a `/kanban-equipos`. `/kanban-equipos/tablero` no muestra acciones ajenas (`r104-analista-tablero.png`: sin área, tablero vacío; no aparecen «Plan privado» ni «Cerrar inventario»). El seguimiento «¿Y las de mi equipo?» queda `forbidden` en `r1Acceptance.test.ts`. F6 de la matriz API sigue en 403 sin datos.
+
+### Procedimiento de preview hosted (no creado)
+
+Esta pasada **no** creó proyecto, preview ni encendió ejecución remota. Priorizar Free (detalle y orden en `release-plan.md`, congelación 2026-11-20). Cuando haya autorización:
+
+1. Proyecto QA **nuevo** (Free si hay cupo), referencia `*.supabase.co` distinta de DEV `tgiuevzlyptzlfgxsfhj` y PROD `xhpasmjzuwifmjhrsumb`.
+2. Incluir esa referencia en `R2_QA_PROJECT_REFS`. Si la allowlist incluye DEV o PROD, el modo `qa` se invalida entero.
+3. Entorno de app (local o Preview Vercel **autorizada**; nunca producción): `AGENT_ORCHESTRATOR_R1=1`, `SUPABASE_URL` del QA. `R2_EXECUTION_MODE=qa` **sólo** si se autoriza R2. No poner `VERCEL_ENV=production` ni `NODE_ENV=production`.
+4. No habilitar ejecución ni `COPILOT_R2_GATE=1` hasta autorización expresa.
+5. Ejecutar la matriz de aceptación alojada (abajo).
+6. Al terminar: `delete from agent_execution_gate;` si se usó modo `qa`; apagar flags; pausar o borrar el proyecto Free.
+
+Tras la pasada QA-R1-04, Vite e instancias locales se detuvieron. `AGENT_ORCHESTRATOR_R1=1` y `R2_EXECUTION_MODE=simulated` quedan sólo en `.env.qa.local` (gitignored).
+
+### Matriz de aceptación del entorno alojado (pendiente de autorización)
+
+No se ejecuta hasta existir el recurso. Criterio: mismos oráculos que QA local; 0 datos de DEV/PROD; 0 avisos a proveedores reales.
+
+| ID | Caso | GO |
+| --- | --- | --- |
+| H-01 | Login Super Admin y Analista sintéticos contra `*.supabase.co` | Sesión JWT real; Analista sin módulo de asistente no entra a `/asistente-ia` |
+| H-02 | Auto: «acciones pendientes» → DATOS/Corte, no lista local | `agent_session_context.lastActions` persistido |
+| H-03 | «esa acción» / marcar hecha | Propuesta identificada; «Aprobar y ejecutar» visible; **no** pulsar si R2 no está autorizado |
+| H-04 | Directivas y selector Auto/Directo/Reporte/Análisis | Escritorio 1024 y 320/390/768 |
+| H-05 | «¿Y las de mi equipo?» Analista | `forbidden` o 403; sin «Plan privado» / «Cerrar inventario» |
+| H-06 | JWT-01 a JWT-16 | 16/16 contra el proyecto Free |
+| H-07 | Matriz API 21 | 21/21; F4 y R2-A2 con contexto |
+| H-08 | HTTP R2 | **Sólo si** `R2_EXECUTION_MODE=qa` está autorizado; si no, omitir y dejar R2 en NO-GO |
+| H-09 | JWT de otro proyecto (QA-B o local B) | 401 en A |
+| H-10 | Rollback | Quitar `AGENT_ORCHESTRATOR_R1`; Auto local o Gemini, sin orquestador |
+
 ## Revalidación tras correcciones · 2026-11-19
 
 Rama `qa/supabase-local`. JWT, matriz API, HTTP R2 y matriz visual se volvieron a ejecutar contra QA A/B locales. Evidencia nueva en `scrumban-qa/evidence/cierre-*`; las capturas `escritorio-*` / `movil-*` del 19-nov se conservan.

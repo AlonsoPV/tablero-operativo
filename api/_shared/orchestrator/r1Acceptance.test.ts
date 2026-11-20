@@ -238,6 +238,60 @@ describe('R1 · permisos, contexto y errores', () => {
   })
 })
 
+describe('R1 · continuidad conversacional QA-R1-04', () => {
+  it('pendiente → vencida → marcar hecha → reporte → equipo: contexto, propuesta y permisos', async () => {
+    const h = harness()
+    const pending = await turn(h, R1_USERS.lead, 'Muéstrame mis acciones pendientes')
+    expect(pending.handled).toBe(true)
+    expect(pending.intent).toBe('query_actions')
+    expect(pending.response.references.map((x) => x.id)).toEqual(['a1', 'a2', 'a3'])
+    const storedPending = await h.store.get('u-lead:web:s1')
+    expect(storedPending?.lastActions.map((a) => a.id)).toEqual(['a1', 'a2', 'a3'])
+    const queriesAfterList = h.db.queries.length
+
+    const overdue = await turn(h, R1_USERS.lead, '¿Cuál está vencida?')
+    expect(overdue.intent).toBe('query_actions')
+    expect(overdue.response.references.map((x) => x.id)).toEqual(['a1'])
+    expect((await h.store.get('u-lead:web:s1'))?.activeQuery).toMatchObject({
+      scope: 'assigned_to_me',
+      status_group: 'overdue',
+    })
+
+    const mark = await turn(h, R1_USERS.lead, 'Marca esa acción como hecha')
+    expect(mark.intent).toBe('write_request')
+    expect(mark.response.status).toBe('proposal')
+    expect(mark.proposal).toMatchObject({
+      operation: 'update_status',
+      executionEnabled: false,
+      payload: { accionId: 'a1', estado: 'Hecho' },
+    })
+    expect(h.db.inserts.filter((row) => row.table === 'acciones_diarias' || row.table === 'assistant_pending_ops')).toEqual([])
+
+    const queriesBeforeFormat = h.db.queries.length
+    const report = await turn(h, R1_USERS.lead, 'Cambia a modo reporte')
+    expect(report).toMatchObject({ handled: true, formatSelected: 'report', format: 'report', toolsUsed: [] })
+    expect(report.text).toMatch(/Formato de respuesta: Reporte/)
+    expect(h.db.queries.length).toBe(queriesBeforeFormat)
+    expect(queriesAfterList).toBeGreaterThan(0)
+
+    const team = await turn(h, R1_USERS.lead, '¿Y las de mi equipo?')
+    expect(team.intent).toBe('query_actions')
+    expect(team.response.status).toBe('ok')
+    expect((await h.store.get('u-lead:web:s1'))?.activeQuery).toMatchObject({ scope: 'team_authorized' })
+    expect(team.toolsUsed).toEqual(['get_my_actions'])
+    expect(team.response.references.some((x) => x.id === 'a1')).toBe(false)
+  })
+
+  it('Analista no ve el tablero de otro equipo en el seguimiento «¿Y las de mi equipo?»', async () => {
+    const h = harness()
+    await turn(h, R1_USERS.analyst, 'Muéstrame mis acciones pendientes')
+    const team = await turn(h, R1_USERS.analyst, '¿Y las de mi equipo?')
+    expect(team.response.status).toBe('forbidden')
+    expect(team.toolsUsed).toEqual([])
+    expect(team.text).not.toMatch(/Plan privado|Cerrar inventario|Proveedor/)
+  })
+})
+
 describe('R1 · consistencia entre canales', () => {
   it('web, WhatsApp y voz devuelven las mismas cifras e IDs', async () => {
     const results = await Promise.all(

@@ -289,6 +289,34 @@ describe('conversation e2e sequence (Fase 13)', () => {
     expect(turn.handled).toBe(true)
   })
 
+  it('delegates Auto kanban lists to the orchestrator when the flag is on', () => {
+    const turn = runConversationTurn({
+      message: 'Que acciones tengo abiertas?',
+      previous: null,
+      snapshot,
+      people,
+      responseFormat: 'auto',
+      orchestratorEnabled: true,
+    })
+    expect(turn.handled).toBe(false)
+    if (turn.handled) throw new Error('expected handoff')
+    expect(turn.reason).toBe('orchestrator')
+  })
+
+  it('keeps format directives first even when the orchestrator flag is on', () => {
+    const turn = runConversationTurn({
+      message: 'modo reporte',
+      previous: null,
+      snapshot,
+      people,
+      responseFormat: 'auto',
+      orchestratorEnabled: true,
+    })
+    expect(turn.handled).toBe(false)
+    if (turn.handled) throw new Error('expected handoff')
+    expect(turn.reason).toBe('format_directive')
+  })
+
   it('hands off email/WhatsApp even when the body mentions acciones', () => {
     const email = run(
       'Envia un correo a alpeva96@gmail.com con el resumen de sus acciones',

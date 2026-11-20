@@ -1,5 +1,118 @@
 # Enviardián · releases y ejecución R0–R1
 
+## Congelación R1 · 2026-11-20
+
+Rama local `qa/supabase-local` sobre `f0bc1ca`. Commit de cierre **local**: sin push, merge, preview alojada, despliegue ni cambios en DEV/PROD. Evidencias `scrumban-qa/evidence/r104-*` y las anteriores (`cierre-*`, `escritorio-*`, `movil-*`) se conservan.
+
+### Inventario del cierre QA-R1-04
+
+Todos los archivos del commit de congelación corresponden a QA-R1-04, su registro o la preparación de la siguiente puerta. Ninguno toca migraciones remotas, R2 de producción ni R0.
+
+| Archivo | Rol |
+| --- | --- |
+| `vite.config.ts`, `src/vite-env.d.ts` | Un solo origen: `AGENT_ORCHESTRATOR_R1` → `__AGENT_ORCHESTRATOR_R1__` en el cliente |
+| `src/features/ai-support/conversation/runTurn.ts` | Handoff `orchestrator` en Auto cuando el flag está encendido |
+| `src/features/ai-support/pages/AiAssistPage.tsx` | Pasa el flag; no llama `tryFactualAssistantReply` con orquestador activo |
+| `api/gemini-chat.ts` | `runChannelTurn` en try/catch; fallo → 502, sin Gemini |
+| `api/_shared/orchestrator/intent.ts` | `equipo(s)?` como término operativo para «¿Y las de mi equipo?» |
+| `conversation.e2e.test.ts`, `r1Acceptance.test.ts` | Handoff Auto y secuencia pendiente → vencida → hecho → reporte → equipo |
+| `docs/agent/qa-r1-r2.md`, `release-plan.md`, `risks-and-dependencies.md` | Registro, freeze, preview y GO/NO-GO |
+
+### Registro de cierres RF / QA-R1
+
+| ID | Alias | Estado | Evidencia |
+| --- | --- | --- | --- |
+| RF-01 | Formatos web (el cliente contestaba Kanban/OKR) | **Cerrado** vía QA-R1-02 + QA-R1-04 | Directivas primero; con flag, Auto también va al orquestador |
+| RF-02 | Selector móvil «Análisis» recortado | **Cerrado** vía QA-R1-03 | Visible y pulsable a 320, 390 y 768 px (`r104-movil-*-selector.png`) |
+| RF-03 | Preferencia de formato entre usuarios de la misma pestaña | **Cerrado en alcance R1** | `sessionStorage` de pestaña; nueva pestaña arranca en Auto con otro `conversationId`. Claves globales `assistant.*` no se rehacen en este freeze |
+| RF-04 | Continuidad Auto («esa acción») | **Cerrado** vía QA-R1-04 | `lastActions` en servidor; propuesta Hecho con confirmación (`r104-escritorio-propuesta.png`) |
+| QA-R1-01 | Huella de capacidades > 128 | **Cerrado** | SHA-256; F4 Super Admin / Área OKRS y R2-A2 21/21 |
+| QA-R1-02 | Directivas tratadas como nombres | **Cerrado** | `parseFormatDirective` compartido |
+| QA-R1-03 | Selector a 320/390/768 | **Cerrado** | Fila propia, `whitespace-nowrap` |
+| QA-R1-04 | Auto local sin contexto de servidor | **Cerrado** | Este commit |
+
+### Flags (frontend y backend)
+
+| Flag | Dónde se lee | Efecto con `=1` | Producción |
+| --- | --- | --- | --- |
+| `AGENT_ORCHESTRATOR_R1` | Servidor: `isAgentOrchestratorEnabled()` (`process.env`). Cliente: Vite `define` `__AGENT_ORCHESTRATOR_R1__` desde **la misma** variable (no un segundo interruptor `VITE_*`) | Consultas operativas (incluido Auto) al orquestador | Apagado por omisión. Encenderlo exige autorización |
+| `R2_EXECUTION_MODE` | Sólo servidor (`resolveR2ExecutionMode`) | `qa` o `simulated` en QA local. En Vercel / `NODE_ENV=production` / `VERCEL_ENV=production` es siempre `disabled` | **Deshabilitado** |
+| `COPILOT_R2_GATE` | Servidor; ignorado en producción | Copiloto por la puerta R2 | Apagado |
+
+R2 permanece deshabilitado fuera de QA local. `.env.qa.local` (gitignored) tiene `AGENT_ORCHESTRATOR_R1=1` y `R2_EXECUTION_MODE=simulated`. No hay ejecución remota.
+
+### Rollback de R1
+
+1. Quitar `AGENT_ORCHESTRATOR_R1=1` del entorno. Los tres canales vuelven al flujo previo (cliente local + Gemini).
+2. No hace falta migración inversa: R1 no aplica esquema en este freeze.
+3. Si una preview ya existiera: redeploy sin el flag o rollback del deployment. No restaurar privilegios SQL.
+
+### Condiciones para habilitar R1 (ninguna ejecutada)
+
+1. Autorización expresa del flag `AGENT_ORCHESTRATOR_R1=1` en un entorno que **no** sea DEV ni PROD.
+2. Preview alojada autorizada (sección siguiente) o aceptación formal de que QA local basta para el piloto.
+3. R0 sigue **NO-GO** de liberación; habilitar R1 en QA no cierra R0.
+4. R2 no se enciende con R1. `R2_EXECUTION_MODE` y `COPILOT_R2_GATE` requieren autorización aparte.
+
+### Preview alojada (no creada)
+
+Prioridad de alternativas, de menor costo a mayor. **Nada se crea, despliega ni activa** hasta autorización.
+
+| Orden | Recurso | Costo | Notas |
+| --- | --- | --- | --- |
+| 1 | QA local ya validado (WSL2 + Vite 5180) | Cero | Puerta actual. No sustituye JWT contra `*.supabase.co` |
+| 2 | Un proyecto Supabase **Free** QA-A (`*.supabase.co`) + app local | Cero si hay cupo Free | Distinto de DEV `tgiuevzlyptzlfgxsfhj` y PROD `xhpasmjzuwifmjhrsumb`. QA-B Free opcional para JWT-11 |
+| 3 | Segundo Free QA-B | Cero si hay segundo cupo | Si no hay cupo, JWT-11 se da por validado en local |
+| 4 | Preview Vercel (Hobby) | Cero en Hobby | Exige remoto git autorizado; **no hay push en este freeze**. `R2_EXECUTION_MODE` debe quedar ausente o no-`qa` hasta autorización de R2 |
+| 5 | Supabase Micro 48 h | Pago | Sólo si Free no está disponible y hay presupuesto |
+
+Configuración mínima del entorno alojado (cuando se autorice): `AGENT_ORCHESTRATOR_R1=1`, `SUPABASE_URL` del QA Free, `R2_QA_PROJECT_REFS` con esa ref (nunca DEV/PROD), `R2_EXECUTION_MODE` **sin** `qa` salvo autorización de R2, nunca `VERCEL_ENV=production`.
+
+Matriz de aceptación del entorno alojado: en `qa-r1-r2.md`.
+
+### GO/NO-GO congelado
+
+| Release | Veredicto |
+| --- | --- |
+| R0 | **NO-GO.** Dispatcher 401, P0001 y RD-06 siguen abiertos |
+| R1 | **GO funcional QA local.** **NO-GO producción** hasta preview alojada autorizada |
+| Formatos R1 (Auto, Directo, Reporte, Análisis) | **GO funcional QA local.** **NO-GO producción** hasta el mismo preview |
+| R2 | **GO** para seguir en QA local con `QA_LOCAL=1`. **NO-GO** fuera de QA y **NO-GO producción**. Validación y habilitación independientes |
+
+Bloqueos que este freeze **no** cierra: R0 (401, P0001, RD-06), R2-15, QA-DB-01, habilitación de R2.
+
+## Cierre QA-R1-04 y preparación de release · 2026-11-19
+
+Rama local `qa/supabase-local` (HEAD `f0bc1ca` más el handoff Auto). Sin push, merge, preview alojada ni cambios en DEV/PROD. Evidencia `scrumban-qa/evidence/r104-*`.
+
+| Pieza | Validado en QA (local) | Resultado |
+| --- | --- | --- |
+| R0 | No | Sigue fuera de esta validación |
+| R1 | Sí | Auto operativo va al orquestador; `lastActions` persiste; «esa acción» / marcar hecha proponen con confirmación humana. JWT 16/16, matriz API 21/21 |
+| Formatos | Sí | Directivas primero; selector visible a 320/390/768. «modo reporte» no reconsulta |
+| R2 | Sí, HTTP en modo `qa` local | 7/7. No se pulsó «Aprobar y ejecutar» en visual. Ejecución deshabilitada al terminar |
+
+| Verificación | Resultado |
+| --- | --- |
+| `vitest run` | 122 archivos, 889 pruebas |
+| `run-jwt-suite.mjs` | 16/16 (`.qa/jwt-report-1795153264691.json`) |
+| `run-api-matrix.mjs` | 21/21 (`.qa/api-matrix-1795153282529.json`) |
+| `run-r2-http.mjs` | 7/7 (`.qa/r2-http-1795153287680.json`) |
+| Matriz visual | Super Admin: Auto lista → vencida → propuesta Hecho con «Aprobar y ejecutar» → Reporte → equipo. Analista: sin asistente ni tablero ajeno |
+
+### GO/NO-GO por release
+
+| Release | Veredicto |
+| --- | --- |
+| R0 | NO-GO. Fuera de esta validación |
+| R1 | GO en QA local. NO-GO producción: falta preview hosted autorizado |
+| Formatos R1 | GO en QA local. NO-GO producción hasta el mismo preview |
+| R2 | GO para seguir en QA local con `QA_LOCAL=1`. NO-GO fuera de QA y NO-GO producción |
+
+Bloqueos que **no** se cierran aquí: QA-DB-01, R2-15, R0, preview hosted (sólo procedimiento en `qa-r1-r2.md`).
+
+`AGENT_ORCHESTRATOR_R1` y `R2_EXECUTION_MODE` sólo viven en `.env.qa.local`.
+
 ## Correcciones QA y cierre R1 · 2026-11-19
 
 Rama local `qa/supabase-local` sobre `4413296`. Correcciones de QA-R1-01, QA-R1-02 y QA-R1-03, modo `qa` local opt-in (`QA_LOCAL=1`) y revalidación con JWT reales. Sin push, merge, despliegue ni cambios en DEV o PROD. La evidencia previa en `scrumban-qa/evidence/` se conserva; las capturas nuevas usan prefijo `cierre-`.

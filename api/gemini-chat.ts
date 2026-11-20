@@ -165,38 +165,45 @@ export default defineApiHandler(async (req, res) => {
     })
 
     if (isAgentOrchestratorEnabled() && !hasActionContext && !hasOkrContext && lastUserMessage) {
-      const turn = await runChannelTurn({
-        identity: {
-          supabase: auth.supabase,
-          authUserId: auth.authUserId,
-          usuarioId: auth.usuarioId,
-          rol: auth.rol,
-          active: true,
-          accessToken: auth.token,
-        },
-        channel: 'web',
-        sessionId: webSessionId(conversationId, requestId),
-        utterance: lastUserMessage,
-        responseFormat,
-      })
-      if (turn.handled) {
-        const persistedProposal = turn.proposal && 'tool' in turn.proposal ? turn.proposal : null
-        return res.status(200).json({
-          answer: turn.text,
-          proposals: persistedProposal ? [persistedProposal] : [],
-          clarification: turn.clarification,
-          ui: uiForTurn(turn, turn.text),
-          toolTrace: turn.toolsUsed.map((tool) => ({ tool, kind: 'read' })),
-          agent: {
-            intent: turn.intent,
-            status: turn.response.status,
-            format: turn.format,
-            formatSelected: turn.formatSelected,
-            offerDetail: turn.offerDetail,
-            blocks: turn.response.blocks,
-            references: turn.response.references,
-            executionEnabled: false,
+      try {
+        const turn = await runChannelTurn({
+          identity: {
+            supabase: auth.supabase,
+            authUserId: auth.authUserId,
+            usuarioId: auth.usuarioId,
+            rol: auth.rol,
+            active: true,
+            accessToken: auth.token,
           },
+          channel: 'web',
+          sessionId: webSessionId(conversationId, requestId),
+          utterance: lastUserMessage,
+          responseFormat,
+        })
+        if (turn.handled) {
+          const persistedProposal = turn.proposal && 'tool' in turn.proposal ? turn.proposal : null
+          return res.status(200).json({
+            answer: turn.text,
+            proposals: persistedProposal ? [persistedProposal] : [],
+            clarification: turn.clarification,
+            ui: uiForTurn(turn, turn.text),
+            toolTrace: turn.toolsUsed.map((tool) => ({ tool, kind: 'read' })),
+            agent: {
+              intent: turn.intent,
+              status: turn.response.status,
+              format: turn.format,
+              formatSelected: turn.formatSelected,
+              offerDetail: turn.offerDetail,
+              blocks: turn.response.blocks,
+              references: turn.response.references,
+              executionEnabled: false,
+            },
+          })
+        }
+      } catch (error) {
+        console.error('Agent orchestrator error:', error)
+        return res.status(502).json({
+          error: 'No pude consultar el tablero en este momento. No muestro cifras inventadas.',
         })
       }
     }

@@ -1,5 +1,31 @@
 # Enviardián · incidentes, riesgos y dependencias
 
+## Registro de cierres R1 · 2026-11-20
+
+Congelación en `qa/supabase-local`. RF-01…RF-04 y QA-R1-01…QA-R1-04 están **cerrados** para el GO funcional de QA local. No se reabren en este freeze.
+
+| ID | Estado | Equivalencia |
+| --- | --- | --- |
+| RF-01 | **Cerrado** | QA-R1-02 (directivas/selector) + QA-R1-04 (Auto al orquestador) |
+| RF-02 | **Cerrado** | QA-R1-03 |
+| RF-03 | **Cerrado en alcance R1** | Preferencia por pestaña; Auto en pestaña nueva. No se rehacen claves `assistant.*${user}` aquí |
+| RF-04 | **Cerrado** | QA-R1-04 |
+| QA-R1-01 | **Cerrado** | SHA-256 de capacidades |
+| QA-R1-02 | **Cerrado** | Directivas sobre personas |
+| QA-R1-03 | **Cerrado** | Selector 320/390/768 |
+| QA-R1-04 | **Cerrado** | Handoff Auto + 502 sin Gemini |
+
+### Bloqueos que siguen abiertos e independientes
+
+| ID | Estado | Por qué no entra en R1 |
+| --- | --- | --- |
+| R0 · dispatcher 401 | Abierto | Atribución histórica del POST; no es el orquestador web |
+| R0 · P0001 | Abierto | Dos jobs review; conciliación no autorizada |
+| RD-06 | Abierto | Historial de migraciones remoto ≠ esquema real |
+| R2-15 | Documentado | Seis migraciones no reproducibles desde cero; parches sólo en copia local |
+| QA-DB-01 | Abierto | `accion_evidencias.created_at` vs `uploaded_at`; tablero OKR, no R1 |
+| R2 habilitación | Independiente | `R2_EXECUTION_MODE` y `COPILOT_R2_GATE` apagados fuera de QA local |
+
 ## Correcciones QA R1 · 2026-11-19
 
 Rama `qa/supabase-local`. Los tres bloqueos de R1 se corrigieron en código y se revalidaron. No se modificaron migraciones históricas ni DEV/PROD.
@@ -10,7 +36,7 @@ Rama `qa/supabase-local`. Los tres bloqueos de R1 se corrigieron en código y se
 | QA-R1-02 | **Corregido** | `parseFormatDirective` vive en `src/features/ai-support/responseFormat.ts`. Precedencia sobre personas. Directivas y formatos distintos de Auto se delegan al orquestador. «modo reporte» / «automático» ya no se tratan como nombres |
 | QA-R1-03 | **Corregido** | El selector de formato va en su propia fila, `whitespace-nowrap` y `overflow-x-auto`. «Análisis» cabe a 320, 390 y 768 px |
 | QA-R2-01 | **Corregido (local)** | `localQaProjectRef()` exige `QA_LOCAL=1`, http loopback, puerto en `QA_LOCAL_PORTS` y ref `qalocal…` en la allowlist. Vercel y producción siguen en `disabled`. No se ampliaron destinos `*.supabase.co` |
-| QA-R1-04 | **Abierto, no bloquea formatos** | En Auto, `runConversationTurn` sigue resolviendo listas Kanban en el cliente. Esa lista no escribe `agent_session_context`, así que «marca esa acción» en el servidor responde «Faltan datos: accion». Con Reporte/Directo/Análisis (o por API) el contexto sí existe. Propuesta: delegar también las listas Auto, o publicar el contexto local |
+| QA-R1-04 | **Corregido** | Con `AGENT_ORCHESTRATOR_R1=1`, Auto (y el resto de consultas operativas) hace handoff al orquestador antes del snapshot local. El cliente lee el mismo flag vía `__AGENT_ORCHESTRATOR_R1__`. No se llama `tryFactualAssistantReply`. Si `runChannelTurn` lanza: 502, sin Gemini ni cifras inventadas. Flag apagado: Auto local intacto. Continuidad pendiente → vencida → propuesta Hecho → reporte → equipo cubierta en `r1Acceptance.test.ts` y en visual Super Admin (`r104-*`). Analista: forbidden / sin módulo de asistente, sin datos ajenos |
 | QA-DB-01 | **Abierto, independiente** | `get_operational_okr_dashboard` (`20260820120000` ~L334) usa `accion_evidencias.created_at`; la columna es `uploaded_at` (42703). No forma parte de R1/R2. No se toca el histórico. Ticket aparte, SELECT de sólo lectura en DEV para clasificar deriva vs defecto previo |
 | R2-15 | **Documentado, sin reescritura** | Seis migraciones no se aplican limpias desde cero. Los parches siguen sólo en la copia de instancia (`prepare-instance.mjs`). Corrección segura propuesta, **no aplicada**: migraciones nuevas forward-only (drop+recreate de `try_set_accion_hecho`; no-op del UUID real; no alterar `auth.users` si no somos dueños; `cron.unschedule` defensivo). Requieren autorización expresa. Nunca editar los archivos históricos |
 

@@ -24,6 +24,11 @@ export function runConversationTurn(input: {
   people: NamedPerson[]
   /** Formato elegido en la UI. Si no es Automático, se delega al orquestador para no duplicar la consulta. */
   responseFormat?: ResponseFormat
+  /**
+   * Cuando el orquestador R1 está activo, las consultas Kanban/OKR y las referencias
+   * se delegan al servidor (incluido Auto) para no mantener dos motores de contexto.
+   */
+  orchestratorEnabled?: boolean
 }): RunConversationTurnResult {
   const selected = input.responseFormat ?? DEFAULT_RESPONSE_FORMAT
   const directive = parseFormatDirective(input.message)
@@ -33,6 +38,15 @@ export function runConversationTurn(input: {
       handled: false,
       state: { ...prev, entity: 'none', intent: 'handoff', pendingClarification: null },
       reason: directive ? 'format_directive' : 'format_selected',
+    }
+  }
+
+  if (input.orchestratorEnabled) {
+    const prev = input.previous ?? initialConversationState()
+    return {
+      handled: false,
+      state: { ...prev, entity: 'none', intent: 'handoff', pendingClarification: null },
+      reason: 'orchestrator',
     }
   }
 
