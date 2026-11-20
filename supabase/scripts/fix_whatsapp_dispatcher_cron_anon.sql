@@ -1,9 +1,9 @@
-﻿-- Pegar en SQL Editor de Scrumban PROD (xhpasmjzuwifmjhrsumb).
--- Reemplaza PASTE_ANON_KEY con la anon public del proyecto
--- (Settings → API → anon public, o VITE_SUPABASE_ANON_KEY).
+﻿-- NO USAR. En PROD se pegó sin sustituir PASTE_ANON_KEY y el literal
+-- queda en cron.command (401 cada minuto). Corrección: fix_whatsapp_dispatcher_cron_vault.sql
+-- tras autorización (docs/agent/r0-401-rca.md).
 --
+-- Histórico: se pedía reemplazar PASTE_ANON_KEY por la anon public.
 -- Sintoma: whatsapp-followup-dispatcher logs → 401 cada minuto.
--- Causa: cron sin Authorization/apikey (Vault vacío).
 
 DO $$
 BEGIN

@@ -4,6 +4,8 @@ Congelación R1 de referencia: `640fa52` en `qa/supabase-local`. Este procedimie
 
 SQL a revisar: [`supabase/scripts/audit_r0_prod_readonly.sql`](../../supabase/scripts/audit_r0_prod_readonly.sql) (`BEGIN READ ONLY`).
 
+401 activo: [`r0-401-rca.md`](r0-401-rca.md). Correlación extra (solo lectura): [`audit_r0_401_correlate_readonly.sql`](../../supabase/scripts/audit_r0_401_correlate_readonly.sql). No aplicar el cron de Vault sin autorización.
+
 ACL/políticas (opcional, no necesario para 401/P0001/RD-06): [`audit_agent_r0_readonly.sql`](../../supabase/scripts/audit_agent_r0_readonly.sql).
 
 ## Qué no hacer

@@ -19,7 +19,7 @@ Congelación en `qa/supabase-local`. RF-01…RF-04 y QA-R1-01…QA-R1-04 están 
 
 | ID | Estado | Por qué no entra en R1 |
 | --- | --- | --- |
-| R0 · dispatcher 401 | Abierto | Procedimiento: `docs/agent/r0-prod-readonly-audit.md`. El operador aún no pegó el SQL |
+| R0 · dispatcher 401 | Abierto, **activo** | RCA: `docs/agent/r0-401-rca.md`. Cron dispatcher con literal `PASTE_ANON_KEY` (script de operador). No corregir el cron hasta conteo de followups pending y autorización de envíos |
 | R0 · P0001 | Abierto | Mismo procedimiento; no-replay. Nunca `done`/`pending` aquí |
 | RD-06 | Abierto | Bloque C del mismo SQL; no `db push`. La org no tiene cupo Free para un tercer proyecto |
 | R2-15 | Documentado | Seis migraciones no reproducibles desde cero; parches sólo en copia local |
