@@ -19,9 +19,9 @@ Congelación en `qa/supabase-local`. RF-01…RF-04 y QA-R1-01…QA-R1-04 están 
 
 | ID | Estado | Por qué no entra en R1 |
 | --- | --- | --- |
-| R0 · dispatcher 401 | Abierto | Atribución histórica del POST; no es el orquestador web |
-| R0 · P0001 | Abierto | Dos jobs review; conciliación no autorizada |
-| RD-06 | Abierto | Historial de migraciones remoto ≠ esquema real |
+| R0 · dispatcher 401 | Abierto | Procedimiento: `docs/agent/r0-prod-readonly-audit.md`. El operador aún no pegó el SQL |
+| R0 · P0001 | Abierto | Mismo procedimiento; no-replay. Nunca `done`/`pending` aquí |
+| RD-06 | Abierto | Bloque C del mismo SQL; no `db push`. La org no tiene cupo Free para un tercer proyecto |
 | R2-15 | Documentado | Seis migraciones no reproducibles desde cero; parches sólo en copia local |
 | QA-DB-01 | Abierto | `accion_evidencias.created_at` vs `uploaded_at`; tablero OKR, no R1 |
 | R2 habilitación | Independiente | `R2_EXECUTION_MODE` y `COPILOT_R2_GATE` apagados fuera de QA local |

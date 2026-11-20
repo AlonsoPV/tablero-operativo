@@ -25,35 +25,53 @@ El chip «Cuantas hay en el tablero?» sigue yendo al interpretador de módulo `
 
 `qa-r2-analista` no tiene módulo de asistente: `/asistente-ia` redirige a `/kanban-equipos`. `/kanban-equipos/tablero` no muestra acciones ajenas (`r104-analista-tablero.png`: sin área, tablero vacío; no aparecen «Plan privado» ni «Cerrar inventario»). El seguimiento «¿Y las de mi equipo?» queda `forbidden` en `r1Acceptance.test.ts`. F6 de la matriz API sigue en 403 sin datos.
 
-### Procedimiento de preview hosted (no creado)
+### Preflight Preview R1 (R2 deshabilitado, sin costo nuevo)
 
-Esta pasada **no** creó proyecto, preview ni encendió ejecución remota. Priorizar Free (detalle y orden en `release-plan.md`, congelación 2026-11-20). Cuando haya autorización:
+Cierre funcional R1: `640fa52`. **Nada de lo siguiente está creado ni desplegado.** La organización ya tiene DEV y PROD; el cupo Free de dos proyectos **no alcanza** para un tercer Supabase. Un QA Free nuevo sería pago o exigiría otra organización. Esta puerta usa solo lo que ya es Free: **Preview Hobby de Vercel** (si el proyecto ya está en Hobby) + el destino de datos que se autorice, con R2 apagado.
 
-1. Proyecto QA **nuevo** (Free si hay cupo), referencia `*.supabase.co` distinta de DEV `tgiuevzlyptzlfgxsfhj` y PROD `xhpasmjzuwifmjhrsumb`.
-2. Incluir esa referencia en `R2_QA_PROJECT_REFS`. Si la allowlist incluye DEV o PROD, el modo `qa` se invalida entero.
-3. Entorno de app (local o Preview Vercel **autorizada**; nunca producción): `AGENT_ORCHESTRATOR_R1=1`, `SUPABASE_URL` del QA. `R2_EXECUTION_MODE=qa` **sólo** si se autoriza R2. No poner `VERCEL_ENV=production` ni `NODE_ENV=production`.
-4. No habilitar ejecución ni `COPILOT_R2_GATE=1` hasta autorización expresa.
-5. Ejecutar la matriz de aceptación alojada (abajo).
-6. Al terminar: `delete from agent_execution_gate;` si se usó modo `qa`; apagar flags; pausar o borrar el proyecto Free.
+JWT-01…16, la matriz API 21 y HTTP R2 **no** forman parte de esta preview: requieren proyecto QA con migraciones y `R2_EXECUTION_MODE=qa`.
 
-Tras la pasada QA-R1-04, Vite e instancias locales se detuvieron. `AGENT_ORCHESTRATOR_R1=1` y `R2_EXECUTION_MODE=simulated` quedan sólo en `.env.qa.local` (gitignored).
+#### Configuración (Preview only; Production no se toca)
 
-### Matriz de aceptación del entorno alojado (pendiente de autorización)
+Vite inyecta el **mismo** `AGENT_ORCHESTRATOR_R1` al cliente (`__AGENT_ORCHESTRATOR_R1__`). No hay `VITE_AGENT_ORCHESTRATOR_R1`.
 
-No se ejecuta hasta existir el recurso. Criterio: mismos oráculos que QA local; 0 datos de DEV/PROD; 0 avisos a proveedores reales.
-
-| ID | Caso | GO |
+| Variable | Preview R1 | Production |
 | --- | --- | --- |
-| H-01 | Login Super Admin y Analista sintéticos contra `*.supabase.co` | Sesión JWT real; Analista sin módulo de asistente no entra a `/asistente-ia` |
-| H-02 | Auto: «acciones pendientes» → DATOS/Corte, no lista local | `agent_session_context.lastActions` persistido |
-| H-03 | «esa acción» / marcar hecha | Propuesta identificada; «Aprobar y ejecutar» visible; **no** pulsar si R2 no está autorizado |
-| H-04 | Directivas y selector Auto/Directo/Reporte/Análisis | Escritorio 1024 y 320/390/768 |
-| H-05 | «¿Y las de mi equipo?» Analista | `forbidden` o 403; sin «Plan privado» / «Cerrar inventario» |
-| H-06 | JWT-01 a JWT-16 | 16/16 contra el proyecto Free |
-| H-07 | Matriz API 21 | 21/21; F4 y R2-A2 con contexto |
-| H-08 | HTTP R2 | **Sólo si** `R2_EXECUTION_MODE=qa` está autorizado; si no, omitir y dejar R2 en NO-GO |
-| H-09 | JWT de otro proyecto (QA-B o local B) | 401 en A |
-| H-10 | Rollback | Quitar `AGENT_ORCHESTRATOR_R1`; Auto local o Gemini, sin orquestador |
+| `AGENT_ORCHESTRATOR_R1` | `1` (Preview **only**) | unset |
+| `R2_EXECUTION_MODE` | omitir | omitir |
+| `COPILOT_R2_GATE` | omitir | omitir |
+| `R2_QA_PROJECT_REFS` | omitir | omitir |
+| `QA_LOCAL` | omitir | omitir |
+| `VITE_SUPABASE_URL` / `SUPABASE_URL` | El destino autorizado para esta preview. **Nunca PROD.** DEV solo si se autoriza expresamente lectura R1 | Sin cambio |
+| `GEMINI_API_KEY` | La ya existente en Vercel (sin clave nueva de pago) | Sin cambio |
+| Semilla `agent_execution_gate` | no | no |
+
+En Vercel, `resolveR2ExecutionMode` deja R2 en `disabled` aunque alguien ponga `simulated`. `qa` no debe configurarse.
+
+#### H-01 a H-10 (no ejecutar hasta autorización de Preview)
+
+Criterio común: 0 avisos a proveedores; 0 escrituras de acciones; R2 no aplica cambios.
+
+| ID | Caso | GO | NO-GO |
+| --- | --- | --- | --- |
+| H-01 | Cupo y destino | Hobby Preview sin plan nuevo; URL de datos ≠ PROD; si es DEV, autorización explícita de lectura | Crear Micro/Pro, tercer proyecto de pago, o apuntar a PROD |
+| H-02 | Flags | `AGENT_ORCHESTRATOR_R1=1` solo en Preview; R2 unset; Production sin el flag | Flag en Production, o `R2_EXECUTION_MODE=qa` |
+| H-03 | Login | Super Admin (o Dirección) entra a `/asistente-ia`; Analista sin módulo no entra | 500 de perfil; Analista ve el asistente |
+| H-04 | Auto Kanban/OKR | Una petición a `/api/gemini-chat`; DATOS/Corte del orquestador, no lista local | Segunda llamada Gemini por el mismo turno; cifras inventadas |
+| H-05 | Cuatro formatos | Auto, Directo, Reporte y Análisis, mismas cifras; selector usable a 320/390/768 | Formatos distintos o Análisis recortado |
+| H-06 | Continuidad | «esa acción» / marcar hecha **propone**; no pulsar Aprobar | La propuesta ejecuta o cambia `estado` |
+| H-07 | Alcance | Analista/otro equipo: 403 o tablero vacío; Dirección no ejecuta | Datos ajenos o escritura |
+| H-08 | R2 apagado | Confirmar una op (si aparece) → `EXECUTION_DISABLED` / 400; sin recibo; `agent_execution_gate` ausente | 200 con efecto, o modo `qa` |
+| H-09 | Aislamiento | `VITE_SUPABASE_URL` de la Preview ≠ `xhpasmjzuwifmjhrsumb`; Network no llama a PROD | Preview habla con PROD |
+| H-10 | Rollback | Quitar `AGENT_ORCHESTRATOR_R1` del entorno Preview y redesplegar; Auto deja de ir al orquestador | Flag sigue en Preview o se apagó Production por error |
+
+#### Rollback
+
+1. En Vercel → Environment Variables → Preview: borrar `AGENT_ORCHESTRATOR_R1` (no tocarlo en Production si no se puso).
+2. Redeploy del deployment Preview (`VITE_*` y `define` de Vite son de build).
+3. Comprobar H-10. No hay migración que revertir.
+
+Tras QA-R1-04, Vite e instancias locales se detuvieron. `AGENT_ORCHESTRATOR_R1=1` y `R2_EXECUTION_MODE=simulated` quedan sólo en `.env.qa.local` (gitignored).
 
 ## Revalidación tras correcciones · 2026-11-19
 

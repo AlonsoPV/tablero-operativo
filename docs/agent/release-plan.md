@@ -56,28 +56,41 @@ R2 permanece deshabilitado fuera de QA local. `.env.qa.local` (gitignored) tiene
 
 ### Preview alojada (no creada)
 
-Prioridad de alternativas, de menor costo a mayor. **Nada se crea, despliega ni activa** hasta autorización.
+La org ya ocupa DEV y PROD: **no hay cupo Free para un tercer proyecto**. Un QA `*.supabase.co` nuevo no es cero costo. Esta puerta, si se autoriza, es **solo Preview Hobby** con R2 apagado. Detalle H-01…H-10: `qa-r1-r2.md`. Auditoría R0: `r0-prod-readonly-audit.md`.
 
-| Orden | Recurso | Costo | Notas |
-| --- | --- | --- | --- |
-| 1 | QA local ya validado (WSL2 + Vite 5180) | Cero | Puerta actual. No sustituye JWT contra `*.supabase.co` |
-| 2 | Un proyecto Supabase **Free** QA-A (`*.supabase.co`) + app local | Cero si hay cupo Free | Distinto de DEV `tgiuevzlyptzlfgxsfhj` y PROD `xhpasmjzuwifmjhrsumb`. QA-B Free opcional para JWT-11 |
-| 3 | Segundo Free QA-B | Cero si hay segundo cupo | Si no hay cupo, JWT-11 se da por validado en local |
-| 4 | Preview Vercel (Hobby) | Cero en Hobby | Exige remoto git autorizado; **no hay push en este freeze**. `R2_EXECUTION_MODE` debe quedar ausente o no-`qa` hasta autorización de R2 |
-| 5 | Supabase Micro 48 h | Pago | Sólo si Free no está disponible y hay presupuesto |
+### Checklist exacto de autorizaciones (ninguna concedida aquí)
 
-Configuración mínima del entorno alojado (cuando se autorice): `AGENT_ORCHESTRATOR_R1=1`, `SUPABASE_URL` del QA Free, `R2_QA_PROJECT_REFS` con esa ref (nunca DEV/PROD), `R2_EXECUTION_MODE` **sin** `qa` salvo autorización de R2, nunca `VERCEL_ENV=production`.
+**R0**
 
-Matriz de aceptación del entorno alojado: en `qa-r1-r2.md`.
+- [ ] Revisar y autorizar pegar `supabase/scripts/audit_r0_prod_readonly.sql` en el SQL Editor de PROD.
+- [ ] Autorizar lectura de logs Edge (sin POST al dispatcher).
+- [ ] Tras el export: excepción de atribución del 401 **o** causa correlacionada (no implica cambiar cron).
+- [ ] Tras el export: no-replay de los dos P0001 **o** CAS productiva aparte. Nunca `done`/`pending` en esta sesión.
+- [ ] Prohibir `db push` / `migration repair` hasta inventario del desfase pre-noviembre.
+
+**Preview R1 (R2 off)**
+
+- [ ] Autorizar un deployment **Preview** Hobby (push de rama o deploy Preview). **No** Production. **No** merge a `main`.
+- [ ] Autorizar `AGENT_ORCHESTRATOR_R1=1` **solo** en entorno Preview.
+- [ ] Autorizar el destino de `VITE_SUPABASE_URL` / `SUPABASE_URL` de esa Preview: DEV (lectura R1) **o** otro destino Free ya existente. **Nunca PROD.** Nunca un proyecto Micro/Pro nuevo.
+- [ ] Confirmar que `R2_EXECUTION_MODE`, `COPILOT_R2_GATE`, `R2_QA_PROJECT_REFS` y la semilla de puerta **no** se activan.
+- [ ] Autorizar usar `GEMINI_API_KEY` ya existente (sin clave nueva de pago).
+- [ ] Autorizar ejecutar H-01…H-10 y, al terminar, el rollback (quitar el flag Preview y redesplegar).
+
+**Explícitamente no se pide**
+
+Crear proyecto Supabase, aplicar migraciones, encender R2, push/merge a producción, POST al dispatcher, replay P0001.
 
 ### GO/NO-GO congelado
 
 | Release | Veredicto |
 | --- | --- |
-| R0 | **NO-GO.** Dispatcher 401, P0001 y RD-06 siguen abiertos |
-| R1 | **GO funcional QA local.** **NO-GO producción** hasta preview alojada autorizada |
-| Formatos R1 (Auto, Directo, Reporte, Análisis) | **GO funcional QA local.** **NO-GO producción** hasta el mismo preview |
-| R2 | **GO** para seguir en QA local con `QA_LOCAL=1`. **NO-GO** fuera de QA y **NO-GO producción**. Validación y habilitación independientes |
+| R0 | **NO-GO** liberación. Procedimiento de lectura listo; falta export del operador y excepciones |
+| R1 | **GO funcional QA local** (`640fa52`). **NO-GO** preview hasta las autorizaciones de arriba. **NO-GO** producción |
+| Formatos R1 | Igual que R1 |
+| R2 | **GO** QA local con `QA_LOCAL=1`. **NO-GO** esta preview y **NO-GO** producción |
+
+Preview R1 (cuando existan las autorizaciones): **GO** si H-01…H-10 pasan; **NO-GO** si H-08 ve efecto, si la Preview habla con PROD, o si hay costo nuevo.
 
 Bloqueos que este freeze **no** cierra: R0 (401, P0001, RD-06), R2-15, QA-DB-01, habilitación de R2.
 
