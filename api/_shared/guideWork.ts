@@ -65,15 +65,11 @@ export type ReportClock = {
   version?: string
 }
 
-type KrCatalogEntry = {
-  id: string
-  title: string
-  okrName: string
-}
-
 const OPEN_STATES = ['Pendiente', 'Hoy', 'En_Ejecucion', 'Bloqueado', 'Retraso']
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+/** La Guía no escribe acciones, checkpoints ni iniciativas. Eso sólo ocurre por la confirmación de R2. */
+export const GUIDE_WRITE_CLOSED =
+  'La Guía no crea acciones fuera de la confirmación de R2. No se insertó nada.'
 
 function asString(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
@@ -468,123 +464,16 @@ export function withWorkInInterpretation(text: string | null | undefined, create
   return [text?.trim(), line].filter(Boolean).join('\n').slice(0, 1500)
 }
 
-function todayCdmx() {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Mexico_City',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date())
-}
-
-function addDaysYmd(ymd: string, days: number) {
-  const [year, month, day] = ymd.split('-').map(Number)
-  const date = new Date(Date.UTC(year, month - 1, day + days))
-  return date.toISOString().slice(0, 10)
-}
-
-function mapPriority(priority: GuideWorkDraft['priority']) {
-  if (priority === 'P1_Alta') return 'P1_Critica'
-  if (priority === 'P3_Baja') return 'P3_Baja'
-  return 'P2_Media'
-}
-
-function buildDescription(draft: GuideWorkDraft) {
-  const text = [
-    draft.description,
-    draft.objective ? `Objetivo: ${draft.objective}` : '',
-    'Creada desde Guia.',
-  ]
-    .filter(Boolean)
-    .join('\n\n')
-    .trim()
-  if (text.length >= 10) return text.slice(0, 4000)
-  return `${draft.title}. Generada desde Guia.`.slice(0, 4000)
-}
-
-function buildEvidence(draft: GuideWorkDraft) {
-  const text = draft.evidenceExpected.trim()
-  if (text.length >= 5) return text.slice(0, 2000)
-  return 'Evidencia de avance o cierre acordada'
-}
-
-async function loadKrCatalog(supabase: SupabaseClient): Promise<KrCatalogEntry[]> {
-  const { data, error } = await supabase.rpc('okr_dashboard')
-  if (error || !data || typeof data !== 'object') return []
-  const payload = data as {
-    objectives?: Array<{ id?: string; nombre_okr?: string }>
-    keyResults?: Array<{ id?: string; okr_id?: string; title?: string }>
-  }
-  const objectives = Array.isArray(payload.objectives) ? payload.objectives : []
-  const keyResults = Array.isArray(payload.keyResults) ? payload.keyResults : []
-  const nameById = new Map(
-    objectives.flatMap((item) => {
-      const id = asString(item.id)
-      const name = asString(item.nombre_okr)
-      return id ? ([[id, name]] as const) : []
-    })
-  )
-  return keyResults.flatMap((item) => {
-    const id = asString(item.id)
-    const title = asString(item.title)
-    if (!id || !title) return []
-    return [
-      {
-        id,
-        title,
-        okrName: nameById.get(asString(item.okr_id)) || '',
-      },
-    ]
-  })
-}
-
-function resolveKeyResult(draft: GuideWorkDraft, catalog: KrCatalogEntry[]): KrCatalogEntry | null {
-  const byId = draft.keyResultId && UUID_RE.test(draft.keyResultId)
-    ? catalog.find((item) => item.id === draft.keyResultId)
-    : null
-  if (byId) return byId
-  const needle = (draft.keyResultTitle || draft.keyResultId || '').toLowerCase()
-  if (needle.length < 4) return null
-  return (
-    catalog.find((item) => item.title.toLowerCase() === needle) ||
-    catalog.find((item) => item.title.toLowerCase().includes(needle)) ||
-    catalog.find((item) => needle.includes(item.title.toLowerCase())) ||
-    null
-  )
-}
-
-async function insertCheckpoints(
-  supabase: SupabaseClient,
-  actionId: string,
-  draft: GuideWorkDraft,
-  usuarioId: string
-) {
-  const texts = [draft.title, ...draft.activities].map((text) => text.slice(0, 280)).filter(Boolean)
-  if (texts.length === 0) return
-  const { error } = await supabase.from('accion_checkpoints').insert(
-    texts.map((texto, orden) => ({
-      accion_id: actionId,
-      texto,
-      orden,
-      obligatorio: orden === 0,
-      created_by: usuarioId,
-      activo: true,
-      completado: false,
-    }))
-  )
-  if (error) console.error('guideWork checkpoints', error)
-}
-
+/**
+ * No crea trabajo. Si ya hay una acción abierta con el mismo título, la señala.
+ * En cualquier otro caso devuelve el cierre de escritura y no llama a insert.
+ */
 export async function persistGuideWork(
   supabase: SupabaseClient,
   usuarioId: string,
   drafts: GuideWorkDraft[]
 ): Promise<GuideCreatedWork[]> {
   if (!usuarioId || drafts.length === 0) return []
-  const catalog = drafts.some((draft) => draft.kind === 'initiative')
-    ? await loadKrCatalog(supabase)
-    : []
-  const tomorrow = addDaysYmd(todayCdmx(), 1)
   const created: GuideCreatedWork[] = []
 
   for (const draft of drafts) {
@@ -608,55 +497,12 @@ export async function persistGuideWork(
         })
         continue
       }
-
-      const kr = draft.kind === 'initiative' ? resolveKeyResult(draft, catalog) : null
-      const actionId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
-      const dueMatch = (draft.dueDateHint || '').match(/(20\d{2}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?/)
-      const payload: Record<string, unknown> = {
-        id: actionId,
-        titulo_accion: draft.title,
-        descripcion_accion: buildDescription(draft),
-        evidencia_esperada: buildEvidence(draft),
-        fecha: dueMatch?.[1] || tomorrow,
-        hora_limite: dueMatch?.[2] || '17:00',
-        estado: 'Pendiente',
-        responsable: usuarioId,
-        prioridad: mapPriority(draft.priority),
-        created_by: usuarioId,
-        tipo_accion: 'operativa',
-        sprint_id: null,
-      }
-      if (draft.kind === 'initiative') {
-        payload.es_okr = true
-        payload.okr_impactado = (kr?.title || draft.keyResultTitle || kr?.okrName || 'OKR').slice(0, 200)
-      }
-
-      let { error } = await supabase.from('acciones_diarias').insert(payload)
-      if (error && /es_okr|okr_impactado/i.test(error.message ?? '')) {
-        delete payload.es_okr
-        delete payload.okr_impactado
-        ;({ error } = await supabase.from('acciones_diarias').insert(payload))
-      }
-      if (error) throw error
-
-      await insertCheckpoints(supabase, actionId, draft, usuarioId)
-
-      if (draft.kind === 'initiative' && kr) {
-        const { error: linkError } = await supabase.from('okr_initiatives').insert({
-          key_result_id: kr.id,
-          action_id: actionId,
-          team_action_id: null,
-        })
-        if (linkError && linkError.code !== '23505') {
-          console.error('guideWork okr link', linkError)
-        }
-      }
-
       created.push({
         kind: draft.kind,
-        id: actionId,
+        id: '',
         title: draft.title,
-        keyResultTitle: kr?.title || draft.keyResultTitle,
+        keyResultTitle: draft.keyResultTitle,
+        error: GUIDE_WRITE_CLOSED,
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo crear el trabajo.'

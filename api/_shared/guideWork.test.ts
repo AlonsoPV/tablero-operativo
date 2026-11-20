@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   commitmentDateLabel,
   formatCreatedWorkReply,
   formatExecutiveReport,
+  GUIDE_WRITE_CLOSED,
   guideOpening,
   guideWorkInstructions,
   inferGuideWorkIntent,
   parseExecutiveReport,
   parseGuideWorkDrafts,
+  persistGuideWork,
   withWorkInInterpretation,
+  type GuideWorkDraft,
 } from './guideWork'
 
 describe('guideWork', () => {
@@ -152,6 +156,71 @@ describe('guideWork', () => {
     expect(commitmentDateLabel('el viernes', '2026-11-20')).toBe('2026-11-20')
     expect(commitmentDateLabel('algun dia', '2026-11-12')).toBe('Por definir')
     expect(commitmentDateLabel('el 32 de noviembre', '2026-11-12')).toBe('Pendiente de confirmacion')
+  })
+
+  it('no inserta acciones, checkpoints ni iniciativas aunque el borrador esté completo', async () => {
+    const calls: string[] = []
+    const chain: Record<string, unknown> = {}
+    for (const method of ['select', 'eq', 'in', 'limit']) chain[method] = () => chain
+    chain.maybeSingle = async () => ({ data: null, error: null })
+    chain.insert = () => {
+      calls.push('insert')
+      return Promise.resolve({ error: null })
+    }
+    const client = { from: () => chain, rpc: () => { calls.push('rpc'); return Promise.resolve({ data: null, error: null }) } }
+    const draft: GuideWorkDraft = {
+      title: 'Cerrar evidencias OTIF',
+      description: 'Cerrar evidencias',
+      objective: 'Subir OTIF',
+      evidenceExpected: 'Corte semanal',
+      priority: 'P1_Alta',
+      activities: ['Revisar incidencias'],
+      kind: 'initiative',
+      keyResultId: '11111111-1111-4111-8111-111111111111',
+      keyResultTitle: 'OTIF semanal',
+      dueDateHint: '2026-11-20',
+      ownerHint: null,
+    }
+    const created = await persistGuideWork(client as unknown as SupabaseClient, 'u-1', [draft])
+    expect(calls).toEqual([])
+    expect(created).toEqual([
+      {
+        kind: 'initiative',
+        id: '',
+        title: 'Cerrar evidencias OTIF',
+        keyResultTitle: 'OTIF semanal',
+        error: GUIDE_WRITE_CLOSED,
+      },
+    ])
+  })
+
+  it('si la acción abierta ya existe, la señala sin escribir', async () => {
+    const calls: string[] = []
+    const chain: Record<string, unknown> = {}
+    for (const method of ['select', 'eq', 'in', 'limit']) chain[method] = () => chain
+    chain.maybeSingle = async () => ({ data: { id: 'a-existente' }, error: null })
+    chain.insert = () => {
+      calls.push('insert')
+      return Promise.resolve({ error: null })
+    }
+    const client = { from: () => chain }
+    const draft: GuideWorkDraft = {
+      title: 'Cerrar evidencias OTIF',
+      description: '',
+      objective: '',
+      evidenceExpected: '',
+      priority: 'P2_Media',
+      activities: [],
+      kind: 'action',
+      keyResultId: null,
+      keyResultTitle: null,
+      dueDateHint: null,
+      ownerHint: null,
+    }
+    const created = await persistGuideWork(client as unknown as SupabaseClient, 'u-1', [draft])
+    expect(calls).toEqual([])
+    expect(created[0]).toMatchObject({ id: 'a-existente', alreadyExisted: true })
+    expect(created[0]?.error).toBeUndefined()
   })
 
   it('infiere crear desde habla natural y deja consultar las preguntas del tablero', () => {

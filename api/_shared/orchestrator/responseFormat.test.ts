@@ -674,3 +674,80 @@ describe('integración con el canal web', () => {
     expect(webSessionId(undefined, undefined)).toBe('web')
   })
 })
+
+describe('conversationId: usuario, pestaña y expiración', () => {
+  function channelTurn(
+    store: SessionContextStore,
+    user: User,
+    conversationId: unknown,
+    utterance: string,
+    requestId?: string
+  ) {
+    return runChannelTurn(
+      {
+        identity: {
+          supabase: createFakeSupabase(createR1Db()),
+          authUserId: user.user_id,
+          usuarioId: user.id,
+          rol: user.rol,
+          active: user.activo,
+        },
+        channel: 'web',
+        sessionId: webSessionId(conversationId, requestId),
+        utterance,
+      },
+      {
+        dispatch: (a, n, args) => dispatchCopilotTool(a, n, args),
+        store,
+        audit: memoryQueryAuditSink([]),
+        today: () => R1_TODAY,
+      }
+    )
+  }
+
+  it('dos pestañas del mismo usuario no comparten consulta ni formato', async () => {
+    const store = r1Store()
+    await channelTurn(store, R1_USERS.lead, 'tab-aaaa-1', 'modo reporte')
+    await channelTurn(store, R1_USERS.lead, 'tab-aaaa-1', '¿Cuáles están vencidas?')
+    const otherTab = await channelTurn(store, R1_USERS.lead, 'tab-bbbb-2', '¿Qué tengo pendiente hoy?')
+    expect(otherTab.formatSelected).toBe('auto')
+    expect(otherTab.response.blocks.data[0]).toContain('abiertas')
+    expect(await store.get('u-lead:web:tab-aaaa-1')).toMatchObject({
+      responseFormat: 'report',
+      activeQuery: { status_group: 'overdue' },
+    })
+    expect(await store.get('u-lead:web:tab-bbbb-2')).toMatchObject({
+      responseFormat: 'auto',
+      activeQuery: { status_group: 'open' },
+    })
+  })
+
+  it('el mismo conversationId en dos usuarios no comparte contexto', async () => {
+    const store = r1Store()
+    await channelTurn(store, R1_USERS.lead, 'conv-shared-1', 'modo reporte')
+    const lead = await channelTurn(store, R1_USERS.lead, 'conv-shared-1', '¿Cuáles están vencidas?')
+    const peer = await channelTurn(store, R1_USERS.peer, 'conv-shared-1', '¿Qué tengo pendiente hoy?')
+    expect(lead.formatSelected).toBe('report')
+    expect(lead.response.references.map((item) => item.id)).toEqual(['a1'])
+    expect(peer.formatSelected).toBe('auto')
+    expect(peer.response.references.map((item) => item.id)).not.toContain('a1')
+    expect(await store.get('u-peer:web:conv-shared-1')).toMatchObject({ responseFormat: 'auto' })
+    expect(await store.get('u-lead:web:conv-shared-1')).toMatchObject({ responseFormat: 'report' })
+  })
+
+  it('a los 30 minutos la sesión expira y el formato vuelve a Automático', async () => {
+    const store = r1Store()
+    await channelTurn(store, R1_USERS.lead, 'conv-expire1', 'modo reporte')
+    expect((await store.get('u-lead:web:conv-expire1'))?.responseFormat).toBe('report')
+    vi.setSystemTime(new Date(Date.parse(R1_NOW_ISO) + 31 * 60 * 1000))
+    const after = await channelTurn(store, R1_USERS.lead, 'conv-expire1', '¿Qué tengo pendiente hoy?')
+    vi.setSystemTime(new Date(R1_NOW_ISO))
+    expect(after.formatSelected).toBe('auto')
+    expect(after.format).toBe('direct')
+  })
+
+  it('un conversationId inválido usa el requestId y, si tampoco vale, la sesión web', () => {
+    expect(webSessionId('malo id', 'req-abc')).toBe('req-abc')
+    expect(webSessionId('../etc', undefined)).toBe('web')
+  })
+})

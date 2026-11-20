@@ -43,7 +43,7 @@ En `qa`, las herramientas de comunicación y de Google del copiloto se niegan (�
 | `mark_action_done` | `update_status` con Hecho | Claim + `agent_apply_action_status` (recibo) |
 | `verify_action` | `verify_action` | Ejecutor existente; sólo creador o Super Admin (`can_manage_accion_full_as`), confirmación humana, nunca `fromTool` |
 
-Las propuestas reciben `request_key` (`hashIntent`) y se recargan actor y capacidades en la confirmación. Las herramientas de comunicación (`notify_action_email`, `notify_user_email`, `whatsapp_prepare_send`) no cambian de ruta; en modo `qa` se niegan. `api/_shared/guideWork.ts` (Guía) inserta acciones directamente y queda fuera de la puerta (R2-11).
+Las propuestas reciben `request_key` (`hashIntent`) y se recargan actor y capacidades en la confirmación. Las herramientas de comunicación (`notify_action_email`, `notify_user_email`, `whatsapp_prepare_send`) no cambian de ruta; en modo `qa` se niegan. `persistGuideWork` (Guía) ya no inserta acciones: la ruta directa quedó cerrada (R2-11) y la creación pasa por la confirmación de R2.
 
 **Canales.** El orquestador reconoce las intenciones de estado, bloqueo y aviso al responsable, y sólo llega a la propuesta validada (`proposeAction`, sin persistir), avisando que la ejecución no está habilitada. Web la muestra cuando `AGENT_ORCHESTRATOR_R1=1`. WhatsApp y voz ignoran `write_request` y siguen su flujo vigente.
 

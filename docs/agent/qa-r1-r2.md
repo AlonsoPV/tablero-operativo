@@ -74,7 +74,7 @@ La service role del proyecto QA sólo restablece estados, cambia un rol en JWT-1
 | --- | --- | --- |
 | Acciones | `create_action`, `update_action`, `add_action_comment`, `update_checklist_item`, `mark_action_done`, `verify_action` | Puerta R2 (contratos `create_action`, `update_fields`, `add_comment`, `update_checkpoint`, `update_status` con Hecho, `verify_action`) |
 | Comunicación | `notify_action_email`, `notify_user_email`, `whatsapp_prepare_send` | Sin cambios; en modo `qa` se niegan |
-| Fuera de la puerta | `api/_shared/guideWork.ts` (Guía) inserta acciones directamente | Sin cambios (R2-11) |
+| Guía | `persistGuideWork` | Cerrada (R2-11): no inserta. La creación queda en la confirmación de R2 |
 
 Con el flag apagado el flujo es idéntico al actual (probado en `copilotR2Gate.test.ts`). No se activa en producción aunque la variable exista.
 
