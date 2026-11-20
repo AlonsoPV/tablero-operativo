@@ -21,6 +21,16 @@ ACL/políticas (opcional, no necesario para 401/P0001/RD-06): [`audit_agent_r0_r
 3. Guardar cada result set (CSV o captura de tabla) sin las columnas prohibidas.
 4. Logs Edge (solo lectura, Dashboard → Edge Functions → Logs), sin reenviar:
 
+### Checklist en SQL Editor
+
+1. Proyecto `xhpasmjzuwifmjhrsumb`, no DEV.
+2. Rol `postgres` (no `anon`).
+3. Pegar `audit_r0_prod_readonly.sql` completo (`BEGIN READ ONLY` … `COMMIT`). Si el editor rechaza el lote, cada `SELECT` por separado, en orden 0 → C3.
+4. Confirmar bloque 0: todos los `has_*` de cron, net, jobs, recibos y `schema_migrations` en true. Si net es false, A3 no aplica.
+5. Exportar resultados (CSV). No copiar `cron.command` ni abrir `content`.
+6. Si A3 o B1 fallan por permiso/objeto, anotarlo; no reintentar con otra función ni con PostgREST.
+7. No Run a medias: si aborta a mitad, `ROLLBACK` implícito; volver a pegar entero.
+
 | Incidente | Filtro | Evidencia mínima |
 | --- | --- | --- |
 | 401 dispatcher | Función `whatsapp-followup-dispatcher`, POST, status 401, desde 2026-11-17 | Timestamp, execution/request ID, revisión de la función, `sb-error-code` si existe |
@@ -31,28 +41,33 @@ Si la retención expiró, anotarlo: eso habilita **excepción de atribución**, 
 
 ## Cómo leer los bloques
 
+### 0 · Catálogo
+
+Si `has_cron_job`, `has_net_http_response` o `has_inbound_jobs` es false, no interpretar los bloques siguientes: falta el objeto o el rol no lo ve. El SQL Editor con rol `postgres` ignora RLS; `anon`/`authenticated` tienen `REVOKE ALL` en jobs y recibos y **no** sirven para esta auditoría.
+
 ### A · HTTP 401 del dispatcher
 
-Causa probable (código, no hecho de PROD hasta correlacionar): el Gateway exige `Authorization`/`apikey` aunque `verify_jwt=false`; el cron de `20261103121000` mandaba solo `x-dispatcher-secret`.
+Causa probable (código, no hecho de PROD hasta correlacionar): el Gateway exige `Authorization`/`apikey` aunque `verify_jwt=false`; el cron de `20261103121000` mandaba solo `x-dispatcher-secret`. A1 usa `~*` para cabeceras.
 
 | Resultado | Lectura |
 | --- | --- |
-| `has_authorization_header` y `has_apikey_header` = true, vault en minúsculas, sin `PASTE_ANON_KEY` | Cron actual parece el de `20261104140000`. El 401 histórico puede ser pre-fix |
-| Falta Authorization/apikey, o `PASTE_ANON_KEY`, o vault en MAYÚSCULAS | Causa vigente; no cambiar el cron en esta auditoría |
-| Filas A3 con `has_gateway_jwt_message` | Capa Gateway |
-| Filas A3 con `has_function_unauthorized_body` o `declared_auth_layer=edge_function` | Capa Edge |
+| `has_authorization_header` y `has_apikey_header` = true, vault en minúsculas, sin placeholder | Cron actual parece el de `20261104140000`. El 401 histórico puede ser pre-fix |
+| Falta Authorization/apikey, o `has_unreplaced_placeholder`, o vault en MAYÚSCULAS | Causa vigente; no cambiar el cron en esta auditoría |
+| A3 con `gateway_error_code` | Capa Gateway (`sb-error-code`). Esta pasada **no** lee `content` |
 | A3 vacío | Retención de `net._http_response` agotada |
 
 La sonda GET 405 (`eb855033-fa3b-4917-bcce-c336650cd777`) no atribuye el POST.
 
 ### B · Dos P0001
 
-IDs fijos. Última lectura (2026-11-18): `review` / `provider_request` / `database_P0001` / `attempts=1` / `effect_started=true`; aviso de fallo entregado; cero recibos de mutación. **No es un falso éxito.**
+IDs fijos. Última lectura (2026-11-18): `review` / `provider_request` / `database_P0001` / `attempts=1` / `effect_started=true`; aviso de fallo entregado. **No es un falso éxito.**
+
+`receipts.event_key` no es un FK al `id` del job en el esquema: es el `p_event` de `whatsapp_apply_action` / `whatsapp_apply_team`. El worker **actual** pasa `job.id`. `jobs.event_key` es la clave Meta. Un solo cruce **no es concluyente** (revisión Edge del 18-nov desconocida). Ambos false refuerza «sin recibo visto». Un true en `*_by_job_id` encaja con el worker actual, no prueba por sí solo el efecto sobre la acción.
 
 | Si hoy… | Cierre propuesto (no ejecutar aquí) |
 | --- | --- |
-| Sigue `review` + `database_P0001` + sin recibos | Excepción de no-replay, o CAS `failed` + `reconciled_no_replay` con autorización productiva aparte. Nunca `done` ni `pending` |
-| Hay recibo de mutación o la acción cerrada | Detener. No es el escenario documentado |
+| Sigue `review` + `database_P0001` | Excepción de no-replay, o CAS `failed` + `reconciled_no_replay` con autorización aparte. Nunca `done` ni `pending` |
+| Recibo true y hace falta conciliar efecto | Detener. No es el escenario documentado del 18-nov |
 | El job ya no existe | Documentar; no reconstruir |
 
 ### C · RD-06
