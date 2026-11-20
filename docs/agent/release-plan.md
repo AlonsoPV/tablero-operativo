@@ -85,7 +85,7 @@ Crear proyecto Supabase, aplicar migraciones, encender R2, push/merge a producci
 
 | Release | Veredicto |
 | --- | --- |
-| R0 | **NO-GO** liberación. Procedimiento de lectura listo; falta export del operador y excepciones |
+| R0 | **NO-GO** producción. 401 activo (`PASTE_ANON_KEY`); dos P0001 en review sin recibos; historial 118 filas / 7 de noviembre, C2 pendiente. Ver `r0-status-2026-11-20.md` |
 | R1 | **GO funcional QA local** (`640fa52`). **NO-GO** preview hasta las autorizaciones de arriba. **NO-GO** producción |
 | Formatos R1 | Igual que R1 |
 | R2 | **GO** QA local con `QA_LOCAL=1`. **NO-GO** esta preview y **NO-GO** producción |
