@@ -1,5 +1,19 @@
 # Enviardián · incidentes, riesgos y dependencias
 
+## QA local R1/R2 · hallazgos · 2026-11-19
+
+Rama local `qa/supabase-local` (base `2303bb9`), Supabase local en WSL2 con dos instancias aisladas y cuentas sintéticas. Detalle y evidencia en `qa-r1-r2.md`. Ningún hallazgo se corrigió en esta sesión.
+
+| ID | Hallazgo | Severidad | Tratamiento |
+| --- | --- | --- | --- |
+| QA-R1-01 | `capabilityFingerprint()` (`api/_shared/query/actorCapabilities.ts`) concatena todas las capacidades verdaderas. Para Super Admin mide 212 caracteres y para Área OKRS 170, y el CHECK `char_length(capability_fingerprint) <= 128` de `agent_session_context` (`20261119140000`) rechaza el upsert con un 400 silencioso. `get()` devuelve null si no hay fila y no usa la memoria de respaldo. Efecto: esos perfiles pierden el formato persistido («modo reporte») y las referencias («esa acción»). Dirección (80) y Líder (30) no se ven afectados | Alta. Bloquea R1 | Propuesta, no aplicada: guardar un hash (sha256 hex, 64 caracteres) en lugar de la lista, o ampliar el CHECK. Repetir F4 y R2-A2 de `run-api-matrix.mjs` |
+| QA-R1-02 | En la web, `runConversationTurn` (`AiAssistPage.tsx`) resuelve en el cliente muchas preguntas reconocidas sin llamar a `/api/gemini-chat` e ignora `responseFormat`. Interpreta «modo reporte» y «automático» como nombres de persona | Alta para formatos R1 | Enviar las directivas y el formato elegido al servidor, o aplicarlos también en el camino del cliente. Por API los formatos y las directivas funcionan |
+| QA-R1-03 | A 390 px la opción «Análisis» del selector queda recortada en el borde derecho; se puede pulsar | Baja (cosmético) | Ajuste de CSS (envolver o desplazar) |
+| QA-R2-01 | `executionMode.ts` sólo reconoce referencias `*.supabase.co`; contra Supabase local el modo `qa` del servidor queda desactivado | Media para liberar R2 | La puerta en BD y la RPC sí se validaron con JWT reales (JWT-01 a JWT-16). La confirmación HTTP con el ejecutor `qa` necesita un entorno QA reconocido, o una excepción local explícita y revisada |
+| QA-DB-01 | `get_operational_okr_dashboard` (`20260820120000`, línea 334) usa `accion_evidencias.created_at`, pero la columna es `uploaded_at` (error 42703) | Media, fuera del alcance R1/R2 | Determinar si es una deriva del esquema o un defecto previo del tablero, comparando con DEV en sólo lectura |
+| R2-15 | El historial de migraciones no se aplica limpio desde cero: super_admin asignado a un UUID real fijo (`20260313190000`), `ALTER TABLE auth.users` sin ser dueño (`20260601170000`), cambio de tipo de retorno de `try_set_accion_hecho` (`20260625161411`) y `cron.schedule` hacia DEV/PROD (`20260629201032`, `20261103121000`, `20261104140000`) | Media | `scripts/qa/local/prepare-instance.mjs` parchea sólo la copia de cada instancia y verifica que cada parche aplica exactamente una vez. Las migraciones originales no cambian |
+| QA-ENV-01 | Supabase local escucha en `0.0.0.0` dentro de la red NAT de WSL | Baja | Sólo datos sintéticos. Detener las instancias al terminar |
+
 ## Integración R1 y R2 local · riesgos y dependencias · 2026-11-19
 
 **Dependencias verificadas (sólo lectura).** Las 49 funciones de las migraciones de noviembre coinciden entre local, DEV y PROD. `135000` y su rollback son idénticos en R1 y en el hotfix. La fusión de R1 con el hotfix no tuvo conflictos y `136000` convive con A, que se prueba en ambos runners. No se encontró ninguna incompatibilidad de seguridad.

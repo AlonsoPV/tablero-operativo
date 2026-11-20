@@ -1,5 +1,34 @@
 # Enviardián · releases y ejecución R0–R1
 
+## QA local sin costo R1/R2 · 2026-11-19
+
+Rama local `qa/supabase-local`, base `integration/r1-r2-cierre` (`2303bb9`). Dos instancias de Supabase local (QA A y QA B) en WSL2 con Docker Engine, 228 migraciones aplicadas sólo en ellas y cuentas sintéticas. Sin costo, sin push, merge ni despliegue, y sin cambios en DEV ni PROD. `AGENT_ORCHESTRATOR_R1`, `R2_EXECUTION_MODE` y `COPILOT_R2_GATE` sólo se encendieron en `.env.qa.local` (ignorado por git) para el servidor QA local. Procedimiento y detalle en `qa-r1-r2.md`; hallazgos en `risks-and-dependencies.md`.
+
+| Pieza | Validado en QA (local) | Resultado |
+| --- | --- | --- |
+| R0 | No en esta sesión | Las validaciones remotas siguen abiertas |
+| R1 (orquestador y autorización) | Sí | JWT-01 a JWT-16 16/16. Matriz API: alcance, 403 y otro equipo correctos. Contexto de sesión roto para Super Admin y Área OKRS (QA-R1-01) |
+| Formatos de respuesta | Sí | Los cuatro formatos conservan intención, referencias y cifras; Reporte muestra el resumen operativo. Las directivas y el selector fallan en el camino del cliente web (QA-R1-02); en móvil, «Análisis» queda recortada (QA-R1-03) |
+| R2 (puerta, RPC, autorización) | Sí, en BD con JWT reales y por API en modo `simulated` | Propuestas sin ejecución, Verificado negado, Dirección y Área OKRS sin preparar cambios, Líder sin módulo 403, ninguna acción modificada, `qa_outbox` en 0. La confirmación HTTP con el ejecutor `qa` no se pudo validar en local (QA-R2-01) |
+
+| Verificación | Resultado |
+| --- | --- |
+| `qaGuard.test.mjs` | 6 pruebas pasaron |
+| `run-jwt-suite.mjs` | 16/16 |
+| `run-api-matrix.mjs` | 18/21: 3 fallos del defecto QA-R1-01 y 0 fallos nuevos |
+| Matriz visual (escritorio 1024 px, móvil 390 px) | 5 de 6 casos correctos en ambos anchos; las directivas fallan (QA-R1-02) |
+
+### GO/NO-GO por release
+
+| Release | Veredicto |
+| --- | --- |
+| R0 | NO-GO liberación, sin cambios. No forma parte de esta validación |
+| R1 | NO-GO liberación hasta corregir QA-R1-01 y repetir F4 y R2-A2. La autorización (JWT-01 a JWT-16) queda validada en local |
+| Formatos R1 | NO-GO liberación hasta corregir QA-R1-01 y QA-R1-02 y repetir la matriz visual. QA-R1-03 no bloquea |
+| R2 | GO para seguir en QA con la ejecución deshabilitada. NO-GO habilitar y NO-GO liberación: falta la confirmación HTTP con el ejecutor `qa` en un entorno reconocido (QA-R2-01) y depende de R1 |
+
+`AGENT_ORCHESTRATOR_R1` y la ejecución R2 siguen deshabilitados fuera de QA.
+
 ## Cierre verificable R1/R2 · 2026-11-19
 
 Rama local `integration/r1-r2-cierre`. Base `r2/qa-consolidacion` (`12e2419`), que ya contiene R1, el hotfix y R2. Encima, merge `--no-ff` de `r1/formatos-respuesta` (`78efe5c`, commits `3be35cc` y `af23d69`) y el cierre de la Guía (`66f227b`). Sin push, sin merge a ramas compartidas, sin despliegue y sin migraciones en DEV o PROD. No se usaron los cambios sin commit de otros worktrees.
