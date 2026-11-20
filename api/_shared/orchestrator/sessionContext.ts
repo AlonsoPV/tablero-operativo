@@ -9,6 +9,9 @@ import { buildActiveQueryEntry } from '../actionQueryContract.js'
 import type { ActionActiveQuery } from '../../../src/features/ai-support/actionQuery/types.js'
 import type { ActionItem } from '../query/contracts.js'
 import type { AgentActor, AgentChannel } from '../query/resolveActor.js'
+import { coerceResponseFormat, type FormatResolution, type ResponseFormat } from './answerContract.js'
+import type { AgentIntent } from './intent.js'
+import type { AgentResponse } from './respond.js'
 
 export const SESSION_CONTEXT_TTL_MS = 30 * 60 * 1000
 const MAX_REFERENCED_ITEMS = 12
@@ -16,10 +19,23 @@ const MAX_SESSIONS = 2_000
 
 export type ReferencedAction = Pick<ActionItem, 'id' | 'title' | 'estado' | 'fecha' | 'prioridad' | 'responsableId' | 'responsableNombre' | 'href'>
 
+/**
+ * Última respuesta con datos, sólo en memoria de la instancia (nunca se persiste en la tabla):
+ * permite volver a presentarla en otro formato sin una nueva consulta.
+ */
+export type CachedAnswer = {
+  intent: AgentIntent['kind']
+  response: AgentResponse
+  auto: FormatResolution
+}
+
 export type SessionContext = {
   activeQuery: ActionActiveQuery | null
   lastActions: ReferencedAction[]
   lastEntity: { kind: 'action' | 'person'; id: string; label: string } | null
+  /** Formato elegido para la sesión; ausente equivale a 'auto'. */
+  responseFormat?: ResponseFormat
+  lastAnswer?: CachedAnswer | null
   /** Huella de capacidades con la que se construyó; si cambia, el contexto se descarta. */
   fingerprint?: string
   updatedAt: number
@@ -117,6 +133,7 @@ type PersistedPayload = {
   activeQuery: ActionActiveQuery | null
   lastActions: Array<Pick<ReferencedAction, 'id' | 'estado' | 'fecha' | 'prioridad' | 'responsableId'>>
   lastEntity: { kind: 'action' | 'person'; id: string } | null
+  responseFormat?: ResponseFormat
 }
 
 /** Sólo IDs y campos de orden; títulos y nombres se releen con permisos vigentes. */
@@ -131,6 +148,7 @@ export function toPersistedPayload(value: Omit<SessionContext, 'updatedAt'>): Pe
       responsableId: item.responsableId ?? null,
     })),
     lastEntity: value.lastEntity ? { kind: value.lastEntity.kind, id: value.lastEntity.id } : null,
+    responseFormat: coerceResponseFormat(value.responseFormat),
   }
 }
 
@@ -159,6 +177,7 @@ function fromPersistedPayload(payload: unknown, fingerprint: string, updatedAt: 
     activeQuery: p.activeQuery && typeof p.activeQuery === 'object' ? p.activeQuery : null,
     lastActions,
     lastEntity: entity,
+    responseFormat: coerceResponseFormat(p.responseFormat),
     fingerprint,
     updatedAt,
   }

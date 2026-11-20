@@ -59,6 +59,12 @@ import { AssistantClarificationChips } from '@/features/ai-support/components/As
 import { ActionDraftList } from '@/features/ai-support/components/ActionDraftList'
 import { WorkIntentToggle } from '@/features/ai-support/components/WorkIntentToggle'
 import {
+  coerceResponseFormat,
+  FORMAT_LABEL,
+  RESPONSE_FORMATS,
+  type ResponseFormat,
+} from '@/features/ai-support/responseFormat'
+import {
   AssistantLaneChooser,
   AssistantLaneSwitch,
 } from '@/features/ai-support/components/AssistantLaneChooser'
@@ -147,8 +153,47 @@ type ActionContext = {
   notasEscalamiento?: string | null
 }
 
+const FORMAT_STORAGE_KEY = 'assistant.responseFormat'
+const CONVERSATION_STORAGE_KEY = 'assistant.conversationId'
+
+const FORMAT_OPTIONS = RESPONSE_FORMATS.map((id) => ({
+  id,
+  label: id === 'auto' ? 'Auto' : FORMAT_LABEL[id],
+}))
+
+/** La selección dura la sesión del navegador; sin almacenamiento disponible vuelve a Automático. */
+function readStoredFormat(): ResponseFormat {
+  try {
+    return coerceResponseFormat(window.sessionStorage.getItem(FORMAT_STORAGE_KEY))
+  } catch {
+    return 'auto'
+  }
+}
+
+function storeFormat(format: ResponseFormat) {
+  try {
+    window.sessionStorage.setItem(FORMAT_STORAGE_KEY, format)
+  } catch {
+    /* sin almacenamiento: la selección sólo vive en memoria */
+  }
+}
+
+/** Identificador estable de la conversación para que el servidor conserve contexto y formato. */
+function readConversationId(): string {
+  try {
+    const stored = window.sessionStorage.getItem(CONVERSATION_STORAGE_KEY)
+    if (stored) return stored
+    const created = crypto.randomUUID()
+    window.sessionStorage.setItem(CONVERSATION_STORAGE_KEY, created)
+    return created
+  } catch {
+    return crypto.randomUUID()
+  }
+}
+
 type GeminiChatResponse = {
   answer?: string
+  agent?: { formatSelected?: string }
   error?: string
   proposals?: AiChatMessage['proposals']
   clarification?: AiChatMessage['clarification']
@@ -172,7 +217,11 @@ async function sendMessage({
   actionContext,
   okrContext,
   boardContext,
+  responseFormat,
+  conversationId,
 }: {
+  responseFormat: ResponseFormat
+  conversationId: string
   mode: typeof UNIFIED_ASSISTANT_MODE
   messages: AiChatMessage[]
   actionContext?: ActionContext | ActionContext[]
@@ -188,6 +237,8 @@ async function sendMessage({
     body: JSON.stringify({
       mode,
       requestId: messages.at(-1)?.requestId,
+      conversationId,
+      responseFormat,
       messages: messages.map(({ role, content }) => ({ role, content })),
       actionContext,
       okrContext,
@@ -218,6 +269,7 @@ async function sendMessage({
     proposals: data.proposals,
     clarification: data.clarification,
     ui: data.ui ?? undefined,
+    formatSelected: data.agent?.formatSelected,
   }
 }
 
@@ -632,6 +684,12 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     if (fromUrl) setLane(fromUrl)
   }, [searchParams])
   const [writeIntent, setWriteIntent] = useState<WriteIntent>('consult')
+  const [responseFormat, setResponseFormatState] = useState<ResponseFormat>(readStoredFormat)
+  const conversationId = useMemo(readConversationId, [])
+  const setResponseFormat = (format: ResponseFormat) => {
+    setResponseFormatState(format)
+    storeFormat(format)
+  }
   const [selectedActionIds, setSelectedActionIds] = useState<string[]>([])
   const [actionContextEnabled, setActionContextEnabled] = useState(true)
   const [selectedObjectiveIds, setSelectedObjectiveIds] = useState<string[]>([])
@@ -1075,7 +1133,11 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               ? activeOkrContextPayload ?? undefined
               : undefined,
           boardContext: sliced?.boardContext ?? boardContext ?? undefined,
+          responseFormat,
+          conversationId,
         })
+        // Una directiva en el mensaje («modo reporte») cambia el formato de la sesión: el selector la refleja.
+        if (reply.formatSelected) setResponseFormat(coerceResponseFormat(reply.formatSelected))
         setMessages(
           [
             ...nextMessages,
@@ -1310,6 +1372,12 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         {!isPopup ? (
           <div className="flex items-center gap-1.5">
             <WorkIntentToggle value={writeIntent} onChange={setWriteIntent} />
+            <WorkIntentToggle<ResponseFormat>
+              value={responseFormat}
+              onChange={setResponseFormat}
+              options={FORMAT_OPTIONS}
+              aria-label="Formato de respuesta"
+            />
             <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
               <div className="flex w-max gap-1">
                 {suggestionChips.slice(0, conversationState ? 5 : 3).map((suggestion, index) => (
@@ -1333,7 +1401,14 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               </div>
             </div>
           </div>
-        ) : null}
+        ) : (
+          <WorkIntentToggle<ResponseFormat>
+            value={responseFormat}
+            onChange={setResponseFormat}
+            options={FORMAT_OPTIONS}
+            aria-label="Formato de respuesta"
+          />
+        )}
         <Label htmlFor={inputId} className="sr-only">
           {activeOkrContext
             ? 'Pregunta sobre el OKR seleccionado'

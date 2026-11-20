@@ -3,6 +3,7 @@
  * recomendación, limitaciones) y mensajes distintos por estado (CV-04).
  */
 import type { QueryStatus } from '../query/contracts.js'
+import type { AnswerFacts } from './answerContract.js'
 
 export type AgentResponseBlocks = {
   data: string[]
@@ -18,6 +19,11 @@ export type AgentResponse = {
   blocks: AgentResponseBlocks
   references: AgentReference[]
   asOf: string | null
+  /**
+   * Contrato tipado con los mismos datos autorizados que `blocks`. Sólo existe cuando hubo datos
+   * (ok/partial); el resto de estados se presenta igual en todos los formatos.
+   */
+  facts?: AnswerFacts
 }
 
 export function emptyBlocks(): AgentResponseBlocks {

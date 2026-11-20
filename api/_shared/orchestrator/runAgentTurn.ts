@@ -18,6 +18,7 @@ import type {
   ActionItem,
   ActionsQueryRequest,
   AggregateQueryRequest,
+  OkrItem,
   QueryResult,
   QueryStatus,
 } from '../query/contracts.js'
@@ -25,7 +26,20 @@ import { queryActions, queryAggregate, queryOkrs, type ToolDispatcher } from '..
 import type { QueryAuditEntry, QueryAuditSink } from '../query/queryAudit.js'
 import type { AgentActor } from '../query/resolveActor.js'
 import { UNAVAILABLE_DOMAINS } from '../query/sourceCatalog.js'
+import {
+  coerceResponseFormat,
+  emptyFacts,
+  FORMAT_LABEL,
+  isResponseFormat,
+  type AnswerFacts,
+  type AnswerFinding,
+  type AnswerItem,
+  type AnswerMetric,
+  type ResolvedFormat,
+  type ResponseFormat,
+} from './answerContract.js'
 import { classifyAgentIntent, type AgentIntent } from './intent.js'
+import { FORMAT_DESCRIPTION, parseFormatDirective, resolveFormat } from './responseFormat.js'
 import {
   pickMostUrgent,
   rankByUrgency,
@@ -39,6 +53,7 @@ import {
   needsReferenceRehydration,
   sessionContextKey,
   toReferencedActions,
+  type ReferencedAction,
   type SessionContext,
   type SessionContextStore,
 } from './sessionContext.js'
@@ -61,6 +76,13 @@ export type AgentTurnResult = {
   response: AgentResponse
   clarification?: CopilotClarification
   proposal?: ActionProposal
+  /** Formato aplicado (Automático ya resuelto) y el elegido por el usuario o la sesión. */
+  format: ResolvedFormat
+  formatSelected: ResponseFormat
+  /** Automático con consulta ambigua: se invita a profundizar. */
+  offerDetail: boolean
+  /** Aviso corto (p. ej. cambio de formato) que antecede a la respuesta. */
+  notice?: string
   toolsUsed: string[]
   trace: Array<{ stage: AgentStage; ms: number }>
 }
@@ -82,12 +104,58 @@ function unwrap(data: unknown): Record<string, unknown> {
   return inner && typeof inner === 'object' ? (inner as Record<string, unknown>) : record
 }
 
-function actionLine(item: ActionItem, today: string): string {
+function actionFlags(item: ActionItem | ReferencedAction, today: string): string[] {
   const flags: string[] = []
   const rank = urgencyRank(item, today)
   if (rank === 0) flags.push('vencida')
   if (rank === 1) flags.push('bloqueada')
   if (item.fecha === today && rank > 1) flags.push('vence hoy')
+  return flags
+}
+
+function actionItem(item: ActionItem | ReferencedAction, today: string): AnswerItem {
+  return {
+    kind: 'action',
+    id: item.id,
+    title: item.title,
+    status: item.estado,
+    date: item.fecha,
+    owner: item.responsableNombre ?? null,
+    priority: item.prioridad,
+    flags: actionFlags(item, today),
+    href: item.href,
+  }
+}
+
+function okrItem(okr: OkrItem): AnswerItem {
+  return {
+    kind: 'okr',
+    id: okr.id,
+    title: okr.name,
+    progress: okr.progress,
+    withoutInitiatives: okr.withoutInitiatives,
+    insufficientKrs: okr.insufficientKrs,
+    krCount: okr.keyResults.length,
+    href: '/okrs',
+  }
+}
+
+/**
+ * Adjunta el contrato tipado al terminar el handler: recomendaciones y limitaciones salen de los
+ * mismos bloques ya redactados; las cifras, elementos y hallazgos los aportan los datos consultados.
+ */
+function withFacts(response: AgentResponse, extra: Partial<AnswerFacts>): AgentResponse {
+  response.facts = {
+    ...emptyFacts(),
+    recommendations: [...response.blocks.recommendation],
+    limitations: [...response.blocks.limitations],
+    ...extra,
+  }
+  return response
+}
+
+function actionLine(item: ActionItem, today: string): string {
+  const flags = actionFlags(item, today)
   const owner = item.responsableNombre ? ` · ${item.responsableNombre}` : ''
   return `- ${item.title} (${item.estado ?? 'sin estado'}, ${item.fecha ?? 'sin fecha'}${flags.length ? `, ${flags.join(', ')}` : ''})${owner}`
 }
@@ -249,25 +317,42 @@ async function handleQueryActions(
   const ranked = rankByUrgency(result.items, state.today)
   const shown = ranked.slice(0, LIST_LIMIT)
   const verb = intent.statusGroup === 'overdue' ? 'vencidas' : intent.statusGroup === 'blocked' ? 'bloqueadas' : 'abiertas'
-  response.blocks.data.push(`${result.totals.total} ${verb} en ${subject}.`)
+  const headline = `${result.totals.total} ${verb} en ${subject}.`
+  response.blocks.data.push(headline)
   response.blocks.data.push(...shown.map((item) => actionLine(item, state.today)))
   response.references = shown.map((item) => ({ id: item.id, title: item.title, href: item.href }))
 
   const overdue = result.items.filter((i) => urgencyRank(i, state.today) === 0).length
   const blocked = result.items.filter((i) => urgencyRank(i, state.today) === 1).length
   const dueToday = result.items.filter((i) => i.fecha === state.today).length
+  let finding: string | null = null
   if (overdue || blocked || (intent.focusToday && dueToday)) {
     const parts = [
       overdue ? `${overdue} vencida(s)` : '',
       blocked ? `${blocked} bloqueada(s)` : '',
       intent.focusToday ? `${dueToday} con fecha de hoy` : '',
     ].filter(Boolean)
-    response.blocks.interpretation.push(`De las ${result.items.length} revisadas: ${parts.join(', ')}. El orden prioriza vencidas, bloqueadas y prioridad alta.`)
+    finding = `De las ${result.items.length} revisadas: ${parts.join(', ')}.`
+    response.blocks.interpretation.push(`${finding} El orden prioriza vencidas, bloqueadas y prioridad alta.`)
   }
   if (shown[0] && urgencyRank(shown[0], state.today) <= 2) {
     response.blocks.recommendation.push(`Empieza por «${shown[0].title}».`)
   }
   response.blocks.limitations.push(...result.limitations)
+
+  const reviewed = `de ${result.items.length} revisadas`
+  const metrics: AnswerMetric[] = [{ id: 'total', label: `Acciones ${verb}`, value: result.totals.total, scope: subject }]
+  if (overdue) metrics.push({ id: 'overdue', label: 'Vencidas', value: overdue, tone: 'danger', scope: reviewed })
+  if (blocked) metrics.push({ id: 'blocked', label: 'Bloqueadas', value: blocked, tone: 'warning', scope: reviewed })
+  if (intent.focusToday) metrics.push({ id: 'due_today', label: 'Vencen hoy', value: dueToday, scope: reviewed })
+  withFacts(response, {
+    primary: { text: headline, value: result.totals.total },
+    metrics,
+    items: shown.map((item) => actionItem(item, state.today)),
+    findings: finding ? [{ text: finding, basis: 'evidence', risk: overdue > 0 || blocked > 0 }] : [],
+    warnings: [...result.limitations, ...(result.status === 'partial' ? [statusMessage('partial', subject)] : [])],
+    limitations: [...response.blocks.limitations, ...(result.status === 'partial' ? [statusMessage('partial', subject)] : [])],
+  })
   rememberActions(state, { ...request }, result)
   return {
     response,
@@ -314,6 +399,14 @@ async function handleWhoMostUrgent(state: TurnState) {
       : 'Responsable: no disponible en tu alcance de lectura.'
   )
   response.blocks.interpretation.push('Urgencia calculada por: vencida > bloqueada > prioridad alta > vence hoy > fecha.')
+  if (urgencyRank(action, state.today) <= 2) response.blocks.recommendation.push(`Empieza por «${action.title}».`)
+  const flags = actionFlags(action, state.today)
+  withFacts(response, {
+    primary: { text: response.blocks.data.join(' ') },
+    items: [actionItem(action, state.today)],
+    findings: flags.length ? [{ text: `Está ${flags.join(' y ')}.`, basis: 'evidence', risk: flags.includes('vencida') || flags.includes('bloqueada') }] : [],
+    limitations: [...response.blocks.limitations],
+  })
   response.references = [{ id: action.id, title: action.title, href: action.href }]
   state.ctx = { ...state.ctx, lastEntity: { kind: 'action', id: action.id, label: action.title } }
   return { response, audit: { status: 'ok' as const, entity: 'actions', total: 1 } }
@@ -344,6 +437,24 @@ async function handleOkrs(state: TurnState, intent: Extract<AgentIntent, { kind:
     response.blocks.limitations.push('Se usan los objetivos activos; el periodo exacto de cada uno está en el módulo OKRs.')
   }
   response.blocks.limitations.push(...result.limitations)
+  const unmeasuredKrs = result.items.reduce((sum, o) => sum + o.insufficientKrs, 0)
+  const okrMetrics: AnswerMetric[] = [{ id: 'total', label: 'Objetivos activos', value: result.totals.total }]
+  okrMetrics.push({ id: 'lagging', label: 'Avance menor a 40%', value: lagging.length, tone: lagging.length ? 'warning' : 'ok' })
+  if (unmeasuredKrs) okrMetrics.push({ id: 'unmeasured_krs', label: 'KR sin datos', value: unmeasuredKrs, tone: 'warning' })
+  withFacts(response, {
+    primary: { text: `${result.totals.total} objetivo(s) activo(s).`, value: result.totals.total },
+    metrics: okrMetrics,
+    items: result.items.slice(0, LIST_LIMIT).map(okrItem),
+    findings: lagging.length
+      ? [{
+          text: `${lagging.length} objetivo(s) por debajo de 40% de avance: ${lagging.map((o) => o.name).join(', ')}.`,
+          basis: 'evidence',
+          risk: true,
+        }]
+      : [],
+    warnings: [...result.limitations],
+    limitations: [...response.blocks.limitations],
+  })
   return { response, audit: { status: result.status, entity: 'okrs', total: result.totals.total } }
 }
 
@@ -369,10 +480,25 @@ async function handleAggregate(state: TurnState, intent: Extract<AgentIntent, { 
     response.blocks.data.push(statusMessage(result.status, subject, result.error?.message))
     return { response, audit: { status: result.status, entity: 'aggregate', scope: request.scope } }
   }
-  response.blocks.data.push(`${result.totals.total} ${subject} en ${scopeLabel(result.scopeApplied)}.`)
+  const headline = `${result.totals.total} ${subject} en ${scopeLabel(result.scopeApplied)}.`
+  response.blocks.data.push(headline)
   response.blocks.data.push(...result.items.map((b) => `- ${b.label}: ${b.count}`))
   if (!authz.allowed) response.blocks.limitations.push(authz.reason)
   response.blocks.limitations.push(...result.limitations)
+  const top = result.items.reduce<(typeof result.items)[number] | null>((best, b) => (!best || b.count > best.count ? b : best), null)
+  withFacts(response, {
+    primary: { text: headline, value: result.totals.total },
+    metrics: [{ id: 'total', label: `Acciones ${STATUS_LABEL[intent.statusGroup]}`, value: result.totals.total, scope: scopeLabel(result.scopeApplied) }],
+    items: result.items.map((b) => ({ kind: 'group' as const, id: `${intent.groupBy}:${b.label}`, title: b.label, count: b.count })),
+    findings: top && result.items.length > 1
+      ? [{
+          text: `«${top.label}» concentra ${top.count} de ${result.totals.total}.`,
+          basis: 'evidence',
+          risk: intent.statusGroup !== 'open',
+        }]
+      : [],
+    warnings: [...(authz.allowed ? [] : [authz.reason]), ...result.limitations],
+  })
   state.ctx = { ...state.ctx, lastActions: [], lastEntity: null }
   return { response, audit: { status: result.status, entity: 'aggregate', scope: request.scope, total: result.totals.total } }
 }
@@ -421,6 +547,51 @@ async function handleRisk(state: TurnState) {
   if (blocked.totals.total) response.blocks.recommendation.push('Desbloquea primero las acciones bloqueadas y confirma responsables.')
   else if (overdue.totals.total) response.blocks.recommendation.push('Reprograma o cierra las vencidas con su responsable.')
   response.blocks.limitations.push(...overdue.limitations, ...blocked.limitations, ...(okrs?.limitations ?? []))
+
+  const okrOk = Boolean(okrs && (okrs.status === 'ok' || okrs.status === 'partial'))
+  const overdueOk = overdue.status === 'ok' || overdue.status === 'partial' || overdue.status === 'empty'
+  const blockedOk = blocked.status === 'ok' || blocked.status === 'partial' || blocked.status === 'empty'
+  const metrics: AnswerMetric[] = []
+  const summary: string[] = []
+  if (overdueOk) {
+    metrics.push({ id: 'overdue', label: 'Vencidas', value: overdue.totals.total, tone: overdue.totals.total ? 'danger' : 'ok', scope: label })
+    summary.push(`${overdue.totals.total} vencida(s)`)
+  }
+  if (blockedOk) {
+    metrics.push({ id: 'blocked', label: 'Bloqueadas', value: blocked.totals.total, tone: blocked.totals.total ? 'warning' : 'ok', scope: label })
+    summary.push(`${blocked.totals.total} bloqueada(s)`)
+  }
+  if (okrOk && okrs) {
+    metrics.push({ id: 'lagging_okrs', label: 'Objetivos con avance menor a 40%', value: lagging.length, tone: lagging.length ? 'warning' : 'ok', scope: `de ${okrs.totals.total}` })
+    summary.push(`${lagging.length} de ${okrs.totals.total} objetivo(s) con avance menor a 40%`)
+    const unmeasured = okrs.items.reduce((sum, o) => sum + o.insufficientKrs, 0)
+    if (unmeasured) metrics.push({ id: 'unmeasured_krs', label: 'KR sin datos', value: unmeasured, tone: 'warning' })
+  }
+  const findings: AnswerFinding[] = []
+  if (overdue.totals.total || blocked.totals.total || lagging.length) {
+    findings.push({
+      text: 'Los atrasos y bloqueos son las señales de riesgo disponibles; las acciones no están vinculadas a cada objetivo en los datos consultados, así que la relación con OKRs específicos no está comprobada.',
+      basis: 'inference',
+      risk: true,
+    })
+  }
+  if (blocked.totals.total && lagging.length) {
+    findings.push({
+      text: 'Los bloqueos podrían estar frenando los objetivos rezagados. No comprobado: para confirmarlo hay que vincular cada acción bloqueada con su objetivo.',
+      basis: 'hypothesis',
+      risk: true,
+    })
+  }
+  withFacts(response, {
+    primary: summary.length ? { text: `${summary.join('; ')}.` } : null,
+    metrics,
+    items: [
+      ...(blockedOk ? blocked.items.slice(0, 3).map((item) => actionItem(item, state.today)) : []),
+      ...(okrOk && okrs ? lagging.slice(0, 3).map(okrItem) : []),
+    ],
+    findings,
+    warnings: [...response.blocks.limitations],
+  })
   state.ctx = { ...state.ctx, lastActions: blocked.items.length ? toReferencedActions(blocked.items) : state.ctx.lastActions }
   return { response, audit: { status, entity: 'combined', scope } }
 }
@@ -441,6 +612,14 @@ async function handleUnsupportedMetric(state: TurnState) {
     response.blocks.data.push(`Lo que sí puedo medir: ${overdue.totals.total} acción(es) vencida(s) en ${scopeLabel(scope)}.`)
   }
   response.blocks.recommendation.push('Si se registra un costo por acción o por día de atraso, el cálculo sería verificable.')
+  const measured = overdue.status === 'ok' || overdue.status === 'partial' || overdue.status === 'empty'
+  withFacts(response, {
+    primary: measured ? { text: response.blocks.data[0]!, value: overdue.totals.total } : null,
+    metrics: measured
+      ? [{ id: 'overdue', label: 'Vencidas', value: overdue.totals.total, tone: overdue.totals.total ? 'danger' : 'ok', scope: scopeLabel(scope) }]
+      : [],
+    warnings: [...response.blocks.limitations],
+  })
   return { response, audit: { status: 'partial' as const, entity: 'actions', scope, total: overdue.totals.total } }
 }
 
@@ -520,8 +699,20 @@ function handleR2WriteRequest(
   return { response, proposal: proposed.proposal as ActionProposal, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
 }
 
+function formatNoticeResponse(selected: ResponseFormat): AgentResponse {
+  const response = baseResponse('ok')
+  response.blocks.data.push(`Formato de respuesta: ${FORMAT_LABEL[selected]}.`, `Usaré ${FORMAT_DESCRIPTION[selected]}.`)
+  response.blocks.recommendation.push('Haz tu consulta y la presento en ese formato.')
+  return response
+}
+
 export async function runAgentTurn(
-  input: { actor: AgentActor; utterance: string },
+  input: {
+    actor: AgentActor
+    utterance: string
+    /** Preferencia de presentación del canal (p. ej. el selector web). Se valida; sólo cambia el formato. */
+    responseFormat?: unknown
+  },
   deps: AgentTurnDeps
 ): Promise<AgentTurnResult> {
   const now = deps.now ?? (() => Date.now())
@@ -541,6 +732,9 @@ export async function runAgentTurn(
       handled: true,
       intent: 'unknown',
       response: forbidden('Tu usuario está inactivo.'),
+      format: 'direct',
+      formatSelected: 'auto',
+      offerDetail: false,
       toolsUsed: [],
       trace,
     }
@@ -556,11 +750,78 @@ export async function runAgentTurn(
     stored = null
   }
   const ctx = stored ?? emptySessionContext(now())
-  const intent = classifyAgentIntent(input.utterance, ctx.activeQuery)
+
+  // Formato: directiva del usuario > preferencia del canal > selección guardada en la sesión.
+  // Sólo elige presentación; el texto restante se clasifica y autoriza como cualquier otro mensaje.
+  const directive = parseFormatDirective(input.utterance)
+  const utterance = directive ? directive.rest : input.utterance
+  const previousFormat = coerceResponseFormat(ctx.responseFormat)
+  const selected: ResponseFormat = directive
+    ? directive.format
+    : isResponseFormat(input.responseFormat) ? input.responseFormat : previousFormat
+  const persistFormat = async () => {
+    await deps.store.set(
+      key,
+      {
+        activeQuery: ctx.activeQuery,
+        lastActions: ctx.lastActions,
+        lastEntity: ctx.lastEntity,
+        fingerprint,
+        responseFormat: selected,
+        lastAnswer: ctx.lastAnswer ?? null,
+      },
+      now()
+    )
+  }
+
+  // Sólo cambio de formato: se conserva el contexto y, si hay una respuesta reciente en memoria,
+  // se vuelve a presentar sin consultar de nuevo.
+  if (directive && !directive.rest) {
+    stage('intent')
+    await persistFormat()
+    const cached = ctx.lastAnswer
+    const notice = `Formato de respuesta: ${FORMAT_LABEL[selected]}.`
+    stage('respond')
+    if (cached) {
+      return {
+        handled: true,
+        intent: cached.intent,
+        response: cached.response,
+        format: selected === 'auto' ? cached.auto.format : selected,
+        formatSelected: selected,
+        offerDetail: selected === 'auto' && cached.auto.ambiguous,
+        notice,
+        toolsUsed: [],
+        trace,
+      }
+    }
+    return {
+      handled: true,
+      intent: 'unknown',
+      response: formatNoticeResponse(selected),
+      format: selected === 'auto' ? 'direct' : selected,
+      formatSelected: selected,
+      offerDetail: false,
+      toolsUsed: [],
+      trace,
+    }
+  }
+
+  const intent = classifyAgentIntent(utterance, ctx.activeQuery)
   stage('intent')
 
   if (intent.kind === 'unknown') {
-    return { handled: false, intent: 'unknown', response: baseResponse('empty'), toolsUsed: [], trace }
+    if (selected !== previousFormat) await persistFormat()
+    return {
+      handled: false,
+      intent: 'unknown',
+      response: baseResponse('empty'),
+      format: 'direct',
+      formatSelected: selected,
+      offerDetail: false,
+      toolsUsed: [],
+      trace,
+    }
   }
 
   const tools: string[] = []
@@ -614,9 +875,19 @@ export async function runAgentTurn(
   }
   stage('query_interpret')
 
+  const autoResolution = resolveFormat('auto', intent.kind, utterance)
+  const resolution = selected === 'auto' ? autoResolution : { format: selected, ambiguous: false }
+  const cacheable = outcome.response.facts !== undefined && (outcome.response.status === 'ok' || outcome.response.status === 'partial')
   await deps.store.set(
     key,
-    { activeQuery: state.ctx.activeQuery, lastActions: state.ctx.lastActions, lastEntity: state.ctx.lastEntity, fingerprint },
+    {
+      activeQuery: state.ctx.activeQuery,
+      lastActions: state.ctx.lastActions,
+      lastEntity: state.ctx.lastEntity,
+      fingerprint,
+      responseFormat: selected,
+      lastAnswer: cacheable ? { intent: intent.kind, response: outcome.response, auto: autoResolution } : null,
+    },
     now()
   )
 
@@ -644,6 +915,9 @@ export async function runAgentTurn(
     response: outcome.response,
     clarification: outcome.clarification,
     proposal: outcome.proposal,
+    format: resolution.format,
+    formatSelected: selected,
+    offerDetail: selected === 'auto' && resolution.ambiguous,
     toolsUsed: tools,
     trace,
   }
