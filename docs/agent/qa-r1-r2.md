@@ -86,6 +86,19 @@ Con el flag apagado el flujo es idéntico al actual (probado en `copilotR2Gate.t
 - Autorización sin cambios: responsable o `can_edit_accion_general_as`; Analista y Dirección siguen negados; no se concede edición general.
 - `agent_action_block_history` también devuelve los «Bloqueo reportado por WhatsApp:» previos.
 
+## Matriz manual de formatos y Reporte web
+
+No ejecutada. Corre en QA con `AGENT_ORCHESTRATOR_R1=1`, en escritorio y en un ancho móvil. Las cifras de una misma pregunta deben coincidir en los cuatro formatos.
+
+| Caso | Escritorio | Móvil |
+| --- | --- | --- |
+| El selector ofrece Auto, Directo, Reporte y Análisis. Auto es el valor al abrir una pestaña nueva |  |  |
+| La selección sobrevive a recargar la pestaña y no aparece en otra pestaña |  |  |
+| Reporte muestra el resumen operativo existente: indicadores, prioridades, riesgos y limitaciones, sin tarjetas sueltas |  |  |
+| «modo reporte» y «automático» cambian la presentación y conservan las cifras |  |  |
+| Una pregunta de otro equipo sigue denegada en los cuatro formatos, sin datos ajenos |  |  |
+| Una propuesta de escritura no se ejecuta y sigue pidiendo confirmación |  |  |
+
 ## Pendientes antes de liberar
 
 - Revisar la compatibilidad de `20261120120000` con un export del esquema de QA (funciones y columnas reales de `assistant_pending_ops`, propietario de las funciones definer, enum `action_status`).

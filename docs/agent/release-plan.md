@@ -1,5 +1,63 @@
 # Enviardián · releases y ejecución R0–R1
 
+## Cierre verificable R1/R2 · 2026-11-19
+
+Rama local `integration/r1-r2-cierre`. Base `r2/qa-consolidacion` (`12e2419`), que ya contiene R1, el hotfix y R2. Encima, merge `--no-ff` de `r1/formatos-respuesta` (`78efe5c`, commits `3be35cc` y `af23d69`) y el cierre de la Guía (`66f227b`). Sin push, sin merge a ramas compartidas, sin despliegue y sin migraciones en DEV o PROD. No se usaron los cambios sin commit de otros worktrees.
+
+| Pieza | Implementado | Integrado | Validado en QA | Liberado |
+| --- | --- | --- | --- | --- |
+| R0 | Sí, en `r0/estabilizacion` | Sí, es ancestro de esta rama | No. Siguen abiertas las validaciones remotas | No |
+| Hotfix de usuarios | Sí | Sí, vía `integration/r1-hotfix` | No en esta sesión. La aplicación previa en DEV y PROD está en `hotfix-usuarios-guard.md` | No, como parte de este cierre |
+| R1 | Sí | Sí | No. Falta JWT-01 a JWT-16 | No |
+| Formatos de respuesta | Sí | Sí, `78efe5c` | No. La matriz visual de `qa-r1-r2.md` no se ejecutó | No |
+| R2 | Sí, puerta y ejecutor apagados por defecto | Sí, `12e2419` | No. Falta la suite JWT | No |
+| Cierre de `persistGuideWork` | Sí. Ya no inserta | Sí, `66f227b` | No | No. R2 no se habilita |
+| JWT-01 a JWT-16 | Scripts preparados | Sí, en esta rama | No ejecutados | No |
+
+### Resultados locales
+
+| Verificación | Resultado |
+| --- | --- |
+| `vitest run` | 120 archivos, 876 pruebas, todas pasaron |
+| Regresión nombrada (orquestador, query, WhatsApp, copiloto, actions, runtime) | 22 archivos, 267 pruebas, pasaron |
+| `tsc -b`, `npm run build`, `scripts/bundle-api.mjs` | Pasaron. El bundle no sobrescribió fuentes |
+| SQL en PGlite | R1 transversal 49, hotfix 31, R2 action-status 20, permisos del agente, WhatsApp y OKR: pasaron. Sin conexión a un proyecto |
+| `replay-migrations-local.mjs` | No está en el commit de esta rama (sigue sin seguimiento en otro worktree). No se copió ni se ejecutó |
+| Docker y `supabase start` | Docker no está instalado. La CLI se resuelve con `npx supabase` 3.2.0 y no arranca sin Docker. No se creó ningún proyecto |
+| JWT-01 a JWT-16 | No ejecutados. Faltan `QA_A_*`, `QA_B_*`, manifiestos y `QA_ACCOUNT_PASSWORD`. La guarda no acepta un Supabase local |
+
+### Aislamiento de `conversationId`
+
+Probado en `responseFormat.test.ts`: dos pestañas del mismo usuario no comparten consulta ni formato; el mismo identificador en dos usuarios no comparte contexto; a los 30 minutos el formato vuelve a Automático. Un identificador inválido usa el `requestId` y, si no hay, la sesión `web`. La clave sigue siendo usuario, canal y sesión.
+
+### Checklist de aceptación
+
+- [x] La rama conserva los commits de formatos y el tip de R2, sin reescribirlos.
+- [x] `persistGuideWork` no llama a `insert` y, si no hay duplicado, devuelve el error de cierre.
+- [x] Vitest, TypeScript, build y el SQL local de R0, R1, hotfix y R2 pasan.
+- [x] `conversationId` aísla por usuario y por pestaña, y expira a los 30 minutos.
+- [ ] Matriz visual del selector y del Reporte, en escritorio y móvil.
+- [ ] JWT-01 a JWT-16 con proyectos QA A y B ya existentes.
+- [ ] Autorización para habilitar `AGENT_ORCHESTRATOR_R1` y, después, R2.
+
+### Riesgos abiertos
+
+| Riesgo | Estado |
+| --- | --- |
+| JWT-01 a JWT-16 sin evidencia | Abierto. Bloquea la liberación de R1 y habilitar R2 |
+| Reporte web y selector sin revisión visual | Abierto. La matriz está en `qa-r1-r2.md` y no está marcada |
+| R0 remoto | Abierto. La liberación de R0 sigue en NO-GO |
+| Guía | Cerrado como escritura directa. Crear acciones desde la Guía no existe hasta pasar por la confirmación de R2; no se añadió ese flujo |
+| Réplica completa de migraciones (`replay-migrations-local.mjs`) | Abierta y fuera de esta rama. El SQL focalizado en PGlite sí pasó |
+
+### Veredicto
+
+| Release | Veredicto |
+| --- | --- |
+| R0 | NO-GO liberación. Las validaciones remotas siguen abiertas |
+| R1 y formatos | GO integración local / NO-GO liberación. Falta la matriz visual y JWT-01 a JWT-16 |
+| R2 | GO preparación local / NO-GO habilitar y NO-GO liberación. La Guía ya no escribe por fuera. Falta JWT-01 a JWT-16 |
+
 ## QA controlado R1/R2 y consolidación de operaciones · 2026-11-19
 
 Rama local `r2/qa-consolidacion`, creada desde `r2/agente-accionable` (`e0eceb1`). Sólo commits locales: sin push, merge, despliegue, migración remota ni recursos creados. Todo lo nuevo está apagado por defecto. Runbook en `qa-r1-r2.md`.
