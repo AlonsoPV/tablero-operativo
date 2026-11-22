@@ -22,3 +22,33 @@ export function createLinkStore(initial: R4LinkRecord) {
 }
 
 export type R4LinkStore = ReturnType<typeof createLinkStore>
+
+/** Una liga pública solo puede tener una sesión autorizada viva. */
+export type R4LinkOccupancy = {
+  claim(
+    linkId: string,
+    sessionId: string
+  ): { ok: true } | { ok: false; code: 'session_occupied' }
+  release(linkId: string, sessionId: string): void
+  occupant(linkId: string): string | null
+}
+
+export function createLinkOccupancy(): R4LinkOccupancy {
+  const live = new Map<string, string>()
+  return {
+    claim(linkId, sessionId) {
+      const current = live.get(linkId)
+      if (current && current !== sessionId) {
+        return { ok: false, code: 'session_occupied' }
+      }
+      live.set(linkId, sessionId)
+      return { ok: true }
+    },
+    release(linkId, sessionId) {
+      if (live.get(linkId) === sessionId) live.delete(linkId)
+    },
+    occupant(linkId) {
+      return live.get(linkId) ?? null
+    },
+  }
+}

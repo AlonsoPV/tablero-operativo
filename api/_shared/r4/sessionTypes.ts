@@ -33,6 +33,7 @@ export type R4SessionErrorCode =
   | 'unauthorized'
   | 'duplicate_turn'
   | 'cancelled'
+  | 'session_occupied'
 
 export type R4TranscriptItem = {
   id: string

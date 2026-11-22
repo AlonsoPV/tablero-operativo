@@ -1,7 +1,7 @@
 import type { R4VoiceAdapters } from './contracts.js'
 import { createOnceReportFinalizer } from './reportFinalize.js'
 import { R4TimeoutError } from './resilience.js'
-import type { R4LinkStore } from './linkStore.js'
+import type { R4LinkOccupancy, R4LinkStore } from './linkStore.js'
 import type {
   R4PortRunner,
   R4ProtectedOpType,
@@ -24,6 +24,7 @@ export type CreateR4SessionInput = {
   isoNow?: () => string
   runPort?: R4PortRunner
   finalizer?: ReturnType<typeof createOnceReportFinalizer>
+  occupancy?: R4LinkOccupancy
 }
 
 export function createR4SessionOrchestrator(input: CreateR4SessionInput) {
@@ -137,6 +138,27 @@ export function createR4SessionOrchestrator(input: CreateR4SessionInput) {
     }
     const blocked = gateLive('conectar')
     if (blocked) return blocked
+    if (
+      snapshot.callId &&
+      (snapshot.phase === 'connecting' ||
+        snapshot.phase === 'listening' ||
+        snapshot.phase === 'speaking' ||
+        snapshot.phase === 'paused' ||
+        snapshot.phase === 'recovering')
+    ) {
+      return fail('session_occupied', 'Esta liga ya tiene una sesion autorizada activa.', snapshot.phase)
+    }
+    const occupancy = input.occupancy
+    if (occupancy) {
+      const claim = occupancy.claim(snapshot.link.linkId, sessionId)
+      if (!claim.ok) {
+        return fail(
+          'session_occupied',
+          'La liga publica solo admite una sesion autorizada a la vez.',
+          'denied'
+        )
+      }
+    }
     snapshot = { ...snapshot, phase: 'connecting', lastError: null }
     let started
     try {
@@ -144,9 +166,11 @@ export function createR4SessionOrchestrator(input: CreateR4SessionInput) {
         adapters.retell.start({ sessionId, grant: snapshot.link.grantValid ? 'sim-grant' : undefined })
       )
     } catch (error) {
+      occupancy?.release(snapshot.link.linkId, sessionId)
       return portErrorSnapshot(error)
     }
     if (!started.ok) {
+      occupancy?.release(snapshot.link.linkId, sessionId)
       return fail(started.code, started.error, started.code === 'unauthorized' ? 'denied' : 'error')
     }
     snapshot = {
@@ -313,6 +337,7 @@ export function createR4SessionOrchestrator(input: CreateR4SessionInput) {
       }
     }
     const closed = finalizer.finalize({ sessionId, source })
+    input.occupancy?.release(snapshot.link.linkId, sessionId)
     snapshot = {
       ...snapshot,
       phase: 'ended',
@@ -414,7 +439,8 @@ function isKnownError(code: string): code is R4SessionErrorCode {
     code === 'interrupted' ||
     code === 'unauthorized' ||
     code === 'duplicate_turn' ||
-    code === 'cancelled'
+    code === 'cancelled' ||
+    code === 'session_occupied'
   )
 }
 
