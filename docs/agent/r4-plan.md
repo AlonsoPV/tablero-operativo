@@ -54,7 +54,8 @@ Principios:
 | **R4.5** | Contratos + runtime simulado Retell/liga (eventos, TTL, revocación, recover, informe único) | Sí · simulado | Piloto real: entorno, claves, destinatario |
 | **R4.6** | Matriz Retell vs OpenAI Realtime (sin métricas inventadas, sin ganador) | Documento de preparación | Medición real: entorno de prueba + oráculo |
 | **R4.7 / AT-16** | Evidencia sintética PDF/trazabilidad/idempotencia (no llama `finalizeGuideInterview`) | Sí · simulado | PDF/`consult_log` real |
-| **R4.7 / AT-20** | Paridad de intenciones web / WhatsApp simulado / voz simulada | Sí · simulado; hueco WA texto libre documentado | WhatsApp real / voz real |
+| **R4.7 / AT-20** | Paridad de intenciones web / WhatsApp simulado / voz simulada | Simulación alineada (`interpretSharedIntent`). Router WA productivo **sin cambiar** | WhatsApp real / voz real |
+| **Piloto** | Política + adaptadores Retell R4 / OpenAI disabled + occupancy | Sí · disabled | Staging autorizado |
 
 ## Dependencias y riesgos
 
@@ -90,20 +91,25 @@ Principios:
 - R4.5: `selectR4VoiceProvider` nunca selecciona Retell/OpenAI reales. Runtime simulado emite eventos de liga, consentimiento, conversación, recover y cierre único.
 - R4.6: ver [r4-provider-comparison.md](r4-provider-comparison.md). Sin ganador.
 - AT-16 sintético reutiliza `decideReportAction` / PDF de Guía **sin** `finalizeGuideInterview`.
-- AT-20: corpus compartido; consultas alineadas; followup/create en WhatsApp texto libre **no** coinciden con web (CHANNEL_GAP documentado). WhatsApp Graph no se llama.
+- AT-20: `interpretSharedIntent` alinea followup/create/aclaración en web, WhatsApp **simulado** y voz **simulada**. El router productivo de WhatsApp **no se modificó** (gap de producción documentado). WhatsApp Graph no se llama.
+- Piloto: ver [r4-pilot-architecture.md](r4-pilot-architecture.md). Evidencia real pendiente: [r4-real-evidence.md](r4-real-evidence.md).
+- R4 **NO-GO**. GO QA **NO-GO**.
 
-### R4.4 visual autenticado — BLOCKED
+### R4.4 visual autenticado — laboratorio simulado en 5174
 
-No se crearon usuarios ni se cambiaron contraseñas.
+No se crearon usuarios ni se cambiaron contraseñas. `AGENT_VOICE_R4` permanece ausente. `VITE_AGENT_VOICE_R4=1` solo en el proceso Vite del worktree R4.
 
 | Intento | Resultado |
 | --- | --- |
-| Vite en este worktree (`C:\Users\alpev\scrumban-r4`) | No hay `npm run dev` aquí |
-| `http://localhost:5173` | Sirve `C:\Users\alpev\OneDrive\tablero-operativo` (otra copia), no la rama R4 |
-| Sesión autenticada en el navegador aislado del agente | Ausente |
-| Flag UI OFF (unitario) | SIMULATED PASS (`r4Lab.test.ts`) |
-| Consentimiento, pausa, reanudación, cancelación, resumen, responsive, a11y con login | REAL NOT TESTED |
-
-Para desbloquear: levantar Vite **en el worktree R4** con `VITE_AGENT_VOICE_R4=1` y una sesión ya existente del dueño. No encender el flag en QA/DEV/PROD.
+| Puerto 5173 | Reservado a `tablero-operativo`. No se reconfiguró. |
+| Vite R4 `http://localhost:5174/` | **SIMULATED PASS** (proceso local, flag UI on) |
+| `/asistente-ia/r4-lab` con sesión existente (`alpeva96`) | **SIMULATED PASS** (lab visible) |
+| Consentimiento (mic + alcance) antes de iniciar | **SIMULATED PASS** |
+| Pausa / reanudación / cancelar turno / resumen | **SIMULATED PASS** |
+| Navegación `Volver a Hablar` → `/asistente-ia?lane=talk` | **SIMULATED PASS** (Guía intacta) |
+| Escenario liga pública | Resetea a consentimiento |
+| Flag UI OFF (unitario) | **SIMULATED PASS** (`r4Lab.test.ts`) |
+| Retell / OpenAI / WhatsApp reales | **REAL NOT TESTED** |
+| Flag OFF con recarga visual del lab | **REAL NOT TESTED** (requeriría reiniciar Vite sin el flag) |
 
 **Este incremento no declara R4 GO ni GO QA.**

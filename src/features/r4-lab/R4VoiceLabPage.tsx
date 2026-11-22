@@ -47,6 +47,7 @@ function R4VoiceLabExperience() {
         <h1 className="text-xl font-semibold tracking-tight">Sesion de voz y liga</h1>
         <p className="text-sm leading-5 text-muted-foreground">
           Sin Retell, STT/TTS de pago ni ligas reales. La Guía de producción no cambia.
+          El laboratorio no guarda audio; solo transcripcion simulada de esta sesion.
         </p>
         <Link
           to={`${ROUTES.AI_ASSIST}?lane=talk`}
