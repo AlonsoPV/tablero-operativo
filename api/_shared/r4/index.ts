@@ -52,3 +52,8 @@ export type {
   R4VoiceProviderKind,
   SimulatedRetellLinkRuntime,
 } from './providerRuntime.js'
+export {
+  canReadSyntheticReport,
+  evaluateAt16Evidence,
+  syntheticAt16Source,
+} from './at16Evidence.js'
