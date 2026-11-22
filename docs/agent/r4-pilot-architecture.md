@@ -28,8 +28,8 @@ Consentimiento (mic + alcance)
         ▼
 Occupancy de liga (1 sesión)
         │
-        ├─ simulated  → orquestador local (único camino activo)
-        ├─ retell_r4  → adaptador DESHABILITADO (sin claves, sin red)
+        ├─ simulated  → orquestador local (único camino que conecta)
+        ├─ retell_r4  → adaptador LIVE fail-closed (`connect_blocked`, cero fetch)
         └─ openai_rt  → adaptador DESHABILITADO (comparador; no fallback)
         │
         ▼
@@ -60,7 +60,8 @@ Confirmaciones protegidas (auth + owner) o deny
 | `AGENT_VOICE_R4` | Runtime servidor | **Ausente / off** |
 | `AGENT_VOICE_R4_PROVIDER` | `simulated` \| `retell` \| `openai_realtime` | Reales → `real_provider_not_authorized` |
 | `AGENT_VOICE_R4_RETAIN_AUDIO` | Política de retención | Ausente = no guardar audio |
-| `RETELL_R4_AGENT_ID` / `RETELL_API_KEY` | Piloto real | **No leer, no definir aquí** |
+| `RETELL_R4_AGENT_ID` / `RETELL_R4_API_KEY` | Piloto real (no las de Guía) | Gate fail-closed; **no conectar** |
+| `AGENT_VOICE_R4_LIVE_OK` | Autoriza preparar (no conectar) | Ausente |
 | `OPENAI_API_KEY` / modelo Realtime | Comparador | **No leer, no definir aquí** |
 
 ## Riesgos de privacidad y seguridad

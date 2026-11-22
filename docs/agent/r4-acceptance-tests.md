@@ -30,9 +30,12 @@ Relación con criterios ya definidos: AT-13, AT-14, AT-16, AT-20 en [acceptance-
 | R4-AT-14b | Router WA productivo followup/create | Sigue sin mapear; **no modificado** | SIMULATED PASS (bloqueo de producción documentado) |
 | R4-AT-15 | AT-20 aprobación | Botón `aiop` → TASK_UPDATE; voz pública deniega | SIMULATED PASS |
 | R4-AT-16 | Matriz R4.6 | Criterios listos; **sin métricas inventadas ni ganador** | Documento. REAL NOT TESTED |
-| R4-AT-17 | Adaptador Retell R4 / OpenAI | Disabled, sin claves, sin fallback | SIMULATED PASS |
+| R4-AT-17 | Adaptador Retell R4 / OpenAI | Fail-closed / disabled, sin red, sin fallback | SIMULATED PASS |
 | R4-AT-18 | Occupancy de liga | Segunda sesión → `session_occupied` | SIMULATED PASS |
 | R4-AT-19 | AT-16/AT-20 reales | Evidencia definida, **no ejecutada** | REAL NOT TESTED |
+| R4-AT-20 | Gate live Retell R4 | flag / LIVE_OK / secretos / reuse Guía / `connect_blocked` | SIMULATED PASS |
+| R4-AT-21 | Token de sesión 30 s | Auth+consent+occupancy; reuse/expiry deny | SIMULATED PASS |
+| R4-AT-22 | Entorno r4-pilot | Spec aislada; **no provisionada** | IMPLEMENTED LOCAL |
 
 ## Fuera del harness (requieren autorización) — REAL NOT TESTED
 

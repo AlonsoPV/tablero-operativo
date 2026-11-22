@@ -93,6 +93,8 @@ Principios:
 - AT-16 sintético reutiliza `decideReportAction` / PDF de Guía **sin** `finalizeGuideInterview`.
 - AT-20: `interpretSharedIntent` alinea followup/create/aclaración en web, WhatsApp **simulado** y voz **simulada**. El router productivo de WhatsApp **no se modificó** (gap de producción documentado). WhatsApp Graph no se llama.
 - Piloto: ver [r4-pilot-architecture.md](r4-pilot-architecture.md). Evidencia real pendiente: [r4-real-evidence.md](r4-real-evidence.md).
+- Staging: [r4-pilot-env.md](r4-pilot-env.md) · runbook [r4-pilot-runbook.md](r4-pilot-runbook.md) · GO/NO-GO [r4-pilot-go-nogo.md](r4-pilot-go-nogo.md).
+- Adaptador Retell R4 live **fail-closed** (`connect_blocked`); no usa el agente de Guía.
 - R4 **NO-GO**. GO QA **NO-GO**.
 
 ### R4.4 visual autenticado — laboratorio simulado en 5174
