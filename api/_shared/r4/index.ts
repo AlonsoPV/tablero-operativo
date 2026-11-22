@@ -42,3 +42,13 @@ export type {
   R4SessionSnapshot,
   R4TranscriptItem,
 } from './sessionTypes.js'
+export {
+  createSimulatedRetellLinkRuntime,
+  selectR4VoiceProvider,
+} from './providerRuntime.js'
+export type {
+  R4ConversationEvent,
+  R4ProviderSelection,
+  R4VoiceProviderKind,
+  SimulatedRetellLinkRuntime,
+} from './providerRuntime.js'
