@@ -6,11 +6,10 @@ import { createLinkOccupancy, createLinkStore } from './linkStore.js'
 import { createOnceReportFinalizer } from './reportFinalize.js'
 import { createR4SessionOrchestrator } from './sessionOrchestrator.js'
 import { createSimulatedR4Adapters } from './simulatedAdapters.js'
-import {
-  createDisabledOpenAiRealtimeAdapter,
-  createDisabledRetellR4Adapter,
-} from './disabledLiveAdapters.js'
+import { createDisabledOpenAiRealtimeAdapter } from './disabledLiveAdapters.js'
+import { createRetellR4LiveAdapter } from './retellR4LiveAdapter.js'
 import { resolveR4PilotPolicy, type R4PilotPolicy } from './pilotPolicy.js'
+import { createR4AccessTokenIssuer } from './sessionCredentials.js'
 import type { R4VoiceAdapters, RetellSessionPort } from './contracts.js'
 import type { R4LinkRecord, R4SessionSnapshot } from './sessionTypes.js'
 
@@ -25,12 +24,15 @@ export type R4PilotConnectionEvent =
   | { type: 'denied'; code: string }
   | { type: 'error'; code: string }
 
-export function selectPilotVoicePort(provider: R4PilotProvider): {
+export function selectPilotVoicePort(
+  provider: R4PilotProvider,
+  env: Record<string, string | undefined> = {}
+): {
   port: RetellSessionPort
   live: false
 } {
   if (provider === 'retell_r4') {
-    return { port: createDisabledRetellR4Adapter(), live: false }
+    return { port: createRetellR4LiveAdapter(env), live: false }
   }
   if (provider === 'openai_realtime') {
     return { port: createDisabledOpenAiRealtimeAdapter(), live: false }
@@ -54,7 +56,8 @@ export function createR4PilotRuntime(input?: {
   const nowMs = input?.nowMs ?? (() => Date.now())
   const occupancy = input?.occupancy ?? createLinkOccupancy()
   const events: R4PilotConnectionEvent[] = [{ type: 'consent_required' }]
-  const selected = selectPilotVoicePort(provider)
+  const tokens = createR4AccessTokenIssuer({ nowMs })
+  const selected = selectPilotVoicePort(provider, env)
   const adapters: R4VoiceAdapters = {
     ...createSimulatedR4Adapters(),
     retell: selected.port,
@@ -111,6 +114,17 @@ export function createR4PilotRuntime(input?: {
     },
     speak: (text: string) => orch.speak(text, `pilot-${events.length}`),
     confirmAction: (actionId: string) => orch.confirmAction(actionId),
+    issueAccessToken() {
+      const snap = orch.getSnapshot()
+      return tokens.issue({
+        sessionId: snap.sessionId,
+        linkId: snap.link.linkId,
+        authenticated: snap.authenticated,
+        consented: snap.consented,
+        occupancyClaimed: occupancy.occupant(snap.link.linkId) === snap.sessionId,
+        authorizedOwner: snap.authenticated && input?.publicConfirmAttempt !== true,
+      })
+    },
     async disconnect() {
       const next = await orch.end()
       events.push({

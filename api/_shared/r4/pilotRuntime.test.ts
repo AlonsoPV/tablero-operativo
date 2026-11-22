@@ -34,6 +34,19 @@ describe('R4.5+ pilot runtime (SIMULATED, live adapters disabled)', () => {
     expect(started.phase).toBe('denied')
     expect(started.lastError?.code).toBe('unauthorized')
     expect(runtime.policy.autoFallback).toBe(false)
+    expect(runtime.issueAccessToken()).toEqual({ ok: false, code: 'session_occupied' })
+  })
+
+  it('emite token de corta duracion solo tras consentimiento y occupancy', async () => {
+    const runtime = createR4PilotRuntime({ authenticated: true, sessionId: 's-token' })
+    expect(runtime.issueAccessToken()).toEqual({ ok: false, code: 'consent_required' })
+    await runtime.consent()
+    expect(runtime.issueAccessToken()).toEqual({ ok: false, code: 'session_occupied' })
+    await runtime.start()
+    const issued = runtime.issueAccessToken()
+    expect(issued.ok).toBe(true)
+    if (!issued.ok) return
+    expect(issued.token.sessionId).toBe('s-token')
   })
 
   it('exige consentimiento, bloquea confirmacion publica y cierra el informe una sola vez', async () => {

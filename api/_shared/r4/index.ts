@@ -67,8 +67,12 @@ export {
   createDisabledOpenAiRealtimeAdapter,
   createDisabledRetellR4Adapter,
 } from './disabledLiveAdapters.js'
+export { createRetellR4LiveAdapter } from './retellR4LiveAdapter.js'
+export { resolveRetellR4LiveGate } from './retellR4LiveGate.js'
 export { createR4PilotRuntime, selectPilotVoicePort } from './pilotRuntime.js'
 export type { R4PilotProvider, R4PilotRuntime } from './pilotRuntime.js'
+export { createR4AccessTokenIssuer } from './sessionCredentials.js'
+export { R4_PILOT_ENV_SPEC } from './pilotEnv.js'
 export {
   classifySharedAcrossChannels,
   interpretSharedIntent,
