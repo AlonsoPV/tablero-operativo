@@ -57,3 +57,5 @@ export {
   evaluateAt16Evidence,
   syntheticAt16Source,
 } from './at16Evidence.js'
+export { AT20_CORPUS, classifyOmniCase, runAt20ParityCase } from './omniParity.js'
+export type { OmniCase, OmniFamily } from './omniParity.js'
