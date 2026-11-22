@@ -23,3 +23,16 @@ export {
 } from './simulatedAdapters.js'
 export { createOnceReportFinalizer } from './reportFinalize.js'
 export type { SimulatedReportFinalize } from './reportFinalize.js'
+export { createLinkStore } from './linkStore.js'
+export type { R4LinkStore } from './linkStore.js'
+export { createR4SessionOrchestrator } from './sessionOrchestrator.js'
+export type { CreateR4SessionInput, R4SessionOrchestrator } from './sessionOrchestrator.js'
+export type {
+  R4LinkRecord,
+  R4PortRunner,
+  R4ProtectedOpResult,
+  R4SessionErrorCode,
+  R4SessionPhase,
+  R4SessionSnapshot,
+  R4TranscriptItem,
+} from './sessionTypes.js'
