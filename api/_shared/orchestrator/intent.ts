@@ -30,6 +30,7 @@ export type AgentIntent =
     }
   | { kind: 'analyze_risk' }
   | { kind: 'who_most_urgent' }
+  | { kind: 'recommend_next' }
   | { kind: 'unsupported_metric'; domain: 'finance' }
   | {
       kind: 'write_request'
@@ -58,7 +59,7 @@ function extractPersonHint(text: string): string | undefined {
   const m =
     text.match(/\b(?:tiene|tienen)\s+([a-z]{3,}(?:\s+[a-z]{3,})?)\s*[?.!]*$/) ||
     text.match(/\ba cargo de\s+([a-z]{3,}(?:\s+[a-z]{3,})?)/) ||
-    text.match(/\bacciones de\s+([a-z]{3,}(?:\s+[a-z]{3,})?)/)
+    text.match(/\b(?:acciones|pendientes?|tareas?)\s+de\s+([a-z]{3,}(?:\s+[a-z]{3,})?)/)
   const name = m?.[1]?.trim()
   if (!name || NOT_A_PERSON.test(name.split(' ')[0] ?? '')) return undefined
   return name
@@ -79,8 +80,29 @@ export function classifyAgentIntent(
     return { kind: 'analyze_risk' }
   }
 
-  if (/\bquien\b/.test(text) && /\b(mas urgente|mas critica|mas atrasada|mas vencida|esa|esta|la primera)\b/.test(text)) {
+  if (
+    /\b(mas urgente|mas critica|mas atrasada|mas vencida)\b/.test(text) &&
+    /\b(quien|cual|cuales|el mas|la mas)\b/.test(text)
+  ) {
     return { kind: 'who_most_urgent' }
+  }
+
+  if (
+    /\b(que deberia hacer|que hago( ahora)?|siguiente paso|por donde empiezo|que me recomiendas|que recomiendas)\b/.test(
+      text
+    )
+  ) {
+    return { kind: 'recommend_next' }
+  }
+
+  const request = utterance.slice(0, 500)
+  if (/\b(prepara|preparar|arma|armar)\b/.test(text) && /\b(seguimiento|aviso|recordatorio)\b/.test(text)) {
+    return {
+      kind: 'write_request',
+      operation: 'notify_responsable',
+      request,
+      canal: /\bwhatsapp\b/.test(text) ? 'whatsapp' : 'email',
+    }
   }
 
   const interpreted = interpretOperationalMessage(utterance, { activeQuery: previous })
@@ -88,15 +110,21 @@ export function classifyAgentIntent(
   if (interpreted.intent === 'clarify' && interpreted.ambiguity) {
     return { kind: 'clarify', question: interpreted.ambiguity.question }
   }
-  const request = utterance.slice(0, 500)
   const target = /\b(accion|tarea|esa|esta|la)\b/.test(text)
   if (target && /\b(bloquea|bloquear|bloqueala|(registra|registrar|reporta|reportar)\s+(un\s+)?bloqueo)\b/.test(text)) {
     const motivo = utterance.match(/\b(?:porque|por que|debido a|motivo:?)\s+(.+)$/i)?.[1]?.trim().slice(0, 500)
     return { kind: 'write_request', operation: 'register_blocker', request, ...(motivo ? { motivo } : {}) }
   }
-  if (/\b(avisa|avisale|notifica|notificale|recuerdale|manda|mandale|envia|enviale)\b/.test(text) &&
-    /\bresponsable\b/.test(text)) {
-    return { kind: 'write_request', operation: 'notify_responsable', request, canal: /\bwhatsapp\b/.test(text) ? 'whatsapp' : 'email' }
+  if (
+    /\b(avisa|avisale|notifica|notificale|recuerdale|manda|mandale|envia|enviale)\b/.test(text) &&
+    /\bresponsables?\b/.test(text)
+  ) {
+    return {
+      kind: 'write_request',
+      operation: 'notify_responsable',
+      request,
+      canal: /\bwhatsapp\b/.test(text) ? 'whatsapp' : 'email',
+    }
   }
   if (target && /\b(marca|marcar|marcala|pon|poner|ponla|cambia|cambiar|mueve|pasa)\b/.test(text)) {
     const estado = /\bverificad[ao]\b/.test(text) ? 'Verificado'

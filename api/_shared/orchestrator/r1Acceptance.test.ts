@@ -101,7 +101,7 @@ describe('R1 · escenarios conversacionales', () => {
   it('5 · «¿Qué está poniendo en riesgo nuestros objetivos?» separa evidencia de interpretación', async () => {
     const r = await turn(h, R1_USERS.lead, '¿Qué está poniendo en riesgo nuestros objetivos?')
     expect(r.intent).toBe('analyze_risk')
-    expect(r.response.blocks.data).toContain('Acciones vencidas (acciones del tablero autorizado): 2.')
+    expect(r.response.blocks.data).toContain('Acciones vencidas (acciones del tablero autorizado): 3.')
     expect(r.response.blocks.data).toContain('Acciones bloqueadas: 1.')
     expect(r.response.blocks.data).toContain('Objetivos con avance menor a 40%: 1 de 2.')
     expect(r.response.blocks.data.join(' ')).not.toMatch(/inferencia/i)
@@ -128,7 +128,7 @@ describe('R1 · escenarios conversacionales', () => {
     expect(r.response.status).toBe('partial')
     expect(r.response.blocks.limitations[0]).toContain('no calculo ni estimo montos')
     expect(r.text).not.toMatch(/\$\s?\d|pesos|MXN/i)
-    expect(r.response.blocks.data[0]).toBe('Lo que sí puedo medir: 2 acción(es) vencida(s) en acciones del tablero autorizado.')
+    expect(r.response.blocks.data[0]).toBe('Lo que sí puedo medir: 3 acción(es) vencida(s) en acciones del tablero autorizado.')
     expect(r.response.blocks.interpretation).toEqual([])
   })
 
@@ -167,7 +167,7 @@ describe('R1 · permisos, contexto y errores', () => {
     const r = await turn(h, R1_USERS.direction, '¿cuántas acciones hay en el tablero?')
     expect(r.handled).toBe(true)
     expect(r.response.status).toBe('ok')
-    expect(r.response.blocks.data[0]).toBe('7 abiertas en acciones del tablero autorizado.')
+    expect(r.response.blocks.data[0]).toBe('9 abiertas en acciones del tablero autorizado.')
   })
 
   it('Dirección lee OKRs sin módulo okrs en su rol de catálogo (lectura ejecutiva) y no puede proponer cambios', async () => {
@@ -192,6 +192,25 @@ describe('R1 · permisos, contexto y errores', () => {
     const r = await turn(h, R1_USERS.lead, '¿Cuáles tiene Jorge Ruiz?')
     expect(r.response.references.map((x) => x.id)).toEqual(['a8'])
     expect(r.response.blocks.data[0]).toBe('1 abiertas en acciones de Jorge Ruiz.')
+  })
+
+  it('conserva a Carlos en el seguimiento «¿Cuáles están atrasados?» y no mezcla ajenas', async () => {
+    const h = harness()
+    const first = await turn(h, R1_USERS.lead, '¿Qué pendientes tiene Carlos?')
+    expect(first.response.status).toBe('ok')
+    expect(first.response.references.map((x) => x.id).sort()).toEqual(['a10', 'a9'])
+    expect(first.text).toContain('Carlos Reyes')
+    expect(first.text).not.toContain('Plan privado')
+    expect(first.text).not.toContain('Cerrar inventario')
+
+    const follow = await turn(h, R1_USERS.lead, '¿Cuáles están atrasados?')
+    expect(follow.response.references.map((x) => x.id)).toEqual(['a9'])
+    expect(follow.response.blocks.data[0]).toMatch(/Carlos Reyes/)
+    expect(follow.text).not.toContain('Actualizar SOP')
+    expect((await h.store.get('u-lead:web:s1'))?.lastEntity).toMatchObject({
+      kind: 'person',
+      id: 'u-carlos',
+    })
   })
 
   it('el contexto expira a los 30 minutos y no se comparte entre canales', async () => {

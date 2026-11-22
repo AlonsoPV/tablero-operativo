@@ -17,12 +17,18 @@ function sortHot(items: OperationalActionItem[]) {
   })
 }
 
+/** Misma regla que buildOperationalSnapshot (STALE_DAYS = 3). */
+const STALE_DAYS = 3
+
 function matchesStatus(item: OperationalActionItem, state: ConversationQueryState) {
   if (state.status_group === 'blocked') return item.estado === 'Bloqueado'
   if (state.status_group === 'overdue') {
     return item.dueBucket === 'overdue' || item.estado === 'Retraso'
   }
   if (state.status_group === 'due_week') return item.dueBucket === 'week' || item.dueBucket === 'today'
+  if (state.status_group === 'stale') {
+    return item.daysSinceUpdate != null && item.daysSinceUpdate >= STALE_DAYS
+  }
   if (state.status_group === 'verification') return false // pendingVerification pool aparte
   return true // open
 }
@@ -71,6 +77,11 @@ export type QueryExecution = {
   total: number
   truncated: boolean
   scopeLabel: string
+  /** Corte temporal del snapshot (ISO). */
+  asOf: string
+  /** Fuentes operativas consultadas (no conocimiento metodológico). */
+  sources: string[]
+  limitations: string[]
 }
 
 export function scopeLabelFor(state: ConversationQueryState): string {
@@ -126,12 +137,20 @@ export function executeConversationQuery(
     total = snapshot.counts.overdue
   } else if (!state.person && state.status_group === 'blocked' && state.scope === 'assigned_to_me') {
     total = snapshot.counts.blocked
+  } else if (!state.person && state.status_group === 'stale' && state.scope === 'assigned_to_me') {
+    total = snapshot.counts.stale
   }
 
+  const truncated = Boolean(snapshot.truncated) || filtered.length > items.length
   return {
     items,
     total: Math.max(total, filtered.length),
-    truncated: Boolean(snapshot.truncated) || filtered.length > items.length,
+    truncated,
     scopeLabel: scopeLabelFor(state),
+    asOf: snapshot.fetchedAt,
+    sources: ['kanban_acciones', 'operational_snapshot'],
+    limitations: truncated
+      ? ['Lista parcial de la muestra cargada; el total puede ser mayor en el tablero completo.']
+      : ['Datos del corte local del asistente; no incluye cambios posteriores al corte.'],
   }
 }

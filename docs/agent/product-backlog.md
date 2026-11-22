@@ -1,22 +1,60 @@
 # Enviardián · backlog consolidado R0–R1
 
+## Avance acelerado MVP flujos · 2026-11-21 (qa-local `work/r1-r2-r3-local`)
+
+R0 permanece **NO-GO liberación**. RD-06: decisión humana antes **2026-11-27** (renovar o repair); no auto-renovar. Freeze dispatcher `820CEC42…` intacto. **READY FOR QA AUTHORIZATION**. Fase 2 Gate 0: **BLOCKED — QA ENVIRONMENT NOT VERIFIED** (instancias locales en disco, puertos 54421/54521 cerrados; sin hosted QA). **GO QA = no. GO PROD = no.** Vitest Fase 1: **944/944**. Matriz: [`qa-go-nogo-matrix.md`](qa-go-nogo-matrix.md). R4 no iniciado.
+
+### A. Flujos
+
+| Flujo | Estado inicial | Implementación | Pruebas | Estado final |
+| --- | --- | --- | --- | --- |
+| A1 Consultar y priorizar | IV parcial | `who_most_urgent` sin «quién»; `recommend_next`; asOf | `mvpFlows` integración | GO LOCAL · READY FOR QA AUTH |
+| A2 Crear y gestionar | Simulated propose | propose→confirm simulated→recibo; cancel/dup/Verificado; badge Simulado | `mvpFlows` + `r2OrchestratorBridge` | GO LOCAL simulated · READY FOR QA AUTH |
+| A3 Seguimiento operativo | Query blocked/open | «Prepara un seguimiento» = 1 propuesta/responsable; 0 outbox | `mvpFlows` | GO LOCAL simulated · READY FOR QA AUTH |
+| A4 Conocimiento | Store + flag | `memoryStore` en `runChannelTurn`; pregunta verificación | `mvpFlows` + `memory.test` | GO LOCAL harness · READY FOR QA AUTH |
+| A5 Omnicanal | Frases sueltas WA | Misma secuencia A1/A3 web vs WA, mismos IDs | `mvpFlows` + `whatsappSimulator.r3` | GO LOCAL sim · READY FOR QA AUTH |
+| UX entrada/chat | Hablar enfatizado | Consultar / Sesión guiada iguales; Welcome ≤3 stats | `AssistantLaneChooser.test` | GO LOCAL |
+
+### B. Por release
+
+| Release | Avance funcional | Pendientes |
+| --- | --- | --- |
+| R1 | A1 + UX Consultar/Sesión guiada; CV-02/04; FV-04 | JWT/QA; Preview R1 |
+| R2 | A2/A3 simulated sobre orquestador real | Execute real solo con auth QA |
+| R3 | A4 harness + A5 paridad | WhatsApp/dispatcher real (R0); KB-02 ingest |
+
+Detalle: [`r1-r2-r3-parallel-progress.md`](r1-r2-r3-parallel-progress.md). H-01…H-10 en [`qa-r1-r2.md`](qa-r1-r2.md) **no ejecutados**.
+
+**Próxima ejecución:** (1) autorización humana de QA; (2) RD-06 pre-27/11; (3) Preview R1 con R2 unset; (4) JWT en instancia QA; (5) nunca PROD/dispatcher.
+
+| Release | Capacidad | Trabajo realizado | Pruebas | Estado |
+| --- | --- | --- | --- | --- |
+| R1 | A1 orquestador | intents urgente + `recommend_next` | `mvpFlows` | GO LOCAL / READY FOR QA AUTH |
+| R1 | UX entrada/chat | LaneChooser + Welcome ≤3 | LaneChooser unit | GO LOCAL |
+| R2 | A2 confirm simulated | pending → confirm → 1 Kanban | bridge + mvpFlows | GO LOCAL simulated |
+| R2 | A3 seguimiento | propuestas `notify_responsable` | mvpFlows | GO LOCAL simulated |
+| R3 | A4 memoria | wire store + verificación | mvpFlows | GO LOCAL harness |
+| R3 | A5 paridad | web/WA mismos IDs | WA sim + mvpFlows | GO LOCAL harness |
+
+**Diferidos:** GO QA, GO PROD, JWT remoto, Preview, execute R2, AC-04, envíos WA. **Top 5:** (1) autorización QA, (2) RD-06 pre-27/11, (3) JWT QA aislado, (4) Preview R1, (5) E1.
+
 ## R1 · estado de historias trabajadas · 2026-11-19
 
-Desarrollo aislado en `r1/agente-confiable`. Ninguna historia se declara liberada. «Local» = runtime real con Supabase en memoria; falta JWT/RLS y datos reales autorizados.
+Desarrollo aislado en `r1/agente-confiable` / consolidado en `work/r1-r2-r3-local`. Ninguna historia se declara liberada. «Local» = runtime real con Supabase en memoria; falta JWT/RLS y datos reales autorizados.
 
 | Historia | Estado | Evidencia R1 | Siguiente gate |
 | --- | --- | --- | --- |
 | FV-01 | ISV | Catálogo tipado de fuentes y dominios no disponibles | Contrastar con el esquema efectivo exportado en QA |
 | FV-02 | IV local | Contrato único; responsable y filtro por persona; escenarios 1–3 y 6 | Mismos IDs con JWT por rol (AT-01–04, AT-19) |
 | FV-03 | IV local | Normalización OKR y escenario 4; Dirección y área OKRS leen todos los OKRs (complemento) | Cotejo con RPC por rol en QA tras aplicar la migración A |
-| FV-04 | ISV | `asOf`, fuentes y limitaciones en cada resultado | Mostrar corte en UI web y validar con datos reales |
+| FV-04 | IV local (2026-11-21) | `asOf`/fuentes/limitaciones en reply + briefing panel | Validar con datos reales QA |
 | ID-01 | ISV | Actor canónico; descarte de autoridad inyectada | Sesiones JWT QA y vínculos WhatsApp/voz reales |
 | ID-02 | P | Matriz por operación; capacidades explícitas con paridad TS↔SQL y RLS en PGlite (complemento) | Paridad RLS/JWT en QA (bloqueada por R0); auditoría y script B |
 | ID-05 | ISV | Auditoría por turno sin PII | Aplicar migración `20261119120000` en QA y verificar RLS de inserción |
 | CV-01 | IV local | Intención determinista; no operativo → LLM | Corpus de frases reales por canal |
-| CV-02 | ISV | Contexto por actor/canal/sesión, TTL 30 min; web y WhatsApp en `agent_session_context`, invalidado si cambian los permisos; voz rehidrata | Aplicar la migración A en QA y probar entre instancias reales |
+| CV-02 | IV local (2026-11-21) | Follow-ups equipo→vencidos→prioridad; `due_week` NL; e2e | Persistencia QA multi-instancia |
 | CV-03 | IV local | Homónimos y «la más urgente» con aclaración ante empate | Homónimos reales en QA |
-| CV-04 | IV local | Cuatro estados distintos; turno LLM vacío → mensaje explícito | Fallos reales Gemini/Retell en QA |
+| CV-04 | IV local (2026-11-21) | `friendlyAssistantError` en chat/propuestas; sin SQL leakage | Fallos reales Gemini/Retell en QA |
 | CV-05 | ISV | Orquestador y tres adaptadores detrás de flag | Activar en QA con R0 cerrado; comparar canales con el mismo oráculo |
 | AC-01, AC-02, AC-03, AC-05, CM-02 (preparación) | Contratos y simulador | Propuesta tipada, idempotencia, concurrencia, revalidación y auditoría simuladas | R2: ejecución real sólo con autorización |
 

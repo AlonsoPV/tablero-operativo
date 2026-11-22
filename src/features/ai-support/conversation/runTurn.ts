@@ -70,6 +70,9 @@ export function runConversationTurn(input: {
       scopeLabel: applied.state.person
         ? `Acciones de ${applied.state.person.nombre}`
         : 'Aclaracion',
+      asOf: input.snapshot.fetchedAt,
+      sources: ['kanban_acciones', 'operational_snapshot'],
+      limitations: ['Aclaracion pendiente; sin ejecucion de consulta.'],
     }
     // Sin candidatos = persona no encontrada
     if (applied.clarification.options.length === 0) {

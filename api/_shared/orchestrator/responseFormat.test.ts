@@ -190,7 +190,7 @@ describe('los cuatro formatos', () => {
     expect(lines).toContain('Inferencias (no son datos del sistema):')
     expect(lines).toContain('Hipótesis (no comprobadas):')
     const evidence = r.text.slice(r.text.indexOf('Evidencia:'), r.text.indexOf('Inferencias'))
-    expect(evidence).toContain('Vencidas: 2')
+    expect(evidence).toContain('Vencidas: 3')
     expect(evidence).not.toMatch(/inferencia|hipótesis|podrían/i)
     expect(r.text.slice(r.text.indexOf('Hipótesis'))).toMatch(/No comprobado/)
   })

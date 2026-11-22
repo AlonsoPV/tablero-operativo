@@ -36,7 +36,13 @@ export function resolveFormat(selected: ResponseFormat, intent: AgentIntent['kin
   if (intent === 'query_okrs') return done(POINT.test(text) && !REPORT.test(text) ? 'direct' : 'report')
   if (REPORT.test(text)) return done('report')
   if (RISK.test(text)) return done('analysis')
-  if (intent === 'who_most_urgent' || intent === 'unsupported_metric' || intent === 'write_request' || intent === 'clarify') {
+  if (
+    intent === 'who_most_urgent' ||
+    intent === 'recommend_next' ||
+    intent === 'unsupported_metric' ||
+    intent === 'write_request' ||
+    intent === 'clarify'
+  ) {
     return done('direct')
   }
   if (intent === 'query_actions') return done('direct', !POINT.test(text))

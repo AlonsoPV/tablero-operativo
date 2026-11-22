@@ -34,8 +34,8 @@ it('voz rehidrata la consulta activa persistida (consult_log) tras un cold start
     { dispatch: (a, n, args) => dispatchCopilotTool(a, n, args), store: r1Store(), audit: memoryQueryAuditSink(audit), today: () => R1_TODAY }
   )
   expect(turn.handled).toBe(true)
-  // Conserva «creadas por mí» del contexto previo: a1 (propia) y a5 (creada para Ana).
-  expect(turn.response.references.map((r) => r.id).sort()).toEqual(['a1', 'a5'])
+  // Conserva «creadas por mí»: a1 (propia), a5 (Ana) y a9 (Carlos).
+  expect(turn.response.references.map((r) => r.id).sort()).toEqual(['a1', 'a5', 'a9'])
   expect(turn.text).not.toContain('\n')
   expect(audit[0]).toMatchObject({ channel: 'voice', scope: 'created_by_me' })
 })

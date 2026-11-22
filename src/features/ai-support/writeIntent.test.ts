@@ -40,6 +40,19 @@ describe('writeIntent', () => {
     expect(resolveWriteIntent('Crea una accion y avisale por WhatsApp', 'consult')).toBe('create')
   })
 
+  it('detecta la intencion sin selector manual', () => {
+    const detect = (text: string) => resolveWriteIntent(text, 'consult')
+    expect(detect('crea una tarea para Jorge')).toBe('create')
+    expect(detect('Crea una accion para revisar inventario el viernes')).toBe('create')
+    expect(detect('Agenda una accion para Jorge el lunes')).toBe('create')
+    expect(detect('Asigna una tarea a Lucia para revisar el inventario')).toBe('create')
+    expect(detect('Cuales he asignado yo?')).toBe('consult')
+    expect(detect('¿qué acciones tiene Jorge?')).toBe('consult')
+    expect(detect('Cuales tengo vencidas?')).toBe('consult')
+    expect(detect('Que deberia priorizar hoy?')).toBe('consult')
+    expect(detect('Cuales tengo por vencer?')).toBe('consult')
+  })
+
   it('detecta correccion de fecha sobre un borrador', () => {
     expect(looksLikeDraftCorrection('no, es el 7 de noviembre')).toBe(true)
     expect(looksLikeDraftCorrection('el viernes')).toBe(true)

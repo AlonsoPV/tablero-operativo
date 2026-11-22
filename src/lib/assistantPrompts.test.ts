@@ -29,6 +29,9 @@ describe('composeSystemPrompt', () => {
     expect(prompt).toContain('gmail_search')
     expect(prompt).toContain('/settings/profile')
     expect(prompt).toContain('No apruebes un OKR únicamente porque está bien redactado')
+    expect(prompt).toContain('Rojo = prioridad alta')
+    expect(prompt).toContain('Amarillo = prioridad media')
+    expect(prompt).toContain('Verde = prioridad baja')
     expect(prompt).not.toContain('CALIDAD ORIENTATIVA')
   })
 
@@ -43,6 +46,7 @@ describe('composeSystemPrompt', () => {
     const prompt = composeSystemPrompt('operativo', { hasBoardContext: true })
     expect(prompt).toContain('CONTEXTO DE TABLERO')
     expect(prompt).toContain('3 movimientos ejecutivos')
+    expect(prompt).toContain('rojo = alta, amarillo = media, verde = baja')
     expect(prompt).not.toContain('CALIDAD ORIENTATIVA')
   })
 

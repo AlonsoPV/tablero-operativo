@@ -19,6 +19,8 @@ import {
 import { loadAgentCapabilities } from '../query/actorCapabilities.js'
 import type { ActionActiveQuery } from '../../../src/features/ai-support/actionQuery/types.js'
 import type { AccessCapabilities } from '../../../src/features/auth/lib/permissions.js'
+import { isAgentMemoryEnabled } from '../memory/flag.js'
+import { createMemoryStore } from '../memory/store.js'
 
 /** Web y WhatsApp comparten contexto entre instancias; voz rehidrata desde consult_log. */
 function defaultStoreForChannel(input: { identity: VerifiedIdentity; channel: AgentChannel }): SessionContextStore {
@@ -120,6 +122,7 @@ export async function runChannelTurn(
       audit: overrides.audit ?? supabaseQueryAuditSink(actor),
       now: overrides.now,
       today: overrides.today,
+      memoryStore: overrides.memoryStore ?? (isAgentMemoryEnabled() ? createMemoryStore() : undefined),
     }
   )
   return { ...result, text: result.handled ? formatForChannel(result, input.channel) : '' }

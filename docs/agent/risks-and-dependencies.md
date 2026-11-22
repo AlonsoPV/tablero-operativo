@@ -19,9 +19,12 @@ Congelación en `qa/supabase-local`. RF-01…RF-04 y QA-R1-01…QA-R1-04 están 
 
 | ID | Estado | Por qué no entra en R1 |
 | --- | --- | --- |
-| R0 · dispatcher 401 | Abierto, **activo** | RCA: `docs/agent/r0-401-rca.md`. Cron dispatcher con literal `PASTE_ANON_KEY` (script de operador). No corregir el cron hasta conteo de followups pending y autorización de envíos |
-| R0 · P0001 | Abierto | B1: review, sin recibos. SELECT de efectos: `audit_r0_p0001_effects_readonly.sql`. No replay |
-| RD-06 | Abierto | C1: 118 filas, last `20261119150000`, 7 nov, `17180000` ausente y `17181000` presente. C2 pendiente. No repair |
+| R0 · dispatcher 401 | **Cerrado** (A1) | Job 5 eliminado. Sin 401 desde 21:59:00 hasta 22:10:45 UTC. 2 followups pending sin procesar. Autorización por chat 15:50 (UTC-6). A2 decidida el 2026-11-20: apagado y pending conservados. La cancelación tiene script listo, sin firma |
+| R0 · P0001 | Abierto | Dos IDs + `aa92d43a` en review; los avisos figuran como `delivered`. CAS probado en local (todo PASS) y rollback preparado. Falta Meta/Graph y faltan las firmas 3-sim, 3-apply y la de `aa92d43a`. No replay |
+| RD-06 | Catálogo equivalente | 49/49 huellas PROD = freeze para `17180000`+`17182000`. Siguen sin fila en el historial. Decidir entre `repair` de solo 2 versiones o excepción. 31 archivos del freeze sin fila. Nunca `db push` |
+| R0 · Dirección | Catálogo equivalente | 61/61 huellas PROD = freeze. Validación con claims en PROD preparada, sin ejecutar (cuentas D1, D2 y C1) |
+| R0 · P0001 causa raíz | **Corregido y validado en PROD (Auth4 + 4-lab, 2026-11-20)** | Migración aplicada; lab `done`+checkpoint PASS con `ROLLBACK` (datos intactos). A3-apply sigue sin firma. R0 NO-GO. [`evidence/p0001_lab_prod_rollback.txt`](evidence/p0001_lab_prod_rollback.txt) |
+| R0 · Edge v31 | Documentado | Si falta el secreto, deja pasar las peticiones y no registra la capa del 401. Sin redeploy en R0; requiere decisión |
 | R2-15 | Documentado | Seis migraciones no reproducibles desde cero; parches sólo en copia local |
 | QA-DB-01 | Abierto | `accion_evidencias.created_at` vs `uploaded_at`; tablero OKR, no R1 |
 | R2 habilitación | Independiente | `R2_EXECUTION_MODE` y `COPILOT_R2_GATE` apagados fuera de QA local |

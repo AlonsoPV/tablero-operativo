@@ -47,6 +47,11 @@ const STOP_PERSON = new Set([
   'total',
   'vencidas',
   'bloqueadas',
+  'ayer',
+  'hoy',
+  'manana',
+  'seguimiento',
+  'actualizacion',
 ])
 
 function extractPersonHint(message: string): string | null {
@@ -86,7 +91,7 @@ function wantsList(message: string) {
   ) {
     return true
   }
-  return /\b(muestra|muestrame|lista|listame|enlista|enlistar|enlistalas|listalas|cuales|cual|todas|todos|detalle|detalla|las que|los que|que acciones)\b/.test(
+  return /\b(muestra|muestrame|lista|listame|enlista|enlistar|enlistalas|listalas|cuales|cual|todas|todos|detalle|detalla|las que|los que|que acciones|que paso|sin seguimiento)\b/.test(
     t
   )
 }
@@ -97,14 +102,17 @@ function wantsCount(message: string) {
 }
 
 function wantsRecommend(message: string) {
-  return /\b(recomiend|analiz|prioriz|que (deberia|debo)|diagnost)\b/.test(normalize(message))
+  return /\b(recomiend|analiz|prioriz|que (deberia|debo)|cual(es)? deberia|deberia atender|atenderse primero|diagnost)\b/.test(
+    normalize(message)
+  )
 }
 
 function looksLikeKanbanQuery(message: string, hasPendingClarify: boolean) {
   if (hasPendingClarify) return true
+  if (wantsRecommend(message)) return true
   const t = normalize(message)
   if (
-    /\b(acciones?|pendientes?|tablero|kanban|asign\w*|responsable|vencid\w*|retraso|bloquead\w*|en rojo|rojas?|abiertas?|enlist\w*|lista|listame|cuales|cuantas?|cuantos?|tengo|mis acciones|cread\w*|solicite|en total)\b/.test(
+    /\b(acciones?|pendientes?|tablero|kanban|asign\w*|responsable|vencid\w*|retraso|bloquead\w*|en rojo|rojas?|abiertas?|enlist\w*|lista|listame|cuales?|cuantas?|cuantos?|tengo|mis acciones|cread\w*|solicite|en total|ayer|seguimiento|estancad|sin actualizaci|que paso)\b/.test(
       t
     )
   ) {

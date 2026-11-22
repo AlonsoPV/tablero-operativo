@@ -104,5 +104,11 @@ export type AssistantReplyView =
 export type AssistantUiPayload = {
   /** Frase narrativa corta; las listas/métricas van en views. */
   summary?: string
+  /** Corte temporal ISO del snapshot operativo. */
+  asOf?: string
+  /** Fuentes de datos operativos (no conocimiento metodológico). */
+  sources?: string[]
+  /** Limitaciones explícitas del resultado. */
+  limitations?: string[]
   views: AssistantReplyView[]
 }

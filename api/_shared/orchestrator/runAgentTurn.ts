@@ -61,6 +61,8 @@ import {
   type SessionContextStore,
 } from './sessionContext.js'
 import { capabilityFingerprint } from '../query/actorCapabilities.js'
+import { isAgentMemoryEnabled } from '../memory/flag.js'
+import type { MemoryStore } from '../memory/store.js'
 
 /** authz se evalúa dentro de cada handler, antes de consultar; query_interpret incluye ambas fases. */
 export type AgentStage = 'identity' | 'intent' | 'context' | 'query_interpret' | 'respond'
@@ -71,6 +73,63 @@ export type AgentTurnDeps = {
   audit?: QueryAuditSink
   now?: () => number
   today?: () => string
+  /** POC R3: almacén de memoria/documentos (harness local). Ausente = sin recall. */
+  memoryStore?: MemoryStore
+}
+
+function looksLikeMemoryAsk(text: string) {
+  const n = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  return /\b(acordamos|acuerdo|procedimiento|documento|retomemos|ultima sesion|preferencia|politica|criterio|verificad\w*|cuando se considera|cuando se verifica)\b/.test(
+    n
+  )
+}
+
+function attachMemoryRecall(
+  response: AgentResponse,
+  store: MemoryStore,
+  actor: AgentActor,
+  utterance: string
+): AgentResponse {
+  let recall
+  try {
+    recall = store.recall(
+      {
+        usuarioId: actor.usuarioId,
+        canReadProject: actor.capabilities.readAllOkrs || actor.capabilities.readCrossAreaExecution,
+        visibleAreaIds: [],
+      },
+      utterance
+    )
+  } catch (error) {
+    recall = { ok: false as const, error: error instanceof Error ? error.message : 'memory_store_error' }
+  }
+  if (!recall.ok) {
+    response.blocks.limitations.push(
+      'No pude consultar la memoria autorizada en este momento; respondo sólo con el tablero si aplica.'
+    )
+    return response
+  }
+  if (recall.denied) {
+    response.blocks.data.push('No tienes acceso a ese conocimiento.')
+    response.blocks.limitations.push('No se revelan títulos ni fragmentos fuera de tu alcance.')
+    if (response.status === 'empty' || response.status === 'ok') response.status = 'forbidden'
+    return response
+  }
+  if (recall.hits.length === 0) {
+    response.blocks.limitations.push('No encontré acuerdos o documentos confirmados para esa pregunta.')
+    return response
+  }
+  for (const hit of recall.hits) {
+    const cite =
+      hit.kind === 'document'
+        ? `Documento «${hit.title ?? hit.source_label}» v${hit.version}: ${hit.body.slice(0, 280)}`
+        : `Acuerdo ${hit.id} (${hit.source_label} v${hit.version}): ${hit.body.slice(0, 280)}`
+    response.blocks.data.push(cite)
+  }
+  response.blocks.limitations.push(
+    'La memoria/documentos no sustituyen el estado vivo de Kanban u OKRs; las cifras del tablero prevalecen.'
+  )
+  return response
 }
 
 export type AgentTurnResult = {
@@ -301,6 +360,10 @@ async function handleQueryActions(
     responsableId = person.person.id
     personLabel = person.person.nombre
     state.ctx = { ...state.ctx, lastEntity: { kind: 'person', id: person.person.id, label: person.person.nombre } }
+  } else if (state.ctx.lastEntity?.kind === 'person') {
+    // Continuidad conversacional: «¿Cuáles están atrasados?» conserva a la persona del turno anterior.
+    responsableId = state.ctx.lastEntity.id
+    personLabel = state.ctx.lastEntity.label
   }
 
   const result = await queryActions(state.actor.copilot, { ...request, responsableId }, state.dispatch)
@@ -394,7 +457,7 @@ async function handleWhoMostUrgent(state: TurnState) {
     return { response, clarification: pick.clarification, audit: { status: 'clarification' as const, entity: 'actions' } }
   }
   const action = pick.action
-  const response = baseResponse('ok')
+  const response = baseResponse('ok', new Date().toISOString())
   response.blocks.data.push(
     `La más urgente es «${action.title}» (${action.estado ?? 'sin estado'}, ${action.fecha ?? 'sin fecha'}).`,
     action.responsableNombre
@@ -408,6 +471,71 @@ async function handleWhoMostUrgent(state: TurnState) {
     primary: { text: response.blocks.data.join(' ') },
     items: [actionItem(action, state.today)],
     findings: flags.length ? [{ text: `Está ${flags.join(' y ')}.`, basis: 'evidence', risk: flags.includes('vencida') || flags.includes('bloqueada') }] : [],
+    limitations: [...response.blocks.limitations],
+  })
+  response.references = [{ id: action.id, title: action.title, href: action.href }]
+  state.ctx = { ...state.ctx, lastEntity: { kind: 'action', id: action.id, label: action.title } }
+  return { response, audit: { status: 'ok' as const, entity: 'actions', total: 1 } }
+}
+
+async function handleRecommendNext(state: TurnState) {
+  if (state.ctx.lastActions.length === 0) {
+    const previous = state.ctx.activeQuery
+    const request: ActionsQueryRequest = {
+      entity: 'actions',
+      scope: previous?.scope ?? 'assigned_to_me',
+      statusGroup: previous?.status_group ?? 'open',
+      visual: previous?.visual ?? 'none',
+    }
+    const authz = authorizeQuery(state.actor, request)
+    if (!authz.allowed) return { response: forbidden(authz.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
+    const result = await queryActions(state.actor.copilot, request, state.dispatch)
+    if (result.status === 'error' || result.status === 'forbidden') {
+      const response = baseResponse(result.status)
+      response.blocks.data.push(statusMessage(result.status, 'las acciones', result.error?.message))
+      return { response, audit: { status: result.status, entity: 'actions' } }
+    }
+    rememberActions(state, request, result)
+  }
+  const focused =
+    state.ctx.lastEntity?.kind === 'action'
+      ? state.ctx.lastActions.find((item) => item.id === state.ctx.lastEntity!.id) ?? null
+      : null
+  const pick = focused
+    ? ({ kind: 'one' as const, action: focused })
+    : pickMostUrgent(state.ctx.lastActions, state.today)
+  if (pick.kind === 'none') {
+    const response = baseResponse('empty')
+    response.blocks.data.push('No hay acciones en la consulta actual para recomendar un siguiente paso.')
+    return { response, audit: { status: 'empty' as const, entity: 'actions' } }
+  }
+  if (pick.kind === 'ambiguous') {
+    const response = baseResponse('clarification')
+    response.blocks.data.push(pick.clarification.question)
+    return { response, clarification: pick.clarification, audit: { status: 'clarification' as const, entity: 'actions' } }
+  }
+  const action = pick.action
+  const flags = actionFlags(action, state.today)
+  const why = flags.includes('vencida')
+    ? 'está vencida'
+    : flags.includes('bloqueada')
+      ? 'está bloqueada'
+      : action.prioridad?.startsWith('P1')
+        ? 'es prioridad alta'
+        : flags.includes('vence hoy')
+          ? 'vence hoy'
+          : 'es la más urgente del conjunto'
+  const response = baseResponse('ok', new Date().toISOString())
+  response.blocks.data.push(`Siguiente paso: atiende «${action.title}» (${action.id}): ${why}.`)
+  if (action.responsableNombre) response.blocks.data.push(`Responsable: ${action.responsableNombre}.`)
+  response.blocks.recommendation.push(`Empieza por «${action.title}»; no se inventaron identificadores fuera del tablero.`)
+  response.blocks.interpretation.push('Recomendación por: vencida > bloqueada > prioridad alta > vence hoy > fecha.')
+  withFacts(response, {
+    primary: { text: response.blocks.data.join(' ') },
+    items: [actionItem(action, state.today)],
+    findings: flags.length
+      ? [{ text: `Está ${flags.join(' y ')}.`, basis: 'evidence', risk: flags.includes('vencida') || flags.includes('bloqueada') }]
+      : [],
     limitations: [...response.blocks.limitations],
   })
   response.references = [{ id: action.id, title: action.title, href: action.href }]
@@ -637,18 +765,33 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
     const blockedRefs = state.ctx.lastActions.filter((a) => a.estado === 'Bloqueado')
     const mentionsBlocker = /bloque/i.test(intent.request)
     const origen = mentionsBlocker && blockedRefs.length === 1 ? blockedRefs[0]! : null
+    const contextAction =
+      state.ctx.lastEntity?.kind === 'action'
+        ? state.ctx.lastActions.find((item) => item.id === state.ctx.lastEntity!.id) ?? null
+        : state.ctx.lastActions[0] ?? null
     const due = parseDueDateHint(intent.request, state.today)
-    if (resolveR2ExecutionMode() === 'qa') {
+    const persistMode = resolveR2ExecutionMode()
+    if (persistMode === 'qa' || persistMode === 'simulated') {
       const persisted = await proposeR2Operation(state.actor, 'create_action', {
         titulo: draft.title || intent.request.slice(0, 70),
-        responsableId: null,
-        fecha: due.dateYmd,
-        origenAccionId: origen?.id ?? null,
+        responsableId: contextAction?.responsableId ?? null,
+        fecha: due.dateYmd ?? (contextAction ? state.today : null),
+        origenAccionId: origen?.id ?? contextAction?.id ?? null,
       })
-      if (!persisted.ok) return { response: forbidden(persisted.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
-      response.blocks.data.push(persisted.proposal.summary)
-      response.blocks.limitations.push('Confirma desde esta sesión para aplicar el cambio en QA. No se envió nada a proveedores.')
-      return { response, proposal: persisted.proposal, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
+      if (persisted.ok) {
+        const proposal = persistMode === 'simulated' ? { ...persisted.proposal, simulated: true } : persisted.proposal
+        response.blocks.data.push(persisted.proposal.summary)
+        response.blocks.limitations.push(
+          persistMode === 'qa'
+            ? 'Confirma desde esta sesión para aplicar el cambio en QA. No se envió nada a proveedores.'
+            : 'Propuesta guardada en modo simulado. Confirma en la tarjeta; no se escribió en el tablero aún.'
+        )
+        return { response, proposal, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
+      }
+      if (persistMode === 'qa') {
+        return { response: forbidden(persisted.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
+      }
+      // simulated con datos incompletos: cae al borrador tipado sin fila pending.
     }
     const proposed = proposeAction(state.actor, 'create_action', {
       titulo: draft.title || intent.request.slice(0, 70),
@@ -681,6 +824,111 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
   return handleR2WriteRequest(state, intent, target, response)
 }
 
+function isFollowUpNotify(request: string) {
+  const n = request.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  return /\b(seguimiento|responsables|avisa a los)\b/.test(n)
+}
+
+async function handleFollowUpNotify(
+  state: TurnState,
+  intent: Extract<AgentIntent, { kind: 'write_request' }>,
+  response: ReturnType<typeof baseResponse>
+) {
+  if (state.ctx.lastActions.length === 0) {
+    const previous = state.ctx.activeQuery
+    const request: ActionsQueryRequest = {
+      entity: 'actions',
+      scope: previous?.scope ?? 'assigned_to_me',
+      statusGroup: previous?.status_group ?? 'open',
+      visual: previous?.visual ?? 'none',
+    }
+    const authz = authorizeQuery(state.actor, request)
+    if (!authz.allowed) return { response: forbidden(authz.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
+    const result = await queryActions(state.actor.copilot, request, state.dispatch)
+    if (result.status === 'forbidden') {
+      return { response: forbidden(result.error?.message ?? 'No tienes acceso a ese conjunto.'), audit: { status: 'forbidden' as const, entity: 'actions' } }
+    }
+    if (result.status === 'error') {
+      const err = baseResponse('error')
+      err.blocks.data.push(statusMessage('error', 'las acciones', result.error?.message))
+      return { response: err, audit: { status: 'error' as const, entity: 'actions' } }
+    }
+    rememberActions(state, request, result)
+  }
+  const byOwner = new Map<string, ReferencedAction>()
+  for (const item of state.ctx.lastActions) {
+    if (!item.responsableId || item.responsableId === state.actor.usuarioId) continue
+    if (!byOwner.has(item.responsableId)) byOwner.set(item.responsableId, item)
+  }
+  if (byOwner.size === 0) {
+    const empty = baseResponse('empty')
+    empty.blocks.data.push('No hay responsables distintos que avisar en el último conjunto.')
+    empty.blocks.limitations.push('No se encoló ningún aviso (cero outbox).')
+    return { response: empty, audit: { status: 'empty' as const, entity: 'actions' } }
+  }
+  if (byOwner.size > 3) {
+    const clarification = baseResponse('clarification')
+    clarification.blocks.data.push(
+      'Hay más de 3 responsables distintos. Indica a quién avisar o reduce el conjunto.'
+    )
+    return {
+      response: clarification,
+      clarification: {
+        question: 'Hay más de 3 responsables distintos. Indica a quién avisar o reduce el conjunto.',
+        options: [...byOwner.values()].slice(0, 6).map((item) => ({
+          id: item.responsableId ?? item.id,
+          label: item.responsableNombre ?? item.title,
+        })),
+      },
+      audit: { status: 'clarification' as const, entity: 'actions' },
+    }
+  }
+  const persistMode = resolveR2ExecutionMode()
+  let firstProposal: CopilotProposal | ActionProposal | undefined
+  for (const item of byOwner.values()) {
+    if (persistMode === 'qa' || persistMode === 'simulated') {
+      const persisted = await proposeR2Operation(state.actor, 'notify_responsable', {
+        accionId: item.id,
+        canal: intent.canal ?? 'email',
+      })
+      if (!persisted.ok) {
+        response.blocks.data.push(`No pude proponer aviso para «${item.title}»: ${persisted.reason}`)
+        continue
+      }
+      const proposal = persistMode === 'simulated' ? { ...persisted.proposal, simulated: true } : persisted.proposal
+      firstProposal ??= proposal
+      response.blocks.data.push(persisted.proposal.summary)
+    } else {
+      const proposed = proposeAction(state.actor, 'notify_responsable', {
+        accionId: item.id,
+        canal: intent.canal ?? 'email',
+      })
+      if (!proposed.ok) {
+        response.blocks.data.push(`No pude proponer aviso para «${item.title}»: ${proposed.reason}`)
+        continue
+      }
+      firstProposal ??= proposed.proposal
+      response.blocks.data.push(
+        `Propuesta identificada: avisar a ${item.responsableNombre ?? 'el responsable'} sobre «${item.title}» por ${intent.canal === 'whatsapp' ? 'WhatsApp' : 'correo'}.`
+      )
+    }
+  }
+  if (!firstProposal) {
+    return {
+      response: forbidden('No se pudo armar el seguimiento con el conjunto actual.'),
+      audit: { status: 'denied_precheck' as const, entity: 'actions' },
+    }
+  }
+  response.blocks.limitations.push(
+    persistMode === 'simulated'
+      ? 'Seguimiento en modo simulado: una propuesta por responsable; no se envió nada (cero outbox).'
+      : persistMode === 'qa'
+        ? 'Seguimiento propuesto en QA. Confirma cada tarjeta; no se envió nada a proveedores.'
+        : 'La ejecución no está habilitada en este canal: no se modificó ni se envió nada.'
+  )
+  return { response, proposal: firstProposal, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
+}
+
 /** R2 en canales: sólo llega a la propuesta validada; la confirmación y ejecución quedan fuera del canal. */
 async function handleR2WriteRequest(
   state: TurnState,
@@ -694,8 +942,15 @@ async function handleR2WriteRequest(
       audit: { status: 'denied_precheck' as const, entity: 'actions' },
     }
   }
+  if (
+    intent.operation === 'notify_responsable' &&
+    (isFollowUpNotify(intent.request) || (!target && state.ctx.lastActions.length > 1))
+  ) {
+    return handleFollowUpNotify(state, intent, response)
+  }
   const accionId = target?.id ?? ''
-  if (resolveR2ExecutionMode() === 'qa') {
+  const persistMode = resolveR2ExecutionMode()
+  if (persistMode === 'qa' || persistMode === 'simulated') {
     const persisted = intent.operation === 'update_status'
       ? await proposeR2Operation(state.actor, 'update_status', {
         accionId,
@@ -704,10 +959,19 @@ async function handleR2WriteRequest(
       : intent.operation === 'register_blocker'
         ? await proposeR2Operation(state.actor, 'register_blocker', { accionId, motivo: intent.motivo ?? '' })
         : await proposeR2Operation(state.actor, 'notify_responsable', { accionId, canal: intent.canal ?? 'email' })
-    if (!persisted.ok) return { response: forbidden(persisted.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
-    response.blocks.data.push(persisted.proposal.summary)
-    response.blocks.limitations.push('Confirma desde esta sesión para aplicar el cambio en QA. No se envió nada a proveedores.')
-    return { response, proposal: persisted.proposal, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
+    if (persisted.ok) {
+      const proposal = persistMode === 'simulated' ? { ...persisted.proposal, simulated: true } : persisted.proposal
+      response.blocks.data.push(persisted.proposal.summary)
+      response.blocks.limitations.push(
+        persistMode === 'qa'
+          ? 'Confirma desde esta sesión para aplicar el cambio en QA. No se envió nada a proveedores.'
+          : 'Propuesta guardada en modo simulado. Confirma en la tarjeta; no se modificó ni se envió nada.'
+      )
+      return { response, proposal, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
+    }
+    if (persistMode === 'qa' || !accionId) {
+      return { response: forbidden(persisted.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
+    }
   }
   const proposed = intent.operation === 'update_status'
     ? proposeAction(state.actor, 'update_status', { accionId, estado: intent.estado as 'Pendiente' | 'En_Ejecucion' | 'Hecho' })
@@ -840,6 +1104,26 @@ export async function runAgentTurn(
   stage('intent')
 
   if (intent.kind === 'unknown') {
+    if (
+      isAgentMemoryEnabled() &&
+      deps.memoryStore &&
+      looksLikeMemoryAsk(utterance)
+    ) {
+      stage('context')
+      const response = attachMemoryRecall(baseResponse('ok'), deps.memoryStore, actor, utterance)
+      stage('query_interpret')
+      stage('respond')
+      return {
+        handled: true,
+        intent: 'unknown',
+        response,
+        format: selected === 'auto' ? 'direct' : selected,
+        formatSelected: selected,
+        offerDetail: false,
+        toolsUsed: [],
+        trace,
+      }
+    }
     if (selected !== previousFormat) await persistFormat()
     return {
       handled: false,
@@ -880,6 +1164,9 @@ export async function runAgentTurn(
     case 'who_most_urgent':
       outcome = await handleWhoMostUrgent(state)
       break
+    case 'recommend_next':
+      outcome = await handleRecommendNext(state)
+      break
     case 'query_okrs':
       outcome = await handleOkrs(state, intent)
       break
@@ -903,6 +1190,13 @@ export async function runAgentTurn(
     }
   }
   stage('query_interpret')
+
+  if (isAgentMemoryEnabled() && deps.memoryStore && looksLikeMemoryAsk(utterance)) {
+    outcome = {
+      ...outcome,
+      response: attachMemoryRecall(outcome.response, deps.memoryStore, actor, utterance),
+    }
+  }
 
   const autoResolution = resolveFormat('auto', intent.kind, utterance)
   const resolution = selected === 'auto' ? autoResolution : { format: selected, ambiguous: false }

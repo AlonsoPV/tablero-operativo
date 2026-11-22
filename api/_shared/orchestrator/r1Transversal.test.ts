@@ -53,8 +53,14 @@ describe('R1 complemento · perfiles', () => {
     const r = await turn(createR1Db(), createMemorySessionContextStore(), R1_USERS.superAdmin, BY_AREA)
     expect(r.intent).toBe('aggregate_execution')
     expect(r.response.status).toBe('ok')
-    expect(r.response.blocks.data[0]).toBe('7 acciones abiertas por área en acciones del tablero autorizado.')
-    expect(r.response.blocks.data.slice(1)).toEqual(['- OKRS: 3', '- Operaciones: 2', '- Calidad: 1', '- Ventas: 1'])
+    expect(r.response.blocks.data[0]).toBe('9 acciones abiertas por área en acciones del tablero autorizado.')
+    expect(r.response.blocks.data.slice(1)).toEqual([
+      '- OKRS: 3',
+      '- Logistica: 2',
+      '- Operaciones: 2',
+      '- Calidad: 1',
+      '- Ventas: 1',
+    ])
   })
 
   it('Área OKRS (Analista): lectura transversal de ejecución y OKRs, sin escritura', async () => {
@@ -64,10 +70,10 @@ describe('R1 complemento · perfiles', () => {
     expect(actor.capabilities).toMatchObject({ okrsArea: true, readAllOkrs: true, readCrossAreaExecution: true, manageAll: false })
 
     const agg = await turn(db, createMemorySessionContextStore(), R1_USERS.okrsAnalyst, BY_AREA)
-    expect(agg.response.blocks.data[0]).toBe('7 acciones abiertas por área en acciones del tablero autorizado.')
+    expect(agg.response.blocks.data[0]).toBe('9 acciones abiertas por área en acciones del tablero autorizado.')
 
     const wide = await turn(db, createMemorySessionContextStore(), R1_USERS.okrsAnalyst, '¿cuántas acciones hay en el tablero?')
-    expect(wide.response.blocks.data[0]).toBe('7 abiertas en acciones del tablero autorizado.')
+    expect(wide.response.blocks.data[0]).toBe('9 abiertas en acciones del tablero autorizado.')
 
     const okrs = await turn(db, createMemorySessionContextStore(), R1_USERS.okrsAnalyst, '¿Cómo vamos con los OKRs?')
     expect(okrs.response.status).toBe('ok')
@@ -81,7 +87,7 @@ describe('R1 complemento · perfiles', () => {
   it('Dirección: lectura ejecutiva de tablero, agregados y OKRs; nunca propone', async () => {
     const db = createR1Db()
     const agg = await turn(db, createMemorySessionContextStore(), R1_USERS.directionNoOkr, BY_AREA)
-    expect(agg.response.blocks.data[0]).toMatch(/^7 acciones abiertas/)
+    expect(agg.response.blocks.data[0]).toMatch(/^9 acciones abiertas/)
     const okrs = await turn(db, createMemorySessionContextStore(), R1_USERS.directionNoOkr, '¿Cómo vamos con los OKRs?')
     expect(okrs.response.status).toBe('ok')
     const actor = await r1ActorWithCapabilities(db, R1_USERS.directionNoOkr)
@@ -200,7 +206,7 @@ describe('R1 complemento · contexto, revocación y seguridad', () => {
       scope: 'board_authorized', status_group: 'open', group_by: 'area', limit: 1,
     })
     const data = JSON.stringify(raw)
-    expect(data).toContain('"total":7')
+    expect(data).toContain('"total":9')
     expect(data).toContain('"returned":1')
   })
 })

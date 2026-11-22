@@ -439,6 +439,10 @@ export function AssistantReplyViews({
     return text.length > 0 && text !== ui.summary
   }, [narrative, ui])
 
+  const asOfLabel = ui.asOf
+    ? new Date(ui.asOf).toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })
+    : null
+
   return (
     <div className={cn('space-y-3', compact && 'space-y-2.5')}>
       {showNarrative ? (
@@ -449,6 +453,14 @@ export function AssistantReplyViews({
       {ui.views.map((view, index) => (
         <ReplyViewBlock key={`${view.type}-${index}`} view={view} compact={compact} />
       ))}
+      {asOfLabel || (ui.sources && ui.sources.length > 0) ? (
+        <p className={cn('text-muted-foreground', compact ? 'text-[10px] leading-4' : 'text-[11px] leading-4')}>
+          {asOfLabel ? `Corte: ${asOfLabel}` : null}
+          {asOfLabel && ui.sources?.length ? ' · ' : null}
+          {ui.sources?.length ? `Fuentes: ${ui.sources.join(', ')}` : null}
+          {ui.limitations?.length ? ` · ${ui.limitations.join(' ')}` : null}
+        </p>
+      ) : null}
     </div>
   )
 }

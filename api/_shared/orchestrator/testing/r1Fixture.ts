@@ -26,6 +26,7 @@ export const R1_USERS = {
   jorge1: { id: 'u-j1', user_id: 'a-j1', nombre: 'Jorge Ruiz', rol: 'Operativo', area: 'Operaciones', activo: true },
   jorge2: { id: 'u-j2', user_id: 'a-j2', nombre: 'Jorge Perez', rol: 'Operativo', area: 'Ventas', activo: true },
   maria: { id: 'u-maria', user_id: 'a-maria', nombre: 'Maria Lopez', rol: 'Operativo', area: 'Operaciones', activo: true },
+  carlos: { id: 'u-carlos', user_id: 'a-carlos', nombre: 'Carlos Reyes', rol: 'Operativo', area: 'Logistica', activo: true },
   inactive: { id: 'u-off', user_id: 'a-off', nombre: 'Ines Inactiva', rol: 'Lider', area: 'OKRS', activo: false },
 } as const
 
@@ -51,6 +52,8 @@ export const R1_ACTIONS: Action[] = [
   { id: 'a6', titulo_accion: 'Plan privado de ventas', estado: 'Pendiente', fecha: '2026-11-26', responsable: 'u-peer', created_by: 'u-peer', prioridad: 'P2_Media', area: 'Ventas', updated_at: '2026-11-18T10:00:00Z' },
   { id: 'a7', titulo_accion: 'Entrega cerrada', estado: 'Hecho', fecha: '2026-11-10', responsable: 'u-lead', created_by: 'u-lead', prioridad: 'P2_Media', area: 'OKRS', updated_at: '2026-11-10T10:00:00Z' },
   { id: 'a8', titulo_accion: 'Auditoria de Jorge', estado: 'Pendiente', fecha: '2026-11-27', responsable: 'u-j1', created_by: 'u-lead', prioridad: 'P2_Media', area: 'Operaciones', updated_at: '2026-11-18T10:00:00Z' },
+  { id: 'a9', titulo_accion: 'Ruta retrasada de Carlos', estado: 'Retraso', fecha: '2026-11-17', responsable: 'u-carlos', created_by: 'u-lead', prioridad: 'P1_Alta', area: 'Logistica', updated_at: '2026-11-17T10:00:00Z' },
+  { id: 'a10', titulo_accion: 'Checklist de Carlos', estado: 'Pendiente', fecha: '2026-11-25', responsable: 'u-carlos', created_by: 'u-lead', prioridad: 'P2_Media', area: 'Logistica', updated_at: '2026-11-18T10:00:00Z' },
 ]
 
 export const R1_OKR_DASHBOARD = {

@@ -49,9 +49,11 @@ import { assistantOperationalContextService } from '@/features/ai-support/servic
 import {
   buildAssistantBriefing,
   buildAssistantQuickActions,
+  resolveAssistantAudience,
   type AssistantQuickAction,
 } from '@/features/ai-support/assistantBriefing'
-import { AssistantBriefingPanel } from '@/features/ai-support/components/AssistantBriefingPanel'
+import { AssistantWelcome } from '@/features/ai-support/components/AssistantWelcome'
+import { AssistantActivity } from '@/features/ai-support/components/AssistantActivity'
 import { StructuredAssistantReply } from '@/features/ai-support/components/StructuredAssistantReply'
 import { AssistantReplyViews } from '@/features/ai-support/chatViews'
 import { AssistantProposalCard } from '@/features/ai-support/components/AssistantProposalCard'
@@ -81,9 +83,11 @@ import {
   type WriteIntent,
 } from '@/features/ai-support/writeIntent'
 import { buildCreateApprovalMessage } from '@/features/ai-support/createWorkReply'
+import { friendlyAssistantError } from '@/features/ai-support/assistantErrors'
+import { tryKnowledgeReply } from '@/features/ai-support/knowledge/tryKnowledgeReply'
 import { groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
 import { useAppRole } from '@/features/auth/hooks/useAppRole'
-import { canViewAllBoardData } from '@/features/auth/lib/permissions'
+import { canViewAllBoardData, isDirectionByRole, isLeaderByRole } from '@/features/auth/lib/permissions'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { useAcciones } from '@/features/operations/hooks/useAcciones'
 import { useAccionCheckpoints } from '@/features/operations/hooks/useAccionCheckpoints'
@@ -193,7 +197,13 @@ function readConversationId(): string {
 
 type GeminiChatResponse = {
   answer?: string
-  agent?: { formatSelected?: string }
+  agent?: {
+    formatSelected?: string
+    status?: string
+    asOf?: string | null
+    blocks?: { data?: string[]; interpretation?: string[]; recommendation?: string[]; limitations?: string[] }
+    references?: Array<{ id: string; title: string; href: string }>
+  }
   error?: string
   proposals?: AiChatMessage['proposals']
   clarification?: AiChatMessage['clarification']
@@ -264,11 +274,30 @@ async function sendMessage({
     throw new Error(data?.error || 'No se pudo generar una respuesta.')
   }
 
+  const agentUi =
+    data.agent?.status && !data.ui
+      ? {
+          views: [],
+          asOf: data.agent.asOf ?? undefined,
+          sources: ['orchestrator_r1'],
+        }
+      : data.ui
+        ? {
+            ...data.ui,
+            asOf: data.ui.asOf ?? data.agent?.asOf ?? undefined,
+            sources: data.ui.sources?.length
+              ? data.ui.sources
+              : data.agent?.status
+                ? ['orchestrator_r1']
+                : data.ui.sources,
+          }
+        : undefined
+
   return {
     answer: data.answer || 'No pude generar una respuesta en este momento.',
     proposals: data.proposals,
     clarification: data.clarification,
-    ui: data.ui ?? undefined,
+    ui: agentUi,
     formatSelected: data.agent?.formatSelected,
   }
 }
@@ -878,13 +907,22 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
       }),
     [actionsLoading, currentUser?.nombre, operationalLoad.isLoading, operationalSnapshot]
   )
+  const assistantAudience = useMemo(
+    () =>
+      resolveAssistantAudience({
+        isDirection: isDirectionByRole(currentUser?.rol),
+        isLeader: isLeaderByRole(currentUser?.rol),
+        canSeeTeam: seesAllBoard,
+      }),
+    [currentUser?.rol, seesAllBoard]
+  )
   const quickActions = useMemo(
     () =>
       buildAssistantQuickActions({
-        snapshot: operationalSnapshot,
+        audience: assistantAudience,
         canSeeOkrs,
       }),
-    [canSeeOkrs, operationalSnapshot]
+    [assistantAudience, canSeeOkrs]
   )
 
   const focusWelcome = useMemo(() => {
@@ -1063,6 +1101,20 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         const hasExplicitFocus = activeActionContext || activeOkrContext
         const orchestratorEnabled = __AGENT_ORCHESTRATOR_R1__ === true
 
+        const knowledge = tryKnowledgeReply(trimmed)
+        if (knowledge) {
+          setMessages(
+            [
+              ...nextMessages,
+              {
+                role: 'assistant' as const,
+                content: knowledge.content,
+              },
+            ].slice(-MAX_MESSAGES)
+          )
+          return
+        }
+
         if (operationalSnapshot) {
           const turn = runConversationTurn({
             message: trimmed,
@@ -1160,17 +1212,13 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         )
       }
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'No pude conectar con el asistente. Intenta nuevamente.'
+      const message = friendlyAssistantError(error)
       toast.error(message)
       setMessages([
         ...nextMessages,
         {
           role: 'assistant' as const,
-          content:
-            'No pude procesar tu solicitud en este momento. Revisa la configuracion o intenta nuevamente en unos minutos.',
+          content: message,
         },
       ])
     } finally {
@@ -1240,12 +1288,35 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               : 'rounded-2xl bg-background/85 px-3.5 py-3.5 ring-1 ring-border/40 sm:px-4'
           )}
         >
-          <AssistantBriefingPanel
+          <AssistantWelcome
             briefing={briefing}
+            counts={operationalSnapshot?.counts ?? null}
             actions={quickActions}
             loading={operationalLoad.isLoading || actionsLoading}
             compact={isPopup}
+            onAsk={(prompt) => {
+              setWriteIntent('consult')
+              void handleSend(prompt)
+            }}
             onAction={handleQuickAction}
+          />
+          {operationalSnapshot?.fetchedAt ? (
+            <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
+              Corte:{' '}
+              {new Date(operationalSnapshot.fetchedAt).toLocaleString('es-MX', {
+                timeZone: 'America/Mexico_City',
+              })}{' '}
+              · Fuentes: kanban_acciones
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div className={cn(isPopup ? 'px-0.5' : 'px-1')}>
+          <AssistantActivity
+            stage={writeIntent === 'create' ? 'preparing' : 'querying'}
+            compact={isPopup}
           />
         </div>
       ) : null}

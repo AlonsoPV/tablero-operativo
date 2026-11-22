@@ -196,6 +196,7 @@ export default defineApiHandler(async (req, res) => {
               offerDetail: turn.offerDetail,
               blocks: turn.response.blocks,
               references: turn.response.references,
+              asOf: turn.response.asOf,
               executionEnabled: false,
             },
           })

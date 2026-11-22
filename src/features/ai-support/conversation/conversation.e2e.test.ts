@@ -356,4 +356,42 @@ describe('conversation e2e sequence (Fase 13)', () => {
       overdue.reply.state.visual === 'overdue' || overdue.reply.state.status_group === 'overdue'
     ).toBe(true)
   })
+
+  it('Flujo3: pendientes de ayer / sin seguimiento → stale con provenance', () => {
+    const stale = run('Que paso con las acciones pendientes de ayer?', null)
+    expect(stale.handled).toBe(true)
+    if (!stale.handled) throw new Error('expected handled')
+    expect(stale.reply.state.status_group).toBe('stale')
+    expect(stale.reply.content).toMatch(/sin seguimiento|actualizacion|Corte:|Fuentes:/i)
+    expect(stale.reply.ui?.sources).toContain('kanban_acciones')
+
+    const follow = run('Cuales estan sin seguimiento?', stale.reply.state)
+    expect(follow.handled).toBe(true)
+    if (!follow.handled) throw new Error('expected handled')
+    expect(follow.reply.state.status_group).toBe('stale')
+  })
+
+  it('R1 flow: equipo → vencidos conserva alcance → prioridad con corte/fuentes', () => {
+    const team = run('Que pendientes tiene el equipo?', null)
+    expect(team.handled).toBe(true)
+    if (!team.handled) throw new Error('expected handled')
+    expect(team.reply.state.scope).toBe('team_authorized')
+    expect(team.reply.content).toMatch(/Corte:|Fuentes:/)
+
+    const overdue = run('Cuales estan vencidos?', team.reply.state)
+    expect(overdue.handled).toBe(true)
+    if (!overdue.handled) throw new Error('expected handled')
+    expect(overdue.reply.state.scope).toBe('team_authorized')
+    expect(
+      overdue.reply.state.status_group === 'overdue' || overdue.reply.state.visual === 'overdue'
+    ).toBe(true)
+    expect(overdue.reply.ui?.asOf).toBeTruthy()
+    expect(overdue.reply.ui?.sources).toContain('kanban_acciones')
+
+    const priority = run('Cual deberia atenderse primero?', overdue.reply.state)
+    expect(priority.handled).toBe(true)
+    if (!priority.handled) throw new Error('expected handled')
+    expect(priority.reply.state.responseMode).toBe('analysis')
+    expect(priority.reply.content).toMatch(/Empieza por|Corte:|Fuentes:/)
+  })
 })
