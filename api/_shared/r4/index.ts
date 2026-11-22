@@ -25,6 +25,12 @@ export { createOnceReportFinalizer } from './reportFinalize.js'
 export type { SimulatedReportFinalize } from './reportFinalize.js'
 export { createLinkStore } from './linkStore.js'
 export type { R4LinkStore } from './linkStore.js'
+export {
+  createResilientPortRunner,
+  withBoundedRetry,
+  withTimeout,
+  R4TimeoutError,
+} from './resilience.js'
 export { createR4SessionOrchestrator } from './sessionOrchestrator.js'
 export type { CreateR4SessionInput, R4SessionOrchestrator } from './sessionOrchestrator.js'
 export type {

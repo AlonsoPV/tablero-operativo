@@ -1,5 +1,6 @@
 import type { R4VoiceAdapters } from './contracts.js'
 import { createOnceReportFinalizer } from './reportFinalize.js'
+import { R4TimeoutError } from './resilience.js'
 import type { R4LinkStore } from './linkStore.js'
 import type {
   R4PortRunner,
@@ -65,6 +66,19 @@ export function createR4SessionOrchestrator(input: CreateR4SessionInput) {
     }
   }
 
+  function portErrorSnapshot(error: unknown) {
+    if (error instanceof R4TimeoutError) {
+      return fail('timeout', error.message)
+    }
+    const code =
+      error && typeof error === 'object' && 'code' in error
+        ? String((error as { code: unknown }).code)
+        : 'provider'
+    const message = error instanceof Error ? error.message : 'Fallo de puerto simulado.'
+    const mapped: R4SessionErrorCode = isKnownError(code) ? code : 'provider'
+    return fail(mapped, message, mapped === 'reconnect' ? 'recovering' : undefined)
+  }
+
   function fail(code: R4SessionErrorCode, message: string, phase?: R4SessionSnapshot['phase']) {
     snapshot = {
       ...snapshot,
@@ -124,9 +138,14 @@ export function createR4SessionOrchestrator(input: CreateR4SessionInput) {
     const blocked = gateLive('conectar')
     if (blocked) return blocked
     snapshot = { ...snapshot, phase: 'connecting', lastError: null }
-    const started = await runPort('retell.start', () =>
-      adapters.retell.start({ sessionId, grant: snapshot.link.grantValid ? 'sim-grant' : undefined })
-    )
+    let started
+    try {
+      started = await runPort('retell.start', () =>
+        adapters.retell.start({ sessionId, grant: snapshot.link.grantValid ? 'sim-grant' : undefined })
+      )
+    } catch (error) {
+      return portErrorSnapshot(error)
+    }
     if (!started.ok) {
       return fail(started.code, started.error, started.code === 'unauthorized' ? 'denied' : 'error')
     }
@@ -155,7 +174,12 @@ export function createR4SessionOrchestrator(input: CreateR4SessionInput) {
 
     snapshot = { ...snapshot, phase: 'listening', lastError: null }
 
-    const stt = await runPort('stt.transcribe', () => adapters.stt.transcribe({}))
+    let stt
+    try {
+      stt = await runPort('stt.transcribe', () => adapters.stt.transcribe({}))
+    } catch (error) {
+      return portErrorSnapshot(error)
+    }
     if (!stt.ok) {
       return fail(stt.code, stt.error)
     }
@@ -163,9 +187,14 @@ export function createR4SessionOrchestrator(input: CreateR4SessionInput) {
     const userItem: R4TranscriptItem = { id: `${id}-user`, role: 'user', text: userText, utteranceId: id }
     snapshot = { ...snapshot, transcript: [...snapshot.transcript, userItem] }
 
-    const turn = await runPort('retell.speakTurn', () =>
-      adapters.retell.speakTurn({ callId: snapshot.callId!, utterance: userText })
-    )
+    let turn
+    try {
+      turn = await runPort('retell.speakTurn', () =>
+        adapters.retell.speakTurn({ callId: snapshot.callId!, utterance: userText })
+      )
+    } catch (error) {
+      return portErrorSnapshot(error)
+    }
     if (!turn.ok) {
       const recovering = turn.code === 'reconnect' || turn.code === 'timeout'
       snapshot = {
@@ -178,7 +207,12 @@ export function createR4SessionOrchestrator(input: CreateR4SessionInput) {
 
     snapshot = { ...snapshot, phase: 'speaking' }
     const reply = `Recibido: ${userText}`
-    const tts = await runPort('tts.synthesize', () => adapters.tts.synthesize({ text: reply, interruptible: true }))
+    let tts
+    try {
+      tts = await runPort('tts.synthesize', () => adapters.tts.synthesize({ text: reply, interruptible: true }))
+    } catch (error) {
+      return portErrorSnapshot(error)
+    }
     if (!tts.ok) {
       return fail(tts.code, tts.error)
     }
@@ -250,9 +284,14 @@ export function createR4SessionOrchestrator(input: CreateR4SessionInput) {
       phase: 'connecting',
       lastError: null,
     }
-    const started = await runPort('retell.recover', () =>
-      adapters.retell.start({ sessionId, grant: snapshot.link.grantValid ? 'sim-grant' : undefined })
-    )
+    let started
+    try {
+      started = await runPort('retell.recover', () =>
+        adapters.retell.start({ sessionId, grant: snapshot.link.grantValid ? 'sim-grant' : undefined })
+      )
+    } catch (error) {
+      return portErrorSnapshot(error)
+    }
     if (!started.ok) {
       return fail('reconnect', started.error, 'error')
     }
@@ -267,7 +306,11 @@ export function createR4SessionOrchestrator(input: CreateR4SessionInput) {
 
   async function end() {
     if (snapshot.callId) {
-      await runPort('retell.end', () => adapters.retell.end({ callId: snapshot.callId! }))
+      try {
+        await runPort('retell.end', () => adapters.retell.end({ callId: snapshot.callId! }))
+      } catch {
+        /* el informe se cierra igual: no dejar la sesion a medias */
+      }
     }
     const closed = finalizer.finalize({ sessionId, source })
     snapshot = {
@@ -348,6 +391,31 @@ export function createR4SessionOrchestrator(input: CreateR4SessionInput) {
     queueCommunication,
     evaluateLink,
   }
+}
+
+function isKnownError(code: string): code is R4SessionErrorCode {
+  return (
+    code === 'consent_required' ||
+    code === 'not_connected' ||
+    code === 'paused' ||
+    code === 'ended' ||
+    code === 'denied' ||
+    code === 'expired' ||
+    code === 'revoked' ||
+    code === 'foreign_session' ||
+    code === 'invalid_grant' ||
+    code === 'public_confirm_denied' ||
+    code === 'unauthenticated' ||
+    code === 'timeout' ||
+    code === 'reconnect' ||
+    code === 'permission' ||
+    code === 'unsupported' ||
+    code === 'provider' ||
+    code === 'interrupted' ||
+    code === 'unauthorized' ||
+    code === 'duplicate_turn' ||
+    code === 'cancelled'
+  )
 }
 
 function isAuthCode(code: R4SessionErrorCode) {
