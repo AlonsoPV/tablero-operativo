@@ -47,10 +47,10 @@ Principios:
 
 | Inc | Entrega | Verificable sin remoto | Autorización extra |
 | --- | --- | --- | --- |
-| **R4.1** | Flags + contratos + adaptadores simulados + pruebas unitarias | Sí | No (autorizado) |
-| R4.2 | Harness AT-13 (expirado/revocado/grant inválido) sobre store simulado | Sí | No, si no toca RLS/DB real |
-| R4.3 | Harness AT-14 (timeouts STT/TTS/Retell simulados; informe único) | Sí | No |
-| R4.4 | Cableado UI detrás del flag (dictado/síntesis revisable) | Local | Revisar impacto UI Guía |
+| **R4.1** | Flags + contratos + adaptadores simulados + pruebas unitarias | Sí · hecho | — |
+| **R4.2** | Harness AT-13 (sesión, liga, consentimiento, ops protegidas) | Sí · hecho | — |
+| **R4.3** | Harness AT-14 (timeouts, reintentos acotados, informe único) | Sí · hecho | — |
+| **R4.4** | Laboratorio UI en `/asistente-ia/r4-lab` detrás de `VITE_AGENT_VOICE_R4===1` | Sí · hecho. Guía producción intacta | No sustituye Retell real |
 | R4.5 | Piloto Retell / liga en staging | No | Sí: entorno, claves, piloto |
 | R4.6 | Comparativa OpenAI vs Retell con mismo oráculo | No | Sí: entorno de prueba |
 | R4.7 | AT-16/AT-20 voz+liga con evidencia | No | Sí: tras R4.5 y políticas de canal |
@@ -74,15 +74,16 @@ Principios:
 
 ## GO / NO-GO específicos de R4
 
-**GO local (R4.1–R4.3):** flags ausentes = off; suites R4 verdes; cero llamadas a Retell/ElevenLabs/Meta; cero migraciones; contratos R1–R3 intactos.
+**GO local (R4.1–R4.4):** flags ausentes = off; suites `api/_shared/r4` y `src/features/r4-lab` verdes; cero llamadas a Retell/ElevenLabs/Meta; cero migraciones; `GuidePanel` / `useRetellGuideCall` intactos.
 
 **NO-GO integración / piloto / QA:** sin autorización explícita de entorno, claves, destinatario/piloto de liga y decisión de no interferir con Preview/R3.
 
 **NO-GO liberación:** AT-13/14/16/20 con evidencia de canal; rollback por flag.
 
-## Primer incremento (R4.1) — este commit de rama
+## Estado local (R4.1–R4.4)
 
-- `AGENT_VOICE_R4` apagado por defecto.
-- Contratos `SttPort`, `TtsPort`, `RetellSessionPort`, `LinkAuthPort`.
-- Adaptadores simulados deterministas.
-- Pruebas: flag basura, simulación de éxito/error, ausencia de side-effects de red.
+- `AGENT_VOICE_R4` / `VITE_AGENT_VOICE_R4` apagados salvo valor estricto `1`.
+- Orquestador de sesión + store de liga en memoria; ops protegidas exigen autenticación.
+- Resiliencia: timeout, máx. 2 reintentos, interrupción, cancelación, finalize único.
+- UI: `src/features/r4-lab` reutiliza `GuidePresence`. Ruta redirige a `/asistente-ia` si el flag está off.
+- Para ver el laboratorio en local: `VITE_AGENT_VOICE_R4=1` en el worktree (no en QA).

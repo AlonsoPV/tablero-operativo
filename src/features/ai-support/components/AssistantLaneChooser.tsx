@@ -1,4 +1,6 @@
+import { Link } from 'react-router-dom'
 import { Bot, MessageCircle, PenLine } from 'lucide-react'
+import { ROUTES, isVoiceR4UiEnabled } from '@/constants'
 import { cn } from '@/lib/utils'
 import type { AssistantLane } from '@/features/ai-support/writeIntent'
 
@@ -152,6 +154,16 @@ export function AssistantLaneChooser({ compact = false, onChoose }: AssistantLan
           onClick={() => onChoose('write')}
         />
       </div>
+      {isVoiceR4UiEnabled() ? (
+        <p className="relative mx-auto w-full max-w-lg text-center">
+          <Link
+            to={ROUTES.AI_R4_LAB}
+            className="inline-flex min-h-11 items-center text-xs font-medium text-muted-foreground underline-offset-4 hover:text-primary hover:underline"
+          >
+            Laboratorio R4 (simulado)
+          </Link>
+        </p>
+      ) : null}
     </div>
   )
 }
