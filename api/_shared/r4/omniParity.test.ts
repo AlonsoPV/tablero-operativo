@@ -19,12 +19,16 @@ describe('AT-20 omnichannel parity (SIMULATED)', () => {
     expect(overdue.voice.phase).toBe('listening')
   })
 
-  it('propuesta y seguimiento usan el mismo interpretador web; voz puede hablarlos', async () => {
+  it('propuesta y seguimiento coinciden en web, WhatsApp simulado y voz', async () => {
     const followup = classifyOmniCase(AT20_CORPUS[2])
     const create = classifyOmniCase(AT20_CORPUS[3])
     expect(followup.web.family).toBe('prepare_followup')
+    expect(followup.whatsappSim.family).toBe('prepare_followup')
+    expect(followup.voiceSim.family).toBe('prepare_followup')
     expect(followup.web.operational).toBe('prepare_comms')
     expect(create.web.family).toBe('propose_action')
+    expect(create.whatsappSim.family).toBe('propose_action')
+    expect(create.voiceSim.family).toBe('propose_action')
     expect(create.web.operational).toBe('propose_create_kanban')
 
     const spokenFollowup = await runAt20ParityCase(AT20_CORPUS[2])
@@ -33,7 +37,7 @@ describe('AT-20 omnichannel parity (SIMULATED)', () => {
     expect(spokenCreate.voice.phase).toBe('listening')
   })
 
-  it('documenta el hueco actual: followup/create en WhatsApp texto libre no son QUERY', () => {
+  it('el router productivo de WhatsApp permanece sin ese mapeo (no se modifico)', () => {
     const followup = classifyOmniCase(AT20_CORPUS[2])
     const create = classifyOmniCase(AT20_CORPUS[3])
     expect(followup.whatsapp.intent).not.toBe('QUERY')

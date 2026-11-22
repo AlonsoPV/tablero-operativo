@@ -59,3 +59,18 @@ export {
 } from './at16Evidence.js'
 export { AT20_CORPUS, classifyOmniCase, runAt20ParityCase } from './omniParity.js'
 export type { OmniCase, OmniFamily } from './omniParity.js'
+export { resolveR4PilotPolicy, R4_PILOT_DECISIONS } from './pilotPolicy.js'
+export type { R4PilotPolicy } from './pilotPolicy.js'
+export { createLinkOccupancy } from './linkStore.js'
+export type { R4LinkOccupancy } from './linkStore.js'
+export {
+  createDisabledOpenAiRealtimeAdapter,
+  createDisabledRetellR4Adapter,
+} from './disabledLiveAdapters.js'
+export { createR4PilotRuntime, selectPilotVoicePort } from './pilotRuntime.js'
+export type { R4PilotProvider, R4PilotRuntime } from './pilotRuntime.js'
+export {
+  classifySharedAcrossChannels,
+  interpretSharedIntent,
+} from './sharedIntent.js'
+export type { SharedFamily, SharedIntentResult, SharedProposal } from './sharedIntent.js'

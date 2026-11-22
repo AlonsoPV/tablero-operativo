@@ -2,18 +2,15 @@
  * Paridad AT-20: mismo corpus de intenciones en web, WhatsApp simulado y voz simulada.
  * No envía Graph ni Retell.
  */
-import { interpretOperationalMessage, type OperationalIntent } from '../operationalInterpret.js'
 import { detectAssistantIntent } from '../../../src/features/ai-support/operationalContext/detectAssistantIntent.js'
-import { classifyWhatsAppIntent } from '../../../src/lib/whatsappFlowRouting.js'
-import type { WhatsAppIntent } from '../../../src/lib/whatsappFlowRouting.js'
 import { createSimulatedRetellLinkRuntime } from './providerRuntime.js'
+import {
+  classifySharedAcrossChannels,
+  interpretSharedIntent,
+  type OmniFamily,
+} from './sharedIntent.js'
 
-export type OmniFamily =
-  | 'query_pending'
-  | 'query_overdue'
-  | 'prepare_followup'
-  | 'propose_action'
-  | 'approve'
+export type { OmniFamily } from './sharedIntent.js'
 
 export type OmniCase = {
   id: string
@@ -45,37 +42,51 @@ export const AT20_CORPUS: OmniCase[] = [
   },
 ]
 
-function familyFromOperational(intent: OperationalIntent, text: string): OmniFamily {
-  if (intent === 'propose_create_kanban' || intent === 'propose_create_initiative') {
-    return 'propose_action'
-  }
-  if (intent === 'prepare_comms') return 'prepare_followup'
-  if (/vencid/.test(text.toLowerCase())) return 'query_overdue'
-  return 'query_pending'
-}
-
 export function classifyOmniCase(item: OmniCase) {
-  const operational = interpretOperationalMessage(item.text)
   const assistant = detectAssistantIntent(item.text)
-  const wa = classifyWhatsAppIntent({
-    canUseAi: true,
-    textBody: item.whatsapp?.buttonId ? null : item.text,
-    buttonId: item.whatsapp?.buttonId ?? null,
-    messageType: item.whatsapp?.buttonId ? 'interactive' : 'text',
+  const web = interpretSharedIntent({
+    text: item.text,
+    channel: 'web',
+    authenticated: true,
+    isOwner: true,
   })
+  const whatsappSim = interpretSharedIntent({
+    text: item.text,
+    channel: 'whatsapp_sim',
+    authenticated: true,
+    isOwner: true,
+    whatsappButtonId: item.whatsapp?.buttonId,
+  })
+  const voiceSim = interpretSharedIntent({
+    text: item.text,
+    channel: 'voice_sim',
+    authenticated: !item.publicApprove,
+    isOwner: true,
+    publicConfirmAttempt: item.publicApprove,
+  })
+  const production = classifySharedAcrossChannels({
+    text: item.text,
+    whatsappButtonId: item.whatsapp?.buttonId,
+  }).whatsappProductionRouter
   return {
     family: item.family,
     web: {
-      operational: operational.intent,
+      operational: web.operational,
       assistant,
-      family:
-        item.family === 'approve'
-          ? ('approve' as const)
-          : familyFromOperational(operational.intent, item.text),
+      family: web.family,
+      proposal: web.proposal,
+    },
+    whatsappSim: {
+      family: whatsappSim.family,
+      proposal: whatsappSim.proposal,
+    },
+    voiceSim: {
+      family: voiceSim.family,
+      proposal: voiceSim.proposal,
     },
     whatsapp: {
-      intent: wa.intent as WhatsAppIntent,
-      route: wa.route.kind,
+      intent: production.intent,
+      route: production.route,
     },
   }
 }
