@@ -11,8 +11,8 @@ Fecha: 2026-11-22. **Push no ejecutado.** Git no conectado a `r4-pilot`.
 | --- | --- |
 | Worktree | `C:\Users\alpev\scrumban-r4`, limpio (`git status` sin cambios) |
 | Rama | `r4/voz-ligas-local` |
-| HEAD (candidato) | `ae3c4c97339676621ec78d5e3d0715bf85722b34` (`ae3c4c9`) |
-| vs `origin/main` | **21 commits** ahead (antes 20; + docs A1–A3) |
+| HEAD (candidato) | `ca56865ebcf52eb85b1d80ca719f5c29d097bdc2` (`ca56865`) |
+| vs `origin/main` | **22 commits** ahead |
 | `origin/main` SHA | `48271816d4cc69e6b3220e73c338c31a09e56e39` |
 | Remoto `origin` | `https://github.com/AlonsoPV/tablero-operativo.git` |
 | Remoto `scrumban` | `https://github.com/AlonsoPV/tool_scrumban.git` (no es destino del push R4) |
@@ -36,7 +36,7 @@ Fecha: 2026-11-22. **Push no ejecutado.** Git no conectado a `r4-pilot`.
 ### SHA candidato
 
 ```text
-ae3c4c97339676621ec78d5e3d0715bf85722b34
+ca56865ebcf52eb85b1d80ca719f5c29d097bdc2
 ```
 
 ### Comando exacto de push (cuando se autorice **y** se mitigue Preview)
@@ -44,7 +44,7 @@ ae3c4c97339676621ec78d5e3d0715bf85722b34
 ```powershell
 cd C:\Users\alpev\scrumban-r4
 git rev-parse HEAD
-# Debe imprimir: ae3c4c97339676621ec78d5e3d0715bf85722b34
+# Debe imprimir: ca56865ebcf52eb85b1d80ca719f5c29d097bdc2
 # Si difiere, NO pushear; revalidar.
 
 git push -u origin r4/voz-ligas-local
