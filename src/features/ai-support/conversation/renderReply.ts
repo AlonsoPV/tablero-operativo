@@ -25,6 +25,17 @@ function countSentence(state: ConversationQueryState, total: number): string {
       ? `${state.person.nombre} tiene ${total} accion(es) abierta(s) en el alcance actual.`
       : `No encontre acciones abiertas de ${state.person.nombre} con esos filtros.`
   }
+  // status_group before generic scope returns so team+stale stays reachable
+  if (state.status_group === 'stale') {
+    if (state.scope === 'team_authorized') {
+      return total > 0
+        ? `Hay ${total} accion(es) del equipo sin seguimiento reciente (sin actualizacion >= 3 dias).`
+        : 'No hay acciones del equipo sin seguimiento reciente.'
+    }
+    return total > 0
+      ? `Tienes ${total} accion(es) sin seguimiento reciente (sin actualizacion >= 3 dias).`
+      : 'No tienes acciones sin seguimiento reciente.'
+  }
   if (state.scope === 'created_by_me') {
     return total > 0
       ? `Tienes ${total} accion(es) abierta(s) que tu asignaste o creaste.`
@@ -59,16 +70,6 @@ function countSentence(state: ConversationQueryState, total: number): string {
     return total > 0
       ? `Tienes ${total} accion(es) que vencen en los proximos 7 dias.`
       : 'No tienes acciones por vencer en los proximos 7 dias.'
-  }
-  if (state.status_group === 'stale') {
-    if (state.scope === 'team_authorized') {
-      return total > 0
-        ? `Hay ${total} accion(es) del equipo sin seguimiento reciente (sin actualizacion >= 3 dias).`
-        : 'No hay acciones del equipo sin seguimiento reciente.'
-    }
-    return total > 0
-      ? `Tienes ${total} accion(es) sin seguimiento reciente (sin actualizacion >= 3 dias).`
-      : 'No tienes acciones sin seguimiento reciente.'
   }
   return total > 0
     ? `Tienes ${total} acciones abiertas asignadas a ti.`

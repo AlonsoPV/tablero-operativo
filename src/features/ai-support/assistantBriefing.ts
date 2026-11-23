@@ -44,7 +44,9 @@ export type AssistantQuickAction = {
   id: AssistantQuickActionId
   label: string
   prompt: string
-  mode: 'consult'
+  mode: 'consult' | 'create'
+  disabled?: boolean
+  disabledReason?: string
 }
 
 function firstName(nombre: string | null | undefined) {

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'path'
 import react from '@vitejs/plugin-react'
-import { loadEnv, type ProxyOptions } from 'vite'
+import { loadEnv, type ProxyOptions, type ResolvedConfig } from 'vite'
 import { defineConfig } from 'vitest/config'
 import { localApiPlugin } from './vite.apiPlugin'
 
@@ -68,7 +68,7 @@ function qaSameOriginEnvPlugin(enabled: boolean) {
     name: 'qa-same-origin-supabase',
     enforce: 'post' as const,
     apply: 'serve' as const,
-    configResolved(config) {
+    configResolved(config: ResolvedConfig) {
       if (!enabled) return
       config.env.VITE_SUPABASE_URL = to
     },
