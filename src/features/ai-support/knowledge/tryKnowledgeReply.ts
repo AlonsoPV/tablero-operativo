@@ -32,6 +32,18 @@ const VERIFY_CRITERION = {
   ].join('\n'),
 }
 
+/** Pedido documental/memoria R3: no responder con glosario local ni OKRs. */
+export function looksLikeDocumentaryAsk(message: string): boolean {
+  const t = normalize(message)
+  if (!t) return false
+  return (
+    /\b(documentos?|documentacion)\b/.test(t) ||
+    /\b(en la memoria|busca(?:r)? (?:en )?(?:la )?memoria)\b/.test(t) ||
+    /\bpoliticas? (oficiales?|de la (empresa|organizacion))\b/.test(t) ||
+    /\bprocedimientos? (oficiales?|de la (empresa|organizacion))\b/.test(t)
+  )
+}
+
 export function looksLikeKnowledgeQuestion(message: string): boolean {
   const t = normalize(message)
   if (!t) return false
@@ -51,6 +63,7 @@ export function looksLikeKnowledgeQuestion(message: string): boolean {
 }
 
 export function tryKnowledgeReply(message: string): KnowledgeReply | null {
+  if (looksLikeDocumentaryAsk(message)) return null
   if (!looksLikeKnowledgeQuestion(message)) return null
   const t = normalize(message)
 

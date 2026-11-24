@@ -23,6 +23,7 @@ export type AgentIntent =
       restrictedRequest: boolean
     }
   | { kind: 'query_okrs'; period: 'current_quarter' | 'all_active' }
+  | { kind: 'query_knowledge'; focus: 'documents' | 'memory' | 'either' }
   | {
       kind: 'aggregate_execution'
       groupBy: 'area' | 'responsable' | 'estado'
@@ -45,7 +46,7 @@ export type AgentIntent =
   | { kind: 'executive_evidence'; priorityIndex?: number }
   | {
       kind: 'executive_review'
-      action: 'start' | 'next' | 'skip' | 'focus_priority' | 'record_decision' | 'summary'
+      action: 'start' | 'next' | 'previous' | 'skip' | 'focus_priority' | 'record_decision' | 'summary'
       priorityIndex?: number
       note?: string
     }
@@ -75,6 +76,43 @@ const FINANCE = /\b(dinero|pesos|dolares|costo(s)?|cuesta|perdiendo|perdida(s)?|
 const NOT_A_PERSON =
   /^(mi|mis|yo|el|la|los|las|una|un|equipo|tablero|org|hoy|manana|semana|pendiente|pendientes|todas?|todos?|ellas?|ellos?|alguien|nadie|que|cual|cuales|prioridad|retraso)$/
 
+export type IntentSessionHints = {
+  hasExecutiveSession?: boolean
+  lastActionCount?: number
+  lastEntityKind?: 'action' | 'person' | null
+}
+
+function priorityIndexFromText(text: string): number | undefined {
+  const numbered = text.match(/\bprioridad\s*#?\s*([1-3])\b/)
+  if (numbered) return Number(numbered[1]) - 1
+  if (/\b(primera|la 1(?:ra)?|prioridad principal)\b/.test(text)) return 0
+  if (/\b(segunda|la 2(?:da)?)\b/.test(text)) return 1
+  if (/\b(tercera|la 3(?:ra)?)\b/.test(text)) return 2
+  return undefined
+}
+
+function isDocumentaryAsk(text: string): boolean {
+  const documentary =
+    /\b(documentos?|documentacion|en la memoria|busca(?:r)? (?:en )?(?:la )?memoria|acuerdos? confirmados?|politicas? (oficiales?|de la (empresa|organizacion))|procedimientos? (oficiales?|de la (empresa|organizacion)))\b/.test(
+      text
+    ) || /\bbusca(?:r)? documentos?\b/.test(text)
+  if (!documentary) return false
+  const boardExclusive =
+    /\b(okrs?|objetivos estrategicos|acciones del tablero|kanban|mis acciones)\b/.test(text) &&
+    !/\b(documentos?|memoria|documentacion|politica|procedimiento)\b/.test(text)
+  return !boardExclusive
+}
+
+function isFollowUpReference(text: string, session?: IntentSessionHints | null): boolean {
+  const hasContext = Boolean(session?.hasExecutiveSession || (session?.lastActionCount ?? 0) > 0)
+  if (!hasContext) return false
+  return (
+    /\b(esa|este|esta|ese)\s+(accion|problema|prioridad|hallazgo|objetivo)\b/.test(text) ||
+    /\b(la (?:primera|segunda|tercera) prioridad|prioridad\s*#?\s*[1-3]|prioridad principal)\b/.test(text) ||
+    /\b(profundiza(?:r)?|cual era|de esta revision|sigue con eso|mas detalle|abre esa)\b/.test(text)
+  )
+}
+
 function extractPersonHint(text: string): string | undefined {
   const m =
     text.match(/\b(?:tiene|tienen)\s+([a-z]{3,}(?:\s+[a-z]{3,})?)\s*[?.!]*$/) ||
@@ -87,13 +125,23 @@ function extractPersonHint(text: string): string | undefined {
 
 export function classifyAgentIntent(
   utterance: string,
-  previous: ActionActiveQuery | null
+  previous: ActionActiveQuery | null,
+  session?: IntentSessionHints | null
 ): AgentIntent {
   const text = normalize(utterance)
   if (!text) return { kind: 'unknown' }
 
   if (FINANCE.test(text) && /\b(cuant[oa]s?|monto|calcula|estima|impacto)\b|\$/.test(text)) {
     return { kind: 'unsupported_metric', domain: 'finance' }
+  }
+
+  if (isDocumentaryAsk(text)) {
+    const focus = /\bdocumentos?\b/.test(text) && !/\bmemoria\b/.test(text)
+      ? 'documents'
+      : /\bmemoria\b/.test(text) && !/\bdocumentos?\b/.test(text)
+        ? 'memory'
+        : 'either'
+    return { kind: 'query_knowledge', focus }
   }
 
   if (/\b(riesgos?|en peligro|amenaza|comprometiendo|poniendo en riesgo)\b/.test(text)) {
@@ -183,6 +231,10 @@ export function classifyAgentIntent(
     return { kind: 'executive_review', action: 'next' }
   }
 
+  if (/\b(etapa anterior|regresa(?:r)?(?: a la etapa)?|volver(?: a)?(?: la)? etapa|atras en la revision)\b/.test(text)) {
+    return { kind: 'executive_review', action: 'previous' }
+  }
+
   if (/\b(omitir etapa|saltar etapa|saltar (?:riesgos|prioridades|decisiones|bloqueos)|omitir este punto)\b/.test(text)) {
     return { kind: 'executive_review', action: 'skip' }
   }
@@ -204,13 +256,25 @@ export function classifyAgentIntent(
     return { kind: 'executive_preventive' }
   }
 
-  if (
-    /\b(sustentan esta recomendacion|acciones que sustentan|respaldan esta recomendacion|ver evidencia|muestrame la evidencia|profundiza(?:r)? en la prioridad|detalle de la prioridad)\b/.test(
+  const looksLikeWriteFollowUp =
+    /\b(marca|marcar|marcala|cambia|cambiar|bloquea|bloquear|avisa|avisale|notifica|actualiza|cierra|cerrar|mueve|pon|poner|ponla)\b/.test(
       text
     )
+
+  if (
+    !looksLikeWriteFollowUp &&
+    (/\b(sustentan esta recomendacion|acciones que sustentan|respaldan esta recomendacion|ver evidencia|muestrame la evidencia|profundiza(?:r)? en la (prioridad|accion|primera)|detalle de la prioridad|cual era la prioridad|abre (?:esa|la) accion)\b/.test(
+      text
+    ) ||
+      isFollowUpReference(text, session))
   ) {
-    const match = text.match(/\bprioridad\s*#?\s*([1-3])\b/)
-    const priorityIndex = match ? Number(match[1]) - 1 : undefined
+    const priorityIndex = priorityIndexFromText(text)
+    if (session?.hasExecutiveSession && /\b(profundiza|prioridad|esa accion|ese problema)\b/.test(text) &&
+      /\b(revision|etapa|sesion)\b/.test(text) === false &&
+      /\b(siguiente etapa|omitir)\b/.test(text) === false &&
+      priorityIndex !== undefined) {
+      return { kind: 'executive_review', action: 'focus_priority', priorityIndex }
+    }
     return { kind: 'executive_evidence', ...(priorityIndex !== undefined ? { priorityIndex } : {}) }
   }
 
