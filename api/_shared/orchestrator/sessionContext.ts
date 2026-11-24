@@ -11,13 +11,17 @@ import type { ActionItem } from '../query/contracts.js'
 import type { AgentActor, AgentChannel } from '../query/resolveActor.js'
 import { coerceResponseFormat, type FormatResolution, type ResponseFormat } from './answerContract.js'
 import type { AgentIntent } from './intent.js'
+import { isExecutiveReviewStage, type ExecutiveSessionState } from './executiveSession.js'
 import type { AgentResponse } from './respond.js'
 
 export const SESSION_CONTEXT_TTL_MS = 30 * 60 * 1000
 const MAX_REFERENCED_ITEMS = 12
 const MAX_SESSIONS = 2_000
 
-export type ReferencedAction = Pick<ActionItem, 'id' | 'title' | 'estado' | 'fecha' | 'prioridad' | 'responsableId' | 'responsableNombre' | 'href'>
+export type ReferencedAction = Pick<
+  ActionItem,
+  'id' | 'title' | 'estado' | 'fecha' | 'prioridad' | 'responsableId' | 'responsableNombre' | 'area' | 'updatedAt' | 'href'
+>
 
 /**
  * Última respuesta con datos, sólo en memoria de la instancia (nunca se persiste en la tabla):
@@ -36,6 +40,10 @@ export type SessionContext = {
   /** Formato elegido para la sesión; ausente equivale a 'auto'. */
   responseFormat?: ResponseFormat
   lastAnswer?: CachedAnswer | null
+  /** Sesión ejecutiva guiada (~15 min) en curso; sólo memoria de sesión, nunca persiste compromisos. */
+  executiveSession?: ExecutiveSessionState | null
+  /** Totales vivos de la última consulta autorizada; sirven para explicar cambios reales, no para congelar cifras. */
+  lastTotals?: { open: number; overdue: number; blocked: number } | null
   /** Huella de capacidades con la que se construyó; si cambia, el contexto se descarta. */
   fingerprint?: string
   updatedAt: number
@@ -53,8 +61,65 @@ export function sessionContextKey(actor: Pick<AgentActor, 'usuarioId' | 'channel
   return `${actor.usuarioId}:${actor.channel}:${actor.sessionId}`
 }
 
+/**
+ * Clave de preferencias/continuidad compartidas entre canales (web <-> WhatsApp)
+ * vinculada estrictamente al `usuarioId` corporativo verificado. Nunca mezcla usuarios
+ * ni sobrescribe el hilo concurrente de otra sesión.
+ */
+export function multichannelPreferenceKey(usuarioId: string): string {
+  return `${usuarioId}:shared:preferences`
+}
+
+export type SharedUserPreferences = {
+  responseFormat?: ResponseFormat
+  lastTotals?: { open: number; overdue: number; blocked: number } | null
+  lastEntity?: SessionContext['lastEntity']
+  lastActions?: SessionContext['lastActions']
+  fingerprint?: string
+}
+
+export async function readSharedUserPreferences(
+  store: SessionContextStore,
+  usuarioId: string,
+  expectedFingerprint?: string,
+  now = Date.now()
+): Promise<SharedUserPreferences | null> {
+  const saved = await store.get(multichannelPreferenceKey(usuarioId), now)
+  if (!saved) return null
+  if (expectedFingerprint && saved.fingerprint && saved.fingerprint !== expectedFingerprint) {
+    return null
+  }
+  return {
+    responseFormat: saved.responseFormat,
+    lastTotals: saved.lastTotals ?? null,
+    lastEntity: saved.lastEntity ?? null,
+    lastActions: saved.lastActions ?? [],
+    fingerprint: saved.fingerprint,
+  }
+}
+
+export async function writeSharedUserPreferences(
+  store: SessionContextStore,
+  usuarioId: string,
+  prefs: SharedUserPreferences,
+  now = Date.now()
+): Promise<void> {
+  await store.set(
+    multichannelPreferenceKey(usuarioId),
+    {
+      activeQuery: null,
+      lastActions: prefs.lastActions ?? [],
+      lastEntity: prefs.lastEntity ?? null,
+      responseFormat: prefs.responseFormat,
+      lastTotals: prefs.lastTotals ?? null,
+      fingerprint: prefs.fingerprint,
+    },
+    now
+  )
+}
+
 export function emptySessionContext(now = Date.now()): SessionContext {
-  return { activeQuery: null, lastActions: [], lastEntity: null, updatedAt: now }
+  return { activeQuery: null, lastActions: [], lastEntity: null, lastTotals: null, updatedAt: now }
 }
 
 export function toReferencedActions(items: ActionItem[]): ReferencedAction[] {
@@ -66,6 +131,8 @@ export function toReferencedActions(items: ActionItem[]): ReferencedAction[] {
     prioridad: item.prioridad,
     responsableId: item.responsableId ?? null,
     responsableNombre: item.responsableNombre ?? null,
+    area: item.area ?? null,
+    updatedAt: item.updatedAt ?? null,
     href: item.href,
   }))
 }
@@ -134,9 +201,35 @@ type PersistedPayload = {
   lastActions: Array<Pick<ReferencedAction, 'id' | 'estado' | 'fecha' | 'prioridad' | 'responsableId'>>
   lastEntity: { kind: 'action' | 'person'; id: string } | null
   responseFormat?: ResponseFormat
+  lastTotals?: { open: number; overdue: number; blocked: number } | null
+  executiveSession?: ExecutiveSessionState | null
 }
 
 /** Sólo IDs y campos de orden; títulos y nombres se releen con permisos vigentes. */
+function coerceExecutiveSession(raw: unknown): ExecutiveSessionState | null {
+  if (!raw || typeof raw !== 'object') return null
+  const s = raw as Partial<ExecutiveSessionState>
+  if (s.active !== true || !isExecutiveReviewStage(s.stage) || typeof s.startedAt !== 'string') return null
+  return {
+    active: true,
+    startedAt: s.startedAt,
+    stage: s.stage,
+    focusedPriorityIndex: typeof s.focusedPriorityIndex === 'number' ? s.focusedPriorityIndex : null,
+    decisions: Array.isArray(s.decisions) ? s.decisions.filter((d): d is string => typeof d === 'string').slice(0, 12) : [],
+    draftCommitments: Array.isArray(s.draftCommitments)
+      ? s.draftCommitments.slice(0, 6).map((d) => ({
+          titulo: typeof d?.titulo === 'string' ? d.titulo : '',
+          responsableSugerido: typeof d?.responsableSugerido === 'string' ? d.responsableSugerido : 'Por definir',
+          fechaPropuesta: typeof d?.fechaPropuesta === 'string' ? d.fechaPropuesta : null,
+          origenAccionId: typeof d?.origenAccionId === 'string' ? d.origenAccionId : null,
+          persisted: false as const,
+        }))
+      : [],
+    pendingTopics: Array.isArray(s.pendingTopics) ? s.pendingTopics.filter((t): t is string => typeof t === 'string').slice(0, 8) : [],
+    skippedStages: Array.isArray(s.skippedStages) ? s.skippedStages.filter(isExecutiveReviewStage) : [],
+  }
+}
+
 export function toPersistedPayload(value: Omit<SessionContext, 'updatedAt'>): PersistedPayload {
   return {
     activeQuery: value.activeQuery,
@@ -149,6 +242,8 @@ export function toPersistedPayload(value: Omit<SessionContext, 'updatedAt'>): Pe
     })),
     lastEntity: value.lastEntity ? { kind: value.lastEntity.kind, id: value.lastEntity.id } : null,
     responseFormat: coerceResponseFormat(value.responseFormat),
+    lastTotals: value.lastTotals ?? null,
+    executiveSession: value.executiveSession ?? null,
   }
 }
 
@@ -173,11 +268,20 @@ function fromPersistedPayload(payload: unknown, fingerprint: string, updatedAt: 
     (p.lastEntity.kind === 'action' || p.lastEntity.kind === 'person')
     ? { kind: p.lastEntity.kind, id: p.lastEntity.id, label: '' }
     : null
+  const totals = p.lastTotals && typeof p.lastTotals === 'object'
+    ? {
+        open: Number(p.lastTotals.open) || 0,
+        overdue: Number(p.lastTotals.overdue) || 0,
+        blocked: Number(p.lastTotals.blocked) || 0,
+      }
+    : null
   return {
     activeQuery: p.activeQuery && typeof p.activeQuery === 'object' ? p.activeQuery : null,
     lastActions,
     lastEntity: entity,
     responseFormat: coerceResponseFormat(p.responseFormat),
+    lastTotals: totals,
+    executiveSession: coerceExecutiveSession(p.executiveSession),
     fingerprint,
     updatedAt,
   }

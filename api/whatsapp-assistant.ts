@@ -16,17 +16,38 @@ import {
   cancelPendingOp,
   confirmPendingOp,
   dispatchCopilotTool,
+  r2OptionsFromServerEnv,
   serializeToolResultForModel,
   type CopilotActor,
 } from './_shared/assistantOpsRuntime.js'
 import { inferAiConfirmText } from './_shared/whatsappAiConfirm.js'
 import { composeSystemPrompt, sanitizeMessages } from '../src/lib/assistantPrompts.js'
 import type { CopilotProposal } from '../src/features/ai-support/copilot/types.js'
-import { isGoogleWriteTool } from '../src/features/ai-support/copilot/googleWorkspace.js'
 import { COPILOT_FUNCTION_DECLARATIONS, isCopilotReadTool } from '../src/features/ai-support/copilot/catalog.js'
 import { proposalFromPendingRow } from './_shared/assistantGoogleTools.js'
-import { guideAppBaseUrl } from './_shared/guideUserLinks.js'
-import { isAgentOrchestratorEnabled, runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
+import { runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
+import {
+  isWhatsAppR2ButtonsAllowedForUser,
+  isWhatsAppVoiceNotesAllowedForUser,
+  shouldUseWhatsAppOrchestrator,
+} from './_shared/whatsappPilotGate.js'
+import { R2_EXECUTION_DISABLED_MESSAGE, resolveR2ExecutionMode } from './_shared/actions/executionMode.js'
+import { editR2PendingOp } from './_shared/actions/r2Runtime.js'
+import {
+  buildProposalBinding,
+  buildWhatsAppInteractiveProposalButtons,
+  formatWhatsAppProposalPrompt,
+  formatWhatsAppR2ExecutionResult,
+  isBoardWriteToolGatedByR2,
+  parseWhatsAppApprovalIntent,
+  resolveWhatsAppProposalApproval,
+  type WhatsAppProposalBinding,
+} from './_shared/whatsappR2Adapter.js'
+import {
+  fetchWhatsAppMediaFromGraph,
+  processWhatsAppVoiceNote,
+} from './_shared/whatsappVoiceNotes.js'
+import { normalizeReplyAudioMode } from './_shared/whatsappAudioReply.js'
 
 const WHATSAPP_READ_ONLY_DECLARATIONS = COPILOT_FUNCTION_DECLARATIONS.filter((d) =>
   isCopilotReadTool(d.name)
@@ -92,6 +113,8 @@ type PendingPreview = {
   id: string
   tool: string
   preview: Record<string, unknown> | null
+  payload?: Record<string, unknown> | null
+  expected_updated_at?: string | null
   expires_at: string
 }
 
@@ -123,28 +146,6 @@ function clipReply(text: string) {
   return `${clean.slice(0, REPLY_CHARS - 18).trim()}…`
 }
 
-function proposalToReply(text: string, proposal: CopilotProposal) {
-  const fields = (proposal.fields ?? [])
-    .filter((field) => field.to && field.to !== 'Ninguno' && field.to !== 'No solicitado')
-    .map((field) => `${field.label}: ${field.to}`)
-  const google = isGoogleWriteTool(proposal.tool)
-  const body = proposal.workspace?.body || ''
-  const assistUrl = `${guideAppBaseUrl()}/asistente-ia`
-  const confirmLine = google
-    ? body.length > 400
-      ? `Un "si" no envia esto. Pulsa Confirmar o revisalo en ${assistUrl}`
-      : 'Un "si" no envia esto. Pulsa Confirmar en el boton. No para cancelar.'
-    : 'Escribe si para crearla o no para cancelar.'
-  const parts = [
-    google ? 'Prepare este borrador de Google. Todavia no se envio.' : 'Prepare esta propuesta. Todavia no esta creada.',
-    proposal.summary,
-    ...fields,
-    clipReply(text),
-    confirmLine,
-  ].filter(Boolean)
-  return clipReply(parts.join('\n'))
-}
-
 function pendingToProposal(row: PendingPreview): CopilotProposal {
   return proposalFromPendingRow({
     id: row.id,
@@ -154,23 +155,108 @@ function pendingToProposal(row: PendingPreview): CopilotProposal {
   })
 }
 
-async function loadLatestPending(supabase: SupabaseClient, usuarioId: string): Promise<PendingPreview | null> {
+async function loadActivePendingList(
+  supabase: SupabaseClient,
+  usuarioId: string
+): Promise<PendingPreview[]> {
   const { data } = await supabase
     .from('assistant_pending_ops')
-    .select('id,tool,preview,expires_at,status')
+    .select('id,tool,preview,payload,expected_updated_at,expires_at,status')
     .eq('usuario_id', usuarioId)
     .eq('status', 'pending')
     .gt('expires_at', new Date().toISOString())
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  if (!data?.id) return null
-  return {
-    id: data.id as string,
-    tool: String(data.tool ?? ''),
-    preview: data.preview && typeof data.preview === 'object' ? (data.preview as Record<string, unknown>) : null,
-    expires_at: String(data.expires_at),
+    .limit(5)
+  if (!Array.isArray(data)) return []
+  return data
+    .filter((row) => Boolean(row?.id))
+    .map((row) => ({
+      id: String(row.id),
+      tool: String(row.tool ?? ''),
+      preview: row.preview && typeof row.preview === 'object' ? (row.preview as Record<string, unknown>) : null,
+      payload: row.payload && typeof row.payload === 'object' ? (row.payload as Record<string, unknown>) : null,
+      expected_updated_at: typeof row.expected_updated_at === 'string' ? row.expected_updated_at : null,
+      expires_at: String(row.expires_at),
+    }))
+}
+
+function bindingFromPending(usuarioId: string, row: PendingPreview): WhatsAppProposalBinding {
+  const proposal = pendingToProposal(row)
+  return buildProposalBinding({
+    proposalId: row.id,
+    usuarioId,
+    operation: row.tool,
+    scope: row.tool,
+    summary: proposal.summary || proposal.title || 'Operación pendiente',
+    payload: row.payload ?? row.preview,
+    expectedUpdatedAt: row.expected_updated_at ?? null,
+    expiresAt: row.expires_at,
+  })
+}
+
+async function hydrateProposalBindings(
+  supabase: SupabaseClient,
+  usuarioId: string,
+  proposalList: ReadonlyArray<CopilotProposal | { operation: string; payload: unknown }>,
+  turnSummary: string,
+  batchId: string | null
+): Promise<Array<{ binding: WhatsAppProposalBinding; proposal: CopilotProposal | null }>> {
+  const persistedIds = proposalList
+    .filter((p): p is CopilotProposal => !('operation' in p) && Boolean(p.id))
+    .map((p) => p.id)
+
+  const rowById = new Map<string, PendingPreview>()
+  if (persistedIds.length > 0) {
+    const { data } = await supabase
+      .from('assistant_pending_ops')
+      .select('id,tool,preview,payload,expected_updated_at,expires_at')
+      .eq('usuario_id', usuarioId)
+      .in('id', persistedIds)
+    if (Array.isArray(data)) {
+      for (const row of data) {
+        if (!row?.id) continue
+        rowById.set(String(row.id), {
+          id: String(row.id),
+          tool: String(row.tool ?? ''),
+          preview: row.preview && typeof row.preview === 'object' ? (row.preview as Record<string, unknown>) : null,
+          payload: row.payload && typeof row.payload === 'object' ? (row.payload as Record<string, unknown>) : null,
+          expected_updated_at: typeof row.expected_updated_at === 'string' ? row.expected_updated_at : null,
+          expires_at: String(row.expires_at),
+        })
+      }
+    }
   }
+
+  return proposalList.map((proposal) => {
+    if ('operation' in proposal) {
+      return {
+        proposal: null,
+        binding: buildProposalBinding({
+          proposalId: `draft-${proposal.operation}`,
+          usuarioId,
+          operation: proposal.operation,
+          scope: proposal.operation,
+          summary: turnSummary || `Propuesta ${proposal.operation}`,
+          payload: proposal.payload as Record<string, unknown>,
+          batchId,
+        }),
+      }
+    }
+    const row = rowById.get(proposal.id)
+    const binding = row
+      ? { ...bindingFromPending(usuarioId, row), batchId }
+      : buildProposalBinding({
+          proposalId: proposal.id,
+          usuarioId,
+          operation: proposal.tool,
+          scope: proposal.tool,
+          summary: proposal.summary || proposal.title,
+          payload: null,
+          expiresAt: proposal.expiresAt,
+          batchId,
+        })
+    return { proposal, binding }
+  })
 }
 
 async function loadHistory(supabase: SupabaseClient, waId: string, usuarioId: string) {
@@ -283,12 +369,24 @@ export default defineApiHandler(async (req, res) => {
     usuario_id?: unknown
     text?: unknown
     op_id?: unknown
+    button_id?: unknown
+    version?: unknown
+    media_id?: unknown
+    mime_type?: unknown
+    duration_seconds?: unknown
+    prefer_voice_reply?: unknown
+    reply_audio_mode?: unknown
   }
   const usuarioId = typeof payload.usuario_id === 'string' ? payload.usuario_id.trim() : ''
   const waId = typeof payload.wa_id === 'string' ? payload.wa_id.trim() : ''
-  const text = typeof payload.text === 'string' ? payload.text.trim() : ''
+  let text = typeof payload.text === 'string' ? payload.text.trim() : ''
+  const buttonId = typeof payload.button_id === 'string' ? payload.button_id.trim() : ''
+  let boundVersion = typeof payload.version === 'string' ? payload.version.trim().toUpperCase() : ''
   let action =
-    payload.action === 'confirm' || payload.action === 'cancel' || payload.action === 'chat'
+    payload.action === 'confirm' ||
+    payload.action === 'cancel' ||
+    payload.action === 'chat' ||
+    payload.action === 'voice_note'
       ? payload.action
       : 'chat'
   let opId = typeof payload.op_id === 'string' ? payload.op_id.trim() : ''
@@ -342,35 +440,261 @@ export default defineApiHandler(async (req, res) => {
     authUserId: String(usuario.user_id),
     rol: typeof usuario.rol === 'string' ? usuario.rol : null,
   }
+  const pilotIdentity = {
+    usuarioId,
+    waId,
+    active: usuario.activo === true,
+    aiAuthorized: allowed === true,
+  }
 
-  const textDecision = action === 'chat' ? inferAiConfirmText(text) : null
-  const pendingForText = textDecision ? await loadLatestPending(supabase, usuarioId) : null
-  if (textDecision === 'confirm' && pendingForText && isGoogleWriteTool(pendingForText.tool)) {
-    const proposal = pendingToProposal(pendingForText)
+  if (action === 'voice_note') {
+    if (!isWhatsAppVoiceNotesAllowedForUser(pilotIdentity)) {
+      return res.status(200).json({
+        text: 'Las notas de voz por WhatsApp aún no están habilitadas para tu cuenta. Escríbeme tu consulta en texto.',
+        transcript: null,
+        replyMode: 'text',
+        audioDelivery: null,
+        audioRetained: false,
+        proposals: [],
+      })
+    }
+    const mediaId = typeof payload.media_id === 'string' ? payload.media_id.trim() : ''
+    const mimeType = typeof payload.mime_type === 'string' ? payload.mime_type.trim() : null
+    const durationSeconds =
+      typeof payload.duration_seconds === 'number' && Number.isFinite(payload.duration_seconds)
+        ? payload.duration_seconds
+        : null
+    const accessToken = readStringEnv('WHATSAPP_ACCESS_TOKEN')
+    const graphVersion = readStringEnv('WHATSAPP_GRAPH_VERSION', 'v20.0')
+    const recentHistory = await loadHistory(supabase, waId, usuarioId)
+    const replyAudioMode =
+      payload.reply_audio_mode !== undefined
+        ? normalizeReplyAudioMode(payload.reply_audio_mode)
+        : payload.prefer_voice_reply === true
+          ? 'audio'
+          : 'text'
+    let voiceInteractiveButtons: ReturnType<typeof buildWhatsAppInteractiveProposalButtons> = []
+    const voiceResult = await processWhatsAppVoiceNote(
+      {
+        waId,
+        usuarioId,
+        active: usuario.activo !== false,
+        aiAuthorized: allowed === true,
+        replyAudioMode,
+      },
+      { mediaId, mimeType, durationSeconds },
+      {
+        fetchMetaMedia: (id) =>
+          fetchWhatsAppMediaFromGraph({ mediaId: id, accessToken, graphVersion }),
+        conversationContext: {
+          recentTurns: recentHistory.slice(-4).map((m) => ({
+            role: m.role,
+            content: m.content,
+            modality: 'text',
+          })),
+        },
+        runAssistant: async ({ transcript }) => {
+          if (shouldUseWhatsAppOrchestrator(pilotIdentity)) {
+            const turn = await runChannelTurn({
+              identity: {
+                supabase,
+                authUserId: actor.authUserId,
+                usuarioId,
+                rol: actor.rol,
+                active: usuario.activo !== false,
+              },
+              channel: 'whatsapp',
+              sessionId: waId,
+              utterance: transcript.slice(0, 2000),
+            })
+            if (turn.handled) {
+              const mode = resolveR2ExecutionMode()
+              const proposalList = turn.proposals?.length
+                ? turn.proposals
+                : turn.proposal
+                  ? [turn.proposal]
+                  : []
+              if (turn.intent === 'write_request' && proposalList.length > 0) {
+                const hydrated = await hydrateProposalBindings(
+                  supabase,
+                  usuarioId,
+                  proposalList,
+                  turn.response.blocks.data[0] ?? '',
+                  turn.batchId ?? null
+                )
+                if (hydrated.length === 1) {
+                  voiceInteractiveButtons = buildWhatsAppInteractiveProposalButtons(hydrated[0]!.binding, mode)
+                }
+                const body = hydrated
+                  .map(({ binding, proposal }) =>
+                    formatWhatsAppProposalPrompt(binding, { executionMode: mode, proposal })
+                  )
+                  .join('\n\n')
+                return { text: clipReply(body) }
+              }
+              const options = turn.clarification?.options.map((opt) => `- ${opt.label}`).join('\n')
+              return { text: clipReply(options ? `${turn.text}\n${options}` : turn.text) }
+            }
+          }
+          const history = [...recentHistory, { role: 'user' as const, content: transcript.slice(0, 2000) }]
+          const loop = await runGeminiChat({ actor, messages: history })
+          return { text: clipReply(loop.text || 'No pude consultar el tablero ahora.') }
+        },
+        voiceReplyEnabled: readStringEnv('WHATSAPP_VOICE_REPLY_ENABLED') === '1',
+      }
+    )
     return res.status(200).json({
-      text: proposalToReply(
-        'Un "si" suelto no envia correo ni crea eventos. Pulsa Confirmar en el boton o abre el asistente.',
-        proposal
-      ),
-      proposals: [proposal],
+      text: clipReply(voiceResult.replyText),
+      transcript: voiceResult.ok ? voiceResult.transcript : null,
+      replyMode: voiceResult.ok ? voiceResult.replyMode : 'text',
+      audioDelivery: voiceResult.ok ? voiceResult.audioDelivery : null,
+      audioRetained: voiceResult.audioRetained,
+      interactiveButtons: voiceInteractiveButtons,
+      proposals: [],
     })
   }
-  if (textDecision) action = textDecision
+
+  if (buttonId && /^(?:r2_confirm|r2_edit|r2_cancel):/i.test(buttonId) && !isWhatsAppR2ButtonsAllowedForUser(pilotIdentity)) {
+    return res.status(200).json({
+      text: 'Esta función aún no está habilitada para tu cuenta.',
+      proposals: [],
+    })
+  }
+
+  // TODA aprobación/cancelación/edición por texto o botón pasa por el adaptador R2 estricto.
+  // Ninguna ruta legacy (incluyendo "sí" suelto con 1 sola propuesta) puede evadir las compuertas R2.
+  const r2Decision =
+    action === 'chat' ? parseWhatsAppApprovalIntent({ text, buttonId }) : { kind: 'none' as const }
+  let resolvedBinding: WhatsAppProposalBinding | null = null
+  if (r2Decision.kind !== 'none') {
+    const activeRows = await loadActivePendingList(supabase, usuarioId)
+    const bindings = activeRows.map((row) => bindingFromPending(usuarioId, row))
+    const resolution = resolveWhatsAppProposalApproval({
+      actorUsuarioId: usuarioId,
+      actorActive: usuario.activo !== false,
+      pending: bindings,
+      decision: r2Decision,
+      executionMode: resolveR2ExecutionMode(),
+    })
+    if (resolution.status === 'ready_to_execute') {
+      action = 'confirm'
+      opId = resolution.binding.proposalId
+      boundVersion = resolution.binding.version
+      resolvedBinding = resolution.binding
+    } else if (resolution.status === 'ready_to_cancel') {
+      action = 'cancel'
+      opId = resolution.binding.proposalId
+      resolvedBinding = resolution.binding
+    } else if (resolution.status === 'ready_to_edit') {
+      const executionMode = resolveR2ExecutionMode()
+      if (executionMode === 'disabled') {
+        return res.status(200).json({
+          text: clipReply(R2_EXECUTION_DISABLED_MESSAGE),
+          proposals: [],
+          executionEnabled: false,
+        })
+      }
+      try {
+        const editedProposal = await editR2PendingOp(actor, resolution.binding.proposalId, resolution.patch)
+        const hydrated = await hydrateProposalBindings(
+          supabase,
+          usuarioId,
+          [editedProposal],
+          editedProposal.summary || editedProposal.title,
+          resolution.binding.batchId ?? null
+        )
+        const nextBinding = hydrated[0]!.binding
+        const prompt = formatWhatsAppProposalPrompt(nextBinding, {
+          executionMode,
+          proposal: editedProposal,
+        })
+        return res.status(200).json({
+          text: clipReply(`Propuesta actualizada (código previo ${resolution.binding.version} invalidado).\n\n${prompt}`),
+          proposals: [],
+          draftBinding: nextBinding,
+          interactiveButtons: buildWhatsAppInteractiveProposalButtons(nextBinding, executionMode),
+          executionEnabled: true,
+        })
+      } catch (editError) {
+        const msg = editError instanceof Error ? editError.message : 'No se pudo actualizar la propuesta.'
+        return res.status(200).json({
+          text: clipReply(msg),
+          proposals: [],
+        })
+      }
+    } else if (resolution.status === 'edit_prompt') {
+      return res.status(200).json({
+        text: clipReply(resolution.message),
+        proposals: [],
+        draftBinding: resolution.binding,
+      })
+    } else {
+      return res.status(200).json({
+        text: clipReply(resolution.message),
+        proposals: [],
+      })
+    }
+  }
+
+  // Legacy textDecision sólo admite cancelación explícita ("no") cuando hay exactamente 1 pendiente;
+  // NUNCA ejecuta una confirmación por texto suelto.
+  const legacyTextDecision = action === 'chat' ? inferAiConfirmText(text) : null
+  if (legacyTextDecision === 'cancel') {
+    const activeRows = await loadActivePendingList(supabase, usuarioId)
+    if (activeRows.length === 1) {
+      action = 'cancel'
+      opId = activeRows[0]!.id
+    } else if (activeRows.length > 1) {
+      const list = activeRows
+        .map((row) => {
+          const b = bindingFromPending(usuarioId, row)
+          return `- ${b.version}: ${b.summary}`
+        })
+        .join('\n')
+      return res.status(200).json({
+        text: clipReply(`Tienes ${activeRows.length} propuestas activas. Indica cuál cancelar con "cancelar <código>":\n${list}`),
+        proposals: [],
+      })
+    }
+  }
 
   try {
     if (action === 'confirm' || action === 'cancel') {
-      const pending = opId ? { id: opId } : textDecision ? pendingForText : await loadLatestPending(supabase, usuarioId)
-      if (!pending?.id) {
+      const activeRows = await loadActivePendingList(supabase, usuarioId)
+      const pendingRow = opId
+        ? activeRows.find((row) => row.id === opId) ?? null
+        : activeRows.length === 1
+          ? activeRows[0]!
+          : null
+      if (!pendingRow?.id) {
         return res.status(200).json({
-          text: 'No hay una propuesta pendiente. Escribe tu consulta.',
+          text: 'No hay una propuesta pendiente vigente. Escribe tu consulta.',
           proposals: [],
         })
       }
       if (action === 'cancel') {
-        await cancelPendingOp(actor, pending.id)
+        await cancelPendingOp(actor, pendingRow.id)
         return res.status(200).json({ text: 'Listo, cancele la propuesta. No se cambio nada en el tablero.', proposals: [] })
       }
-      const result = await confirmPendingOp(actor, pending.id)
+
+      const binding = resolvedBinding ?? bindingFromPending(usuarioId, pendingRow)
+      if (boundVersion && binding.version !== boundVersion) {
+        return res.status(200).json({
+          text: 'La propuesta cambió de versión. Revisa el nuevo borrador antes de confirmar.',
+          proposals: [],
+        })
+      }
+      // Compuerta dura R2 OFF: ninguna escritura al tablero puede evadir R2_EXECUTION_MODE === 'disabled'.
+      const executionMode = resolveR2ExecutionMode()
+      if (isBoardWriteToolGatedByR2(pendingRow.tool) && executionMode === 'disabled') {
+        return res.status(200).json({
+          text: clipReply(R2_EXECUTION_DISABLED_MESSAGE),
+          proposals: [],
+          executionEnabled: false,
+        })
+      }
+
+      const result = await confirmPendingOp(actor, pendingRow.id, { r2: r2OptionsFromServerEnv() })
       const created = result.result as {
         title?: string
         fecha?: string
@@ -389,6 +713,13 @@ export default defineApiHandler(async (req, res) => {
       if (created?.event_id) {
         return res.status(200).json({
           text: created.href ? `Evento actualizado en tu Calendar. ${created.href}` : 'Evento actualizado en tu Calendar.',
+          proposals: [],
+          result: result.result ?? null,
+        })
+      }
+      if (isBoardWriteToolGatedByR2(pendingRow.tool)) {
+        return res.status(200).json({
+          text: clipReply(formatWhatsAppR2ExecutionResult(binding, result.result ?? null)),
           proposals: [],
           result: result.result ?? null,
         })
@@ -414,7 +745,7 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Falta el mensaje.' })
     }
 
-    if (isAgentOrchestratorEnabled()) {
+    if (shouldUseWhatsAppOrchestrator(pilotIdentity)) {
       const turn = await runChannelTurn({
         identity: {
           supabase,
@@ -427,8 +758,41 @@ export default defineApiHandler(async (req, res) => {
         sessionId: waId,
         utterance: text.slice(0, 2000),
       })
-      // Canal de sólo lectura: una intención de escritura no crea propuestas aquí.
-      if (turn.handled && turn.intent !== 'write_request') {
+      if (turn.handled) {
+        const mode = resolveR2ExecutionMode()
+        const proposalList = turn.proposals?.length
+          ? turn.proposals
+          : turn.proposal
+            ? [turn.proposal]
+            : []
+        if (turn.intent === 'write_request' && proposalList.length > 0) {
+          const hydrated = await hydrateProposalBindings(
+            supabase,
+            usuarioId,
+            proposalList,
+            turn.response.blocks.data[0] ?? '',
+            turn.batchId ?? null
+          )
+          const bindings = hydrated.map((h) => h.binding)
+          const body = hydrated
+            .map(({ binding, proposal }) =>
+              formatWhatsAppProposalPrompt(binding, { executionMode: mode, proposal })
+            )
+            .join('\n\n')
+          return res.status(200).json({
+            text: clipReply(body),
+            proposals: [],
+            draftBinding: bindings[0] ?? null,
+            draftBindings: bindings,
+            interactiveButtons:
+              bindings.length === 1 ? buildWhatsAppInteractiveProposalButtons(bindings[0]!, mode) : [],
+            batchId: turn.batchId ?? null,
+            executionEnabled: mode !== 'disabled',
+            clarification: turn.clarification ?? null,
+            handoff: null,
+          })
+        }
+        // Respuesta manejada por el orquestador unificado (consulta, forbidden, aclaración o vacío): nunca evade a Gemini.
         const options = turn.clarification?.options.map((opt) => `- ${opt.label}`).join('\n')
         return res.status(200).json({
           text: clipReply(options ? `${turn.text}\n${options}` : turn.text),

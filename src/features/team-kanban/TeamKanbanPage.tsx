@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
@@ -26,6 +26,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { ROUTES } from '@/constants'
 import { getAppNow } from '@/lib/clock'
 import { cn } from '@/lib/utils'
 import { usePriorities } from '@/features/catalogs/hooks/usePriorities'
@@ -365,6 +366,10 @@ function todayIso() {
 export function TeamKanbanPage() {
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  const fromAssistant =
+    (location.state as { from?: string } | null)?.from === 'assistant' ||
+    searchParams.get('from') === 'asistente'
   const {
     currentUser,
     visibleAreas,
@@ -409,14 +414,18 @@ export function TeamKanbanPage() {
 
   useEffect(() => {
     const actionId = searchParams.get('accion')
-    if (!actionId || !boardView?.actions.some((action) => action.id === actionId)) return
+    if (!actionId || !board.data) return
+    if (!boardView?.actions.some((action) => action.id === actionId)) {
+      toast.error('No tienes acceso a esa acción en el tablero de equipo.')
+      setSearchParams((previous) => {
+        const next = new URLSearchParams(previous)
+        next.delete('accion')
+        return next
+      }, { replace: true })
+      return
+    }
     setEditingActionId(actionId)
-    setSearchParams((previous) => {
-      const next = new URLSearchParams(previous)
-      next.delete('accion')
-      return next
-    }, { replace: true })
-  }, [boardView, searchParams, setSearchParams])
+  }, [board.data, boardView, searchParams, setSearchParams])
 
   useEffect(() => {
     const alert = searchParams.get('alert') ?? undefined
@@ -700,6 +709,14 @@ export function TeamKanbanPage() {
 
   return (
     <div className="kanban-page mx-auto flex w-full max-w-7xl flex-col space-y-5 overflow-x-hidden px-3 py-5 sm:space-y-6 sm:px-6 sm:py-6">
+      {fromAssistant ? (
+        <Link
+          to={ROUTES.AI_ASSIST}
+          className="inline-flex min-h-11 w-fit items-center text-sm font-medium text-primary hover:underline"
+        >
+          Volver al asistente
+        </Link>
+      ) : null}
       <header className="kanban-header flex min-w-0 flex-col gap-4">
         <div className="min-w-0 space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1014,7 +1031,15 @@ export function TeamKanbanPage() {
           currentUsuarioId={currentUser?.id ?? null}
           isSaving={update.isPending}
           isChecklistSaving={toggleChecklist.isPending}
-          onClose={() => setEditingActionId(null)}
+          onClose={() => {
+            setEditingActionId(null)
+            setSearchParams((previous) => {
+              if (!previous.get('accion')) return previous
+              const next = new URLSearchParams(previous)
+              next.delete('accion')
+              return next
+            }, { replace: true })
+          }}
           onSave={(patch) => {
             update.mutate(
               {

@@ -31,6 +31,9 @@ export const R2_AGENT_TOOLS = {
   agent_set_action_status: 'update_status',
   agent_register_blocker: 'register_blocker',
   agent_notify_responsable: 'notify_responsable',
+  agent_update_fields: 'update_fields',
+  agent_add_comment: 'add_comment',
+  agent_verify_action: 'verify_action',
 } as const
 
 export type R2AgentTool = keyof typeof R2_AGENT_TOOLS
@@ -41,7 +44,15 @@ export const R2_TOOL_FOR: Record<R2Operation, R2AgentTool> = {
   update_status: 'agent_set_action_status',
   register_blocker: 'agent_register_blocker',
   notify_responsable: 'agent_notify_responsable',
+  update_fields: 'agent_update_fields',
+  add_comment: 'agent_add_comment',
+  verify_action: 'agent_verify_action',
 }
+
+export const R2_UNSUPPORTED_OPERATIONS = ['tag_okr_action', 'update_checkpoint'] as const
+
+const ALLOWED_FIELD_PATCH = ['fecha', 'responsable', 'prioridad', 'titulo_accion'] as const
+const PRIORIDADES = ['P1_Alta', 'P2_Media', 'P3_Baja'] as const
 
 export { COPILOT_GATED_TOOLS, isCopilotGatedTool, type CopilotGatedTool }
 
@@ -55,11 +66,12 @@ type ActionRow = {
   estado: string | null
   fecha: string | null
   responsable: string | null
+  prioridad: string | null
   created_by: string | null
   updated_at: string | null
 }
 
-const ACTION_FIELDS = 'id,titulo_accion,estado,fecha,responsable,created_by,updated_at'
+const ACTION_FIELDS = 'id,titulo_accion,estado,fecha,responsable,prioridad,created_by,updated_at'
 
 async function loadActionRow(client: SupabaseClient, id: string): Promise<ActionRow | null> {
   const { data, error } = await client.from('acciones_diarias').select(ACTION_FIELDS).eq('id', id).maybeSingle()
@@ -112,6 +124,16 @@ export function contractPayloadOf(tool: R2AgentTool, payload: Record<string, unk
       return { accionId: s('accionId') ?? '', motivo: s('motivo') ?? '' }
     case 'agent_notify_responsable':
       return { accionId: s('accionId') ?? '', canal: s('canal') as NotifyResponsablePayload['canal'] }
+    case 'agent_update_fields': {
+      const campos = Array.isArray(payload.campos)
+        ? payload.campos.filter((c): c is string => typeof c === 'string')
+        : []
+      return { accionId: s('accionId') ?? '', campos }
+    }
+    case 'agent_add_comment':
+      return { accionId: s('accionId') ?? '', contenido: s('contenido') ?? '' }
+    case 'agent_verify_action':
+      return { accionId: s('accionId') ?? '' }
   }
 }
 
@@ -124,6 +146,15 @@ type ProposeInput = {
   update_status: ActionPayloadMap['update_status']
   register_blocker: ActionPayloadMap['register_blocker']
   notify_responsable: ActionPayloadMap['notify_responsable']
+  update_fields: ActionPayloadMap['update_fields'] & {
+    fecha?: string | null
+    responsableId?: string | null
+    responsableHint?: string | null
+    prioridad?: string | null
+    titulo?: string | null
+  }
+  add_comment: ActionPayloadMap['add_comment']
+  verify_action: ActionPayloadMap['verify_action']
 }
 
 const deny = (reason: string, missing?: string[]): R2ProposeResult => ({ ok: false, reason, ...(missing ? { missing } : {}) })
@@ -147,7 +178,7 @@ export async function proposeR2Operation<O extends R2Operation>(
   actor: AgentActor,
   operation: O,
   input: ProposeInput[O],
-  opts: { today?: string } = {}
+  opts: { today?: string; batchId?: string } = {}
 ): Promise<R2ProposeResult> {
   const contract = ACTION_CONTRACTS[operation] as unknown as ActionContract<O>
   const client = actor.copilot.supabase
@@ -209,8 +240,10 @@ export async function proposeR2Operation<O extends R2Operation>(
     if (operation === 'update_status' && (input as ProposeInput['update_status']).estado === ('Verificado' as never)) {
       return deny('Verificado requiere la validación de una persona; el agente no lo asigna.')
     }
-    const missing = contract.validate(input as ActionPayloadMap[O])
-    if (missing.length) return deny(`Faltan datos para la propuesta: ${missing.join(', ')}.`, missing)
+    if (operation !== 'update_fields') {
+      const missing = contract.validate(input as ActionPayloadMap[O])
+      if (missing.length) return deny(`Faltan datos para la propuesta: ${missing.join(', ')}.`, missing)
+    }
     const action = await loadActionRow(client, accionId)
     if (!action) return deny('No encontré esa acción o no tienes acceso a ella.')
     if (action.estado === 'Verificado') return deny('La acción ya está verificada; no se modifica desde el agente.')
@@ -235,6 +268,92 @@ export async function proposeR2Operation<O extends R2Operation>(
         { label: 'Destinatario', to: `${recipient.nombre ?? recipient.id} (responsable)` },
         { label: 'Canal', to: notify.canal === 'whatsapp' ? 'WhatsApp' : 'Correo' },
         { label: 'Mensaje', to: mensaje },
+      ]
+    } else if (operation === 'add_comment') {
+      const contenido = (input as ProposeInput['add_comment']).contenido.trim().slice(0, 2000)
+      stored = { accionId: action.id, contenido }
+      contractPayload = stored as ActionPayloadMap[O]
+      title = 'Agregar comentario'
+      summary = `Propuesta, todavía no aplicada: comentario en «${label}».`
+      fields = [
+        { label: 'Acción', to: label },
+        { label: 'Comentario', to: contenido },
+      ]
+    } else if (operation === 'verify_action') {
+      if (action.estado !== 'Hecho') return deny('Sólo se verifica una acción que ya está en Hecho.')
+      const { data: canManage, error: manageError } = await actor.copilot.supabase.rpc('can_manage_accion_full_as', {
+        p_accion_id: action.id,
+        p_usuario_id: actor.usuarioId,
+      })
+      if (manageError) return deny('No se pudo validar el permiso de verificación.')
+      if (canManage !== true) {
+        return deny('La verificación corresponde a quien creó la acción o a Super Admin.')
+      }
+      expectedUpdatedAt = action.updated_at
+      stored = { accionId: action.id, expectedUpdatedAt }
+      contractPayload = { accionId: action.id } as ActionPayloadMap[O]
+      title = 'Verificar acción'
+      summary = `Propuesta, todavía no aplicada: «${label}» pasa de Hecho a Verificado. Requiere tu aprobación.`
+      fields = [
+        { label: 'Acción', to: label },
+        { label: 'Estado', from: action.estado ?? '', to: 'Verificado' },
+      ]
+    } else if (operation === 'update_fields') {
+      if (!(await canActOnAction(actor.copilot, action))) return deny('No tienes permiso sobre esa acción.')
+      expectedUpdatedAt = action.updated_at
+      const patchIn = input as ProposeInput['update_fields']
+      let responsableId = patchIn.responsableId ?? null
+      let responsableNombre: string | null = null
+      if (!responsableId && patchIn.responsableHint?.trim()) {
+        const matches = await resolveResponsable(actor, patchIn.responsableHint.trim())
+        if (matches.length > 1) {
+          return deny(`Hay varias personas que coinciden: ${matches.map((m) => m.nombre).join(', ')}. Indica cuál.`)
+        }
+        responsableId = matches[0]?.id ?? null
+        responsableNombre = matches[0]?.nombre ?? null
+      }
+      if (responsableId) {
+        const person = await loadActiveUser(client, responsableId)
+        if (!person) return deny('El responsable no existe o está inactivo.')
+        responsableNombre = responsableNombre ?? person.nombre ?? person.id
+      }
+      if (patchIn.fecha && patchIn.fecha < today) return deny('La fecha de compromiso debe ser hoy o posterior (CDMX).')
+      if (patchIn.prioridad && !PRIORIDADES.includes(patchIn.prioridad as (typeof PRIORIDADES)[number])) {
+        return deny('La prioridad debe ser P1_Alta, P2_Media o P3_Baja.')
+      }
+      const campos: string[] = []
+      const storedPatch: Record<string, unknown> = { accionId: action.id, expectedUpdatedAt }
+      if (patchIn.fecha) {
+        campos.push('fecha')
+        storedPatch.fecha = patchIn.fecha
+      }
+      if (responsableId) {
+        campos.push('responsable')
+        storedPatch.responsable = responsableId
+      }
+      if (patchIn.prioridad) {
+        campos.push('prioridad')
+        storedPatch.prioridad = patchIn.prioridad
+      }
+      if (patchIn.titulo?.trim()) {
+        campos.push('titulo_accion')
+        storedPatch.titulo_accion = patchIn.titulo.trim().slice(0, 70)
+      }
+      storedPatch.campos = campos
+      contractPayload = { accionId: action.id, campos } as ActionPayloadMap[O]
+      const missing = contract.validate(contractPayload)
+      if (missing.length) return deny(`Faltan datos para la propuesta: ${missing.join(', ')}.`, missing)
+      stored = storedPatch
+      title = 'Actualizar campos'
+      summary = `Propuesta, todavía no aplicada: actualizar ${campos.join(', ')} en «${label}».`
+      fields = [
+        { label: 'Acción', to: label },
+        ...(patchIn.fecha ? [{ label: 'Fecha', from: action.fecha ?? '', to: patchIn.fecha }] : []),
+        ...(responsableId ? [{ label: 'Responsable', from: action.responsable ?? '', to: responsableNombre ?? responsableId }] : []),
+        ...(patchIn.prioridad ? [{ label: 'Prioridad', from: action.prioridad ?? '', to: patchIn.prioridad }] : []),
+        ...(patchIn.titulo?.trim()
+          ? [{ label: 'Título', from: action.titulo_accion ?? '', to: patchIn.titulo.trim().slice(0, 70) }]
+          : []),
       ]
     } else {
       if (!(await canActOnAction(actor.copilot, action))) return deny('No tienes permiso sobre esa acción.')
@@ -267,12 +386,20 @@ export async function proposeR2Operation<O extends R2Operation>(
   const idempotencyKey = buildIdempotencyKey(actor.usuarioId, operation, operation === 'notify_responsable'
     ? { ...(contractPayload as NotifyResponsablePayload), dia: today } as unknown as ActionPayloadMap[O]
     : contractPayload)
+  if (opts.batchId) stored.batchId = opts.batchId
+  const href = resourceId ? `/kanban?accion=${encodeURIComponent(resourceId)}` : undefined
   const proposal = await createPendingOp(actor.copilot, {
     tool: R2_TOOL_FOR[operation],
     resourceId,
     expectedUpdatedAt,
     payload: stored,
-    proposal: { title, summary, fields },
+    proposal: {
+      title,
+      summary,
+      fields,
+      ...(href && resourceId ? { record: { id: resourceId, title: title, href } } : {}),
+      ...(opts.batchId ? { batchId: opts.batchId } : {}),
+    },
     ttlMs: ACTION_PROPOSAL_TTL_MS,
     requestKey: idempotencyKey,
     releaseStaleRequestKey: true,
@@ -469,6 +596,28 @@ function buildExecutor(
         if (error) throw new Error(errorMessage(error, 'No se pudo aplicar el cambio de estado.'))
         return data as Record<string, unknown>
       }
+      if (tool === 'agent_update_fields') {
+        const patch: Record<string, unknown> = {}
+        for (const key of ALLOWED_FIELD_PATCH) {
+          if (payload[key] != null && payload[key] !== '') patch[key] = payload[key]
+        }
+        if (Object.keys(patch).length === 0) throw new Error('VALIDATION_FAILED: No hay campos permitidos para actualizar.')
+        return deps.boardWrite(target, 'update_action', { action_id: payload.accionId ?? payload.action_id, patch })
+      }
+      if (tool === 'agent_add_comment') {
+        return deps.boardWrite(target, 'add_action_comment', {
+          action_id: payload.accionId ?? payload.action_id,
+          contenido: payload.contenido,
+        })
+      }
+      if (tool === 'agent_verify_action') {
+        const current = await loadActionRow(target.supabase, String(payload.accionId ?? payload.action_id ?? ''))
+        if (!current) throw new Error('PERMISSION_DENIED: La acción ya no está disponible.')
+        if (current.estado !== 'Hecho') {
+          throw new Error('VALIDATION_FAILED: Sólo se verifica una acción que ya está en Hecho.')
+        }
+        return deps.boardWrite(target, 'verify_action', { action_id: current.id })
+      }
       const action = await loadActionRow(target.supabase, String(payload.accionId))
       if (!action) throw new Error('PERMISSION_DENIED: La acción ya no está disponible.')
       if (action.responsable !== payload.destinatarioId) {
@@ -490,12 +639,30 @@ function buildExecutor(
       if (tool === 'agent_notify_responsable') {
         return Boolean(result.id) && (deps.delivered ? await deps.delivered(actor, `agent-notify:${ctx.opId}`) : true)
       }
+      if (tool === 'agent_add_comment') {
+        const accionId = String(payload.accionId ?? payload.action_id ?? '')
+        const { data } = await client
+          .from('accion_comentarios')
+          .select('id')
+          .eq('accion_id', accionId)
+          .eq('contenido', String(payload.contenido ?? ''))
+          .limit(1)
+        return Array.isArray(data) ? data.length > 0 : Boolean(data)
+      }
       const id = tool === 'agent_create_action' ? String(result.id ?? '') : String(payload.accionId ?? payload.action_id ?? '')
       const row = id ? await loadActionRow(client, id) : null
       if (!row) return false
       if (tool === 'agent_create_action') return row.titulo_accion === payload.titulo_accion && row.responsable === payload.responsable
       if (tool === 'agent_register_blocker') return row.estado === 'Bloqueado'
       if (tool === 'mark_action_done') return row.estado === 'Hecho'
+      if (tool === 'agent_verify_action') return row.estado === 'Verificado'
+      if (tool === 'agent_update_fields') {
+        if (payload.fecha && row.fecha !== payload.fecha) return false
+        if (payload.responsable && row.responsable !== payload.responsable) return false
+        if (payload.prioridad && row.prioridad !== payload.prioridad) return false
+        if (payload.titulo_accion && row.titulo_accion !== payload.titulo_accion) return false
+        return true
+      }
       return row.estado === payload.estado
     },
   }
@@ -630,4 +797,159 @@ export async function readBlockHistory(actor: AgentActor, accionId: string) {
 
 export async function logR2Denied(actor: CopilotActor, tool: string, opId: string, resourceId: string | null) {
   await insertAssistantOpLog(actor, { tool, result: 'denied', pendingOpId: opId, resourceId })
+}
+
+export type R2EditPatch = {
+  fecha?: string
+  responsableId?: string
+  responsableHint?: string
+  prioridad?: string
+  titulo?: string
+  contenido?: string
+}
+
+/**
+ * Editar una propuesta R2 pendiente invalida la firma previa (nuevo request_key y CAS).
+ * No ejecuta; el usuario debe volver a aprobar.
+ */
+export async function editR2PendingOp(actor: CopilotActor, opId: string, patch: R2EditPatch): Promise<CopilotProposal> {
+  const { data, error } = await actor.supabase
+    .from('assistant_pending_ops')
+    .select('id,usuario_id,tool,resource_id,expected_updated_at,payload,preview,status,expires_at,request_key,channel')
+    .eq('id', opId)
+    .maybeSingle()
+  if (error || !data) throw new Error('No encontré esa operación pendiente.')
+  if (data.usuario_id !== actor.usuarioId) throw new Error('Esa operación no te pertenece.')
+  if (data.status !== 'pending') throw new Error('Esta operación ya no se puede editar.')
+  if (Date.parse(String(data.expires_at)) <= Date.now()) throw new Error('La autorización expiró. Solicita una nueva propuesta.')
+  const tool = String(data.tool)
+  if (!isR2AgentTool(tool)) throw new Error('VALIDATION_FAILED: Este tipo de operación no admite edición.')
+  if (tool !== 'agent_update_fields' && tool !== 'agent_create_action' && tool !== 'agent_add_comment') {
+    throw new Error('VALIDATION_FAILED: Cancela y prepara una propuesta nueva para este cambio.')
+  }
+  const payload = { ...((data.payload ?? {}) as Record<string, unknown>) }
+  const preview = { ...((data.preview ?? {}) as Record<string, unknown>) }
+  const fields = Array.isArray(preview.fields) ? [...(preview.fields as CopilotProposal['fields'])] : []
+  const today = todayWallClockCDMX()
+
+  const setField = (label: string, to: string, from?: string) => {
+    const idx = fields.findIndex((f) => f.label === label)
+    const next = from ? { label, from, to } : { label, to }
+    if (idx >= 0) fields[idx] = next
+    else fields.push(next)
+  }
+
+  if (tool === 'agent_add_comment') {
+    const contenido = patch.contenido?.trim().slice(0, 2000)
+    if (!contenido) throw new Error('VALIDATION_FAILED: El comentario no puede quedar vacío.')
+    payload.contenido = contenido
+    setField('Comentario', contenido)
+  } else {
+    if (patch.fecha) {
+      if (patch.fecha < today) throw new Error('La fecha de compromiso debe ser hoy o posterior (CDMX).')
+      payload.fecha = patch.fecha
+      if (tool === 'agent_update_fields') {
+        const campos = Array.isArray(payload.campos) ? [...(payload.campos as string[])] : []
+        if (!campos.includes('fecha')) campos.push('fecha')
+        payload.campos = campos
+      }
+      setField('Fecha', patch.fecha)
+    }
+    if (patch.prioridad) {
+      if (!PRIORIDADES.includes(patch.prioridad as (typeof PRIORIDADES)[number])) {
+        throw new Error('La prioridad debe ser P1_Alta, P2_Media o P3_Baja.')
+      }
+      payload.prioridad = patch.prioridad
+      if (tool === 'agent_update_fields') {
+        const campos = Array.isArray(payload.campos) ? [...(payload.campos as string[])] : []
+        if (!campos.includes('prioridad')) campos.push('prioridad')
+        payload.campos = campos
+      }
+      setField('Prioridad', patch.prioridad)
+    }
+    if (patch.titulo?.trim()) {
+      const titulo = patch.titulo.trim().slice(0, 70)
+      if (tool === 'agent_create_action') payload.titulo_accion = titulo
+      else payload.titulo_accion = titulo
+      if (tool === 'agent_update_fields') {
+        const campos = Array.isArray(payload.campos) ? [...(payload.campos as string[])] : []
+        if (!campos.includes('titulo_accion')) campos.push('titulo_accion')
+        payload.campos = campos
+      }
+      setField('Título', titulo)
+    }
+    const hint = patch.responsableId || patch.responsableHint
+    if (hint) {
+      let responsableId = patch.responsableId ?? null
+      let nombre: string | null = null
+      if (!responsableId && patch.responsableHint) {
+        const actorLike = await reloadAgentActor(actor)
+        const matches = await resolveResponsable(actorLike, patch.responsableHint.trim())
+        if (matches.length !== 1) {
+          throw new Error(
+            matches.length === 0
+              ? 'No encontré a esa persona.'
+              : `Hay varias personas que coinciden: ${matches.map((m) => m.nombre).join(', ')}.`
+          )
+        }
+        responsableId = matches[0]!.id
+        nombre = matches[0]!.nombre
+      }
+      if (responsableId) {
+        const person = await loadActiveUser(actor.supabase, responsableId)
+        if (!person) throw new Error('El responsable no existe o está inactivo.')
+        payload.responsable = person.id
+        if (tool === 'agent_update_fields') {
+          const campos = Array.isArray(payload.campos) ? [...(payload.campos as string[])] : []
+          if (!campos.includes('responsable')) campos.push('responsable')
+          payload.campos = campos
+        }
+        setField('Responsable', nombre ?? person.nombre ?? person.id)
+      }
+    }
+  }
+
+  let expectedUpdatedAt = data.expected_updated_at as string | null
+  if (tool === 'agent_update_fields' && data.resource_id) {
+    const action = await loadActionRow(actor.supabase, String(data.resource_id))
+    if (!action) throw new Error('No encontré esa acción o no tienes acceso a ella.')
+    expectedUpdatedAt = action.updated_at
+    payload.expectedUpdatedAt = expectedUpdatedAt
+  }
+
+  const operation = R2_AGENT_TOOLS[tool]
+  const contractPayload = contractPayloadOf(tool, payload)
+  const requestKey = buildIdempotencyKey(actor.usuarioId, operation, contractPayload as ActionPayloadMap[typeof operation])
+  const nextPreview: Record<string, unknown> = {
+    ...preview,
+    fields,
+    summary: `Propuesta editada. Confirma de nuevo para aplicar: ${String(preview.summary ?? '')}`.slice(0, 400),
+  }
+  const { data: updatedExpiresAt, error: updateError } = await actor.supabase.rpc('agent_edit_pending_op', {
+    p_op_id: opId,
+    p_payload: payload,
+    p_preview: nextPreview,
+    p_expected_updated_at: expectedUpdatedAt,
+    p_request_key: requestKey,
+  })
+  if (updateError) {
+    throw new Error(errorMessage(updateError, 'DATABASE_ERROR: No se pudo guardar la edición.'))
+  }
+  await insertAssistantOpLog(actor, {
+    tool,
+    result: 'proposed',
+    pendingOpId: opId,
+    resourceId: data.resource_id as string | null,
+    summary: `edited: ${String(nextPreview.title ?? tool)}`,
+  })
+  return {
+    id: opId,
+    tool: tool as CopilotProposal['tool'],
+    title: String(nextPreview.title ?? tool),
+    summary: String(nextPreview.summary ?? ''),
+    fields,
+    record: (nextPreview.record as CopilotProposal['record']) ?? undefined,
+    expiresAt: String(updatedExpiresAt ?? data.expires_at),
+    batchId: typeof payload.batchId === 'string' ? payload.batchId : undefined,
+  }
 }

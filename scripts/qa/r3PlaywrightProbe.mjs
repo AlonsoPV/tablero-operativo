@@ -66,13 +66,16 @@ export async function runPlaywrightPreviewProbe({
     const context = await browser.newContext(contextOptions)
 
     if (supabaseSession && supabaseRef) {
-      const storageKey = `sb-${supabaseRef}-auth-token`
+      const storageKeys = [`sb-${supabaseRef}-auth-token`]
+      if (supabaseRef.startsWith('qalocal')) {
+        storageKeys.push('sb-127-auth-token', 'sb-localhost-auth-token')
+      }
       const payload = JSON.stringify(supabaseSession)
       await context.addInitScript(
-        ([k, v]) => {
-          window.localStorage.setItem(k, v)
+        ([keys, v]) => {
+          for (const k of keys) window.localStorage.setItem(k, v)
         },
-        [storageKey, payload],
+        [storageKeys, payload],
       )
     }
 

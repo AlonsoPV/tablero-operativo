@@ -10,7 +10,7 @@
     "dev": "node --use-system-ca ./node_modules/vite/bin/vite.js",
     "dev:prod": "node --use-system-ca ./node_modules/vite/bin/vite.js --mode prodlocal",
     "build": "tsc -b && node ./node_modules/vite/bin/vite.js build",
-    "vercel-build": "npm run build && node scripts/seo-html-shells.mjs && node scripts/bundle-api.mjs",
+    "build:vercel": "npm run build && node scripts/seo-html-shells.mjs && node scripts/bundle-api.mjs",
     "seo:shells": "node scripts/seo-html-shells.mjs",
     "lint": "eslint .",
     "test": "vitest run",
@@ -32,7 +32,14 @@
     "qa:r3:preflight": "node scripts/qa/r3-preflight.mjs",
     "qa:r3:integrated": "node scripts/qa/run-r3-integrated.mjs",
     "qa:r3:rollback": "node scripts/qa/r3-rollback-off.mjs",
-    "qa:r3:test": "vitest run --config vitest.r3.config.mjs"
+    "qa:r3:test": "vitest run --config vitest.r3.config.mjs",
+    "qa:text:test": "vitest run --config vitest.text-complete.config.mjs",
+    "qa:text:preflight": "node scripts/qa/textCompletePreflight.mjs",
+    "qa:text:run": "node scripts/qa/run-text-complete-qa.mjs",
+    "qa:text:rollback": "node scripts/qa/textCompleteRollback.mjs",
+    "demo:start": "node scripts/qa/demo-lifecycle.mjs start",
+    "demo:reset": "node scripts/qa/demo-lifecycle.mjs reset",
+    "demo:stop": "node scripts/qa/demo-lifecycle.mjs stop"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

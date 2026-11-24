@@ -38,7 +38,16 @@ export function classifyCreationIntent(request: string): CreationIntent {
   return 'create'
 }
 
+function extractExplicitTitle(request: string): string {
+  const m = clean(request).match(
+    /\b(?:llamad[ao]|titulad[ao]|con\s+t[ií]tulo|nombre)\s*[:"]?\s*([^".,\n]+?)(?=\s+(?:para\s+(?:el\s+)?\d{4}-\d{2}-\d{2}|para\s+(?:hoy|ma[ñn]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo))|con\s+(?:prioridad|evidencia|pasos)|asignad[ao]\s+a|porque|ya\s+que)|$)/i
+  )
+  return m?.[1] ? clean(m[1]).replace(/^["'«»]+|["'«»]+$/g, '') : ''
+}
+
 function stripLead(request: string) {
+  const explicit = extractExplicitTitle(request)
+  if (explicit.length >= 3) return explicit
   return clean(request)
     .replace(
       /^(crea|crear|genera|agrega|añade|anade|ponle|asigna|registra|necesito)\b[^.]{0,80}?\b(para que|para|que)\b/i,
@@ -49,6 +58,7 @@ function stripLead(request: string) {
 
 function dropAssigneeAndDate(phrase: string) {
   return clean(phrase)
+    .replace(/\b(?:para\s+el|para|el)\s+\d{4}-\d{2}-\d{2}\b/gi, '')
     .replace(
       /\b(hoy|mañana|manana|pasado mañana|el viernes|el lunes|el martes|el mi[eé]rcoles|el jueves|el s[aá]bado|el domingo|la pr[oó]xima semana|en \d+ d[ií]as|antes de fin de mes)\b/gi,
       ''
@@ -61,10 +71,15 @@ function dropAssigneeAndDate(phrase: string) {
 export function draftFromRequest(request: string): CreationDraft {
   const source = clean(request)
   const intent = classifyCreationIntent(source)
-  const body = stripLead(source)
+  const explicitTitle = source
+    .match(
+      /\b(?:llamad[ao]|titulad[ao]|con\s+t[ií]tulo)\s+[«"']?(.+?)[»"']?(?:\s+para\s+el\s+\d{4}-\d{2}-\d{2}|\s+el\s+\d{4}-\d{2}-\d{2}|\s+para\s+(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana)|\s+porque\b|$)/i,
+    )?.[1]
+    ?.trim()
+  const body = explicitTitle || stripLead(source)
   const reason = source.match(/\b(?:porque|por que|ya que)\b\s+(.+)$/i)?.[1]?.trim() ?? ''
-  const titleSource = dropAssigneeAndDate(body) || dropAssigneeAndDate(source)
-  const title = sentenceCase(titleSource).slice(0, 70)
+  const titleSource = explicitTitle || dropAssigneeAndDate(body) || dropAssigneeAndDate(source)
+  const title = (explicitTitle ? explicitTitle : sentenceCase(titleSource)).slice(0, 70)
   const description = sentenceCase(
     reason ? `${title}. ${reason}` : titleSource || source
   ).slice(0, 4000)

@@ -7,6 +7,7 @@ import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assista
 import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
 import {
+  geminiErrorStatus,
   geminiModelCandidates,
   isGeminiCapacityStatus,
   normalizeGeminiModel,
@@ -19,8 +20,19 @@ import {
   sanitizeMessages,
 } from '../src/lib/assistantPrompts.js'
 import { buildAssistantUiFromToolResults } from '../src/features/ai-support/chatViews/buildViewsFromToolResults.js'
-import { isAgentOrchestratorEnabled, runChannelTurn, uiForTurn, webSessionId } from './_shared/orchestrator/channelAdapters.js'
+import {
+  formatForChannel,
+  isAgentOrchestratorEnabled,
+  runChannelTurn,
+  uiForTurn,
+  webSessionId,
+} from './_shared/orchestrator/channelAdapters.js'
 import { EMPTY_MODEL_TURN_MESSAGE } from './_shared/orchestrator/respond.js'
+import {
+  resolveVoiceProviderReadiness,
+  sanitizeTextForVoiceSpeech,
+} from './_shared/voiceChannelAdapter.js'
+import { FREE_TIER_GEMINI_MODELS, resolveLlmProvider } from './_shared/aiProviders.js'
 
 type GeminiContent = {
   role: 'user' | 'model'
@@ -89,30 +101,25 @@ export default defineApiHandler(async (req, res) => {
       })
     }
 
-    const apiKey = process.env.GEMINI_API_KEY
-
-    if (!apiKey) {
-      return res.status(500).json({
-        error: 'Falta configurar GEMINI_API_KEY en variables de entorno.',
-      })
-    }
-
     const body = await readRequestBody(req)
 
     if (!body || typeof body !== 'object') {
       return res.status(400).json({ error: 'Solicitud invalida.' })
     }
 
-    const { mode, messages, actionContext, okrContext, boardContext, requestId, responseFormat, conversationId } = body as {
+    const { mode, messages, actionContext, okrContext, boardContext, requestId, responseFormat, conversationId, channel } = body as {
       requestId?: unknown
       conversationId?: unknown
       responseFormat?: unknown
+      channel?: unknown
       mode?: unknown
       messages?: unknown
       actionContext?: unknown
       okrContext?: unknown
       boardContext?: unknown
     }
+
+    const activeChannel: 'web' | 'voice' = channel === 'voice' ? 'voice' : 'web'
 
     if (!isAssistantMode(mode)) {
       return res.status(400).json({ error: 'Modo de asistente invalido.' })
@@ -175,18 +182,26 @@ export default defineApiHandler(async (req, res) => {
             active: true,
             accessToken: auth.token,
           },
-          channel: 'web',
+          channel: activeChannel,
           sessionId: webSessionId(conversationId, requestId),
           utterance: lastUserMessage,
           responseFormat,
         })
         if (turn.handled) {
-          const persistedProposal = turn.proposal && 'tool' in turn.proposal ? turn.proposal : null
+          const proposals = turn.proposals?.length
+            ? turn.proposals
+            : turn.proposal && 'tool' in turn.proposal
+              ? [turn.proposal]
+              : []
+          const visualAnswer = activeChannel === 'voice' ? formatForChannel(turn, 'web') : turn.text
+          const spokenText = activeChannel === 'voice' ? turn.text : undefined
           return res.status(200).json({
-            answer: turn.text,
-            proposals: persistedProposal ? [persistedProposal] : [],
+            answer: visualAnswer,
+            ...(spokenText ? { spokenText, voice: resolveVoiceProviderReadiness() } : {}),
+            proposals,
+            batchId: turn.batchId ?? null,
             clarification: turn.clarification,
-            ui: uiForTurn(turn, turn.text),
+            ui: uiForTurn(turn, visualAnswer),
             toolTrace: turn.toolsUsed.map((tool) => ({ tool, kind: 'read' })),
             agent: {
               intent: turn.intent,
@@ -197,7 +212,8 @@ export default defineApiHandler(async (req, res) => {
               blocks: turn.response.blocks,
               references: turn.response.references,
               asOf: turn.response.asOf,
-              executionEnabled: false,
+              executionEnabled: turn.executionEnabled === true,
+              channel: activeChannel,
             },
           })
         }
@@ -209,7 +225,30 @@ export default defineApiHandler(async (req, res) => {
       }
     }
 
-    const candidates = geminiModelCandidates(process.env.GEMINI_MODEL)
+    const llmDecision = resolveLlmProvider(process.env)
+    const apiKey = (process.env.GEMINI_API_KEY ?? '').trim()
+    if (!llmDecision.canCallExternalApi || !apiKey) {
+      return res.status(503).json({
+        error: llmDecision.fallbackMessage,
+        retryable: false,
+        llmProvider: llmDecision.mode,
+        blockedReason: llmDecision.blockedReason,
+      })
+    }
+
+    const rawCandidates = geminiModelCandidates(process.env.GEMINI_MODEL)
+    const candidates =
+      llmDecision.mode === 'gemini_free_tier_verified'
+        ? rawCandidates.filter((m) => (FREE_TIER_GEMINI_MODELS as readonly string[]).includes(m))
+        : rawCandidates
+    if (candidates.length === 0) {
+      return res.status(503).json({
+        error: llmDecision.fallbackMessage,
+        retryable: false,
+        llmProvider: llmDecision.mode,
+        blockedReason: 'Sin modelos permitidos dentro de cuota gratuita; no se hace fallback a modelos de pago.',
+      })
+    }
     const generationConfig = {
       maxOutputTokens: readNumberEnv('GEMINI_MAX_TOKENS', DEFAULT_MAX_OUTPUT_TOKENS),
       temperature: readNumberEnv('GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE),
@@ -228,6 +267,7 @@ export default defineApiHandler(async (req, res) => {
     let loopResult: Awaited<ReturnType<typeof runGeminiToolLoop>> | undefined
     let model = candidates[0] ?? normalizeGeminiModel(process.env.GEMINI_MODEL)
     let lastError: unknown
+    let sawCapacity = false
 
     for (let i = 0; i < candidates.length; i++) {
       model = candidates[i]!
@@ -253,8 +293,7 @@ export default defineApiHandler(async (req, res) => {
         break
       } catch (error) {
         lastError = error
-        const status =
-          typeof (error as { status?: number }).status === 'number' ? (error as { status: number }).status : 0
+        const status = geminiErrorStatus(error)
         const safeReason = readGeminiError(error instanceof Error ? error.message : '')
         console.error('Gemini API Error:', { status, model, reason: safeReason })
         if ([400, 401, 403, 404].includes(status)) {
@@ -266,13 +305,15 @@ export default defineApiHandler(async (req, res) => {
         }
         const hasMore = i < candidates.length - 1
         if (isGeminiCapacityStatus(status) && hasMore) {
+          sawCapacity = true
           console.warn('Gemini capacity; trying next model', { model, status, next: candidates[i + 1] })
           continue
         }
         if (isGeminiCapacityStatus(status)) {
           return res.status(503).json({
             error:
-              'Gemini esta saturado o limitando solicitudes. Intenta de nuevo en unos minutos.',
+              'El proveedor de IA está saturado. Tu pregunta se conservó; puedes reintentar sin perder la conversación.',
+            retryable: true,
           })
         }
         throw error
@@ -312,6 +353,13 @@ export default defineApiHandler(async (req, res) => {
         finishReason: loopResult.finishReason,
         tools: loopResult.toolTrace.map((item) => item.tool),
       })
+      if (sawCapacity || isGeminiCapacityStatus(geminiErrorStatus(lastError))) {
+        return res.status(503).json({
+          error:
+            'El proveedor de IA no completó la respuesta. Tu pregunta se conservó; reintenta en un momento.',
+          retryable: true,
+        })
+      }
       return res.status(200).json({
         answer: EMPTY_MODEL_TURN_MESSAGE,
         proposals: [],
@@ -328,6 +376,14 @@ export default defineApiHandler(async (req, res) => {
 
     return res.status(200).json({
       answer: content,
+      ...(activeChannel === 'voice'
+        ? {
+            spokenText: sanitizeTextForVoiceSpeech(content, {
+              hasProposals: loopResult.proposals.length > 0,
+            }),
+            voice: resolveVoiceProviderReadiness(),
+          }
+        : {}),
       proposals: loopResult.proposals,
       clarification: loopResult.clarification,
       toolTrace: loopResult.toolTrace,

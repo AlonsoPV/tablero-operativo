@@ -44,7 +44,36 @@ function activeMe(db: FakeDb, session: FakeSession) {
   return { me, user }
 }
 
-const CLAIMABLE = ['agent_create_action', 'agent_set_action_status', 'agent_register_blocker', 'agent_notify_responsable', 'mark_action_done']
+const CLAIMABLE = [
+  'agent_create_action',
+  'agent_set_action_status',
+  'agent_register_blocker',
+  'agent_notify_responsable',
+  'agent_update_fields',
+  'agent_add_comment',
+  'agent_verify_action',
+  'mark_action_done',
+]
+
+/** Paridad de agent_edit_pending_op: puerta en BD, dueño activo, pending y vigente, herramientas editables. */
+export function simulatedEditPendingOp(db: FakeDb, args: Row, session: FakeSession) {
+  if (!executionAllowed(db)) fail('execution_disabled', 'la ejecucion del agente no esta habilitada en este entorno')
+  const { me } = activeMe(db, session)
+  const op = db.tables.assistant_pending_ops!.find((o) => o.id === args.p_op_id)
+  if (!op || op.usuario_id !== me) fail('not_authorized', 'la operacion no pertenece al usuario')
+  if (op.status !== 'pending') fail('invalid_state', 'la operacion ya no se puede editar')
+  if (Date.parse(String(op.expires_at)) <= Date.now()) fail('expired', 'la autorizacion expiro')
+  if (!['agent_create_action', 'agent_update_fields', 'agent_add_comment'].includes(String(op.tool))) {
+    fail('invalid_operation', 'este tipo de operacion no admite edicion')
+  }
+  Object.assign(op, {
+    payload: args.p_payload,
+    preview: args.p_preview,
+    expected_updated_at: args.p_expected_updated_at ?? null,
+    request_key: args.p_request_key,
+  })
+  return String(op.expires_at)
+}
 
 /** Paridad de agent_claim_pending_op: puerta en BD, operación propia, vigente y con el payload confirmado. */
 export function simulatedClaimPendingOp(db: FakeDb, args: Row, session: FakeSession) {
@@ -169,6 +198,7 @@ export function createR2Db(): FakeDb {
     can_edit_accion_general_as: (args) => canEditGeneral(db, args.p_accion_id, args.p_usuario_id),
     can_manage_accion_full_as: (args) => canManageFull(db, args.p_accion_id, args.p_usuario_id),
     agent_claim_pending_op: (args, session) => simulatedClaimPendingOp(db, args, session),
+    agent_edit_pending_op: (args, session) => simulatedEditPendingOp(db, args, session),
     agent_apply_action_status: (args, session) => simulatedApplyActionStatus(db, args, session),
     agent_action_block_history: (args, session) => simulatedBlockHistory(db, args, session),
   }

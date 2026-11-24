@@ -4,7 +4,7 @@
  */
 
 import { useMemo, useState, useCallback, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   useAcciones,
@@ -45,6 +45,7 @@ import { canViewAllBoardData, isAnalystByRole } from '@/features/auth/lib/permis
 import { useCanSeeOkrTags } from '@/features/okrs/useCanSeeOkrTags'
 import { exportKanbanToExcel } from '@/features/operations/utils/exportKanbanExcel'
 import { toast } from 'sonner'
+import { ROUTES } from '@/constants'
 
 function normalizeKanbanFilter(filter: AccionesFilter): AccionesFilter {
   const normalized: AccionesFilter = {}
@@ -132,10 +133,18 @@ export function KanbanPage() {
   const [editingAccion, setEditingAccion] = useState<AccionDiaria | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [isExportingExcel, setIsExportingExcel] = useState(false)
+  const location = useLocation()
   const accionIdFromUrl = searchParams.get('accion')
   const fechaFromUrl = searchParams.get('fecha')
   const okrFromUrl = searchParams.get('okr')
-  const { data: accionFromUrl } = useAccion(accionIdFromUrl)
+  const fromAssistant =
+    (location.state as { from?: string } | null)?.from === 'assistant' ||
+    searchParams.get('from') === 'asistente'
+  const {
+    data: accionFromUrl,
+    isError: accionFromUrlError,
+    isFetched: accionFromUrlFetched,
+  } = useAccion(accionIdFromUrl)
 
   useEffect(() => {
     if (!currentUser?.id || defaultResponsibleApplied) return
@@ -170,18 +179,23 @@ export function KanbanPage() {
   }, [fechaFromUrl, setSearchParams])
 
   useEffect(() => {
-    if (accionFromUrl && accionIdFromUrl) {
+    if (!accionIdFromUrl) return
+    if (accionFromUrl) {
       setEditingAccion(accionFromUrl)
       setDialogOpen(true)
       const fechaAccion = accionFromUrl.fecha
       if (fechaAccion) setFilter((f) => ({ ...f, fecha_min: fechaAccion, fecha_max: fechaAccion }))
+      return
+    }
+    if (accionFromUrlFetched && (accionFromUrlError || !accionFromUrl)) {
+      toast.error('No tienes acceso a esa acción o no existe en tu alcance.')
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev)
         next.delete('accion')
         return next
       }, { replace: true })
     }
-  }, [accionFromUrl, accionIdFromUrl, setSearchParams])
+  }, [accionFromUrl, accionFromUrlError, accionFromUrlFetched, accionIdFromUrl, setSearchParams])
 
   const handleFilterChange = useCallback((next: AccionesFilter | Partial<AccionesFilter>) => {
     setFilter((prev) => {
@@ -308,7 +322,13 @@ export function KanbanPage() {
   const handleDialogClose = useCallback(() => {
     setEditingAccion(null)
     setDialogOpen(false)
-  }, [])
+    setSearchParams((prev) => {
+      if (!prev.get('accion')) return prev
+      const next = new URLSearchParams(prev)
+      next.delete('accion')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
 
   const handleExportExcel = useCallback(async () => {
     if (accionesDisplay.length === 0 || isExportingExcel) return
@@ -335,6 +355,14 @@ export function KanbanPage() {
       className="kanban-page mx-auto flex w-full max-w-7xl flex-col space-y-6 overflow-x-hidden px-3 py-5 sm:space-y-8 sm:px-6 sm:py-6"
     >
       <EnviardianManifestoBanner />
+      {fromAssistant ? (
+        <Link
+          to={ROUTES.AI_ASSIST}
+          className="inline-flex min-h-11 w-fit items-center text-sm font-medium text-primary hover:underline"
+        >
+          Volver al asistente
+        </Link>
+      ) : null}
 
       <KanbanHeader
         filtersExpanded={filtersExpanded}

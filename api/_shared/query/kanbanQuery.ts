@@ -43,6 +43,18 @@ function toActionItem(raw: unknown): ActionItem | null {
     prioridad: str(row.prioridad),
     href: str(row.href) ?? `/kanban?accion=${encodeURIComponent(id)}`,
     responsableId: str(row.responsable),
+    ...(str(row.responsable_nombre) || str(row.responsableNombre)
+      ? { responsableNombre: str(row.responsable_nombre) ?? str(row.responsableNombre) }
+      : {}),
+    ...(str(row.area) ? { area: str(row.area) } : {}),
+    ...(str(row.updated_at) || str(row.updatedAt)
+      ? { updatedAt: str(row.updated_at) ?? str(row.updatedAt) }
+      : {}),
+    ...(typeof row.evidencia_cargada === 'boolean'
+      ? { evidenciaCargada: row.evidencia_cargada }
+      : typeof row.evidenciaCargada === 'boolean'
+        ? { evidenciaCargada: row.evidenciaCargada }
+        : {}),
   }
 }
 

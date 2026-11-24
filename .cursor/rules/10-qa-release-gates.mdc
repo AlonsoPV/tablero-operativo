@@ -1,0 +1,37 @@
+---
+description: QA commands, required remote authorizations, GO/NO-GO gates, and sanitized evidence traceability for R1/R3 releases.
+globs:
+  - "scripts/qa/**"
+  - ".github/**"
+  - "docs/agent/**"
+---
+
+# Scrumban — QA & Release Gates
+
+> **Authority boundary:** This rule documents procedures and gates only; it never grants execution authorization for remote operations.
+
+## Required Authorizations (Never Implicit)
+
+- Remote Preview/DEV flag writes & deploys: explicit branch/SHA-scoped authorization
+- Integrated suite (`--execute` against DEV): `R3_INTEGRATED_AUTH=AUTH-R3-INTEGRATED`
+- Independent Rollback OFF (`--apply`): `R3_ROLLBACK_AUTH=AUTH-R3-ROLLBACK-OFF`
+- Any Production write (flags, SQL migration, merge to `main`, deploy): explicit Production window authorization
+
+## Canonical QA Commands (Local & Authorized Preview/DEV)
+
+- Local harness & anti-Prod guards: `npm run qa:r3:test` and `node --test scripts/qa/qaGuard.test.mjs`
+- Preflight (read-only, requires 9/9 READY): `npm run qa:r3:preflight`
+- Integrated suite (R3-I0..I7, requires explicit auth + `R3_EXPECTED_SHA` + `R3_EXPECTED_BRANCH`): `npm run qa:r3:integrated -- --execute`
+- Independent Rollback OFF (always run in try/finally after ON window): `npm run qa:r3:rollback -- --apply`
+
+## Mandatory GO / NO-GO Criteria
+
+- **Release Candidate VALIDATED** requires: OFF + legacy smoke PASS, `R1_ONLY` PASS, ON + `R3-I0..I7` 8/8 PASS, cleanup (`remainingMemory=0`, `remainingDocuments=0`, `errors=[]`), Rollback OFF PASS, final Preflight OFF 9/9 READY, exact SHA & branch verified, R2 disabled.
+- **Fail-closed:** Any mismatch in SHA, branch, target, or Supabase ref aborts immediately with zero writes.
+- **Production:** Never insert fixtures or create QA users in Production.
+
+## Evidence & Traceability
+
+- Store sanitized JSON evidence under `.qa/` (gitignored), keyed by SHA and `runId`.
+- Never overwrite historical candidate evidence; archive snapshots before updating latest pointers.
+- Reuse valid evidence when `HEAD^{tree}` is unchanged; do not re-run full suites unnecessarily.

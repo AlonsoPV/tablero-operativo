@@ -1,6 +1,7 @@
 import {
   classifyCreateWorkKind,
   looksLikeCommsPrepare,
+  looksLikeExecutiveConsult,
   resolveCreateWriteIntent,
   type CreateWorkKind,
 } from './operationalSemantics/classifyCreateWork'
@@ -8,7 +9,7 @@ import {
 export type AssistantLane = 'talk' | 'write'
 export type WriteIntent = 'consult' | 'create'
 export type { CreateWorkKind }
-export { looksLikeCommsPrepare }
+export { looksLikeCommsPrepare, looksLikeExecutiveConsult }
 
 export function looksLikeCreateWork(text: string) {
   return classifyCreateWorkKind(text) !== 'none'
