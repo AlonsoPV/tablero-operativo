@@ -12,6 +12,8 @@ interface ImportMetaEnv {
    * Afecta mes O2C, “hoy” CDMX, filtros de historial y valores por defecto de mediciones. No usar en producción.
    */
   readonly VITE_DEV_FIXED_NOW?: string
+  /** Laboratorio local R4 (voz/liga simulados). Solo el valor "1" lo enciende. */
+  readonly VITE_AGENT_VOICE_R4?: string
 }
 
 interface ImportMeta {

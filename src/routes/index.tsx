@@ -246,6 +246,13 @@ const router = createBrowserRouter([
             },
           },
           {
+            path: ROUTES.AI_R4_LAB,
+            lazy: async () => {
+              const { R4VoiceLabPage } = await importWithReload(() => import('@/features/r4-lab'))
+              return { Component: R4VoiceLabPage }
+            },
+          },
+          {
             path: ROUTES.AI_HISTORY,
             lazy: async () => {
               const { AiHistoryPage } = await importWithReload(() => import('@/features/ai-support'))

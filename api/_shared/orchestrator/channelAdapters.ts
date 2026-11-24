@@ -10,6 +10,7 @@ import { buildReportUi, composeRendered, composeVoice, composeWhatsApp, hasForma
 import { composeText } from './respond.js'
 import { runAgentTurn, type AgentTurnDeps, type AgentTurnResult } from './runAgentTurn.js'
 import { formatWhatsAppTurn } from '../whatsappFormat.js'
+import { formatVoiceSpokenReply, sanitizeTextForVoiceSpeech } from '../voiceChannelAdapter.js'
 import {
   createSupabaseSessionContextStore,
   defaultSessionContextStore,
@@ -25,10 +26,12 @@ import type { AccessCapabilities } from '../../../src/features/auth/lib/permissi
 import { isAgentMemoryEnabled } from '../memory/flag.js'
 import { loadSupabaseMemoryStore } from '../memory/store.js'
 
-/** Web y WhatsApp comparten contexto entre instancias; voz rehidrata desde consult_log. */
+/** Web, WhatsApp y Voz comparten contexto corporativo autorizado entre instancias. */
 function defaultStoreForChannel(input: { identity: VerifiedIdentity; channel: AgentChannel }): SessionContextStore {
-  if (input.channel === 'voice') return defaultSessionContextStore
-  return createSupabaseSessionContextStore(input.identity.supabase)
+  if (input.identity.supabase) {
+    return createSupabaseSessionContextStore(input.identity.supabase)
+  }
+  return defaultSessionContextStore
 }
 
 export function isAgentOrchestratorEnabled(env: Record<string, string | undefined> = process.env): boolean {
@@ -36,7 +39,6 @@ export function isAgentOrchestratorEnabled(env: Record<string, string | undefine
 }
 
 const WHATSAPP_MAX = 900
-const VOICE_MAX_LINES = 4
 
 /**
  * Un mismo AgentTurnResult (datos y formato ya resueltos) se presenta por canal: aquí sólo cambia
@@ -53,9 +55,16 @@ export function formatForChannel(result: AgentTurnResult, channel: AgentChannel)
     return notice ? `${notice}\n\n${body}` : body
   }
 
-  if (channel === 'voice' && rendered) {
-    const body = composeVoice(rendered)
-    return notice ? `${notice} ${body}`.trim() : body
+  if (channel === 'voice') {
+    if (rendered) {
+      const body = sanitizeTextForVoiceSpeech(composeVoice(rendered), {
+        hasProposals: Boolean((result.proposals && result.proposals.length > 0) || result.proposal),
+      })
+      return notice ? sanitizeTextForVoiceSpeech(`${notice} ${body}`.trim()) : body
+    }
+    const spoken = formatVoiceSpokenReply(result)
+    if (spoken) return spoken
+    return sanitizeTextForVoiceSpeech(composeText(response, { headings: false }))
   }
 
   if (channel === 'whatsapp') {
@@ -65,17 +74,6 @@ export function formatForChannel(result: AgentTurnResult, channel: AgentChannel)
     }
     const text = composeText(response, { headings: false }).replace(/[#*_]/g, '')
     return text.length <= WHATSAPP_MAX ? text : `${text.slice(0, WHATSAPP_MAX - 1).trim()}…`
-  }
-
-  if (channel === 'voice') {
-    const { blocks } = response
-    const lines = [
-      ...blocks.data.filter((l) => !l.startsWith('- ')).slice(0, 2),
-      ...blocks.data.filter((l) => l.startsWith('- ')).slice(0, 2).map((l) => l.slice(2)),
-      ...blocks.recommendation.slice(0, 1),
-      ...blocks.limitations.slice(0, 1),
-    ]
-    return lines.slice(0, VOICE_MAX_LINES + 1).join(' ')
   }
 
   const text = composeText(response, { headings: false }).replace(/[#*_]/g, '')
@@ -124,7 +122,7 @@ export async function runChannelTurn(
   if (input.seedActiveQuery && !existingSession) {
     await store.set(key, { ...emptySessionContext(now), activeQuery: input.seedActiveQuery }, now)
   } else if (
-    (input.channel === 'web' || input.channel === 'whatsapp') &&
+    (input.channel === 'web' || input.channel === 'whatsapp' || input.channel === 'voice') &&
     (!existingSession || (!existingSession.lastEntity && existingSession.lastActions.length === 0))
   ) {
     // Continuidad segura entre canales para el MISMO usuario corporativo y MISMO fingerprint de alcance.
@@ -159,7 +157,7 @@ export async function runChannelTurn(
     }
   )
   // Registrar última actividad del usuario corporativo (sin mezclar identidades ni sobrescribir formato).
-  if (input.channel === 'web' || input.channel === 'whatsapp') {
+  if (input.channel === 'web' || input.channel === 'whatsapp' || input.channel === 'voice') {
     const updatedSession = await store.get(key, overrides.now?.())
     if (updatedSession && (updatedSession.lastTotals || updatedSession.lastEntity || updatedSession.lastActions.length > 0)) {
       await writeSharedUserPreferences(

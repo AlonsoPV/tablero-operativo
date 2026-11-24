@@ -61,15 +61,19 @@ export function useSpeechRecognition(options?: {
   const [listening, setListening] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
   const [seconds, setSeconds] = useState(0)
+  const [audioLevel, setAudioLevel] = useState(0)
   const [interimText, setInterimText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const rafRef = useRef<number | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const finalsRef = useRef('')
   const interimRef = useRef('')
   const wantedRef = useRef(false)
+  const discardOnStopRef = useRef(false)
   const timerRef = useRef<number | null>(null)
   const restartTimerRef = useRef<number | null>(null)
   const onFinalRef = useRef(options?.onFinalTranscript)
@@ -107,7 +111,54 @@ export function useSpeechRecognition(options?: {
     if (transcript) onFinalRef.current?.(transcript)
   }
 
+  const stopAudioMeter = () => {
+    if (rafRef.current != null) {
+      window.cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+    const ctx = audioCtxRef.current
+    audioCtxRef.current = null
+    if (ctx && ctx.state !== 'closed') {
+      void ctx.close().catch(() => {})
+    }
+    setAudioLevel(0)
+  }
+
+  const startAudioMeter = (stream: MediaStream) => {
+    stopAudioMeter()
+    try {
+      const AudioCtx = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      if (!AudioCtx) return
+      const ctx = new AudioCtx()
+      audioCtxRef.current = ctx
+      const source = ctx.createMediaStreamSource(stream)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 256
+      source.connect(analyser)
+      const data = new Uint8Array(analyser.frequencyBinCount)
+      const tick = () => {
+        if (!wantedRef.current || !audioCtxRef.current) {
+          setAudioLevel(0)
+          return
+        }
+        analyser.getByteTimeDomainData(data)
+        let sumSq = 0
+        for (let i = 0; i < data.length; i += 1) {
+          const normalized = (data[i]! - 128) / 128
+          sumSq += normalized * normalized
+        }
+        const rms = Math.sqrt(sumSq / data.length)
+        setAudioLevel(Math.min(1, Number((rms * 4).toFixed(2))))
+        rafRef.current = window.requestAnimationFrame(tick)
+      }
+      rafRef.current = window.requestAnimationFrame(tick)
+    } catch {
+      setAudioLevel(0)
+    }
+  }
+
   const releaseStream = () => {
+    stopAudioMeter()
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
   }
@@ -182,6 +233,11 @@ export function useSpeechRecognition(options?: {
     clearTimer()
     releaseStream()
     setListening(false)
+    if (discardOnStopRef.current) {
+      discardOnStopRef.current = false
+      chunksRef.current = []
+      return
+    }
     const heard = liveText()
     if (heard) {
       commit(heard)
@@ -204,6 +260,7 @@ export function useSpeechRecognition(options?: {
   }, [])
 
   const stop = useCallback(() => {
+    discardOnStopRef.current = false
     wantedRef.current = false
     clearRestart()
     stopRecognition()
@@ -219,6 +276,30 @@ export function useSpeechRecognition(options?: {
     }
     void finishRecording(null)
   }, [finishRecording])
+
+  const cancel = useCallback(() => {
+    discardOnStopRef.current = true
+    wantedRef.current = false
+    clearTimer()
+    clearRestart()
+    stopRecognition()
+    const recorder = recorderRef.current
+    recorderRef.current = null
+    if (recorder && recorder.state !== 'inactive') {
+      try {
+        recorder.stop()
+      } catch {
+        /* ya detenido */
+      }
+    }
+    chunksRef.current = []
+    finalsRef.current = ''
+    interimRef.current = ''
+    setInterimText('')
+    setListening(false)
+    setTranscribing(false)
+    releaseStream()
+  }, [])
 
   const start = useCallback(async () => {
     if (!speechRecognitionSupported()) {
@@ -278,6 +359,7 @@ export function useSpeechRecognition(options?: {
     if (timerRef.current == null) {
       timerRef.current = window.setInterval(() => setSeconds((value) => value + 1), 1000)
     }
+    startAudioMeter(stream)
     beginRecognition(langs[0] ?? 'es-MX')
   }, [beginRecognition, finishRecording, langs, transcribing])
 
@@ -301,11 +383,13 @@ export function useSpeechRecognition(options?: {
     listening,
     transcribing,
     seconds,
+    audioLevel,
     interimText,
     error,
     setError,
     start,
     stop,
+    cancel,
     setInterimText,
   }
 }

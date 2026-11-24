@@ -1,233 +1,682 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Loader2, Mic, MicOff, Square } from 'lucide-react'
+import {
+  AlertCircle,
+  Check,
+  Copy,
+  FileText,
+  Loader2,
+  MessageSquare,
+  Mic,
+  MicOff,
+  Pause,
+  Play,
+  Send,
+  Sparkles,
+  Square,
+  Volume2,
+  VolumeX,
+  X,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { SpeechButton } from '@/components/ui/SpeechButton'
-import {
-  requestAssistantTextAnalysis,
-  type AssistantAudioIntent,
-  type AssistantAudioResult,
-} from '@/lib/assistantAudioClient'
-import { speakWithBrowser } from '@/lib/elevenLabsTtsClient'
-import { todayWallClockCDMX } from '@/lib/dateUtils'
+import { speakNaturalEsMx, stopAllVoicePlayback } from '@/lib/elevenLabsTtsClient'
 import { cn } from '@/lib/utils'
-import { ActionDraftList } from '@/features/ai-support/components/ActionDraftList'
 import { useSpeechRecognition } from '@/features/ai-support/useSpeechRecognition'
-import { looksLikeDraftCorrection } from '@/features/ai-support/writeIntent'
-import { buildVoiceValidationSpeech, groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
-import { formatWorkDateLabel } from '@/features/ai-support/parseWorkFacts'
+import type { AiChatMessage } from '@/features/ai-support/types'
 
-function useAutoSpeak(text: string | null) {
-  const lastRef = useRef('')
-  useEffect(() => {
-    const value = text?.trim() ?? ''
-    if (!value || value === lastRef.current) return
-    lastRef.current = value
-    try {
-      speakWithBrowser(value)
-    } catch {
-      // El navegador puede no tener TTS; la UI sigue siendo la fuente de validacion.
-    }
-    return () => {
-      if (typeof window !== 'undefined') window.speechSynthesis?.cancel()
-    }
-  }, [text])
+const VOICE_QUICK_PROMPTS = [
+  { label: '¿Qué necesita mi atención hoy?', prompt: '¿Qué necesita mi atención hoy?' },
+  { label: '¿Qué está frenando a mi equipo?', prompt: '¿Qué está frenando a mi equipo?' },
+  { label: 'Sesión ejecutiva guiada', prompt: 'Iniciemos una sesión ejecutiva guiada de 15 minutos.' },
+  { label: 'Crear compromiso', prompt: 'Crea una acción para revisar este problema el viernes.' },
+] as const
+
+export type VoicePanelState =
+  | 'idle'
+  | 'listening'
+  | 'processing'
+  | 'speaking'
+  | 'paused'
+  | 'error'
+
+export type AssistantVoicePanelProps = {
+  conversationId: string
+  messages: AiChatMessage[]
+  loading: boolean
+  lastOrchestratorMs?: number | null
+  actorLabel?: string | null
+  compact?: boolean
+  className?: string
+  onSendVoiceTurn: (utterance: string) => Promise<void>
+  onContinueByText: () => void
+  renderVisualReply: (message: AiChatMessage) => ReactNode
+  renderProposalGroup: (message: AiChatMessage, index: number) => ReactNode
 }
 
-type AssistantVoicePanelProps = {
-  context: string
-  contextHints: string[]
-  compact?: boolean
-  createdBy: string | null
-  className?: string
-  composerLead?: ReactNode
+const AUDIO_BAR_WEIGHTS = [0.45, 0.8, 1, 0.72, 0.5] as const
+
+function buildWrittenAgreementsSummary(input: {
+  conversationId: string
+  actorLabel?: string | null
+  messages: AiChatMessage[]
+}) {
+  const proposals = input.messages.flatMap((m) => m.proposals ?? [])
+  const findings = input.messages
+    .filter((m) => m.role === 'assistant' && m.content.trim())
+    .slice(-5)
+    .map((m) => m.content.trim().split('\n')[0]!.slice(0, 180))
+  const userTurns = input.messages.filter((m) => m.role === 'user').length
+  const nowStr = new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })
+
+  const lines: string[] = [
+    'Resumen escrito de acuerdos — SCRUMBAN (Voz por turnos · es-MX)',
+    `Sesión: ${input.conversationId} · Fecha: ${nowStr}${input.actorLabel ? ` · Participante: ${input.actorLabel}` : ''}`,
+    `Intercambios registrados: ${userTurns}`,
+    '',
+  ]
+
+  if (proposals.length > 0) {
+    lines.push('Propuestas generadas en la sesión (requieren aprobación explícita R2 en tarjeta):')
+    proposals.forEach((p, idx) => {
+      lines.push(`${idx + 1}. ${p.summary}`)
+    })
+    lines.push('')
+  }
+
+  if (findings.length > 0) {
+    lines.push('Hallazgos y acuerdos conversados:')
+    findings.forEach((line, idx) => {
+      lines.push(`${idx + 1}. ${line}`)
+    })
+  } else {
+    lines.push('Aún no hay acuerdos ni consultas registradas en esta sesión.')
+  }
+
+  return lines.join('\n')
 }
 
 export function AssistantVoicePanel({
-  context,
-  contextHints,
+  conversationId,
+  messages,
+  loading,
+  lastOrchestratorMs = null,
+  actorLabel,
   compact = false,
-  createdBy,
   className,
-  composerLead,
+  onSendVoiceTurn,
+  onContinueByText,
+  renderVisualReply,
+  renderProposalGroup,
 }: AssistantVoicePanelProps) {
-  const [intent, setIntent] = useState<AssistantAudioIntent>('plan_actions')
-  const [manualNotes, setManualNotes] = useState('')
-  const [clarifications, setClarifications] = useState('')
-  const [input, setInput] = useState('')
-  const [pendingHeard, setPendingHeard] = useState<string | null>(null)
-  const [analyzing, setAnalyzing] = useState(false)
-  const [result, setResult] = useState<AssistantAudioResult | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
-  const resultRef = useRef<AssistantAudioResult | null>(null)
-  resultRef.current = result
+  const [draftTranscript, setDraftTranscript] = useState('')
+  const [reviewingTranscript, setReviewingTranscript] = useState(false)
+  const [autoSpeak, setAutoSpeak] = useState(true)
+  const [speaking, setSpeaking] = useState(false)
+  const [paused, setPaused] = useState(false)
+  const [ttsError, setTtsError] = useState<string | null>(null)
+  const [showSummary, setShowSummary] = useState(false)
+  const [copiedSummary, setCopiedSummary] = useState(false)
+  const [lastTurnMetrics, setLastTurnMetrics] = useState<{
+    sttMs: number
+    orchestratorMs: number
+    ttsStartMs: number | null
+    totalTurnMs: number
+    provider: 'local_browser' | 'live_provider'
+  } | null>(null)
+  const lastSpokenIndexRef = useRef<number>(messages.length - 1)
+  const playbackAbortRef = useRef<AbortController | null>(null)
+  const captureStartRef = useRef<number | null>(null)
+  const lastSttMsRef = useRef<number>(0)
+  const scrollEndRef = useRef<HTMLDivElement>(null)
 
-  const runAnalysis = async (text: string, correction = '') => {
-    const trimmed = text.trim()
-    const correctionText = correction.trim()
-    if (!trimmed || analyzing) return
+  const interruptPlayback = () => {
+    playbackAbortRef.current?.abort()
+    playbackAbortRef.current = null
+    stopAllVoicePlayback()
+    setSpeaking(false)
+  }
 
-    abortRef.current?.abort()
+  const speakTurn = async (text: string) => {
+    const clean = text.trim()
+    if (!clean) return
+    interruptPlayback()
+    setTtsError(null)
     const controller = new AbortController()
-    abortRef.current = controller
-    setAnalyzing(true)
-    setPendingHeard(null)
-
-    const today = todayWallClockCDMX()
-    const previous = resultRef.current
-    const previousHint = previous?.actionDrafts[0]?.dueDateHint ?? null
-    if (correctionText && previous) {
-      const local = groundActionDrafts(previous, previous.transcript || trimmed, correctionText, today)
-      if (local.actionDrafts[0]?.dueDateHint !== previousHint) {
-        setResult(local)
-        setClarifications(correctionText)
-        setAnalyzing(false)
-        return
-      }
-    }
-
-    setResult(null)
-
-    try {
-      const next = await requestAssistantTextAnalysis({
-        text: trimmed,
-        context: [context, manualNotes.trim() ? `Notas manuales:\n${manualNotes.trim()}` : '']
-          .filter(Boolean)
-          .join('\n\n'),
-        clarifications: correctionText || clarifications.trim() || undefined,
-        intent,
-        signal: controller.signal,
-      })
-      const grounded = groundActionDrafts(next, trimmed, correctionText, today)
-      setResult({ ...grounded, transcript: trimmed })
-      setInput(trimmed)
-      if (correctionText) setClarifications(correctionText)
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') return
-      toast.error(error instanceof Error ? error.message : 'No se pudo interpretar la nota.')
-    } finally {
-      setAnalyzing(false)
+    playbackAbortRef.current = controller
+    const ttsStartedAt = performance.now()
+    const handle = await speakNaturalEsMx(clean, {
+      preferElevenLabs: false,
+      signal: controller.signal,
+      onStart: () => {
+        const elapsedMs = Math.round(performance.now() - ttsStartedAt)
+        setSpeaking(true)
+        setLastTurnMetrics((prev) =>
+          prev
+            ? {
+                ...prev,
+                ttsStartMs: elapsedMs,
+                totalTurnMs: prev.sttMs + prev.orchestratorMs + elapsedMs,
+              }
+            : prev
+        )
+      },
+      onEnd: () => setSpeaking(false),
+    })
+    if (handle.provider === 'none') {
+      setTtsError('No se pudo reproducir el audio en este navegador. Puedes leer la respuesta y continuar por texto.')
+      setSpeaking(false)
     }
   }
 
   const speech = useSpeechRecognition({
     onTranscript: (transcript) => {
       const heard = transcript.trim()
-      if (heard) setInput(heard)
+      if (heard) setDraftTranscript(heard)
     },
     onFinalTranscript: (transcript) => {
       const heard = transcript.trim()
-      if (!heard) return
-      setInput(heard)
-      const current = resultRef.current
-      if (current && looksLikeDraftCorrection(heard)) {
-        void runAnalysis(current.transcript || input, heard)
+      if (captureStartRef.current !== null) {
+        lastSttMsRef.current = Math.round(performance.now() - captureStartRef.current)
+        captureStartRef.current = null
+      }
+      if (!heard) {
+        setTtsError('No se detectó voz clara. Reintenta con el micrófono o escribe tu solicitud.')
         return
       }
-      setResult(null)
-      setPendingHeard(heard)
+      setTtsError(null)
+      setDraftTranscript(heard)
+      setReviewingTranscript(true)
     },
   })
 
+  // Auto-reproducir cada nueva respuesta del asistente en español de México
   useEffect(() => {
-    return () => abortRef.current?.abort()
+    const lastIdx = messages.length - 1
+    if (lastIdx <= lastSpokenIndexRef.current) return
+    const latest = messages[lastIdx]
+    if (!latest || latest.role !== 'assistant') return
+    lastSpokenIndexRef.current = lastIdx
+    if (!autoSpeak || paused) return
+    const textToSpeak = latest.spokenText?.trim() || latest.content.trim()
+    if (textToSpeak) {
+      void speakTurn(textToSpeak)
+    }
+  }, [messages, autoSpeak, paused])
+
+  useEffect(() => {
+    scrollEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [messages.length, reviewingTranscript, loading])
+
+  useEffect(() => {
+    return () => {
+      playbackAbortRef.current?.abort()
+      stopAllVoicePlayback()
+    }
   }, [])
 
-  const interpretationSpeech = useMemo(() => {
-    if (!result) return ''
-    return buildVoiceValidationSpeech(result.transcript || input, result)
-  }, [input, result])
+  const agreementsSummary = useMemo(
+    () => buildWrittenAgreementsSummary({ conversationId, actorLabel, messages }),
+    [conversationId, actorLabel, messages]
+  )
 
-  const autoSpeakText = analyzing
-    ? null
-    : pendingHeard
-      ? `Te escuche: ${pendingHeard}. Si esta bien, confirma. Si no, vuelve a dictar.`
-      : result
-        ? interpretationSpeech
-        : null
-  useAutoSpeak(autoSpeakText)
+  const handleStartDictation = () => {
+    interruptPlayback()
+    setPaused(false)
+    setTtsError(null)
+    setReviewingTranscript(false)
+    captureStartRef.current = performance.now()
+    void speech.start()
+  }
 
-  const nextStepsSpeech = useMemo(() => {
-    if (!result?.nextSteps.length) return ''
-    return `Que hacer ahora. ${result.nextSteps.slice(0, 3).join('. ')}`
-  }, [result])
+  const handleTogglePause = () => {
+    if (paused) {
+      setPaused(false)
+      setTtsError(null)
+      return
+    }
+    interruptPlayback()
+    if (speech.listening) speech.cancel()
+    setPaused(true)
+  }
+
+  const handleFinishSession = () => {
+    interruptPlayback()
+    if (speech.listening) speech.cancel()
+    setPaused(true)
+    setShowSummary(true)
+  }
+
+  const handleConfirmSend = async (override?: string) => {
+    const text = (override ?? draftTranscript).trim()
+    if (!text || loading) return
+    interruptPlayback()
+    setPaused(false)
+    setTtsError(null)
+    setReviewingTranscript(false)
+    setDraftTranscript('')
+    const sendStart = performance.now()
+    const sttMs = override ? 0 : lastSttMsRef.current
+    lastSttMsRef.current = 0
+    await onSendVoiceTurn(text)
+    const orchestratorMs = lastOrchestratorMs ?? Math.round(performance.now() - sendStart)
+    setLastTurnMetrics({
+      sttMs,
+      orchestratorMs,
+      ttsStartMs: null,
+      totalTurnMs: sttMs + orchestratorMs,
+      provider: 'local_browser',
+    })
+  }
+
+  const handleCopySummary = async () => {
+    try {
+      await navigator.clipboard.writeText(agreementsSummary)
+      setCopiedSummary(true)
+      toast.success('Resumen de acuerdos copiado.')
+      window.setTimeout(() => setCopiedSummary(false), 1800)
+    } catch {
+      toast.error('No se pudo copiar al portapapeles.')
+    }
+  }
+
+  const activeError = speech.error || ttsError
+  const voiceState: VoicePanelState = activeError
+    ? 'error'
+    : speech.listening
+      ? 'listening'
+      : speech.transcribing || loading
+        ? 'processing'
+        : speaking
+          ? 'speaking'
+          : paused
+            ? 'paused'
+            : 'idle'
+
+  const stateBadgeLabel: Record<VoicePanelState, string> = {
+    idle: 'Disponible',
+    listening: `Escuchando · ${speech.seconds}s`,
+    processing: speech.transcribing ? 'Transcribiendo…' : 'Procesando',
+    speaking: 'Respondiendo',
+    paused: 'Pausado',
+    error: 'Error recuperable',
+  }
+
+  const turnStateLabel =
+    voiceState === 'listening'
+      ? `Escuchando… ${speech.seconds}s`
+      : voiceState === 'processing'
+        ? speech.transcribing
+          ? 'Transcribiendo tu voz…'
+          : 'Consultando datos reales…'
+        : voiceState === 'speaking'
+          ? 'Respondiendo por voz (es-MX)…'
+          : voiceState === 'paused'
+            ? 'Sesión pausada · Micrófono liberado'
+            : voiceState === 'error'
+              ? 'Error recuperable · Tu conversación sigue intacta'
+              : reviewingTranscript
+                ? 'Revisa o corrige tu transcripción'
+                : 'Disponible para tu siguiente turno'
+
+  const clampedAudioLevel = Math.max(0.08, Math.min(1, speech.audioLevel))
 
   return (
-    <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden', className)}>
-      <div className={cn('shrink-0 space-y-2 border-b border-border/60', compact ? 'px-2 py-1.5' : 'px-3 py-2')}>
-        <div className="flex flex-wrap gap-1">
-          {(
-            [
-              { id: 'plan_actions' as const, label: 'Crear planes o acciones' },
-              { id: 'advisory' as const, label: 'Solo asesoria' },
-            ] as const
-          ).map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => {
-                setIntent(option.id)
-                setResult(null)
-              }}
-              className={cn(
-                'rounded-md px-2 py-1 text-[11px] font-medium transition',
-                intent === option.id
-                  ? 'bg-primary/10 text-primary'
-                  : 'bg-muted text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        {contextHints.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {contextHints.map((hint) => (
-              <span
-                key={hint}
-                className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-              >
-                {hint}
-              </span>
-            ))}
+    <div
+      className={cn('flex min-h-0 flex-1 flex-col overflow-hidden', className)}
+      data-testid="assistant-voice-panel"
+      data-voice-state={voiceState}
+    >
+      {/* Barra superior del canal Voz (honesta: conversación por turnos, nunca finge streaming en vivo) */}
+      <div
+        className={cn(
+          'flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/50 bg-background/75 backdrop-blur-sm',
+          compact ? 'px-2.5 py-2' : 'px-4 py-2.5'
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-2.5">
+          {/* Indicador de actividad real ligado al AnalyserNode del micrófono o reproducción */}
+          <div
+            className="flex h-7 shrink-0 items-center gap-0.5 rounded-full bg-muted/60 px-2"
+            aria-hidden
+          >
+            {AUDIO_BAR_WEIGHTS.map((weight, idx) => {
+              const heightPx =
+                voiceState === 'listening'
+                  ? Math.round(5 + clampedAudioLevel * 14 * weight)
+                  : voiceState === 'speaking'
+                    ? Math.round(7 + (idx % 2 === 0 ? 0.85 : 0.45) * 9)
+                    : voiceState === 'processing'
+                      ? 8
+                      : 4
+              return (
+                <span
+                  key={idx}
+                  className={cn(
+                    'w-0.5 rounded-full transition-[height] duration-75',
+                    voiceState === 'listening'
+                      ? 'bg-red-500'
+                      : voiceState === 'speaking'
+                        ? 'bg-primary'
+                        : voiceState === 'processing'
+                          ? 'bg-amber-500'
+                          : voiceState === 'error'
+                            ? 'bg-destructive'
+                            : 'bg-emerald-500/70'
+                  )}
+                  style={{ height: `${heightPx}px` }}
+                />
+              )
+            })}
           </div>
-        ) : null}
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <p className="truncate text-xs font-semibold tracking-tight text-foreground">
+                Voz por turnos · es-MX
+              </p>
+              <span
+                className={cn(
+                  'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                  voiceState === 'error'
+                    ? 'bg-destructive/15 text-destructive'
+                    : voiceState === 'listening'
+                      ? 'bg-red-500/15 text-red-700 dark:text-red-300'
+                      : voiceState === 'speaking'
+                        ? 'bg-primary/15 text-primary'
+                        : voiceState === 'processing'
+                          ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300'
+                          : voiceState === 'paused'
+                            ? 'bg-muted text-muted-foreground'
+                            : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                )}
+              >
+                {stateBadgeLabel[voiceState]}
+              </span>
+            </div>
+            <p className="truncate text-[11px] text-muted-foreground">{turnStateLabel}</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {speaking ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              className="h-7 gap-1 rounded-full px-2.5 text-[11px]"
+              onClick={interruptPlayback}
+            >
+              <Square className="h-3 w-3" aria-hidden />
+              Detener voz
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 gap-1 rounded-full px-2.5 text-[11px]"
+            onClick={handleTogglePause}
+            disabled={loading}
+            aria-label={paused ? 'Reanudar sesión de voz' : 'Pausar sesión de voz'}
+          >
+            {paused ? <Play className="h-3 w-3" aria-hidden /> : <Pause className="h-3 w-3" aria-hidden />}
+            {paused ? 'Reanudar' : 'Pausar'}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 gap-1 rounded-full px-2.5 text-[11px]"
+            onClick={() => {
+              if (autoSpeak) interruptPlayback()
+              setAutoSpeak((v) => !v)
+            }}
+            aria-label={autoSpeak ? 'Silenciar lectura automática' : 'Activar lectura automática'}
+          >
+            {autoSpeak ? <Volume2 className="h-3.5 w-3.5" aria-hidden /> : <VolumeX className="h-3.5 w-3.5" aria-hidden />}
+            {autoSpeak ? 'Audio activo' : 'Silenciado'}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={showSummary ? 'secondary' : 'outline'}
+            className="h-7 gap-1 rounded-full px-2.5 text-[11px]"
+            onClick={() => setShowSummary((v) => !v)}
+          >
+            <FileText className="h-3.5 w-3.5" aria-hidden />
+            Acuerdos
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="h-7 gap-1 rounded-full px-2.5 text-[11px]"
+            onClick={() => {
+              interruptPlayback()
+              if (speech.listening) speech.cancel()
+              onContinueByText()
+            }}
+          >
+            <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+            Continuar por texto
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 gap-1 rounded-full px-2 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={handleFinishSession}
+            aria-label="Finalizar conversación de voz"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+            Finalizar
+          </Button>
+        </div>
       </div>
 
-      <div className={cn('min-h-0 flex-1 space-y-3 overflow-y-auto', compact ? 'px-2 py-2' : 'px-3 py-3')}>
-        {!result && !analyzing && !speech.listening && !input ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
+      {/* Panel opcional de Resumen escrito de acuerdos */}
+      {showSummary ? (
+        <section className="shrink-0 space-y-2 border-b border-border/50 bg-muted/35 px-4 py-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Resumen escrito de acuerdos
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 rounded-full px-2.5 text-[11px]"
+              onClick={() => void handleCopySummary()}
+            >
+              {copiedSummary ? <Check className="h-3 w-3" aria-hidden /> : <Copy className="h-3 w-3" aria-hidden />}
+              {copiedSummary ? 'Copiado' : 'Copiar resumen'}
+            </Button>
+          </div>
+          <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-xl border border-border/60 bg-background p-2.5 font-sans text-xs leading-5 text-foreground">
+            {agreementsSummary}
+          </pre>
+        </section>
+      ) : null}
+
+      {/* Hilo de conversación por turnos + complemento visual (tarjetas, cifras, propuestas R2) */}
+      <div className={cn('min-h-0 flex-1 space-y-3 overflow-y-auto', compact ? 'px-3 py-3' : 'px-4 py-4 sm:px-5')}>
+        {messages.length === 0 && !speech.listening && !reviewingTranscript ? (
+          <div className="mx-auto flex max-w-md flex-col items-center justify-center gap-3 py-6 text-center">
             <button
               type="button"
-              onClick={() => (speech.listening ? speech.stop() : speech.start())}
-              disabled={!speech.supported}
+              onClick={handleStartDictation}
+              disabled={!speech.supported || loading}
               className={cn(
                 'inline-flex h-16 w-16 items-center justify-center rounded-full border shadow-sm transition',
                 speech.supported
                   ? 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/15'
                   : 'border-border bg-muted text-muted-foreground'
               )}
-              aria-label="Dictar nota"
+              aria-label="Dictar solicitud por voz"
             >
               <Mic className="h-7 w-7" aria-hidden />
             </button>
             <div className="space-y-1">
-              <p className="text-sm font-medium">Habla el pendiente, con fecha si ya la tienes</p>
-              <p className="max-w-sm text-xs text-muted-foreground">
-                {speech.supported
-                  ? 'Al detener, te leo lo que escuche para que lo valides. Luego armo la propuesta.'
-                  : 'Este navegador no soporta microfono; pega o escribe la nota abajo.'}
+              <p className="text-sm font-semibold text-foreground">
+                Habla con SCRUMBAN por turnos
               </p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Dicta tu solicitud, revisa o corrige el texto antes de enviarlo, escucha la respuesta
+                en español de México y aprueba propuestas de forma segura en pantalla.
+              </p>
+            </div>
+            <div className="flex flex-wrap justify-center gap-1.5 pt-1">
+              {VOICE_QUICK_PROMPTS.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void handleConfirmSend(item.prompt)}
+                  className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background px-3 py-1.5 text-[11px] font-medium text-foreground transition hover:border-primary/40 hover:bg-primary/5"
+                >
+                  <Sparkles className="h-3 w-3 text-primary" aria-hidden />
+                  {item.label}
+                </button>
+              ))}
             </div>
           </div>
         ) : null}
 
+        {messages.map((message, index) => (
+          <div key={`voice-${message.role}-${index}`} className="space-y-2">
+            <div
+              className={cn(
+                'flex items-end gap-2',
+                message.role === 'user' ? 'justify-end' : 'justify-start'
+              )}
+            >
+              <div
+                className={cn(
+                  message.role === 'user'
+                    ? 'max-w-[85%] rounded-2xl rounded-br-md bg-primary px-3.5 py-2.5 text-sm leading-5 text-primary-foreground shadow-sm'
+                    : 'w-full max-w-[92%] rounded-2xl rounded-bl-md bg-background/95 px-3.5 py-3 text-foreground shadow-sm ring-1 ring-border/50'
+                )}
+              >
+                {message.role === 'assistant' ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2 border-b border-border/40 pb-1.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Complemento visual y voz
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void speakTurn(message.spokenText || message.content)}
+                        className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/15"
+                      >
+                        <Volume2 className="h-3 w-3" aria-hidden />
+                        Escuchar
+                      </button>
+                    </div>
+                    {renderVisualReply(message)}
+                  </div>
+                ) : (
+                  message.content
+                )}
+              </div>
+            </div>
+            {message.role === 'assistant' && message.proposals?.length ? (
+              <div className="pl-1">{renderProposalGroup(message, index)}</div>
+            ) : null}
+          </div>
+        ))}
+
+        {loading ? (
+          <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-background px-3 py-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden />
+            Consultando tu operación autorizada…
+          </div>
+        ) : null}
+
+        {/* Revisión y corrección explícita de transcripción antes de enviar */}
+        {reviewingTranscript && !speech.listening ? (
+          <section className="space-y-2 rounded-2xl border border-primary/30 bg-primary/5 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+                Revisa o corrige lo escuchado
+              </p>
+              <span className="text-[10px] text-muted-foreground">Nada se envía hasta que confirmes</span>
+            </div>
+            <textarea
+              value={draftTranscript}
+              onChange={(event) => setDraftTranscript(event.target.value)}
+              rows={2}
+              aria-label="Editar transcripción antes de enviar"
+              className="w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={!draftTranscript.trim() || loading}
+                onClick={() => void handleConfirmSend()}
+              >
+                <Send className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                Enviar consulta
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={!speech.supported || loading}
+                onClick={handleStartDictation}
+              >
+                <Mic className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                Volver a dictar
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setReviewingTranscript(false)
+                  setDraftTranscript('')
+                }}
+              >
+                Descartar
+              </Button>
+            </div>
+          </section>
+        ) : null}
+
+        {activeError ? (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100"
+          >
+            <span className="flex items-start gap-1.5">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span>{activeError}</span>
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 rounded-full px-2.5 text-[11px]"
+              onClick={() => {
+                interruptPlayback()
+                onContinueByText()
+              }}
+            >
+              Continuar por texto
+            </Button>
+          </div>
+        ) : null}
+
+        <div ref={scrollEndRef} />
+      </div>
+
+      {/* Controles inferiores de dictado y escritura rápida por turnos */}
+      <div className={cn('shrink-0 space-y-2 border-t border-border/50 bg-card/90', compact ? 'p-2.5' : 'px-4 py-3')}>
         {speech.listening ? (
-          <div className="flex items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/35 bg-primary/10 px-3 py-2">
             <div className="min-w-0">
               <p className="text-xs font-semibold text-primary">Escuchando… {speech.seconds}s</p>
               <p className="truncate text-[11px] text-muted-foreground">
-                {speech.interimText || 'Habla con claridad…'}
+                {speech.interimText || 'Habla con claridad; al detener podrás revisar y corregir el texto.'}
               </p>
             </div>
             <Button type="button" size="sm" variant="secondary" className="gap-1" onClick={speech.stop}>
@@ -237,183 +686,61 @@ export function AssistantVoicePanel({
           </div>
         ) : null}
 
-        {speech.error ? (
-          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-900 dark:text-amber-100">
-            {speech.error}
-          </p>
-        ) : null}
-
-        {pendingHeard && !analyzing ? (
-          <section className="space-y-2 rounded-lg border border-primary/25 bg-primary/5 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">Asi te escuche</p>
-            <p className="text-sm leading-5">{pendingHeard}</p>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" size="sm" onClick={() => void runAnalysis(pendingHeard)}>
-                Confirmar e interpretar
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() => {
-                  setPendingHeard(null)
-                  speech.supported ? speech.start() : undefined
-                }}
-              >
-                Volver a dictar
-              </Button>
-            </div>
-          </section>
-        ) : null}
-
-        {analyzing ? (
-          <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-background px-3 py-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            Interpretando nota…
-          </div>
-        ) : null}
-
-        {result ? (
-          <div className="space-y-3">
-            <section className="space-y-1.5 rounded-lg border border-border/70 bg-background p-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Validacion
-                  </p>
-                  <p className="mt-1 text-sm leading-5">
-                    {result.interpretation.executiveSummary || result.validation.summary}
-                  </p>
-                  {result.actionDrafts[0]?.dueDateHint ? (
-                    <p className="mt-1 text-[11px] text-muted-foreground">
-                      Fecha usada: {formatWorkDateLabel(result.actionDrafts[0].dueDateHint)}
-                    </p>
-                  ) : null}
-                </div>
-                {interpretationSpeech ? <SpeechButton text={interpretationSpeech} /> : null}
-              </div>
-              {result.validation.clarificationQuestions.length > 0 ? (
-                <div className="space-y-1 pt-1">
-                  <p className="text-[11px] font-medium">Valida esto</p>
-                  <ul className="list-decimal space-y-0.5 pl-4 text-[11px] text-muted-foreground">
-                    {result.validation.clarificationQuestions.map((question) => (
-                      <li key={question}>{question}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              <div className="space-y-1.5 pt-1">
-                <textarea
-                  value={clarifications}
-                  onChange={(event) => setClarifications(event.target.value)}
-                  rows={2}
-                  placeholder="Si lei mal, corrige: por ejemplo la fecha"
-                  className="w-full resize-none rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  disabled={!clarifications.trim() || analyzing}
-                  onClick={() => void runAnalysis(result.transcript || input, clarifications)}
-                >
-                  Aplicar correccion
-                </Button>
-              </div>
-            </section>
-
-            {result.nextSteps.length > 0 ? (
-              <section className="space-y-1.5 rounded-lg border border-border/70 bg-background p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Que hacer ahora
-                  </p>
-                  {nextStepsSpeech ? <SpeechButton text={nextStepsSpeech} /> : null}
-                </div>
-                <ol className="list-decimal space-y-1 pl-4 text-sm leading-5">
-                  {result.nextSteps.map((step) => (
-                    <li key={step}>{step}</li>
-                  ))}
-                </ol>
-              </section>
-            ) : null}
-
-            {intent === 'plan_actions' ? (
-              <ActionDraftList result={result} createdBy={createdBy} compact={compact} />
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-
-      <div className={cn('shrink-0 space-y-2 border-t border-border/70 bg-card', compact ? 'p-2' : 'p-3')}>
-        {!compact ? (
+        <div className="flex items-end gap-2">
+          <Button
+            type="button"
+            variant={speech.listening ? 'destructive' : 'default'}
+            size="icon"
+            className="h-10 w-10 shrink-0 rounded-full"
+            onClick={() => (speech.listening ? speech.stop() : handleStartDictation())}
+            disabled={!speech.supported || loading || speech.transcribing}
+            aria-label={speech.listening ? 'Detener dictado' : 'Dictar por voz'}
+            title={speech.supported ? 'Dictar por voz' : 'Micrófono no disponible en este navegador'}
+          >
+            {speech.listening ? <MicOff className="h-4 w-4" aria-hidden /> : <Mic className="h-4 w-4" aria-hidden />}
+          </Button>
           <textarea
-            value={manualNotes}
-            onChange={(event) => setManualNotes(event.target.value)}
-            rows={2}
-            placeholder="Contexto manual opcional (area, cliente, plazo…)"
-            className="w-full resize-none rounded-md border border-input bg-background px-2.5 py-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-        ) : null}
-        <div className="flex flex-wrap items-end gap-2">
-          {composerLead ? <div className="flex w-full min-w-0 items-center gap-1">{composerLead}</div> : null}
-          {!speech.listening && speech.supported ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-10 w-10 shrink-0"
-              onClick={() => void speech.start()}
-              disabled={analyzing || speech.transcribing}
-              aria-label="Dictar"
-            >
-              <Mic className="h-4 w-4" aria-hidden />
-            </Button>
-          ) : null}
-          {speech.listening ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              className="h-10 w-10 shrink-0"
-              onClick={speech.stop}
-              aria-label="Detener dictado"
-            >
-              <MicOff className="h-4 w-4" aria-hidden />
-            </Button>
-          ) : null}
-          <textarea
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            rows={compact ? 2 : 3}
-            placeholder="Dicta o escribe el pendiente…"
-            className={cn(
-              'flex-1 resize-none rounded-lg border border-input bg-background px-2.5 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              compact && 'text-[13px]'
-            )}
-            disabled={analyzing || speech.listening}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-                event.preventDefault()
-                void runAnalysis(input)
+            value={draftTranscript}
+            onChange={(event) => {
+              setDraftTranscript(event.target.value)
+              if (reviewingTranscript && !event.target.value.trim()) {
+                setReviewingTranscript(false)
               }
             }}
+            rows={1}
+            placeholder="Dicta con el micrófono o escribe y corrige tu turno…"
+            disabled={loading || speech.listening || speech.transcribing}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                void handleConfirmSend()
+              }
+            }}
+            className="max-h-24 min-h-10 flex-1 resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           <Button
             type="button"
-            className="h-10 shrink-0"
-            disabled={analyzing || !input.trim()}
-            onClick={() => {
-              abortRef.current?.abort()
-              void runAnalysis(input)
-            }}
+            className="h-10 shrink-0 rounded-xl px-3.5"
+            disabled={loading || !draftTranscript.trim() || speech.listening || speech.transcribing}
+            onClick={() => void handleConfirmSend()}
+            aria-label="Enviar turno de voz"
           >
-            {analyzing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : 'Interpretar'}
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
           </Button>
         </div>
-        <p className="text-[10px] text-muted-foreground">
-          En voz, primero valida lo escuchado. Si la fecha sale mal, dicta la correccion. No se crea hasta que apruebes.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-muted-foreground">
+          <span>
+            Conversación por turnos sobre tus datos autorizados · Ninguna acción se ejecuta sin tu aprobación explícita.
+          </span>
+          {lastTurnMetrics ? (
+            <span data-testid="voice-turn-latency">
+              Turno: {lastTurnMetrics.totalTurnMs}ms · Respuesta: {lastTurnMetrics.orchestratorMs}ms
+              {lastTurnMetrics.ttsStartMs !== null ? ` · Audio: ${lastTurnMetrics.ttsStartMs}ms` : ''}
+              {' · '}
+              {lastTurnMetrics.provider === 'live_provider' ? 'Proveedor real' : 'Local / navegador'}
+            </span>
+          ) : null}
+        </div>
       </div>
     </div>
   )

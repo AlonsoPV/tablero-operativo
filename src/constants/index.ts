@@ -5,6 +5,7 @@ type ViteImportMeta = ImportMeta & {
   env?: {
     VITE_APP_URL?: string
     VITE_GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED?: string
+    VITE_AGENT_VOICE_R4?: string
   }
 }
 
@@ -24,7 +25,9 @@ function readNodeEnv(name: string): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
-function readPublicEnv(name: 'VITE_APP_URL' | 'VITE_GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED') {
+function readPublicEnv(
+  name: 'VITE_APP_URL' | 'VITE_GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED' | 'VITE_AGENT_VOICE_R4'
+) {
   const fromProcess = readNodeEnv(name)
   if (fromProcess) return fromProcess
   const fromVite = readViteEnv()?.[name]
@@ -67,6 +70,8 @@ export const ROUTES = {
   MANUAL: '/manual',
   /** Asistente IA O2C (proxy Edge Functions → Lovable). */
   AI_ASSIST: '/asistente-ia',
+  /** Laboratorio local R4 (voz/liga simulados). Solo visible con VITE_AGENT_VOICE_R4=1. */
+  AI_R4_LAB: '/asistente-ia/r4-lab',
   /** Historial de conversaciones y resultados de Guia / Asistente. */
   AI_HISTORY: '/asistente-ia/historial',
   /** Bandeja de seguimiento WhatsApp (operadores). */
@@ -118,3 +123,9 @@ export function getPasswordResetRedirectUrl() {
 /** Exportar minutas, acciones y recordatorios a Google Calendar / Tasks / Gmail. */
 export const GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED =
   readPublicEnv('VITE_GOOGLE_WORKSPACE_CALENDAR_SYNC_ENABLED') !== 'false'
+
+/** UI del laboratorio R4. Estricto: solo "1". No habilita Retell ni proveedores reales. */
+export function isVoiceR4UiEnabled(env?: { VITE_AGENT_VOICE_R4?: string }): boolean {
+  const value = env ? env.VITE_AGENT_VOICE_R4 : readPublicEnv('VITE_AGENT_VOICE_R4')
+  return value === '1'
+}

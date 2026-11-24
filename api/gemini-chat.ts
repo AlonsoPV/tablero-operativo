@@ -20,8 +20,18 @@ import {
   sanitizeMessages,
 } from '../src/lib/assistantPrompts.js'
 import { buildAssistantUiFromToolResults } from '../src/features/ai-support/chatViews/buildViewsFromToolResults.js'
-import { isAgentOrchestratorEnabled, runChannelTurn, uiForTurn, webSessionId } from './_shared/orchestrator/channelAdapters.js'
+import {
+  formatForChannel,
+  isAgentOrchestratorEnabled,
+  runChannelTurn,
+  uiForTurn,
+  webSessionId,
+} from './_shared/orchestrator/channelAdapters.js'
 import { EMPTY_MODEL_TURN_MESSAGE } from './_shared/orchestrator/respond.js'
+import {
+  resolveVoiceProviderReadiness,
+  sanitizeTextForVoiceSpeech,
+} from './_shared/voiceChannelAdapter.js'
 
 type GeminiContent = {
   role: 'user' | 'model'
@@ -104,16 +114,19 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Solicitud invalida.' })
     }
 
-    const { mode, messages, actionContext, okrContext, boardContext, requestId, responseFormat, conversationId } = body as {
+    const { mode, messages, actionContext, okrContext, boardContext, requestId, responseFormat, conversationId, channel } = body as {
       requestId?: unknown
       conversationId?: unknown
       responseFormat?: unknown
+      channel?: unknown
       mode?: unknown
       messages?: unknown
       actionContext?: unknown
       okrContext?: unknown
       boardContext?: unknown
     }
+
+    const activeChannel: 'web' | 'voice' = channel === 'voice' ? 'voice' : 'web'
 
     if (!isAssistantMode(mode)) {
       return res.status(400).json({ error: 'Modo de asistente invalido.' })
@@ -176,7 +189,7 @@ export default defineApiHandler(async (req, res) => {
             active: true,
             accessToken: auth.token,
           },
-          channel: 'web',
+          channel: activeChannel,
           sessionId: webSessionId(conversationId, requestId),
           utterance: lastUserMessage,
           responseFormat,
@@ -187,12 +200,15 @@ export default defineApiHandler(async (req, res) => {
             : turn.proposal && 'tool' in turn.proposal
               ? [turn.proposal]
               : []
+          const visualAnswer = activeChannel === 'voice' ? formatForChannel(turn, 'web') : turn.text
+          const spokenText = activeChannel === 'voice' ? turn.text : undefined
           return res.status(200).json({
-            answer: turn.text,
+            answer: visualAnswer,
+            ...(spokenText ? { spokenText, voice: resolveVoiceProviderReadiness() } : {}),
             proposals,
             batchId: turn.batchId ?? null,
             clarification: turn.clarification,
-            ui: uiForTurn(turn, turn.text),
+            ui: uiForTurn(turn, visualAnswer),
             toolTrace: turn.toolsUsed.map((tool) => ({ tool, kind: 'read' })),
             agent: {
               intent: turn.intent,
@@ -204,6 +220,7 @@ export default defineApiHandler(async (req, res) => {
               references: turn.response.references,
               asOf: turn.response.asOf,
               executionEnabled: turn.executionEnabled === true,
+              channel: activeChannel,
             },
           })
         }
@@ -343,6 +360,14 @@ export default defineApiHandler(async (req, res) => {
 
     return res.status(200).json({
       answer: content,
+      ...(activeChannel === 'voice'
+        ? {
+            spokenText: sanitizeTextForVoiceSpeech(content, {
+              hasProposals: loopResult.proposals.length > 0,
+            }),
+            voice: resolveVoiceProviderReadiness(),
+          }
+        : {}),
       proposals: loopResult.proposals,
       clarification: loopResult.clarification,
       toolTrace: loopResult.toolTrace,

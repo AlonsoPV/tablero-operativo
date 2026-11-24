@@ -4,36 +4,91 @@ import {
   speakWithBrowser,
 } from '@/lib/elevenLabsTtsClient'
 
+export type SpeechPlaybackResult = {
+  provider: 'elevenlabs' | 'browser' | 'none'
+  firstAudioMs: number
+  interrupted: boolean
+  error?: string
+}
+
+export type SpeakTextOptions = {
+  /** Sólo intenta ElevenLabs cuando el servidor confirmó ttsProvider === 'elevenlabs_live'. */
+  preferLiveTts?: boolean
+  onStart?: () => void
+  onEnd?: () => void
+  onError?: (reason: string) => void
+}
+
 type PlaybackHandle = {
   stop: () => void
 }
 
 let active: PlaybackHandle | null = null
 
+export function isBrowserTtsSupported(): boolean {
+  return typeof window !== 'undefined' && 'speechSynthesis' in window
+}
+
+export function isSpeechPlaying(): boolean {
+  return active !== null
+}
+
 export function stopSpeechPlayback() {
   active?.stop()
   active = null
 }
 
-/** Reproduce texto (ElevenLabs, con fallback del navegador). Cancela cualquier lectura previa. */
-export function speakText(text: string): Promise<void> {
+/**
+ * Reproduce texto hablado (ElevenLabs cuando está activo, o voz es-MX del navegador).
+ * Cancela cualquier reproducción previa y nunca bloquea si el navegador no soporta síntesis.
+ */
+export function speakText(
+  text: string,
+  options: SpeakTextOptions = {}
+): Promise<SpeechPlaybackResult> {
   const trimmed = text.trim()
-  if (!trimmed) return Promise.resolve()
+  if (!trimmed) {
+    return Promise.resolve({ provider: 'none', firstAudioMs: 0, interrupted: false })
+  }
 
   stopSpeechPlayback()
 
   return new Promise((resolve) => {
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
     let settled = false
+    let interrupted = false
     let audio: HTMLAudioElement | null = null
+    let chosenProvider: SpeechPlaybackResult['provider'] = 'none'
+    let firstAudioMs = 0
+    let notifiedStart = false
 
-    const finish = () => {
+    const elapsedMs = () =>
+      Math.max(0, Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt))
+
+    const markStarted = (provider: 'elevenlabs' | 'browser') => {
+      if (notifiedStart || settled) return
+      notifiedStart = true
+      chosenProvider = provider
+      firstAudioMs = elapsedMs()
+      options.onStart?.()
+    }
+
+    const finish = (error?: string) => {
       if (settled) return
       settled = true
       if (active?.stop === localStop) active = null
-      resolve()
+      if (error) options.onError?.(error)
+      options.onEnd?.()
+      resolve({
+        provider: chosenProvider,
+        firstAudioMs,
+        interrupted,
+        ...(error ? { error } : {}),
+      })
     }
 
     const localStop = () => {
+      interrupted = true
       if (audio) {
         audio.pause()
         audio.src = ''
@@ -47,12 +102,26 @@ export function speakText(text: string): Promise<void> {
     const playBrowser = () => {
       if (settled) return
       try {
+        if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+          finish('La reproducción de voz no está disponible en este navegador; puedes seguir por texto.')
+          return
+        }
         const utterance = speakWithBrowser(trimmed)
-        utterance.onend = finish
-        utterance.onerror = finish
+        utterance.onstart = () => markStarted('browser')
+        utterance.onend = () => finish()
+        utterance.onerror = () => finish('No se pudo reproducir el audio; la respuesta sigue visible en pantalla.')
+        // Algunos navegadores headless no disparan onstart inmediatamente
+        window.setTimeout(() => {
+          if (!notifiedStart && !settled) markStarted('browser')
+        }, 60)
       } catch {
-        finish()
+        finish('No se pudo reproducir el audio; la respuesta sigue visible en pantalla.')
       }
+    }
+
+    if (!options.preferLiveTts) {
+      playBrowser()
+      return
     }
 
     void (async () => {
@@ -60,7 +129,8 @@ export function speakText(text: string): Promise<void> {
         const result = await requestElevenLabsSpeech(trimmed)
         if (settled) return
         audio = playBase64Audio(result.audioBase64, result.mimeType)
-        audio.onended = finish
+        audio.onplay = () => markStarted('elevenlabs')
+        audio.onended = () => finish()
         audio.onerror = playBrowser
       } catch {
         playBrowser()

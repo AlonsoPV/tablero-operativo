@@ -11,8 +11,10 @@ import {
   Mic,
   MicOff,
   Send,
+  Square,
   Target,
   Trash2,
+  Volume2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -53,6 +55,7 @@ import {
   type AssistantQuickAction,
 } from '@/features/ai-support/assistantBriefing'
 import { AssistantWelcome } from '@/features/ai-support/components/AssistantWelcome'
+import { AssistantVoicePanel } from '@/features/ai-support/components/AssistantVoicePanel'
 import { AssistantActivity } from '@/features/ai-support/components/AssistantActivity'
 import { StructuredAssistantReply } from '@/features/ai-support/components/StructuredAssistantReply'
 import { AssistantReplyViews } from '@/features/ai-support/chatViews'
@@ -75,6 +78,11 @@ import {
 } from '@/features/ai-support/components/AssistantLaneChooser'
 import { GuidePanel } from '@/features/guide/components/GuidePanel'
 import { useSpeechRecognition } from '@/features/ai-support/useSpeechRecognition'
+import {
+  isBrowserTtsSupported,
+  speakText,
+  stopSpeechPlayback,
+} from '@/lib/speechPlayback'
 import { getAssistantAuthHeaders } from '@/lib/assistantApiAuth'
 import { requestAssistantTextAnalysis } from '@/lib/assistantAudioClient'
 import {
@@ -233,6 +241,7 @@ function storeTranscript(conversationId: string, messages: AiChatMessage[]) {
 
 type GeminiChatResponse = {
   answer?: string
+  spokenText?: string
   agent?: {
     formatSelected?: string
     status?: string
@@ -268,9 +277,11 @@ async function sendMessage({
   boardContext,
   responseFormat,
   conversationId,
+  channel = 'web',
 }: {
   responseFormat: ResponseFormat
   conversationId: string
+  channel?: 'web' | 'voice'
   mode: typeof UNIFIED_ASSISTANT_MODE
   messages: AiChatMessage[]
   actionContext?: ActionContext | ActionContext[]
@@ -285,6 +296,7 @@ async function sendMessage({
     headers,
     body: JSON.stringify({
       mode,
+      channel,
       requestId: messages.at(-1)?.requestId,
       conversationId,
       responseFormat,
@@ -344,6 +356,7 @@ async function sendMessage({
 
   return {
     answer: data.answer || 'No pude generar una respuesta en este momento.',
+    spokenText: data.spokenText,
     proposals: data.proposals,
     clarification: data.clarification,
     ui: agentUi,
@@ -758,10 +771,15 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
   const isPopup = variant === 'popup'
   const [searchParams, setSearchParams] = useSearchParams()
   const [lane, setLane] = useState<AssistantLane | null>(() => laneFromSearch(searchParams.get('lane')))
+  const [voiceMode, setVoiceMode] = useState<boolean>(() => searchParams.get('mode') === 'voice')
 
   useEffect(() => {
     const fromUrl = laneFromSearch(searchParams.get('lane'))
     if (fromUrl) setLane(fromUrl)
+    if (searchParams.get('mode') === 'voice') {
+      setLane('write')
+      setVoiceMode(true)
+    }
   }, [searchParams])
   const [writeIntent, setWriteIntent] = useState<WriteIntent>('consult')
   const [responseFormat, setResponseFormatState] = useState<ResponseFormat>(readStoredFormat)
@@ -791,7 +809,15 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
   const [conversationState, setConversationState] = useState<ConversationQueryState | null>(null)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [speakingMessageIdx, setSpeakingMessageIdx] = useState<number | null>(null)
+  const [lastOrchestratorMs, setLastOrchestratorMs] = useState<number | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    return () => {
+      stopSpeechPlayback()
+    }
+  }, [])
   const queryClient = useQueryClient()
   const { data: currentUser } = useCurrentUser()
   const { data: appRole } = useAppRole()
@@ -1107,9 +1133,13 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     storeTranscript(conversationId, messages)
   }, [conversationId, messages])
 
-  const handleSend = async (prompt = input, options?: { retry?: boolean }) => {
+  const handleSend = async (
+    prompt = input,
+    options?: { retry?: boolean; channel?: 'web' | 'voice' }
+  ) => {
     const trimmed = prompt.trim()
     if (!trimmed || loading) return
+    const turnChannel = options?.channel ?? (voiceMode ? 'voice' : 'web')
 
     const baseMessages = options?.retry
       ? messages.filter((row) => !row.retryable)
@@ -1247,8 +1277,10 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         const sliced = operationalSnapshot
           ? sliceContextForIntent(operationalSnapshot, intent, { hasExplicitFocus })
           : null
+        const requestStartedAt = performance.now()
         const reply = await sendMessage({
           mode: UNIFIED_ASSISTANT_MODE,
+          channel: turnChannel,
           messages: nextMessages,
           actionContext:
             activeActionContext || intent === 'selected_action'
@@ -1270,6 +1302,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
           responseFormat,
           conversationId,
         })
+        setLastOrchestratorMs(Math.round(performance.now() - requestStartedAt))
         // Una directiva en el mensaje («modo reporte») cambia el formato de la sesión: el selector la refleja.
         if (reply.formatSelected) setResponseFormat(coerceResponseFormat(reply.formatSelected))
         setMessages(
@@ -1278,6 +1311,8 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
             {
               role: 'assistant' as const,
               content: reply.answer,
+              spokenText: reply.spokenText,
+              channel: turnChannel,
               proposals: reply.proposals,
               clarification: reply.clarification,
               ui: reply.ui,
@@ -1439,6 +1474,42 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               ) : (
                 message.content
               )}
+              {message.role === 'assistant' && !message.retryable && isBrowserTtsSupported() ? (
+                <div className="mt-2 flex items-center justify-end border-t border-border/35 pt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (speakingMessageIdx === index) {
+                        stopSpeechPlayback()
+                        setSpeakingMessageIdx(null)
+                        return
+                      }
+                      setSpeakingMessageIdx(index)
+                      void speakText(message.spokenText ?? message.content, {
+                        preferLiveTts: false,
+                        onEnd: () =>
+                          setSpeakingMessageIdx((curr) => (curr === index ? null : curr)),
+                        onError: () =>
+                          setSpeakingMessageIdx((curr) => (curr === index ? null : curr)),
+                      })
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
+                    aria-label={speakingMessageIdx === index ? 'Detener lectura en voz' : 'Escuchar respuesta'}
+                  >
+                    {speakingMessageIdx === index ? (
+                      <>
+                        <Square className="h-3 w-3 fill-current" aria-hidden />
+                        Detener
+                      </>
+                    ) : (
+                      <>
+                        <Volume2 className="h-3 w-3" aria-hidden />
+                        Escuchar
+                      </>
+                    )}
+                  </button>
+                </div>
+              ) : null}
               {message.role === 'assistant' && message.retryable ? (
                 <button
                   type="button"
@@ -2049,6 +2120,19 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
             )}
             <Button
               type="button"
+              variant={voiceMode ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setVoiceMode((v) => !v)}
+              className="h-8 shrink-0 gap-1 rounded-full px-2.5 text-[11px]"
+              aria-pressed={voiceMode}
+              aria-label={voiceMode ? 'Salir de modo voz' : 'Abrir modo voz por turnos'}
+              title="Conversación por turnos en español de México"
+            >
+              <Volume2 className="h-3.5 w-3.5" aria-hidden />
+              <span className="hidden sm:inline">Voz</span>
+            </Button>
+            <Button
+              type="button"
               variant="ghost"
               size="icon"
               onClick={clearFiltersOrChat}
@@ -2070,6 +2154,48 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
       ) : lane === 'talk' ? (
         <div className="min-h-0 flex-1 overflow-hidden rounded-[1.75rem] shadow-[0_28px_70px_-40px_rgba(15,23,42,0.45)] ring-1 ring-border/40">
           {guidePanel}
+        </div>
+      ) : voiceMode ? (
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] shadow-[0_28px_70px_-40px_rgba(15,23,42,0.45)] ring-1 ring-border/40 bg-[radial-gradient(120%_80%_at_50%_-10%,hsl(var(--primary)/0.12),transparent_55%),linear-gradient(180deg,hsl(var(--muted)/0.35)_0%,hsl(var(--background))_46%)]">
+          <AssistantVoicePanel
+            conversationId={conversationId}
+            messages={visibleMessages}
+            loading={loading}
+            lastOrchestratorMs={lastOrchestratorMs}
+            actorLabel={currentUser?.nombre ?? null}
+            compact={isPopup}
+            onSendVoiceTurn={(utterance) => handleSend(utterance, { channel: 'voice' })}
+            onContinueByText={() => setVoiceMode(false)}
+            renderVisualReply={(message) =>
+              message.ui?.views?.length ? (
+                <AssistantReplyViews
+                  ui={message.ui}
+                  narrative={message.structured ? undefined : message.content}
+                  compact={isPopup}
+                  onFollowUp={(prompt) => void handleSend(prompt, { channel: 'voice' })}
+                />
+              ) : message.structured ? (
+                <StructuredAssistantReply reply={message.structured} compact={isPopup} />
+              ) : (
+                <AssistantMessageBody content={message.content} compact={isPopup} />
+              )
+            }
+            renderProposalGroup={(message) =>
+              message.proposals?.length ? (
+                <AssistantProposalGroup
+                  proposals={message.proposals}
+                  compact={isPopup}
+                  executionEnabled={message.executionEnabled === true}
+                  onBoardConfirmed={() => {
+                    void queryClient.invalidateQueries({ queryKey: ['acciones'] })
+                    void queryClient.invalidateQueries({
+                      queryKey: ['assistant-operational-context'],
+                    })
+                  }}
+                />
+              ) : null
+            }
+          />
         </div>
       ) : (
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] shadow-[0_28px_70px_-40px_rgba(15,23,42,0.45)] ring-1 ring-border/40 bg-[radial-gradient(120%_80%_at_50%_-10%,hsl(var(--primary)/0.12),transparent_55%),linear-gradient(180deg,hsl(var(--muted)/0.35)_0%,hsl(var(--background))_46%)]">
