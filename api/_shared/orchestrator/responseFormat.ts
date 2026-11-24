@@ -44,6 +44,7 @@ export function resolveFormat(selected: ResponseFormat, intent: AgentIntent['kin
   if (intent === 'analyze_risk') return done(REPORT.test(text) ? 'report' : 'analysis')
   if (intent === 'aggregate_execution') return done('report')
   if (intent === 'query_okrs') return done(POINT.test(text) && !REPORT.test(text) ? 'direct' : 'report')
+  if (intent === 'query_knowledge') return done('direct')
   if (REPORT.test(text)) return done('report')
   if (RISK.test(text)) return done('analysis')
   if (

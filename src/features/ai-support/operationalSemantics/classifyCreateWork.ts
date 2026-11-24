@@ -104,6 +104,22 @@ export function classifyCreateWorkKind(text: string): CreateWorkKind {
   return 'none'
 }
 
+/** Consultas ejecutivas / documentales: no abrir el carril de crear acciones. */
+export function looksLikeExecutiveConsult(text: string): boolean {
+  const t = normalize(text)
+  if (!t) return false
+  return (
+    /\b(revision ejecutiva|sesion ejecutiva|revision de 15|hagamos una revision)\b/.test(t) ||
+    /\b(resume nuestras decisiones|prepara los compromisos|siguiente etapa|etapa anterior|omitir etapa)\b/.test(t) ||
+    /\b(muestrame la evidencia|profundiza(?:r)? en la (prioridad|accion)|cual era la prioridad|ver evidencia)\b/.test(t) ||
+    /\b(como esta mi empresa|que requiere mi atencion|objetivos estrategicos)\b/.test(t) ||
+    /^decision\b/.test(t) ||
+    /\bbusca(?:r)? documentos?\b/.test(t) ||
+    (/\b(memoria|documentos?|documentacion)\b/.test(t) &&
+      /\b(empresa|organizacion|oficial|politica|procedimiento)\b/.test(t))
+  )
+}
+
 export function resolveCreateWriteIntent(
   text: string,
   selected: 'consult' | 'create'
@@ -112,6 +128,7 @@ export function resolveCreateWriteIntent(
   if (looksLikeCommsPrepare(text) && !hasExplicitBoardCreateNoun(text)) {
     return 'consult'
   }
+  if (looksLikeExecutiveConsult(text)) return 'consult'
   if (selected === 'create') return 'create'
   const kind = classifyCreateWorkKind(text)
   return kind === 'none' ? 'consult' : 'create'

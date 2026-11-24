@@ -55,6 +55,7 @@ import {
   buildPendingTopicsFromDiagnosis,
   createExecutiveSession,
   nextExecutiveStage,
+  previousExecutiveStage,
   STAGE_METADATA,
 } from './executiveSession.js'
 import { FORMAT_DESCRIPTION, parseFormatDirective, resolveFormat } from './responseFormat.js'
@@ -94,9 +95,24 @@ export type AgentTurnDeps = {
 
 function looksLikeMemoryAsk(text: string) {
   const n = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  return /\b(acordamos|acuerdo|procedimiento|documento|retomemos|ultima sesion|preferencia|politica|criterio|verificad\w*|cuando se considera|cuando se verifica)\b/.test(
+  return /\b(acordamos|acuerdo|procedimientos?|documentos?|documentacion|retomemos|ultima sesion|preferencia|politicas?|criterio|memoria|verificad\w*|cuando se considera|cuando se verifica)\b/.test(
     n
   )
+}
+
+function describeLiveCountChange(
+  previous: SessionContext['lastTotals'] | null | undefined,
+  live: { open: number; overdue: number; blocked: number }
+): string | null {
+  if (!previous) return null
+  if (previous.open === live.open && previous.overdue === live.overdue && previous.blocked === live.blocked) {
+    return null
+  }
+  return `El tablero ahora muestra ${live.open} abiertas, ${live.overdue} vencidas y ${live.blocked} bloqueadas (antes ${previous.open}/${previous.overdue}/${previous.blocked} en esta sesión) porque se consultó de nuevo con datos actuales.`
+}
+
+function rememberTotals(state: TurnState, live: { open: number; overdue: number; blocked: number }) {
+  state.ctx.lastTotals = live
 }
 
 function attachMemoryRecall(
@@ -417,6 +433,17 @@ async function handleQueryActions(
   const overdue = result.items.filter((i) => urgencyRank(i, state.today) === 0).length
   const blocked = result.items.filter((i) => urgencyRank(i, state.today) === 1).length
   const dueToday = result.items.filter((i) => i.fecha === state.today).length
+  const liveTotals = {
+    open: intent.statusGroup === 'open' ? result.totals.total : state.ctx.lastTotals?.open ?? result.totals.total,
+    overdue: intent.statusGroup === 'overdue' ? result.totals.total : overdue,
+    blocked: intent.statusGroup === 'blocked' ? result.totals.total : blocked,
+  }
+  const countChange = describeLiveCountChange(state.ctx.lastTotals, liveTotals)
+  if (countChange) {
+    response.blocks.interpretation.unshift(countChange)
+    response.blocks.data.push(countChange)
+  }
+  rememberTotals(state, liveTotals)
   let finding: string | null = null
   if (overdue || blocked || (intent.focusToday && dueToday)) {
     const parts = [
@@ -891,6 +918,22 @@ async function handleExecutiveBrief(
         : `Diagnóstico en ${sLabel}: ${diagnosis.counts.open} abiertas, ${diagnosis.counts.overdue} vencidas, ${diagnosis.counts.blocked} bloqueadas${diagnosis.counts.pendingVerification > 0 ? ` y ${diagnosis.counts.pendingVerification} en Hecho pendientes de Verificado` : ''}.`
 
   response.blocks.data.push(summaryHeadline)
+  const liveTotals = {
+    open: diagnosis.counts.open,
+    overdue: diagnosis.counts.overdue,
+    blocked: diagnosis.counts.blocked,
+  }
+  const countChange = describeLiveCountChange(state.ctx.lastTotals, liveTotals)
+  if (countChange) {
+    response.blocks.interpretation.unshift(countChange)
+    response.blocks.data.push(countChange)
+  }
+  rememberTotals(state, liveTotals)
+  response.references = diagnosis.topPriorities.map((p) => ({
+    id: p.action.id,
+    title: p.action.title,
+    href: p.action.href,
+  }))
 
   if (diagnosis.delayedByArea.length > 0) {
     const topAreas = diagnosis.delayedByArea
@@ -952,7 +995,10 @@ async function handleExecutiveBrief(
       ...executivePriorityItems(diagnosis.topPriorities),
       ...executiveComparisonItems(diagnosis),
     ],
-    findings: executiveFindings(diagnosis),
+    findings: [
+      ...(countChange ? [{ basis: 'evidence' as const, text: countChange }] : []),
+      ...executiveFindings(diagnosis),
+    ],
     warnings: response.blocks.limitations.filter((l) => /limitado|sin fecha/i.test(l)),
   })
 
@@ -1480,11 +1526,12 @@ async function handleExecutiveEvidence(
       ? `Evidencia de la Prioridad ${intent.priorityIndex + 1}: «${selected[0]!.title}».`
       : `Evidencia trazable: ${selected.length} acción(es) autorizadas sustentan la recomendación anterior.`
   response.blocks.data.push(headline)
+  response.references = selected.map((a) => ({ id: a.id, title: a.title, href: a.href }))
 
   const findings: AnswerFinding[] = selected.map((a) => ({
     basis: 'evidence' as const,
     risk: a.estado === 'Bloqueado' || a.estado === 'Retraso',
-    text: `«${a.title}» · Estado: ${a.estado ?? 'sin estado'} · Fecha: ${a.fecha ?? 'sin fecha'} · Responsable: ${a.responsableNombre ?? 'sin asignar'}${a.area ? ` · Área: ${a.area}` : ''}${a.updatedAt ? ` · Últ. act.: ${a.updatedAt.slice(0, 10)}` : ''} · Enlace: ${a.href}`,
+    text: `«${a.title}» · Estado: ${a.estado ?? 'sin estado'} · Fecha: ${a.fecha ?? 'sin fecha'} · Responsable: ${a.responsableNombre ?? 'sin asignar'}${a.area ? ` · Área: ${a.area}` : ''}${a.updatedAt ? ` · Últ. act.: ${a.updatedAt.slice(0, 10)}` : ''} · [Abrir en Kanban](${a.href})`,
   }))
 
   response.blocks.recommendation.push(
@@ -1544,9 +1591,14 @@ async function handleExecutiveReview(
     session.focusedPriorityIndex = null
   } else if (intent.action === 'next') {
     session.stage = nextExecutiveStage(session.stage)
+  } else if (intent.action === 'previous') {
+    session.stage = previousExecutiveStage(session.stage)
   } else if (intent.action === 'skip') {
     if (!session.skippedStages.includes(session.stage)) session.skippedStages.push(session.stage)
     session.stage = nextExecutiveStage(session.stage)
+  } else if (intent.action === 'focus_priority') {
+    session.focusedPriorityIndex = intent.priorityIndex ?? 0
+    session.stage = 'priorities'
   } else if (intent.action === 'record_decision' && intent.note) {
     session.decisions.push(intent.note)
     session.stage = 'decisions'
@@ -1562,8 +1614,16 @@ async function handleExecutiveReview(
 
   const meta = STAGE_METADATA[session.stage]
   const response = baseResponse(openRes.status === 'partial' ? 'partial' : 'ok', openRes.asOf)
+  const liveTotals = {
+    open: diagnosis.counts.open,
+    overdue: diagnosis.counts.overdue,
+    blocked: diagnosis.counts.blocked,
+  }
+  const countChange = describeLiveCountChange(state.ctx.lastTotals, liveTotals)
+  rememberTotals(state, liveTotals)
   const headline = `Revisión ejecutiva (${meta.step}/6 · ${meta.label} · ~${meta.minutes} min): ${diagnosis.counts.open} abiertas, ${diagnosis.counts.overdue} vencidas, ${diagnosis.counts.blocked} bloqueadas en ${sLabel}.`
   response.blocks.data.push(headline)
+  if (countChange) response.blocks.interpretation.push(countChange)
 
   const findings: AnswerFinding[] = []
 
@@ -1601,8 +1661,38 @@ async function handleExecutiveReview(
         text: `Decisiones capturadas en esta sesión: ${session.decisions.join(' | ')}.`,
       })
     }
+    if (session.stage === 'priorities') {
+      const focused =
+        session.focusedPriorityIndex != null ? diagnosis.topPriorities[session.focusedPriorityIndex] : null
+      if (focused) {
+        findings.unshift({
+          basis: 'evidence',
+          text: `Foco en prioridad ${(session.focusedPriorityIndex ?? 0) + 1}: «${focused.action.title}» · [Abrir en Kanban](${focused.action.href})`,
+        })
+      }
+    } else if (session.stage === 'risks') {
+      findings.push({
+        basis: 'evidence',
+        risk: diagnosis.counts.staleActive > 0,
+        text: `Disciplina: ${diagnosis.counts.staleActive} sin seguimiento reciente, ${diagnosis.counts.prolongedBlocked} bloqueos prolongados (señal de atención, no incumplimiento).`,
+      })
+    } else if (session.stage === 'decisions') {
+      response.blocks.data.push(
+        session.decisions.length === 0
+          ? 'Aún no hay decisiones registradas. Di «Decisión: …» para capturar un acuerdo.'
+          : `Decisiones en sesión: ${session.decisions.length}.`
+      )
+    } else if (session.stage === 'commitments') {
+      for (const draft of session.draftCommitments) {
+        findings.push({
+          basis: 'inference',
+          text: `Borrador R2 OFF: «${draft.titulo}» · ${draft.responsableSugerido} · ${draft.fechaPropuesta ?? 'fecha por definir'}. No se ejecuta ni se persiste.`,
+        })
+      }
+      response.blocks.limitations.push('R2 desactivado: no hay botón de ejecución. Los compromisos quedan como borrador.')
+    }
     response.blocks.recommendation.push(
-      `Guía paso ${meta.step}/6: puedes decir «Siguiente etapa», «Profundiza en la prioridad 1», «Omitir etapa», «Decisión: …» o «Resume nuestras decisiones y prepara los compromisos».`
+      `Guía paso ${meta.step}/6: puedes decir «Siguiente etapa», «Etapa anterior», «Profundiza en la prioridad 1», «Omitir etapa», «Decisión: …» o «Resume nuestras decisiones y prepara los compromisos».`
     )
   }
 
@@ -1870,6 +1960,35 @@ async function handleR2WriteRequest(
   return { response, proposal: proposed.proposal as ActionProposal, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
 }
 
+function handleQueryKnowledge(
+  state: TurnState,
+  utterance: string,
+  memoryStore: MemoryStore | undefined
+): { response: AgentResponse; audit: Partial<QueryAuditEntry> } {
+  const response = baseResponse('ok')
+  if (!isAgentMemoryEnabled() || !memoryStore) {
+    response.status = 'empty'
+    response.blocks.data.push(
+      'No hay información documental suficiente para responder. No sustituyo documentos con OKRs ni con el tablero.'
+    )
+    response.blocks.limitations.push(
+      'Consulta documental/memoria (R3) no disponible en este entorno. Fail-closed: sin fuente, no hay respuesta inventada.'
+    )
+    return { response, audit: { status: 'empty', entity: 'none' } }
+  }
+  const recalled = attachMemoryRecall(response, memoryStore, state.actor, utterance)
+  if (recalled.blocks.data.length === 0 && recalled.status !== 'forbidden') {
+    recalled.status = 'empty'
+    if (!recalled.blocks.data.some((line) => /no encontré|no tienes acceso/i.test(line))) {
+      recalled.blocks.data.push(
+        'No encontré documentos ni memoria confirmada para esa pregunta. No uso OKRs ni Kanban como sustituto.'
+      )
+    }
+  }
+  recalled.blocks.limitations.push('Fuente: memoria/documentos R3 (lectura).')
+  return { response: recalled, audit: { status: recalled.status === 'forbidden' ? 'forbidden' : recalled.status === 'empty' ? 'empty' : 'ok', entity: 'none' } }
+}
+
 function formatNoticeResponse(selected: ResponseFormat): AgentResponse {
   const response = baseResponse('ok')
   response.blocks.data.push(`Formato de respuesta: ${FORMAT_LABEL[selected]}.`, `Usaré ${FORMAT_DESCRIPTION[selected]}.`)
@@ -1940,6 +2059,8 @@ export async function runAgentTurn(
         fingerprint,
         responseFormat: selected,
         lastAnswer: ctx.lastAnswer ?? null,
+        executiveSession: ctx.executiveSession ?? null,
+        lastTotals: ctx.lastTotals ?? null,
       },
       now()
     )
@@ -1978,7 +2099,11 @@ export async function runAgentTurn(
     }
   }
 
-  const intent = classifyAgentIntent(utterance, ctx.activeQuery)
+  const intent = classifyAgentIntent(utterance, ctx.activeQuery, {
+    hasExecutiveSession: Boolean(ctx.executiveSession?.active),
+    lastActionCount: ctx.lastActions.length,
+    lastEntityKind: ctx.lastEntity?.kind ?? null,
+  })
   stage('intent')
 
   if (intent.kind === 'unknown') {
@@ -2072,6 +2197,9 @@ export async function runAgentTurn(
     case 'executive_review':
       outcome = await handleExecutiveReview(state, intent)
       break
+    case 'query_knowledge':
+      outcome = handleQueryKnowledge(state, utterance, deps.memoryStore)
+      break
     case 'unsupported_metric':
       outcome = await handleUnsupportedMetric(state)
       break
@@ -2089,6 +2217,7 @@ export async function runAgentTurn(
 
   const explicitMemoryAsk = looksLikeMemoryAsk(utterance)
   if (
+    intent.kind !== 'query_knowledge' &&
     isAgentMemoryEnabled() &&
     deps.memoryStore &&
     (explicitMemoryAsk ||
@@ -2116,6 +2245,7 @@ export async function runAgentTurn(
       fingerprint,
       responseFormat: selected,
       lastAnswer: cacheable ? { intent: intent.kind, response: outcome.response, auto: autoResolution } : null,
+      lastTotals: state.ctx.lastTotals ?? null,
     },
     now()
   )

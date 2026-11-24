@@ -46,15 +46,9 @@ const ACTION_VISUALS: Record<AssistantQuickActionId, { icon: LucideIcon; tone: A
   decisions: { icon: Scale, tone: 'info' },
 }
 
-export const WELCOME_STAT_PROMPTS = {
-  open: 'Cuales acciones tengo abiertas?',
-  overdue: 'Cuales tengo vencidas?',
-  dueThisWeek: 'Cuales tengo por vencer?',
-} as const
-
 type AssistantWelcomeProps = {
   briefing: AssistantBriefingModel
-  counts: OperationalSnapshot['counts'] | null
+  counts?: OperationalSnapshot['counts'] | null
   actions: AssistantQuickAction[]
   loading?: boolean
   compact?: boolean
@@ -64,28 +58,12 @@ type AssistantWelcomeProps = {
 
 export function AssistantWelcome({
   briefing,
-  counts,
   actions,
   loading = false,
   compact = false,
   onAsk,
   onAction,
 }: AssistantWelcomeProps) {
-  const stats = counts
-    ? [
-        { key: 'open', value: counts.open, label: 'Abiertas', icon: Inbox, tone: 'primary' as const },
-        { key: 'overdue', value: counts.overdue, label: 'Atrasadas', icon: AlarmClock, tone: 'danger' as const },
-        {
-          key: 'dueThisWeek',
-          value: counts.dueThisWeek,
-          label: 'Por vencer',
-          icon: ListChecks,
-          tone: 'warning' as const,
-        },
-      ]
-        .filter((stat) => stat.value > 0)
-        .slice(0, 3)
-    : []
   const quickActions = actions.slice(0, 4)
   const urgency = briefing.priorityUrgency ?? 'info'
 
@@ -105,7 +83,7 @@ export function AssistantWelcome({
             compact ? 'text-base' : 'text-xl sm:text-2xl'
           )}
         >
-          Tu operación, en claro.
+          {briefing.scopeKind === 'organization' ? 'Operación de la empresa' : 'Mis acciones'}
         </h2>
         <p className={cn('text-muted-foreground', compact ? 'text-xs' : 'text-sm')}>
           {loading ? (
@@ -119,23 +97,26 @@ export function AssistantWelcome({
         </p>
       </header>
 
-      {stats.length > 0 ? (
+      {briefing.indicators.length > 0 ? (
         <div
-          className={cn('grid gap-2', stats.length === 1 ? 'grid-cols-1' : stats.length === 2 ? 'grid-cols-2' : 'grid-cols-3')}
+          className={cn(
+            'grid gap-2',
+            briefing.indicators.length === 1 ? 'grid-cols-1' : briefing.indicators.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
+          )}
           role="group"
-          aria-label="Indicadores de tus acciones"
+          aria-label={briefing.scopeLabel}
         >
-          {stats.map((stat) => (
+          {briefing.indicators.map((stat) => (
             <StatTile
-              key={stat.key}
+              key={stat.id}
               value={stat.value}
               label={stat.label}
-              icon={compact ? undefined : stat.icon}
+              icon={compact ? undefined : stat.id === 'open' ? Inbox : stat.id === 'overdue' ? AlarmClock : ListChecks}
               tone={stat.tone}
               compact={compact}
               disabled={loading}
-              hint={`Ver ${stat.label.toLowerCase()} en el chat`}
-              onClick={() => onAsk(WELCOME_STAT_PROMPTS[stat.key as keyof typeof WELCOME_STAT_PROMPTS])}
+              hint={`${briefing.scopeLabel}: ${stat.label}`}
+              onClick={() => onAsk(stat.prompt)}
             />
           ))}
         </div>

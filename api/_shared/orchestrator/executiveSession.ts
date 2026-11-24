@@ -66,6 +66,16 @@ export function nextExecutiveStage(current: ExecutiveReviewStage): ExecutiveRevi
   return EXECUTIVE_REVIEW_STAGES[idx + 1]!
 }
 
+export function previousExecutiveStage(current: ExecutiveReviewStage): ExecutiveReviewStage {
+  const idx = EXECUTIVE_REVIEW_STAGES.indexOf(current)
+  if (idx <= 0) return 'overview'
+  return EXECUTIVE_REVIEW_STAGES[idx - 1]!
+}
+
+export function isExecutiveReviewStage(value: unknown): value is ExecutiveReviewStage {
+  return typeof value === 'string' && (EXECUTIVE_REVIEW_STAGES as readonly string[]).includes(value)
+}
+
 function plusDays(todayYmd: string, days: number): string {
   const ts = Date.parse(`${todayYmd.slice(0, 10)}T00:00:00Z`)
   if (Number.isNaN(ts)) return todayYmd

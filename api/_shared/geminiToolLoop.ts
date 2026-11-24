@@ -9,6 +9,7 @@ import {
   serializeToolResultForModel,
   type CopilotActor,
 } from './assistantOpsRuntime.js'
+import { GEMINI_CAPACITY_RETRY_MS, isGeminiCapacityStatus, sleepMs } from './geminiModel.js'
 
 type GeminiPart =
   | { text: string }
@@ -95,6 +96,7 @@ export async function runGeminiToolLoop(input: {
   const readyEmail = () => proposals.find(({ tool }) => tool === 'notify_user_email' || tool === 'notify_action_email')
   const deadline = Date.now() + input.timeoutMs
   let finishSummaryDraft = false
+  let retriedCapacity = false
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const requireBoardEmail = round === 0 && !input.readOnly && input.boardEmailRequest === true &&
@@ -129,7 +131,26 @@ export async function runGeminiToolLoop(input: {
 
     if (!response.ok) {
       const errorText = await response.text()
-      throw Object.assign(new Error(errorText.slice(0, 400)), { status: response.status })
+      const err = Object.assign(new Error(errorText.slice(0, 400)), { status: response.status })
+      const wrote = proposals.length > 0
+      if (isGeminiCapacityStatus(response.status) && !wrote && !retriedCapacity) {
+        retriedCapacity = true
+        await sleepMs(GEMINI_CAPACITY_RETRY_MS)
+        round -= 1
+        continue
+      }
+      if (
+        isGeminiCapacityStatus(response.status) &&
+        !wrote &&
+        toolReads.some((row) => row.kind === 'read')
+      ) {
+        text =
+          text ||
+          'El proveedor de IA no completó la síntesis. Conservé los datos ya consultados del tablero; puedes reintentar sin perder el contexto.'
+        finishReason = 'CAPACITY'
+        break
+      }
+      throw err
     }
 
     const data = (await response.json()) as GeminiResponse

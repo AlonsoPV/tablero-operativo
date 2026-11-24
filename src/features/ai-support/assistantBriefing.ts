@@ -16,9 +16,22 @@ export type AssistantStructuredReply = {
   record?: AssistantRecordLink
 }
 
+export type AssistantBriefingScope = 'personal' | 'organization'
+
+export type AssistantBriefingIndicator = {
+  id: string
+  label: string
+  value: number
+  tone: 'primary' | 'danger' | 'warning'
+  prompt: string
+}
+
 export type AssistantBriefingModel = {
   greeting: string
   summary: string
+  scopeKind: AssistantBriefingScope
+  scopeLabel: string
+  indicators: AssistantBriefingIndicator[]
   priorityTitle: string | null
   priorityReason: string | null
   priorityRecord: AssistantRecordLink | null
@@ -73,56 +86,85 @@ export function okrRecordLink(id: string, title: string): AssistantRecordLink {
   }
 }
 
+function emptyBriefing(
+  greeting: string,
+  summary: string,
+  scopeKind: AssistantBriefingScope,
+  scopeLabel: string
+): AssistantBriefingModel {
+  return {
+    greeting,
+    summary,
+    scopeKind,
+    scopeLabel,
+    indicators: [],
+    priorityTitle: null,
+    priorityReason: null,
+    priorityRecord: null,
+    priorityUrgency: null,
+  }
+}
+
 export function buildAssistantBriefing(input: {
   userName?: string | null
   snapshot: OperationalSnapshot | null
   loading?: boolean
+  audience?: AssistantAudience
 }): AssistantBriefingModel {
   const name = firstName(input.userName)
   const greeting = name ? `Hola, ${name}.` : 'Hola.'
+  const orgScope = input.audience === 'direccion' || input.audience === 'lider'
 
   if (input.loading && !input.snapshot) {
-    return {
-      greeting,
-      summary: 'Cargando tu situacion operativa…',
-      priorityTitle: null,
-      priorityReason: null,
-      priorityRecord: null,
-      priorityUrgency: null,
-    }
+    return emptyBriefing(greeting, 'Cargando tu situacion operativa…', orgScope ? 'organization' : 'personal', orgScope ? 'Operación de la empresa' : 'Mis acciones')
   }
 
   if (!input.snapshot) {
-    return {
-      greeting,
-      summary: 'Inicia sesion o recarga para ver tu contexto operativo.',
-      priorityTitle: null,
-      priorityReason: null,
-      priorityRecord: null,
-      priorityUrgency: null,
-    }
+    return emptyBriefing(greeting, 'Inicia sesion o recarga para ver tu contexto operativo.', 'personal', 'Mis acciones')
   }
 
   const c = input.snapshot.counts
-  if (c.open === 0 && c.pendingVerification === 0) {
-    return {
+  const canSeeOrg = Boolean(input.snapshot.viewer.canSeeTeam && orgScope)
+  const scopeKind: AssistantBriefingScope = canSeeOrg ? 'organization' : 'personal'
+  const scopeLabel = canSeeOrg ? 'Operación de la empresa' : 'Mis acciones'
+  const open = canSeeOrg ? c.boardOpen : c.open
+  const overdue = canSeeOrg ? c.teamOverdue : c.overdue
+  const blocked = canSeeOrg ? c.teamBlocked : c.blocked
+  const dueThisWeek = c.dueThisWeek
+  const pendingVerification = c.pendingVerification
+
+  if (open === 0 && pendingVerification === 0) {
+    return emptyBriefing(
       greeting,
-      summary: 'No tienes acciones abiertas en tu alcance actual.',
-      priorityTitle: null,
-      priorityReason: null,
-      priorityRecord: null,
-      priorityUrgency: null,
-    }
+      canSeeOrg
+        ? 'No hay acciones abiertas en el tablero autorizado de la empresa.'
+        : 'No tienes acciones abiertas en tus acciones asignadas.',
+      scopeKind,
+      scopeLabel
+    )
   }
 
-  const top = input.snapshot.mine[0] ?? null
+  const top = (canSeeOrg ? input.snapshot.boardOpenItems[0] : null) ?? input.snapshot.mine[0] ?? null
   const summaryParts = [
-    `${c.open} abiertas`,
-    c.overdue > 0 ? `${c.overdue} en retraso` : null,
-    c.blocked > 0 ? `${c.blocked} bloqueadas` : null,
-    c.dueThisWeek > 0 ? `${c.dueThisWeek} vencen en 7 dias` : null,
-    c.pendingVerification > 0 ? `${c.pendingVerification} por verificar` : null,
+    `${open} abiertas`,
+    overdue > 0 ? `${overdue} en retraso` : null,
+    blocked > 0 ? `${blocked} bloqueadas` : null,
+    !canSeeOrg && dueThisWeek > 0 ? `${dueThisWeek} vencen en 7 dias` : null,
+    pendingVerification > 0 ? `${pendingVerification} por verificar` : null,
   ].filter(Boolean)
+  const indicators: AssistantBriefingIndicator[] = [
+    { id: 'open', label: 'Abiertas', value: open, tone: 'primary' as const, prompt: canSeeOrg ? '¿Cómo está mi empresa hoy?' : 'Cuales acciones tengo abiertas?' },
+    overdue > 0
+      ? { id: 'overdue', label: 'Atrasadas', value: overdue, tone: 'danger' as const, prompt: canSeeOrg ? '¿Qué requiere mi atención?' : 'Cuales tengo vencidas?' }
+      : null,
+    blocked > 0
+      ? { id: 'blocked', label: 'Bloqueadas', value: blocked, tone: 'warning' as const, prompt: 'Que acciones bloqueadas debo atender?' }
+      : !canSeeOrg && dueThisWeek > 0
+        ? { id: 'dueThisWeek', label: 'Por vencer', value: dueThisWeek, tone: 'warning' as const, prompt: 'Cuales tengo por vencer?' }
+        : null,
+  ]
+    .filter((row): row is AssistantBriefingIndicator => Boolean(row && row.value > 0))
+    .slice(0, 3)
 
   let priorityReason: string | null = null
   let priorityUrgency: AssistantBriefingModel['priorityUrgency'] = null
@@ -149,9 +191,17 @@ export function buildAssistantBriefing(input: {
     }
   }
 
+  const personalNote =
+    canSeeOrg && c.open === 0
+      ? ' Tus acciones asignadas: 0 (no es el diagnóstico de la empresa).'
+      : ''
+
   return {
     greeting,
-    summary: `Hecho: ${summaryParts.join(' · ')}.`,
+    summary: `${scopeLabel}. Hecho: ${summaryParts.join(' · ')}.${personalNote}`,
+    scopeKind,
+    scopeLabel,
+    indicators,
     priorityTitle: top?.titulo ?? null,
     priorityReason,
     priorityRecord: top ? actionRecordLink(top.id, top.titulo) : null,

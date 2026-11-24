@@ -85,6 +85,51 @@ function formatFecha(fecha: string | null | undefined) {
   return `${match[3]}/${match[2]}/${match[1]}`
 }
 
+function renderInlineMarkdown(text: string) {
+  const parts: ReactNode[] = []
+  const pattern = /(\*\*([^*]+)\*\*|\[([^\]]+)\]\((\/[^)\s]*|https?:\/\/[^)\s]+)\))/g
+  let last = 0
+  let match: RegExpExecArray | null
+  let key = 0
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > last) parts.push(text.slice(last, match.index))
+    if (match[2]) {
+      parts.push(
+        <strong key={`b-${key++}`} className="font-semibold text-foreground">
+          {match[2]}
+        </strong>
+      )
+    } else if (match[3] && match[4]) {
+      const href = match[4]
+      parts.push(
+        href.startsWith('/') ? (
+          <Link
+            key={`a-${key++}`}
+            to={href}
+            state={{ from: 'assistant' }}
+            className="font-medium text-primary underline-offset-2 hover:underline"
+          >
+            {match[3]}
+          </Link>
+        ) : (
+          <a
+            key={`a-${key++}`}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-primary underline-offset-2 hover:underline"
+          >
+            {match[3]}
+          </a>
+        )
+      )
+    }
+    last = match.index + match[0].length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts.length ? parts : text
+}
+
 export function ActionRow({
   action,
   compact,
@@ -99,8 +144,9 @@ export function ActionRow({
     <li className="min-w-0">
       <Link
         to={action.href}
+        state={{ from: 'assistant' }}
         className={cn(
-          'group flex items-start justify-between gap-2 rounded-xl bg-muted/35 px-2.5 py-2 ring-1 ring-transparent transition hover:bg-muted/55 hover:ring-border/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'group flex min-h-11 items-start justify-between gap-2 rounded-xl bg-muted/35 px-2.5 py-2 ring-1 ring-transparent transition hover:bg-muted/55 hover:ring-border/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           compact ? 'py-1.5' : 'py-2'
         )}
       >
@@ -325,7 +371,7 @@ function BriefView({ view, compact }: { view: AssistantBriefView; compact?: bool
   return (
     <div className="space-y-2">
       <p className={cn('text-foreground/90', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
-        {view.summary}
+        {renderInlineMarkdown(view.summary)}
       </p>
       {view.scope ? <p className="text-[11px] text-muted-foreground">{view.scope}</p> : null}
       {view.metrics?.length ? <MetricSummary metrics={view.metrics} compact={compact} /> : null}
@@ -345,7 +391,7 @@ function OperationalSummaryView({
       <div className="space-y-1">
         <SectionLabel>Resumen operativo</SectionLabel>
         <p className={cn('text-foreground/90', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
-          {view.summary}
+          {renderInlineMarkdown(view.summary)}
         </p>
         {view.scope ? <p className="text-[11px] text-muted-foreground">{view.scope}</p> : null}
       </div>
@@ -455,7 +501,7 @@ export function AssistantReplyViews({
     <div className={cn('space-y-3', compact && 'space-y-2.5')}>
       {showNarrative ? (
         <p className={cn('text-foreground/90', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
-          {narrative!.trim()}
+          {renderInlineMarkdown(narrative!.trim())}
         </p>
       ) : null}
       {ui.views.map((view, index) => (
@@ -467,13 +513,30 @@ export function AssistantReplyViews({
           role="group"
           aria-label="Acciones contextuales de profundización"
         >
+          {(() => {
+            const firstAction = ui.views.flatMap((view) =>
+              view.type === 'operational_summary' || view.type === 'action_list' ? view.actions ?? [] : []
+            )[0]
+            return firstAction ? (
+              <Link
+                to={firstAction.href}
+                state={{ from: 'assistant' }}
+                className={cn(
+                  'inline-flex min-h-9 items-center rounded-full bg-primary px-2.5 py-1 font-medium text-primary-foreground transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  compact ? 'text-[10px]' : 'text-[11px]'
+                )}
+              >
+                Abrir evidencia
+              </Link>
+            ) : null
+          })()}
           {EXECUTIVE_FOLLOWUP_CHIPS.map((chip) => (
             <button
               key={chip.label}
               type="button"
               onClick={() => onFollowUp(chip.prompt)}
               className={cn(
-                'rounded-full bg-primary/10 px-2.5 py-1 font-medium text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                'min-h-9 rounded-full bg-primary/10 px-2.5 py-1 font-medium text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 compact ? 'text-[10px]' : 'text-[11px]'
               )}
             >

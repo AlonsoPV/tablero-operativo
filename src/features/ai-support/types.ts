@@ -14,4 +14,6 @@ export type AiChatMessage = {
   ui?: AssistantUiPayload
   proposals?: CopilotProposal[]
   clarification?: CopilotClarification
+  /** El proveedor falló de forma recuperable; el usuario puede reintentar el mismo turno. */
+  retryable?: boolean
 }

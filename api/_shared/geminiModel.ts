@@ -45,3 +45,36 @@ export function geminiModelCandidates(preferred?: string | null): string[] {
 export function isGeminiCapacityStatus(status: number): boolean {
   return status === 429 || status === 500 || status === 503
 }
+
+/** Un reintento corto en el mismo modelo antes de pasar al fallback. */
+export const GEMINI_CAPACITY_RETRY_MS = 280
+
+export function geminiErrorStatus(error: unknown): number {
+  if (error && typeof error === 'object' && typeof (error as { status?: unknown }).status === 'number') {
+    return (error as { status: number }).status
+  }
+  return 0
+}
+
+export async function sleepMs(ms: number): Promise<void> {
+  if (ms <= 0) return
+  await new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Reintenta una lectura Gemini saturada (429/500/503) una vez, con backoff.
+ * No usar alrededor de escrituras: el callback debe ser idempotente o de sólo lectura.
+ */
+export async function withGeminiCapacityRetry<T>(
+  run: () => Promise<T>,
+  options?: { retryMs?: number; sleep?: (ms: number) => Promise<void> }
+): Promise<T> {
+  try {
+    return await run()
+  } catch (error) {
+    const status = geminiErrorStatus(error)
+    if (!isGeminiCapacityStatus(status)) throw error
+    await (options?.sleep ?? sleepMs)(options?.retryMs ?? GEMINI_CAPACITY_RETRY_MS)
+    return await run()
+  }
+}

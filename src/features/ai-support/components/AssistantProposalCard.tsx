@@ -46,6 +46,8 @@ type AssistantProposalCardProps = {
   cancelOp?: (opId: string) => Promise<void>
   /** Oculta editar aunque no sea readOnly (liga sin login). */
   disableEdit?: boolean
+  /** R2 OFF: no ejecutar ni sugerir que la ejecución está disponible. */
+  executionLocked?: boolean
   onResolved?: (status: 'confirmed' | 'cancelled', href?: string) => void
   onUpdated?: (proposal: CopilotProposal) => void
 }
@@ -58,6 +60,7 @@ export function AssistantProposalCard({
   confirmOp,
   cancelOp,
   disableEdit = false,
+  executionLocked = false,
   onResolved,
   onUpdated,
 }: AssistantProposalCardProps) {
@@ -100,6 +103,10 @@ export function AssistantProposalCard({
             : 'Aprobar y enviar'
 
   const confirm = async () => {
+    if (executionLocked) {
+      toast.error('R2 desactivado: este compromiso queda como borrador. No se ejecuta ni se persiste.')
+      return
+    }
     setBusy('confirm')
     setError(null)
     try {
@@ -321,6 +328,10 @@ export function AssistantProposalCard({
           </p>
         ) : status === 'cancelled' ? (
           <p className="text-[12px] text-slate-500">Descartado.</p>
+        ) : executionLocked && view.kind === 'board' ? (
+          <p className="text-[12px] text-slate-500">
+            R2 desactivado: este compromiso queda como borrador. No hay ejecución disponible.
+          </p>
         ) : readOnly ? (
           <p className="text-[12px] text-slate-500">
             Pendiente de revision. Inicia sesion como el dueno para editar, aprobar o descartar.
