@@ -366,7 +366,8 @@ function rememberActions(state: TurnState, request: ActionsQueryRequest, result:
 
 async function handleQueryActions(
   state: TurnState,
-  intent: Extract<AgentIntent, { kind: 'query_actions' }>
+  intent: Extract<AgentIntent, { kind: 'query_actions' }>,
+  utterance = ''
 ): Promise<{ response: AgentResponse; clarification?: CopilotClarification; audit: Partial<QueryAuditEntry> }> {
   let responsableId: string | undefined
   let personLabel: string | undefined
@@ -420,13 +421,61 @@ async function handleQueryActions(
     response.blocks.data.push(statusMessage(result.status, subject, result.error?.message))
     return { response, audit: { status: result.status, entity: 'actions', scope: request.scope } }
   }
-  if (result.status === 'empty') {
+
+  const normUtterance = utterance
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+  const titleMatches = result.items.filter((item) => {
+    const t = item.title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+    return t.length >= 4 && normUtterance.includes(t)
+  })
+  let focusedItem = titleMatches.length === 1 ? titleMatches[0]! : null
+  if (!focusedItem && state.actor.copilot?.supabase) {
+    const namedMatch = utterance.match(/\b(?:mu[eé]strame|abre|ver|busca|consulta)\s+(?:la\s+)?acci[oó]n\s+([^\n?.!]{4,120})/i)
+    const searchTerm = namedMatch?.[1]?.trim().replace(/[«»"']/g, '')
+    if (searchTerm) {
+      const { data: foundRows } = await state.actor.copilot.supabase
+        .from('acciones_diarias')
+        .select('id,titulo_accion,estado,fecha,prioridad,responsable,updated_at')
+        .ilike('titulo_accion', `%${searchTerm}%`)
+        .limit(2)
+      const list = Array.isArray(foundRows) ? foundRows : []
+      if (list.length === 1) {
+        const row = list[0] as {
+          id: string
+          titulo_accion?: string | null
+          estado?: string | null
+          fecha?: string | null
+          prioridad?: string | null
+          responsable?: string | null
+          updated_at?: string | null
+        }
+        focusedItem = {
+          id: row.id,
+          title: row.titulo_accion ?? searchTerm,
+          estado: row.estado ?? null,
+          fecha: row.fecha ?? null,
+          hora: null,
+          prioridad: row.prioridad ?? null,
+          responsableId: row.responsable ?? null,
+          responsableNombre: null,
+          area: null,
+          updatedAt: row.updated_at ?? null,
+          href: `/kanban?accion=${row.id}`,
+        }
+      }
+    }
+  }
+
+  if (result.status === 'empty' && !focusedItem) {
     response.blocks.data.push(statusMessage('empty', subject))
     rememberActions(state, request, result)
     return { response, audit: { status: 'empty', entity: 'actions', scope: request.scope, total: 0 } }
   }
 
-  const ranked = rankByUrgency(result.items, state.today)
+  const effectiveItems = focusedItem ? [focusedItem] : result.items
+  const ranked = focusedItem ? [focusedItem] : rankByUrgency(effectiveItems, state.today)
   const shown = ranked.slice(0, LIST_LIMIT)
   const verb = intent.statusGroup === 'overdue' ? 'vencidas' : intent.statusGroup === 'blocked' ? 'bloqueadas' : 'abiertas'
   const headline = `${result.totals.total} ${verb} en ${subject}.`
@@ -477,6 +526,24 @@ async function handleQueryActions(
     limitations: [...response.blocks.limitations, ...(result.status === 'partial' ? [statusMessage('partial', subject)] : [])],
   })
   rememberActions(state, { ...request }, result)
+  if (focusedItem) {
+    state.ctx.lastEntity = { kind: 'action', id: focusedItem.id, label: focusedItem.title }
+    if (!state.ctx.lastActions.some((a) => a.id === focusedItem.id)) {
+      state.ctx.lastActions = [
+        {
+          id: focusedItem.id,
+          title: focusedItem.title,
+          estado: focusedItem.estado,
+          fecha: focusedItem.fecha,
+          prioridad: focusedItem.prioridad,
+          responsableId: focusedItem.responsableId,
+          responsableNombre: focusedItem.responsableNombre,
+          href: focusedItem.href,
+        },
+        ...state.ctx.lastActions,
+      ]
+    }
+  }
   return {
     response,
     audit: { status: result.status, entity: 'actions', scope: request.scope, total: result.totals.total },
@@ -1784,7 +1851,7 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
     if (persistMode === 'qa' || persistMode === 'simulated') {
       const persisted = await proposeR2Operation(state.actor, 'create_action', {
         titulo: draft.title || intent.request.slice(0, 70),
-        responsableId: contextAction?.responsableId ?? null,
+        responsableId: contextAction?.responsableId ?? state.actor.usuarioId,
         fecha: due.dateYmd ?? (contextAction ? state.today : null),
         origenAccionId: origen?.id ?? contextAction?.id ?? null,
       })
@@ -1922,7 +1989,7 @@ async function handleBatchCommitments(
     intent.batch === 'decisions'
       ? decisions.map((note, i) => ({
           titulo: note.slice(0, 70),
-          responsableId: state.ctx.lastActions[i]?.responsableId ?? state.ctx.lastActions[0]?.responsableId ?? null,
+          responsableId: state.ctx.lastActions[i]?.responsableId ?? state.ctx.lastActions[0]?.responsableId ?? state.actor.usuarioId,
           fecha: state.today,
           origenAccionId: state.ctx.lastActions[i]?.id ?? state.ctx.lastActions[0]?.id ?? null,
         }))
@@ -1930,7 +1997,7 @@ async function handleBatchCommitments(
           const origin = state.ctx.lastActions.find((a) => a.id === draft.origenAccionId)
           return {
             titulo: draft.titulo.slice(0, 70),
-            responsableId: origin?.responsableId ?? null,
+            responsableId: origin?.responsableId ?? state.actor.usuarioId,
             fecha: draft.fechaPropuesta ?? state.today,
             origenAccionId: draft.origenAccionId,
           }
@@ -2373,7 +2440,7 @@ export async function runAgentTurn(
   }
   switch (intent.kind) {
     case 'query_actions':
-      outcome = await handleQueryActions(state, intent)
+      outcome = await handleQueryActions(state, intent, utterance)
       break
     case 'who_most_urgent':
       outcome = await handleWhoMostUrgent(state)

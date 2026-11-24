@@ -76,6 +76,8 @@ export function classifyCreateWorkKind(text: string): CreateWorkKind {
   const t = normalize(text)
   // «Generame / prepara un WhatsApp» no es create Kanban
   if (looksLikeCommsPrepare(t) && !hasExplicitBoardCreateNoun(t)) return 'none'
+  // «Agrega/anota un comentario» o «Registra un bloqueo» en una acción existente va al orquestador R2 (/api/gemini-chat), no al borrador de creación.
+  if (/\b(comentario|bloqueo)\b/.test(t) && !/\b(crea(?:r|me)?|genera(?:r|me)?)\b/.test(t)) return 'none'
 
   const asksCreate =
     /\b(crea(r|me)?|genera(r|me)?|agrega(r|me)?|registra(r)?|anota(r)?|arma(r|me)?|propon(e|me|er)?|agenda(r|me)?|programa(r|me)?|asigna(r|le|me)?)\b/.test(

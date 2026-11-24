@@ -69,4 +69,15 @@ describe('writeIntent', () => {
       'consult'
     )
   })
+
+  it('envia comentarios y bloqueos de acciones existentes al orquestador R2 y no a plan_actions', () => {
+    expect(looksLikeCreateWork('Agrega un comentario a la acción Revisión inventario: validado')).toBe(false)
+    expect(looksLikeCreateWork('Registra un bloqueo en la acción Cierre fiscal por falta de factura')).toBe(false)
+    expect(resolveWriteIntent('Agrega un comentario a la acción Revisión inventario: validado', 'consult')).toBe(
+      'consult'
+    )
+    expect(resolveWriteIntent('Registra un bloqueo en la acción Cierre fiscal por proveedor', 'consult')).toBe(
+      'consult'
+    )
+  })
 })

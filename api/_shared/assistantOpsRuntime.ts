@@ -1259,7 +1259,12 @@ async function executePayload(
   }
   if (tool === 'update_action') {
     const id = String(payload.action_id)
-    const patch = (payload.patch ?? {}) as Record<string, unknown>
+    const patch: Record<string, unknown> = { ...((payload.patch ?? {}) as Record<string, unknown>) }
+    if (typeof patch.prioridad === 'string' && patch.prioridad.trim() && !('prioridad_id' in patch)) {
+      // acciones_diarias_sync_prioridad_id() prioriza NEW.prioridad_id sobre NEW.prioridad;
+      // limpiar prioridad_id obliga al trigger a resolver la nueva prioridad en public.priorities.
+      patch.prioridad_id = null
+    }
     const { error, count } = await actor.supabase
       .from('acciones_diarias')
       .update(patch, { count: 'exact' })
