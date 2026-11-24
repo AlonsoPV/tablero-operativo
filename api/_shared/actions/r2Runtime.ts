@@ -925,25 +925,22 @@ export async function editR2PendingOp(actor: CopilotActor, opId: string, patch: 
     fields,
     summary: `Propuesta editada. Confirma de nuevo para aplicar: ${String(preview.summary ?? '')}`.slice(0, 400),
   }
-  const { data: updated, error: updateError } = await actor.supabase
-    .from('assistant_pending_ops')
-    .update({
-      payload,
-      preview: nextPreview,
-      expected_updated_at: expectedUpdatedAt,
-      request_key: requestKey,
-    })
-    .eq('id', opId)
-    .eq('status', 'pending')
-    .select('id,expires_at')
-    .maybeSingle()
-  if (updateError || !updated) throw new Error('DATABASE_ERROR: No se pudo guardar la edición.')
+  const { data: updatedExpiresAt, error: updateError } = await actor.supabase.rpc('agent_edit_pending_op', {
+    p_op_id: opId,
+    p_payload: payload,
+    p_preview: nextPreview,
+    p_expected_updated_at: expectedUpdatedAt,
+    p_request_key: requestKey,
+  })
+  if (updateError) {
+    throw new Error(errorMessage(updateError, 'DATABASE_ERROR: No se pudo guardar la edición.'))
+  }
   await insertAssistantOpLog(actor, {
     tool,
-    result: 'edited',
+    result: 'proposed',
     pendingOpId: opId,
     resourceId: data.resource_id as string | null,
-    summary: String(nextPreview.title ?? tool),
+    summary: `edited: ${String(nextPreview.title ?? tool)}`,
   })
   return {
     id: opId,
@@ -952,7 +949,7 @@ export async function editR2PendingOp(actor: CopilotActor, opId: string, patch: 
     summary: String(nextPreview.summary ?? ''),
     fields,
     record: (nextPreview.record as CopilotProposal['record']) ?? undefined,
-    expiresAt: String(updated.expires_at ?? data.expires_at),
+    expiresAt: String(updatedExpiresAt ?? data.expires_at),
     batchId: typeof payload.batchId === 'string' ? payload.batchId : undefined,
   }
 }
