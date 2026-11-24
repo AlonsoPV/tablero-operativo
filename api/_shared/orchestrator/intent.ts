@@ -161,7 +161,7 @@ export function classifyAgentIntent(
   }
 
   if (
-    /\b(que requiere mi atencion|principales problemas|3 principales|tres principales|top 3|prioridades ejecutivas|que deberia priorizar hoy|que priorizar hoy)\b/.test(
+    /\b(que requiere mi atencion|que necesita mi atencion|principales problemas|3 principales|tres principales|top 3|prioridades ejecutivas|que deberia priorizar hoy|que priorizar hoy|(?:que )?(?:acciones )?deberia priorizar(?: esta semana| hoy)?|que priorizar esta semana)\b/.test(
       text
     )
   ) {
@@ -181,7 +181,7 @@ export function classifyAgentIntent(
   }
 
   if (
-    /\b(compromisos pendientes|acuerdos pendientes|compromisos por responsable|pendientes de verificacion|pendientes de verificado|en hecho pendientes|situaciones sin actualizacion)\b/.test(
+    /\b(compromisos pendientes|acuerdos pendientes|compromisos por responsable|pendientes de verificacion|pendientes de verificado|en hecho pendientes|situaciones sin actualizacion|compromisos? (?:que )?no se estan cumpliendo|compromisos? incumplidos?|compromisos? de (?:nuestra|la) ultima reunion|acuerdos? de (?:nuestra|la) ultima reunion|que acordamos en (?:la|nuestra) ultima reunion)\b/.test(
       text
     )
   ) {
@@ -189,7 +189,9 @@ export function classifyAgentIntent(
       ? 'verification'
       : /\bpor responsable\b/.test(text)
         ? 'by_owner'
-        : 'all'
+        : /\b(no se estan cumpliendo|incumplidos?)\b/.test(text)
+          ? 'overdue'
+          : 'all'
     return { kind: 'executive_commitments', filter }
   }
 
@@ -279,6 +281,25 @@ export function classifyAgentIntent(
   }
 
   if (
+    /\b(quien(?:es)? tienen? acciones vencidas|quien(?:es)? tienen? (?:tareas|compromisos) vencid[oa]s|quien(?:es)? van? atrasad[oa]s)\b/.test(
+      text
+    )
+  ) {
+    return { kind: 'aggregate_execution', groupBy: 'responsable', statusGroup: 'overdue' }
+  }
+
+  if (/\bcomo vamos con\b/.test(text)) {
+    return {
+      kind: 'query_actions',
+      scope: 'team_authorized',
+      statusGroup: 'open',
+      visual: 'none',
+      focusToday: false,
+      restrictedRequest: false,
+    }
+  }
+
+  if (
     /\b(mas urgente|mas critica|mas atrasada|mas vencida)\b/.test(text) &&
     /\b(quien|cual|cuales|el mas|la mas)\b/.test(text)
   ) {
@@ -286,7 +307,7 @@ export function classifyAgentIntent(
   }
 
   if (
-    /\b(que deberia hacer|que hago( ahora)?|siguiente paso|por donde empiezo|que me recomiendas|que recomiendas)\b/.test(
+    /\b(que deberia hacer|que hago( ahora)?|siguiente paso|por donde empiezo|que me recomiendas|que recomiendas|que decisiones deberia tomar|que decisiones tomar|que decision deberia tomar)\b/.test(
       text
     )
   ) {

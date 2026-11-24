@@ -26,7 +26,11 @@ import { isGoogleWriteTool } from '../src/features/ai-support/copilot/googleWork
 import { COPILOT_FUNCTION_DECLARATIONS, isCopilotReadTool } from '../src/features/ai-support/copilot/catalog.js'
 import { proposalFromPendingRow } from './_shared/assistantGoogleTools.js'
 import { guideAppBaseUrl } from './_shared/guideUserLinks.js'
-import { isAgentOrchestratorEnabled, runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
+import { runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
+import {
+  resolveWhatsAppConversationalAccess,
+  WHATSAPP_GROUP_A_READ_ONLY_MESSAGE,
+} from './_shared/whatsappPilotGate.js'
 
 const WHATSAPP_READ_ONLY_DECLARATIONS = COPILOT_FUNCTION_DECLARATIONS.filter((d) =>
   isCopilotReadTool(d.name)
@@ -414,7 +418,8 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Falta el mensaje.' })
     }
 
-    if (isAgentOrchestratorEnabled()) {
+    const waAccess = resolveWhatsAppConversationalAccess({ usuarioId, waId })
+    if (waAccess.enabled) {
       const turn = await runChannelTurn({
         identity: {
           supabase,
@@ -427,14 +432,26 @@ export default defineApiHandler(async (req, res) => {
         sessionId: waId,
         utterance: text.slice(0, 2000),
       })
-      // Canal de sólo lectura: una intención de escritura no crea propuestas aquí.
-      if (turn.handled && turn.intent !== 'write_request') {
+      // Grupo A (estrictamente solo lectura): jamás ejecuta ni persiste escrituras R2 desde WhatsApp.
+      if (turn.handled && turn.intent === 'write_request') {
+        return res.status(200).json({
+          text: clipReply(WHATSAPP_GROUP_A_READ_ONLY_MESSAGE),
+          proposals: [],
+          clarification: null,
+          handoff: 'task_update',
+          pilotMode: waAccess.mode,
+          executionEnabled: false,
+        })
+      }
+      if (turn.handled) {
         const options = turn.clarification?.options.map((opt) => `- ${opt.label}`).join('\n')
         return res.status(200).json({
           text: clipReply(options ? `${turn.text}\n${options}` : turn.text),
           proposals: [],
           clarification: turn.clarification ?? null,
           handoff: null,
+          pilotMode: waAccess.mode,
+          executionEnabled: false,
         })
       }
     }
