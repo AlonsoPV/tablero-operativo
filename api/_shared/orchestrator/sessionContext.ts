@@ -61,6 +61,63 @@ export function sessionContextKey(actor: Pick<AgentActor, 'usuarioId' | 'channel
   return `${actor.usuarioId}:${actor.channel}:${actor.sessionId}`
 }
 
+/**
+ * Clave de preferencias/continuidad compartidas entre canales (web <-> WhatsApp)
+ * vinculada estrictamente al `usuarioId` corporativo verificado. Nunca mezcla usuarios
+ * ni sobrescribe el hilo concurrente de otra sesión.
+ */
+export function multichannelPreferenceKey(usuarioId: string): string {
+  return `${usuarioId}:shared:preferences`
+}
+
+export type SharedUserPreferences = {
+  responseFormat?: ResponseFormat
+  lastTotals?: { open: number; overdue: number; blocked: number } | null
+  lastEntity?: SessionContext['lastEntity']
+  lastActions?: SessionContext['lastActions']
+  fingerprint?: string
+}
+
+export async function readSharedUserPreferences(
+  store: SessionContextStore,
+  usuarioId: string,
+  expectedFingerprint?: string,
+  now = Date.now()
+): Promise<SharedUserPreferences | null> {
+  const saved = await store.get(multichannelPreferenceKey(usuarioId), now)
+  if (!saved) return null
+  if (expectedFingerprint && saved.fingerprint && saved.fingerprint !== expectedFingerprint) {
+    return null
+  }
+  return {
+    responseFormat: saved.responseFormat,
+    lastTotals: saved.lastTotals ?? null,
+    lastEntity: saved.lastEntity ?? null,
+    lastActions: saved.lastActions ?? [],
+    fingerprint: saved.fingerprint,
+  }
+}
+
+export async function writeSharedUserPreferences(
+  store: SessionContextStore,
+  usuarioId: string,
+  prefs: SharedUserPreferences,
+  now = Date.now()
+): Promise<void> {
+  await store.set(
+    multichannelPreferenceKey(usuarioId),
+    {
+      activeQuery: null,
+      lastActions: prefs.lastActions ?? [],
+      lastEntity: prefs.lastEntity ?? null,
+      responseFormat: prefs.responseFormat,
+      lastTotals: prefs.lastTotals ?? null,
+      fingerprint: prefs.fingerprint,
+    },
+    now
+  )
+}
+
 export function emptySessionContext(now = Date.now()): SessionContext {
   return { activeQuery: null, lastActions: [], lastEntity: null, lastTotals: null, updatedAt: now }
 }
