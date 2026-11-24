@@ -20,6 +20,7 @@ export type WhatsAppInboundRoute =
   | { kind: 'agent_aiop'; opId: string; action: 'confirm' | 'cancel' }
   | { kind: 'agent_r2_button'; buttonId: string }
   | { kind: 'agent_voice_note' }
+  | { kind: 'audio_ambiguous' }
   | { kind: 'mas_info' }
   | { kind: 'agent_consult' }
   | { kind: 'agent_channel'; channel: 'text' | 'voice' }
@@ -271,6 +272,8 @@ export type ResolveWhatsAppInboundInput = {
   messageType?: string | null
   /** Habilita el enrutamiento de notas de voz (`audio`) al asistente IA (Fase B, opt-in). */
   voiceNotesEnabled?: boolean
+  /** True si el usuario tiene una solicitud de evidencia pendiente (`whatsapp_result_requests.status = 'waiting'`). */
+  hasWaitingEvidence?: boolean
 }
 
 /**
@@ -310,7 +313,12 @@ export function resolveWhatsAppInboundRoute(input: ResolveWhatsAppInboundInput):
 
   if (messageType === 'audio') {
     if (input.canUseAi && input.voiceNotesEnabled === true) {
-      return { kind: 'agent_voice_note' }
+      if (input.hasWaitingEvidence === true && agentSessionActive) {
+        return { kind: 'audio_ambiguous' }
+      }
+      if (input.hasWaitingEvidence !== true) {
+        return { kind: 'agent_voice_note' }
+      }
     }
     return { kind: 'ignore' }
   }
@@ -409,6 +417,8 @@ export function intentForRoute(route: WhatsAppInboundRoute): WhatsAppIntent {
       return route.buttonId.startsWith('r2_cancel:') ? 'CANCEL' : 'TASK_UPDATE'
     case 'agent_voice_note':
       return 'QUERY'
+    case 'audio_ambiguous':
+      return 'UNKNOWN'
     case 'cancel':
       return 'CANCEL'
     case 'agent_free_text':
@@ -452,6 +462,7 @@ export function flowForRoute(route: WhatsAppInboundRoute): WhatsAppFlow | null {
       return 'agent'
     case 'ask_flow':
     case 'cancel':
+    case 'audio_ambiguous':
       return null
     case 'mas_info':
       return null

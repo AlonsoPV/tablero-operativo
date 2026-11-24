@@ -34,6 +34,7 @@ type WhatsAppInboundRoute =
   | { kind: 'agent_aiop'; opId: string; action: 'confirm' | 'cancel' }
   | { kind: 'agent_r2_button'; buttonId: string }
   | { kind: 'agent_voice_note' }
+  | { kind: 'audio_ambiguous' }
   | { kind: 'mas_info' }
   | { kind: 'agent_consult' }
   | { kind: 'agent_channel'; channel: 'text' | 'voice' }
@@ -285,6 +286,8 @@ type ResolveWhatsAppInboundInput = {
   messageType?: string | null
   /** Habilita el enrutamiento de notas de voz (`audio`) al asistente IA (Fase B, opt-in). */
   voiceNotesEnabled?: boolean
+  /** True si el usuario tiene una solicitud de evidencia pendiente (`whatsapp_result_requests.status = 'waiting'`). */
+  hasWaitingEvidence?: boolean
 }
 
 /**
@@ -324,7 +327,12 @@ function resolveWhatsAppInboundRoute(input: ResolveWhatsAppInboundInput): WhatsA
 
   if (messageType === 'audio') {
     if (input.canUseAi && input.voiceNotesEnabled === true) {
-      return { kind: 'agent_voice_note' }
+      if (input.hasWaitingEvidence === true && agentSessionActive) {
+        return { kind: 'audio_ambiguous' }
+      }
+      if (input.hasWaitingEvidence !== true) {
+        return { kind: 'agent_voice_note' }
+      }
     }
     return { kind: 'ignore' }
   }
@@ -423,6 +431,8 @@ function intentForRoute(route: WhatsAppInboundRoute): WhatsAppIntent {
       return route.buttonId.startsWith('r2_cancel:') ? 'CANCEL' : 'TASK_UPDATE'
     case 'agent_voice_note':
       return 'QUERY'
+    case 'audio_ambiguous':
+      return 'UNKNOWN'
     case 'cancel':
       return 'CANCEL'
     case 'agent_free_text':
@@ -466,6 +476,7 @@ function flowForRoute(route: WhatsAppInboundRoute): WhatsAppFlow | null {
       return 'agent'
     case 'ask_flow':
     case 'cancel':
+    case 'audio_ambiguous':
       return null
     case 'mas_info':
       return null
@@ -1644,6 +1655,48 @@ function resolveStructuredInboundRoute(input: {
   return null
 }
 
+/**
+ * Compuerta Grupo B para notas de voz en Supabase Edge:
+ * exige WHATSAPP_VOICE_NOTES_ENABLED=1 y, si existe WHATSAPP_VOICE_NOTES_PILOT_USERS,
+ * restringe estrictamente a las identidades (usuario_id / wa_id) listadas (sin comodines).
+ */
+function isVoiceNotesAllowedForUser(input: { usuarioId: string; waId: string }): boolean {
+  if (Deno.env.get('WHATSAPP_VOICE_NOTES_ENABLED') !== '1') return false
+  const rawAllowlist = (Deno.env.get('WHATSAPP_VOICE_NOTES_PILOT_USERS') || '').trim()
+  if (!rawAllowlist) return true
+  const entries = new Set<string>()
+  for (const part of rawAllowlist.split(/[\s,;]+/)) {
+    const trimmed = part.trim()
+    if (!trimmed || trimmed === '*' || trimmed.toLowerCase() === 'all' || trimmed.toLowerCase() === 'todos') {
+      continue
+    }
+    entries.add(trimmed.toLowerCase())
+    const digits = trimmed.replace(/[^\d]/g, '')
+    if (digits.length >= 10) entries.add(digits)
+  }
+  if (entries.size === 0) return false
+  const userKey = input.usuarioId.trim().toLowerCase()
+  const waDigits = input.waId.replace(/[^\d]/g, '')
+  return (userKey.length > 0 && entries.has(userKey)) || (waDigits.length >= 10 && entries.has(waDigits))
+}
+
+async function hasWaitingEvidenceRequest(
+  supabase: ReturnType<typeof adminClient>,
+  waId: string
+): Promise<boolean> {
+  const nowIso = new Date().toISOString()
+  const variants = phoneVariants(waId)
+  const { data } = await supabase
+    .from('whatsapp_result_requests')
+    .select('id')
+    .in('wa_id', variants.length ? variants : [waId])
+    .eq('status', 'waiting')
+    .gt('expires_at', nowIso)
+    .limit(1)
+    .maybeSingle()
+  return Boolean(data?.id)
+}
+
 async function callWhatsAppAssistant(input: {
   action: 'chat' | 'confirm' | 'cancel' | 'voice_note'
   waId: string
@@ -2740,7 +2793,52 @@ async function processWhatsAppPayload(payload, supabase) {
             )
               continue
           }
-          // --- Shared: evidencia pendiente (Ops) antes de routers ---
+          // --- Shared: separación de audio ambiguo vs evidencia pendiente (Ops) vs nota de voz asistente ---
+          const voiceNotesForUser = isVoiceNotesAllowedForUser({
+            usuarioId: identity.usuario_id,
+            waId,
+          })
+          let waitingEvidenceForAudio = false
+          if (message.type === 'audio' && voiceNotesForUser) {
+            waitingEvidenceForAudio = await hasWaitingEvidenceRequest(supabase, waId)
+            if (waitingEvidenceForAudio) {
+              const audioCanUseAi = await canUseAiWhatsApp(supabase, identity.usuario_id)
+              const audioAgentActive = audioCanUseAi
+                ? await hasActiveAgentSession(supabase, waId)
+                : false
+              if (audioCanUseAi && audioAgentActive) {
+                await upsertThreadMessage(supabase, {
+                  wa_id: waId,
+                  usuario_id: identity.usuario_id,
+                  direction: 'inbound',
+                  source: 'contact',
+                  message_kind: 'audio',
+                  body_text: inboundPreview(message),
+                  meta_message_id: message.id ?? null,
+                  delivery_status: 'delivered',
+                  sent_at: new Date().toISOString(),
+                  delivered_at: new Date().toISOString(),
+                  payload: {
+                    message,
+                    value,
+                    source: 'webhook_inbound',
+                    flow: null,
+                    route_kind: 'audio_ambiguous',
+                    intent: 'UNKNOWN',
+                  },
+                })
+                await replyText(
+                  supabase,
+                  waId,
+                  'Recibí tu audio, pero tienes una solicitud de evidencia pendiente y una conversación activa con el asistente. Para evitar errores no lo guardé aún: si es evidencia de tu tarea, envíala por texto/foto o responde "evidencia"; si es una consulta para el asistente, responde "cancelar" para cerrar la evidencia pendiente y vuelve a enviar tu nota de voz.',
+                  identity.usuario_id,
+                  { flow: 'ops', event: 'audio_ambiguous_clarification' }
+                )
+                continue
+              }
+            }
+          }
+
           if (
             message.type === 'text' ||
             message.type === 'image' ||
@@ -2827,7 +2925,8 @@ async function processWhatsAppPayload(payload, supabase) {
               agentSessionActive,
               clarificationPending,
               correlatedTargetCount,
-              voiceNotesEnabled: Deno.env.get('WHATSAPP_VOICE_NOTES_ENABLED') === '1',
+              voiceNotesEnabled: voiceNotesForUser,
+              hasWaitingEvidence: waitingEvidenceForAudio,
               ...routeInput,
             })
             route = structured ?? classified.route
@@ -3478,6 +3577,7 @@ async function acceptWhatsAppWebhook(
 }
 
 // END_WHATSAPP_INGRESS
+
 
 
 
