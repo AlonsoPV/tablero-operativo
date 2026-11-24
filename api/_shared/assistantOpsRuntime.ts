@@ -1205,7 +1205,7 @@ type PendingRow = {
 }
 
 async function canWriteAction(actor: CopilotActor, action: ActionRow, tool: string): Promise<boolean> {
-  if (tool === 'mark_action_done' && action.responsable === actor.usuarioId) return true
+  if ((tool === 'mark_action_done' || tool === 'update_action') && action.responsable === actor.usuarioId) return true
   const rpc = tool === 'update_action' ? 'can_edit_accion_general_as' : 'can_manage_accion_full_as'
   const { data, error } = await actor.supabase.rpc(rpc, {
     p_accion_id: action.id, p_usuario_id: actor.usuarioId,

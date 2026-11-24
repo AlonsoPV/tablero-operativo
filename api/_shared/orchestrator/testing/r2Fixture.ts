@@ -44,7 +44,16 @@ function activeMe(db: FakeDb, session: FakeSession) {
   return { me, user }
 }
 
-const CLAIMABLE = ['agent_create_action', 'agent_set_action_status', 'agent_register_blocker', 'agent_notify_responsable', 'mark_action_done']
+const CLAIMABLE = [
+  'agent_create_action',
+  'agent_set_action_status',
+  'agent_register_blocker',
+  'agent_notify_responsable',
+  'agent_update_fields',
+  'agent_add_comment',
+  'agent_verify_action',
+  'mark_action_done',
+]
 
 /** Paridad de agent_claim_pending_op: puerta en BD, operación propia, vigente y con el payload confirmado. */
 export function simulatedClaimPendingOp(db: FakeDb, args: Row, session: FakeSession) {

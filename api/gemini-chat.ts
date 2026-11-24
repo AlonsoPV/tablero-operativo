@@ -182,10 +182,15 @@ export default defineApiHandler(async (req, res) => {
           responseFormat,
         })
         if (turn.handled) {
-          const persistedProposal = turn.proposal && 'tool' in turn.proposal ? turn.proposal : null
+          const proposals = turn.proposals?.length
+            ? turn.proposals
+            : turn.proposal && 'tool' in turn.proposal
+              ? [turn.proposal]
+              : []
           return res.status(200).json({
             answer: turn.text,
-            proposals: persistedProposal ? [persistedProposal] : [],
+            proposals,
+            batchId: turn.batchId ?? null,
             clarification: turn.clarification,
             ui: uiForTurn(turn, turn.text),
             toolTrace: turn.toolsUsed.map((tool) => ({ tool, kind: 'read' })),
@@ -198,7 +203,7 @@ export default defineApiHandler(async (req, res) => {
               blocks: turn.response.blocks,
               references: turn.response.references,
               asOf: turn.response.asOf,
-              executionEnabled: false,
+              executionEnabled: turn.executionEnabled === true,
             },
           })
         }

@@ -68,7 +68,7 @@ export type CopilotClarification = {
 
 export type CopilotProposal = {
   id: string
-  tool: CopilotWriteTool
+  tool: CopilotWriteTool | string
   title: string
   summary: string
   fields: CopilotPreviewField[]
@@ -77,6 +77,8 @@ export type CopilotProposal = {
   workspace?: CopilotWorkspacePreview
   /** R2_EXECUTION_MODE=simulated: confirmar no escribe en QA/PROD. */
   simulated?: boolean
+  /** Lote de propuestas del mismo turno; no se mezclan lotes distintos. */
+  batchId?: string
 }
 
 export type CopilotToolResult = {

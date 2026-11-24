@@ -57,6 +57,9 @@ import { AssistantActivity } from '@/features/ai-support/components/AssistantAct
 import { StructuredAssistantReply } from '@/features/ai-support/components/StructuredAssistantReply'
 import { AssistantReplyViews } from '@/features/ai-support/chatViews'
 import { AssistantProposalCard } from '@/features/ai-support/components/AssistantProposalCard'
+import { isR2BoardProposalTool } from '@/features/ai-support/copilot/actionLifecycle'
+import { confirmAssistantOp } from '@/features/ai-support/services/assistantOpsClient'
+import type { CopilotProposal } from '@/features/ai-support/copilot/types'
 import { AssistantClarificationChips } from '@/features/ai-support/components/AssistantClarificationChips'
 import { ActionDraftList } from '@/features/ai-support/components/ActionDraftList'
 import { WorkIntentToggle } from '@/features/ai-support/components/WorkIntentToggle'
@@ -234,12 +237,14 @@ type GeminiChatResponse = {
     formatSelected?: string
     status?: string
     asOf?: string | null
+    executionEnabled?: boolean
     blocks?: { data?: string[]; interpretation?: string[]; recommendation?: string[]; limitations?: string[] }
     references?: Array<{ id: string; title: string; href: string }>
   }
   error?: string
   retryable?: boolean
   proposals?: AiChatMessage['proposals']
+  batchId?: string | null
   clarification?: AiChatMessage['clarification']
   ui?: AiChatMessage['ui']
 }
@@ -343,6 +348,8 @@ async function sendMessage({
     clarification: data.clarification,
     ui: agentUi,
     formatSelected: data.agent?.formatSelected,
+    executionEnabled: data.agent?.executionEnabled === true,
+    batchId: data.batchId ?? undefined,
   }
 }
 
@@ -1274,6 +1281,8 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               proposals: reply.proposals,
               clarification: reply.clarification,
               ui: reply.ui,
+              executionEnabled: reply.executionEnabled,
+              batchId: reply.batchId,
             },
           ].slice(-MAX_MESSAGES)
         )
@@ -1452,31 +1461,19 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                   onSelect={(label) => void handleSend(label)}
                 />
               ) : null}
-              {message.role === 'assistant' && message.proposals?.length
-                ? message.proposals.map((proposal) => (
-                    <AssistantProposalCard
-                      key={proposal.id}
-                      proposal={proposal}
-                      compact={isPopup}
-                      executionLocked={proposal.simulated !== true && (
-                        proposal.tool === 'create_action' ||
-                        proposal.tool === 'update_action' ||
-                        proposal.tool === 'mark_action_done' ||
-                        proposal.tool === 'verify_action' ||
-                        proposal.tool === 'add_action_comment' ||
-                        proposal.tool === 'update_checklist_item'
-                      )}
-                      onResolved={(status) => {
-                        if (status === 'confirmed') {
-                          void queryClient.invalidateQueries({ queryKey: ['acciones'] })
-                          void queryClient.invalidateQueries({
-                            queryKey: ['assistant-operational-context'],
-                          })
-                        }
-                      }}
-                    />
-                  ))
-                : null}
+              {message.role === 'assistant' && message.proposals?.length ? (
+                <AssistantProposalGroup
+                  proposals={message.proposals}
+                  compact={isPopup}
+                  executionEnabled={message.executionEnabled === true}
+                  onBoardConfirmed={() => {
+                    void queryClient.invalidateQueries({ queryKey: ['acciones'] })
+                    void queryClient.invalidateQueries({
+                      queryKey: ['assistant-operational-context'],
+                    })
+                  }}
+                />
+              ) : null}
               {message.role === 'assistant' && message.analysis ? (
                 <div className="mt-3 space-y-2 border-t border-border/50 pt-2.5">
                   {message.analysis.nextSteps.length > 0 && message.analysis.actionDrafts.length === 0 ? (
@@ -2082,6 +2079,101 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
           {composer}
         </div>
       )}
+    </div>
+  )
+}
+
+function AssistantProposalGroup({
+  proposals,
+  compact,
+  executionEnabled,
+  onBoardConfirmed,
+}: {
+  proposals: CopilotProposal[]
+  compact: boolean
+  executionEnabled: boolean
+  onBoardConfirmed: () => void
+}) {
+  const [statusById, setStatusById] = useState<Record<string, 'pending' | 'confirmed' | 'cancelled' | 'error'>>({})
+  const [batchBusy, setBatchBusy] = useState(false)
+  const groups = new Map<string, CopilotProposal[]>()
+  for (const proposal of proposals) {
+    const key = proposal.batchId ?? proposal.id
+    const list = groups.get(key) ?? []
+    list.push(proposal)
+    groups.set(key, list)
+  }
+
+  const lockFor = (proposal: CopilotProposal) =>
+    isR2BoardProposalTool(proposal.tool) && !executionEnabled && proposal.simulated !== true
+
+  return (
+    <div className="space-y-2">
+      {[...groups.entries()].map(([key, items]) => {
+        const pending = items.filter((item) => (statusById[item.id] ?? 'pending') === 'pending')
+        const confirmed = items.filter((item) => statusById[item.id] === 'confirmed')
+        const failed = items.filter((item) => statusById[item.id] === 'error')
+        const showBatch = items.length > 1 && items[0]?.batchId
+        const batchLocked = items.some(lockFor)
+        const batchLabel =
+          failed.length > 0 && confirmed.length > 0
+            ? 'Parcial'
+            : failed.length > 0
+              ? 'Fallida'
+              : confirmed.length === items.length
+                ? 'Ejecutada'
+                : 'Pendiente'
+        return (
+          <div key={key} className="space-y-2">
+            {showBatch ? (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 bg-muted/30 px-3 py-2">
+                <p className="text-[12px] text-foreground/80">
+                  Lote de {items.length} propuestas · {batchLabel}
+                </p>
+                {!batchLocked && pending.length > 0 ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 rounded-full px-3"
+                    disabled={batchBusy}
+                    onClick={() => {
+                      void (async () => {
+                        setBatchBusy(true)
+                        for (const item of pending) {
+                          try {
+                            await confirmAssistantOp(item.id)
+                            setStatusById((current) => ({ ...current, [item.id]: 'confirmed' }))
+                            onBoardConfirmed()
+                          } catch {
+                            setStatusById((current) => ({ ...current, [item.id]: 'error' }))
+                          }
+                        }
+                        setBatchBusy(false)
+                      })()
+                    }}
+                  >
+                    {batchBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+                    Aprobar {pending.length} de este lote
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+            {items.map((proposal) => (
+              <AssistantProposalCard
+                key={proposal.id}
+                proposal={proposal}
+                compact={compact}
+                status={statusById[proposal.id]}
+                executionLocked={lockFor(proposal)}
+                onResolved={(status) => {
+                  setStatusById((current) => ({ ...current, [proposal.id]: status === 'confirmed' ? 'confirmed' : 'cancelled' }))
+                  if (status === 'confirmed') onBoardConfirmed()
+                }}
+              />
+            ))}
+          </div>
+        )
+      })}
     </div>
   )
 }

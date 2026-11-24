@@ -55,12 +55,22 @@ export type AgentIntent =
   | { kind: 'unsupported_metric'; domain: 'finance' }
   | {
       kind: 'write_request'
-      operation: 'create_action' | 'update_action' | 'update_status' | 'register_blocker' | 'notify_responsable'
+      operation:
+        | 'create_action'
+        | 'update_action'
+        | 'update_status'
+        | 'register_blocker'
+        | 'notify_responsable'
+        | 'add_comment'
+        | 'verify_action'
       request: string
       estado?: 'Pendiente' | 'En_Ejecucion' | 'Hecho' | 'Verificado'
       motivo?: string
       canal?: 'email' | 'whatsapp'
+      contenido?: string
+      batch?: 'commitments' | 'decisions'
     }
+  | { kind: 'unsupported_write'; operation: 'tag_okr_action' | 'sql' | 'generic' }
   | { kind: 'clarify'; question: string }
   | { kind: 'unknown' }
 
@@ -257,7 +267,7 @@ export function classifyAgentIntent(
   }
 
   const looksLikeWriteFollowUp =
-    /\b(marca|marcar|marcala|cambia|cambiar|bloquea|bloquear|avisa|avisale|notifica|actualiza|cierra|cerrar|mueve|pon|poner|ponla)\b/.test(
+    /\b(marca|marcar|marcala|cambia|cambiar|bloquea|bloquear|avisa|avisale|notifica|actualiza|cierra|cerrar|mueve|pon|poner|ponla|comenta|comentario|verifica|verificar|reasigna|asigna|convierte|crea|crear|prepara|preparar|arma|armar)\b/.test(
       text
     )
 
@@ -327,6 +337,27 @@ export function classifyAgentIntent(
   }
 
   const request = utterance.slice(0, 500)
+  if (
+    /\b(ejecuta(?:r)? sql|corre esta consulta|insert into|update acciones_diarias|delete from)\b/.test(text) ||
+    (/\b(sql)\b/.test(text) && /\b(ejecuta|correr|lanzar)\b/.test(text))
+  ) {
+    return { kind: 'unsupported_write', operation: 'sql' }
+  }
+  if (/\b(taguear|etiquetar|marcar como okr|tag_okr)\b/.test(text) && /\bokr\b/.test(text)) {
+    return { kind: 'unsupported_write', operation: 'tag_okr_action' }
+  }
+  if (
+    /\bconvierte\b/.test(text) &&
+    /\b(compromisos|decisiones)\b/.test(text) &&
+    /\b(acciones|propuestas|accion)\b/.test(text)
+  ) {
+    return {
+      kind: 'write_request',
+      operation: 'create_action',
+      request,
+      batch: /\bdecisiones\b/.test(text) && !/\bcompromisos\b/.test(text) ? 'decisions' : 'commitments',
+    }
+  }
   if (/\b(prepara|preparar|arma|armar)\b/.test(text) && /\b(seguimiento|aviso|recordatorio)\b/.test(text)) {
     return {
       kind: 'write_request',
@@ -357,6 +388,23 @@ export function classifyAgentIntent(
       canal: /\bwhatsapp\b/.test(text) ? 'whatsapp' : 'email',
     }
   }
+  if (
+    /\b(comenta|comentario|anota(?:r)?)\b/.test(text) &&
+    /\b(accion|tarea|esa|esta|la)\b/.test(text)
+  ) {
+    const contenido = utterance
+      .replace(/^.*?\b(?:comentario|comenta(?:r)?|anota(?:r)?)\s*(?:que|:)?\s*/i, '')
+      .trim()
+      .slice(0, 500)
+    return { kind: 'write_request', operation: 'add_comment', request, ...(contenido ? { contenido } : {}) }
+  }
+  if (
+    /\b(verifica|verificar)\b/.test(text) &&
+    /\b(accion|tarea|esa|esta)\b/.test(text) &&
+    !/\bmarca/.test(text)
+  ) {
+    return { kind: 'write_request', operation: 'verify_action', request }
+  }
   if (target && /\b(marca|marcar|marcala|pon|poner|ponla|cambia|cambiar|mueve|pasa)\b/.test(text)) {
     const estado = /\bverificad[ao]\b/.test(text) ? 'Verificado'
       : /\b(hech[ao]|terminad[ao]|completad[ao]|cerrad[ao])\b/.test(text) ? 'Hecho'
@@ -368,6 +416,12 @@ export function classifyAgentIntent(
 
   if (interpreted.intent === 'propose_create_kanban') {
     return { kind: 'write_request', operation: 'create_action', request }
+  }
+  if (
+    /\b(asigna|asignar|reasigna|reasignar|prioridad|fecha|reprograma|responsable)\b/.test(text) &&
+    /\b(accion|tarea|esa|esta)\b/.test(text)
+  ) {
+    return { kind: 'write_request', operation: 'update_action', request }
   }
   if (/\b(marca|marcar|actualiza|actualizar|cambia|cambiar|cierra|cerrar|reprograma|mueve)\b/.test(text) &&
     /\b(accion|tarea|esa|esta)\b/.test(text)) {
