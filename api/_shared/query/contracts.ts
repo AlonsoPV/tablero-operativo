@@ -68,6 +68,7 @@ export type ActionItem = {
   href: string
   responsableId?: string | null
   responsableNombre?: string | null
+  area?: string | null
 }
 
 export type KeyResultItem = {

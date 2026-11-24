@@ -42,6 +42,13 @@ import {
   type ResponseFormat,
 } from './answerContract.js'
 import { classifyAgentIntent, type AgentIntent } from './intent.js'
+import {
+  buildExecutiveDiagnosis,
+  executiveComparisonItems,
+  executiveFindings,
+  executiveMetrics,
+  executivePriorityItems,
+} from './executiveDiagnosis.js'
 import { FORMAT_DESCRIPTION, parseFormatDirective, resolveFormat } from './responseFormat.js'
 import {
   pickMostUrgent,
@@ -88,8 +95,10 @@ function attachMemoryRecall(
   response: AgentResponse,
   store: MemoryStore,
   actor: AgentActor,
-  utterance: string
+  utterance: string,
+  options?: { passive?: boolean }
 ): AgentResponse {
+  const passive = options?.passive === true
   let recall
   try {
     recall = store.recall(
@@ -104,31 +113,40 @@ function attachMemoryRecall(
     recall = { ok: false as const, error: error instanceof Error ? error.message : 'memory_store_error' }
   }
   if (!recall.ok) {
-    response.blocks.limitations.push(
-      'No pude consultar la memoria autorizada en este momento; respondo sólo con el tablero si aplica.'
-    )
+    if (!passive) {
+      response.blocks.limitations.push(
+        'No pude consultar la memoria autorizada en este momento; respondo sólo con el tablero si aplica.'
+      )
+    }
     return response
   }
   if (recall.denied) {
+    if (passive) return response
     response.blocks.data.push('No tienes acceso a ese conocimiento.')
     response.blocks.limitations.push('No se revelan títulos ni fragmentos fuera de tu alcance.')
     if (response.status === 'empty' || response.status === 'ok') response.status = 'forbidden'
     return response
   }
   if (recall.hits.length === 0) {
-    response.blocks.limitations.push('No encontré acuerdos o documentos confirmados para esa pregunta.')
+    if (!passive) {
+      response.blocks.limitations.push('No encontré acuerdos o documentos confirmados para esa pregunta.')
+    }
     return response
   }
   for (const hit of recall.hits) {
     const cite =
       hit.kind === 'document'
-        ? `Documento «${hit.title ?? hit.source_label}» v${hit.version}: ${hit.body.slice(0, 280)}`
-        : `Acuerdo ${hit.id} (${hit.source_label} v${hit.version}): ${hit.body.slice(0, 280)}`
+        ? `[Documentación R3] «${hit.title ?? hit.source_label}» v${hit.version}: ${hit.body.slice(0, 280)}`
+        : `[Memoria R3] Acuerdo ${hit.id} (${hit.source_label} v${hit.version}): ${hit.body.slice(0, 280)}`
     response.blocks.data.push(cite)
+    if (response.facts) {
+      response.facts.findings.push({ basis: 'evidence', text: cite })
+    }
   }
-  response.blocks.limitations.push(
-    'La memoria/documentos no sustituyen el estado vivo de Kanban u OKRs; las cifras del tablero prevalecen.'
-  )
+  const notice =
+    'La memoria/documentos (R3) son contexto de referencia y no sustituyen el estado vivo de Kanban u OKRs; las cifras del tablero prevalecen.'
+  response.blocks.limitations.push(notice)
+  if (response.facts) response.facts.limitations.push(notice)
   return response
 }
 
@@ -754,6 +772,359 @@ async function handleUnsupportedMetric(state: TurnState) {
   return { response, audit: { status: 'partial' as const, entity: 'actions', scope, total: overdue.totals.total } }
 }
 
+async function handleExecutiveBrief(
+  state: TurnState,
+  intent: Extract<AgentIntent, { kind: 'executive_brief' }>
+) {
+  const boardReq: ActionsQueryRequest = {
+    entity: 'actions',
+    scope: 'board_authorized',
+    statusGroup: 'open',
+    visual: 'none',
+    limit: 50,
+  }
+  const canSeeBoard =
+    state.actor.capabilities.readCrossAreaExecution && authorizeQuery(state.actor, boardReq).allowed
+  const scope = canSeeBoard ? 'board_authorized' : 'assigned_to_me'
+  const openReq: ActionsQueryRequest = {
+    entity: 'actions',
+    scope,
+    statusGroup: 'open',
+    visual: 'none',
+    limit: 50,
+  }
+  const authOpen = authorizeQuery(state.actor, openReq)
+  if (!authOpen.allowed) {
+    return { response: forbidden(authOpen.reason), audit: { status: 'denied_precheck' as const, entity: 'actions', scope } }
+  }
+
+  const openRes = await queryActions(state.actor.copilot, openReq, state.dispatch)
+  if (openRes.status === 'forbidden') {
+    return {
+      response: forbidden(openRes.error?.message ?? 'No tienes acceso a las acciones solicitadas.'),
+      audit: { status: 'forbidden' as const, entity: 'actions', scope },
+    }
+  }
+  if (openRes.status === 'error') {
+    const response = baseResponse('error')
+    response.blocks.data.push(statusMessage('error', 'las acciones', openRes.error?.message))
+    return { response, audit: { status: 'error' as const, entity: 'actions', scope } }
+  }
+
+  // Consultar acciones en Hecho pendientes de Verificado (best-effort)
+  const pendingVerReq: ActionsQueryRequest = {
+    entity: 'actions',
+    scope,
+    statusGroup: 'verification',
+    visual: 'none',
+    limit: 20,
+  }
+  const pendingVerRes = authorizeQuery(state.actor, pendingVerReq).allowed
+    ? await queryActions(state.actor.copilot, pendingVerReq, state.dispatch)
+    : null
+
+  // Consultar OKRs solo si el actor tiene permiso (best-effort)
+  const okrReq = { entity: 'okrs' as const, period: 'all_active' as const }
+  const okrRes = authorizeQuery(state.actor, okrReq).allowed
+    ? await queryOkrs(state.actor.copilot, okrReq, state.dispatch)
+    : null
+
+  const diagnosis = buildExecutiveDiagnosis({
+    actions: openRes.items,
+    pendingVerificationActions: pendingVerRes?.status === 'ok' ? pendingVerRes.items : [],
+    okrs: okrRes?.status === 'ok' ? okrRes.items : null,
+    today: state.today,
+  })
+
+  // Guardar las prioridades principales en contexto para permitir borrador de acción en el siguiente turno
+  if (diagnosis.topPriorities.length > 0) {
+    rememberActions(state, openReq, {
+      ...openRes,
+      items: diagnosis.topPriorities.map((p) => p.action),
+    })
+  } else {
+    rememberActions(state, openReq, openRes)
+  }
+
+  const sLabel = scopeLabel(scope)
+  const hasAnyData =
+    diagnosis.counts.open > 0 ||
+    diagnosis.counts.pendingVerification > 0 ||
+    (diagnosis.okrSummary?.total ?? 0) > 0
+
+  if (!hasAnyData) {
+    const empty = baseResponse('empty', openRes.asOf)
+    empty.blocks.data.push(
+      `No hay acciones abiertas ni OKRs activos con datos suficientes en ${sLabel}.`
+    )
+    empty.blocks.recommendation.push(
+      'Registra las prioridades del equipo con responsable y fecha compromiso para habilitar el diagnóstico ejecutivo.'
+    )
+    empty.blocks.limitations.push('No se inventan indicadores ni compromisos cuando el tablero está vacío.')
+    return { response: empty, audit: { status: 'empty' as const, entity: 'actions', scope, total: 0 } }
+  }
+
+  const response = baseResponse(openRes.status === 'partial' ? 'partial' : 'ok', openRes.asOf)
+  const summaryHeadline =
+    intent.focus === 'priorities'
+      ? `Top ${diagnosis.topPriorities.length} prioridades en ${sLabel}: ${diagnosis.counts.overdue} vencidas, ${diagnosis.counts.blocked} bloqueadas de ${diagnosis.counts.open} abiertas.`
+      : intent.focus === 'recurrence'
+        ? diagnosis.recurringPatterns.length > 0
+          ? `Se detectaron ${diagnosis.recurringPatterns.length} patrón(es) repetitivos en ${sLabel} (${diagnosis.counts.overdue} vencidas, ${diagnosis.counts.blocked} bloqueadas).`
+          : `No se detectan patrones de reincidencia en ${sLabel} con los datos actuales (${diagnosis.counts.open} abiertas).`
+        : `Diagnóstico en ${sLabel}: ${diagnosis.counts.open} abiertas, ${diagnosis.counts.overdue} vencidas, ${diagnosis.counts.blocked} bloqueadas${diagnosis.counts.pendingVerification > 0 ? ` y ${diagnosis.counts.pendingVerification} en Hecho pendientes de Verificado` : ''}.`
+
+  response.blocks.data.push(summaryHeadline)
+
+  if (diagnosis.delayedByArea.length > 0) {
+    const topAreas = diagnosis.delayedByArea
+      .slice(0, 3)
+      .map((a) => `${a.area}: ${a.delayed} vencidas / ${a.blocked} bloqueadas`)
+      .join('; ')
+    response.blocks.data.push(`Áreas con mayor retraso o bloqueo: ${topAreas}.`)
+  }
+
+  if (diagnosis.okrSummary && diagnosis.okrSummary.total > 0) {
+    const avg = diagnosis.okrSummary.avgProgress !== null ? `${diagnosis.okrSummary.avgProgress}% promedio` : 'sin avance calculable'
+    response.blocks.data.push(
+      `Avance estratégico: ${diagnosis.okrSummary.total} OKR(s) activos (${avg}${diagnosis.okrSummary.atRisk.length > 0 ? `, ${diagnosis.okrSummary.atRisk.length} por debajo de 40%` : ''}).`
+    )
+  }
+
+  // Interpretación separada de hechos
+  if (diagnosis.topPriorities.length > 0) {
+    for (const [idx, p] of diagnosis.topPriorities.entries()) {
+      response.blocks.interpretation.push(`Prioridad ${idx + 1}: ${p.what} ${p.why}`)
+    }
+  }
+  if (diagnosis.recurringPatterns.length > 0) {
+    response.blocks.interpretation.push(...diagnosis.recurringPatterns.slice(0, 2))
+  }
+
+  // Recomendaciones accionables (qué hacer + siguiente paso)
+  if (diagnosis.topPriorities.length > 0) {
+    const primary = diagnosis.topPriorities[0]!
+    response.blocks.recommendation.push(
+      `Qué recomiendo primero: ${primary.recommendation}`,
+      `Siguiente paso: ${primary.nextStep} Puedes pedirme «Prepara un borrador de acción para…» (sin ejecutar hasta habilitar R2).`
+    )
+  } else if (diagnosis.counts.pendingVerification > 0) {
+    response.blocks.recommendation.push(
+      `Validar las ${diagnosis.counts.pendingVerification} acciones en Hecho para cerrar el ciclo operativo.`
+    )
+  }
+
+  if (!canSeeBoard) {
+    response.blocks.limitations.push('Alcance limitado por permiso a tus acciones asignadas; no incluye otros equipos.')
+  }
+  if (openRes.status === 'partial') {
+    response.blocks.limitations.push(`El análisis cubre las primeras ${openRes.items.length} acciones de ${openRes.totals.total}.`)
+  }
+  if (diagnosis.counts.withoutDate > 0) {
+    response.blocks.limitations.push(
+      `${diagnosis.counts.withoutDate} acción(es) abiertas no tienen fecha compromiso; no se asume vencimiento.`
+    )
+  }
+
+  withFacts(response, {
+    primary: {
+      value: diagnosis.counts.open,
+      text: summaryHeadline,
+    },
+    metrics: executiveMetrics(diagnosis, sLabel),
+    items: [
+      ...executivePriorityItems(diagnosis.topPriorities),
+      ...executiveComparisonItems(diagnosis),
+    ],
+    findings: executiveFindings(diagnosis),
+    warnings: response.blocks.limitations.filter((l) => /limitado|sin fecha/i.test(l)),
+  })
+
+  return {
+    response,
+    audit: {
+      status: openRes.status === 'partial' ? ('partial' as const) : ('ok' as const),
+      entity: 'actions',
+      scope,
+      total: openRes.totals.total,
+    },
+  }
+}
+
+async function handleExecutiveCommitments(
+  state: TurnState,
+  intent: Extract<AgentIntent, { kind: 'executive_commitments' }>
+) {
+  const boardReq: ActionsQueryRequest = {
+    entity: 'actions',
+    scope: 'board_authorized',
+    statusGroup: 'open',
+    visual: 'none',
+    limit: 50,
+  }
+  const canSeeBoard =
+    state.actor.capabilities.readCrossAreaExecution && authorizeQuery(state.actor, boardReq).allowed
+  const scope = canSeeBoard ? 'board_authorized' : 'assigned_to_me'
+  const openReq: ActionsQueryRequest = {
+    entity: 'actions',
+    scope,
+    statusGroup: 'open',
+    visual: 'none',
+    limit: 50,
+  }
+  const authOpen = authorizeQuery(state.actor, openReq)
+  if (!authOpen.allowed) {
+    return { response: forbidden(authOpen.reason), audit: { status: 'denied_precheck' as const, entity: 'actions', scope } }
+  }
+
+  const openRes = await queryActions(state.actor.copilot, openReq, state.dispatch)
+  if (openRes.status === 'forbidden') {
+    return {
+      response: forbidden(openRes.error?.message ?? 'No tienes acceso a esos compromisos.'),
+      audit: { status: 'forbidden' as const, entity: 'actions', scope },
+    }
+  }
+  if (openRes.status === 'error') {
+    const response = baseResponse('error')
+    response.blocks.data.push(statusMessage('error', 'los compromisos', openRes.error?.message))
+    return { response, audit: { status: 'error' as const, entity: 'actions', scope } }
+  }
+
+  const pendingVerReq: ActionsQueryRequest = {
+    entity: 'actions',
+    scope,
+    statusGroup: 'verification',
+    visual: 'none',
+    limit: 25,
+  }
+  const pendingVerRes = authorizeQuery(state.actor, pendingVerReq).allowed
+    ? await queryActions(state.actor.copilot, pendingVerReq, state.dispatch)
+    : null
+  const pendingVerItems = pendingVerRes?.status === 'ok' ? pendingVerRes.items : []
+
+  const diagnosis = buildExecutiveDiagnosis({
+    actions: openRes.items,
+    pendingVerificationActions: pendingVerItems,
+    today: state.today,
+  })
+
+  const contextItems =
+    intent.filter === 'verification'
+      ? pendingVerItems
+      : diagnosis.topPriorities.map((p) => p.action)
+  rememberActions(state, openReq, {
+    ...openRes,
+    items: contextItems.length > 0 ? contextItems : openRes.items,
+  })
+
+  const sLabel = scopeLabel(scope)
+  if (diagnosis.counts.open === 0 && diagnosis.counts.pendingVerification === 0) {
+    const empty = baseResponse('empty', openRes.asOf)
+    empty.blocks.data.push(`No hay compromisos abiertos ni acciones pendientes de verificación en ${sLabel}.`)
+    empty.blocks.limitations.push('No se inventan acuerdos ni compromisos fuera de los registros vigentes.')
+    return { response: empty, audit: { status: 'empty' as const, entity: 'actions', scope, total: 0 } }
+  }
+
+  const response = baseResponse(openRes.status === 'partial' ? 'partial' : 'ok', openRes.asOf)
+  const headline =
+    intent.filter === 'verification'
+      ? `Hay ${diagnosis.counts.pendingVerification} acción(es) en Hecho pendientes de Verificado en ${sLabel}.`
+      : `Seguimiento de compromisos en ${sLabel}: ${diagnosis.counts.overdue} vencidas, ${diagnosis.counts.pendingVerification} pendientes de Verificado y ${diagnosis.counts.open} abiertas en total.`
+
+  response.blocks.data.push(headline)
+
+  if (diagnosis.commitmentsByOwner.length > 0) {
+    const ownerLines = diagnosis.commitmentsByOwner
+      .slice(0, 5)
+      .map(
+        (o) =>
+          `${o.owner}: ${o.overdue} vencidas, ${o.blocked} bloqueadas, ${o.pendingVerification} por verificar (${o.open} abiertas)`
+      )
+    response.blocks.data.push(`Compromisos por responsable: ${ownerLines.join(' · ')}.`)
+  }
+
+  if (diagnosis.counts.pendingVerification > 0) {
+    response.blocks.interpretation.push(
+      `Existen ${diagnosis.counts.pendingVerification} entrega(s) en Hecho que requieren validación humana para pasar a Verificado.`
+    )
+  }
+  if (diagnosis.commitmentsByOwner[0] && diagnosis.commitmentsByOwner[0].overdue > 0) {
+    const topOwner = diagnosis.commitmentsByOwner[0]
+    response.blocks.interpretation.push(
+      `${topOwner.owner} concentra la mayor carga vencida (${topOwner.overdue} vencidas).`
+    )
+    response.blocks.recommendation.push(
+      `Revisar compromisos vencidos con ${topOwner.owner} y validar si requieren reprogramación o desbloqueo.`
+    )
+  } else if (diagnosis.counts.pendingVerification > 0) {
+    response.blocks.recommendation.push(
+      'Priorizar la verificación de las acciones en Hecho para mantener el tablero confiable.'
+    )
+  }
+
+  if (!canSeeBoard) {
+    response.blocks.limitations.push('Alcance limitado por permiso a tus compromisos asignados.')
+  }
+
+  const ownerComparison: AnswerItem[] = diagnosis.commitmentsByOwner.slice(0, 5).map((o) => ({
+    kind: 'group',
+    id: `owner:${o.owner}`,
+    title: `${o.owner} (vencidas/por verificar)`,
+    count: o.overdue + o.pendingVerification,
+  }))
+  const focusActions: AnswerItem[] =
+    intent.filter === 'verification'
+      ? pendingVerItems.slice(0, 5).map((a) => ({
+          kind: 'action' as const,
+          id: a.id,
+          title: a.title,
+          status: a.estado ?? 'Hecho',
+          date: a.fecha ?? null,
+          priority: a.prioridad ?? null,
+          owner: a.responsableNombre ?? null,
+          flags: ['pendiente de verificar'],
+          href: a.href,
+        }))
+      : executivePriorityItems(diagnosis.topPriorities)
+
+  withFacts(response, {
+    primary: {
+      value: diagnosis.counts.overdue + diagnosis.counts.pendingVerification,
+      text: headline,
+    },
+    metrics: [
+      { id: 'overdue', label: 'Vencidas', value: diagnosis.counts.overdue, tone: diagnosis.counts.overdue > 0 ? 'danger' : 'ok', scope: sLabel },
+      {
+        id: 'pending_verification',
+        label: 'Pend. verificar',
+        value: diagnosis.counts.pendingVerification,
+        tone: diagnosis.counts.pendingVerification > 0 ? 'warning' : 'ok',
+        scope: sLabel,
+      },
+      { id: 'open', label: 'Abiertas', value: diagnosis.counts.open, tone: 'neutral', scope: sLabel },
+    ],
+    items: [...focusActions, ...ownerComparison],
+    findings: [
+      ...diagnosis.commitmentsByOwner.slice(0, 3).map((o) => ({
+        basis: 'evidence' as const,
+        risk: o.overdue > 0 || o.blocked > 0,
+        text: `${o.owner}: ${o.overdue} vencidas, ${o.blocked} bloqueadas, ${o.pendingVerification} por verificar.`,
+      })),
+    ],
+    warnings: response.blocks.limitations,
+  })
+
+  return {
+    response,
+    audit: {
+      status: openRes.status === 'partial' ? ('partial' as const) : ('ok' as const),
+      entity: 'actions',
+      scope,
+      total: openRes.totals.total,
+    },
+  }
+}
+
 async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent, { kind: 'write_request' }>) {
   const auth = authorizeOperation(state.actor, 'propose_write')
   if (!auth.allowed) {
@@ -1176,6 +1547,12 @@ export async function runAgentTurn(
     case 'analyze_risk':
       outcome = await handleRisk(state)
       break
+    case 'executive_brief':
+      outcome = await handleExecutiveBrief(state, intent)
+      break
+    case 'executive_commitments':
+      outcome = await handleExecutiveCommitments(state, intent)
+      break
     case 'unsupported_metric':
       outcome = await handleUnsupportedMetric(state)
       break
@@ -1191,10 +1568,19 @@ export async function runAgentTurn(
   }
   stage('query_interpret')
 
-  if (isAgentMemoryEnabled() && deps.memoryStore && looksLikeMemoryAsk(utterance)) {
+  const explicitMemoryAsk = looksLikeMemoryAsk(utterance)
+  if (
+    isAgentMemoryEnabled() &&
+    deps.memoryStore &&
+    (explicitMemoryAsk ||
+      intent.kind === 'executive_brief' ||
+      intent.kind === 'executive_commitments')
+  ) {
     outcome = {
       ...outcome,
-      response: attachMemoryRecall(outcome.response, deps.memoryStore, actor, utterance),
+      response: attachMemoryRecall(outcome.response, deps.memoryStore, actor, utterance, {
+        passive: !explicitMemoryAsk,
+      }),
     }
   }
 

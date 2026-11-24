@@ -86,7 +86,7 @@ export function AssistantWelcome({
         .filter((stat) => stat.value > 0)
         .slice(0, 3)
     : []
-  const quickActions = actions.slice(0, 3)
+  const quickActions = actions.slice(0, 4)
   const urgency = briefing.priorityUrgency ?? 'info'
 
   return (
@@ -107,18 +107,16 @@ export function AssistantWelcome({
         >
           Tu operación, en claro.
         </h2>
-        {loading || stats.length === 0 ? (
-          <p className={cn('text-muted-foreground', compact ? 'text-xs' : 'text-sm')}>
-            {loading ? (
-              <span className="inline-flex items-center gap-1.5">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                {briefing.summary}
-              </span>
-            ) : (
-              briefing.summary
-            )}
-          </p>
-        ) : null}
+        <p className={cn('text-muted-foreground', compact ? 'text-xs' : 'text-sm')}>
+          {loading ? (
+            <span className="inline-flex items-center gap-1.5">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              {briefing.summary}
+            </span>
+          ) : (
+            briefing.summary
+          )}
+        </p>
       </header>
 
       {stats.length > 0 ? (
@@ -184,7 +182,10 @@ export function AssistantWelcome({
         <div className="space-y-2">
           <SectionEyebrow tone="muted">Accesos rápidos</SectionEyebrow>
           <div
-            className={cn('grid gap-2', compact ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3')}
+            className={cn(
+              'grid gap-2',
+              compact ? 'grid-cols-2' : quickActions.length === 4 ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3'
+            )}
             role="group"
             aria-label="Accesos rapidos del asistente"
           >
