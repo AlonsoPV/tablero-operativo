@@ -1,0 +1,65 @@
+{
+  "description": "Paridad resolveAccessCapabilities (TS) ↔ access_capabilities_for_usuario (SQL) con legacy_okrs_area_grants = true.",
+  "profiles": [
+    {
+      "name": "super_admin",
+      "input": { "rol": "super_admin", "appRole": null, "area": "Comercial", "relationalAreas": [], "moduleKeys": [], "active": true },
+      "expected": { "active": true, "superAdmin": true, "direction": false, "okrsArea": false, "readAllOrganizationalData": true, "readAllOkrs": true, "readCrossAreaExecution": true, "manageAll": true, "adminAllOkrs": true, "whatsappAssistant": true, "whatsappInbox": true, "whatsappSettings": true, "whatsappIdentityLink": true }
+    },
+    {
+      "name": "app_super_admin",
+      "input": { "rol": "Operativo", "appRole": "super_admin", "area": "Ventas", "relationalAreas": [], "moduleKeys": [], "active": true },
+      "expected": { "active": true, "superAdmin": true, "direction": false, "okrsArea": false, "readAllOrganizationalData": true, "readAllOkrs": true, "readCrossAreaExecution": true, "manageAll": true, "adminAllOkrs": true, "whatsappAssistant": true, "whatsappInbox": true, "whatsappSettings": true, "whatsappIdentityLink": true }
+    },
+    {
+      "name": "direction",
+      "input": { "rol": "Direccion", "appRole": null, "area": "Comercial", "relationalAreas": [], "moduleKeys": [], "active": true },
+      "expected": { "active": true, "superAdmin": false, "direction": true, "okrsArea": false, "readAllOrganizationalData": false, "readAllOkrs": true, "readCrossAreaExecution": true, "manageAll": false, "adminAllOkrs": false, "whatsappAssistant": false, "whatsappInbox": false, "whatsappSettings": false, "whatsappIdentityLink": false }
+    },
+    {
+      "name": "okrs_analyst_relational",
+      "input": { "rol": "Analista", "appRole": null, "area": "OKRS", "relationalAreas": ["OKRS"], "moduleKeys": [], "active": true },
+      "expected": { "active": true, "superAdmin": false, "direction": false, "okrsArea": true, "readAllOrganizationalData": false, "readAllOkrs": true, "readCrossAreaExecution": true, "manageAll": false, "adminAllOkrs": true, "whatsappAssistant": true, "whatsappInbox": true, "whatsappSettings": true, "whatsappIdentityLink": true }
+    },
+    {
+      "name": "okrs_operative_text_only",
+      "input": { "rol": "Operativo", "appRole": null, "area": "OKRS", "relationalAreas": [], "moduleKeys": [], "active": true },
+      "expected": { "active": true, "superAdmin": false, "direction": false, "okrsArea": true, "readAllOrganizationalData": false, "readAllOkrs": true, "readCrossAreaExecution": true, "manageAll": false, "adminAllOkrs": true, "whatsappAssistant": true, "whatsappInbox": true, "whatsappSettings": true, "whatsappIdentityLink": true }
+    },
+    {
+      "name": "manager",
+      "input": { "rol": "Gerente", "appRole": null, "area": "Ventas", "relationalAreas": ["Ventas"], "moduleKeys": ["okrs", "kanban"], "active": true },
+      "expected": { "active": true, "superAdmin": false, "direction": false, "okrsArea": false, "readAllOrganizationalData": false, "readAllOkrs": false, "readCrossAreaExecution": false, "manageAll": false, "adminAllOkrs": false, "whatsappAssistant": false, "whatsappInbox": false, "whatsappSettings": false, "whatsappIdentityLink": false }
+    },
+    {
+      "name": "collaborator",
+      "input": { "rol": "Analista", "appRole": null, "area": "Ventas", "relationalAreas": ["Ventas"], "moduleKeys": [], "active": true },
+      "expected": { "active": true, "superAdmin": false, "direction": false, "okrsArea": false, "readAllOrganizationalData": false, "readAllOkrs": false, "readCrossAreaExecution": false, "manageAll": false, "adminAllOkrs": false, "whatsappAssistant": false, "whatsappInbox": false, "whatsappSettings": false, "whatsappIdentityLink": false }
+    },
+    {
+      "name": "explicit_modules",
+      "input": { "rol": "Operativo", "appRole": null, "area": "Ventas", "relationalAreas": ["Ventas"], "moduleKeys": ["whatsapp_inbox", "okrs_admin"], "active": true },
+      "expected": { "active": true, "superAdmin": false, "direction": false, "okrsArea": false, "readAllOrganizationalData": false, "readAllOkrs": false, "readCrossAreaExecution": false, "manageAll": false, "adminAllOkrs": true, "whatsappAssistant": false, "whatsappInbox": true, "whatsappSettings": false, "whatsappIdentityLink": false }
+    },
+    {
+      "name": "inactive_okrs",
+      "input": { "rol": "Lider", "appRole": null, "area": "OKRS", "relationalAreas": ["OKRS"], "moduleKeys": ["okrs_admin"], "active": false },
+      "expected": { "active": false, "superAdmin": false, "direction": false, "okrsArea": false, "readAllOrganizationalData": false, "readAllOkrs": false, "readCrossAreaExecution": false, "manageAll": false, "adminAllOkrs": false, "whatsappAssistant": false, "whatsappInbox": false, "whatsappSettings": false, "whatsappIdentityLink": false }
+    },
+    {
+      "name": "catalog_admin_dg",
+      "input": { "rol": "DG", "appRole": null, "area": "Sistemas", "relationalAreas": [], "moduleKeys": [], "active": true },
+      "expected": { "active": true, "superAdmin": false, "direction": false, "okrsArea": false, "readAllOrganizationalData": false, "readAllOkrs": false, "readCrossAreaExecution": false, "manageAll": false, "adminAllOkrs": true, "whatsappAssistant": false, "whatsappInbox": false, "whatsappSettings": false, "whatsappIdentityLink": false }
+    },
+    {
+      "name": "leader_catalog_super_admin",
+      "input": { "rol": "Líder", "appRole": null, "area": "Ventas", "relationalAreas": ["Ventas", "OKRS"], "moduleKeys": [], "active": true, "catalogSuperAdmin": true },
+      "expected": { "active": true, "superAdmin": true, "direction": false, "okrsArea": true, "readAllOrganizationalData": true, "readAllOkrs": true, "readCrossAreaExecution": true, "manageAll": true, "adminAllOkrs": true, "whatsappAssistant": true, "whatsappInbox": true, "whatsappSettings": true, "whatsappIdentityLink": true }
+    },
+    {
+      "name": "direction_catalog_super_admin",
+      "input": { "rol": "Direccion", "appRole": null, "area": "Comercial", "relationalAreas": [], "moduleKeys": [], "active": true, "catalogSuperAdmin": true },
+      "expected": { "active": true, "superAdmin": true, "direction": true, "okrsArea": false, "readAllOrganizationalData": true, "readAllOkrs": true, "readCrossAreaExecution": true, "manageAll": true, "adminAllOkrs": true, "whatsappAssistant": true, "whatsappInbox": true, "whatsappSettings": true, "whatsappIdentityLink": true }
+    }
+  ]
+}

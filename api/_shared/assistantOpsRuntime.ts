@@ -1,5 +1,5 @@
 import { executeDailySummaryUpdate, proposeDailySummaryUpdate, readDailySummary } from './assistantDailySummary.js'
-import { canManageActionsByRole, isAnalystByRole } from '../../src/features/auth/lib/permissions.js'
+import { isAnalystByRole } from '../../src/features/auth/lib/permissions.js'
 import { isCopilotWriteTool } from '../../src/features/ai-support/copilot/catalog.js'
 import { isGoogleWriteTool, type CopilotWorkspacePreview } from '../../src/features/ai-support/copilot/googleWorkspace.js'
 import { isCommunicationWriteTool } from '../../src/features/ai-support/copilot/communicationTools.js'
@@ -35,6 +35,7 @@ import {
   actionMatchesStatusGroup,
   actionMatchesVisual,
   canUseWideActionScope,
+  isPersonalActionScope as isPersonalScope,
   parseActionQueryScope,
   parseActionQueryStatusGroup,
   parseActionQueryVisual,
@@ -52,6 +53,27 @@ import {
   ACCION_SHARE_EMAIL_TITLE,
   buildAccionEmailPayload,
 } from '../../src/lib/accionNotificationEmail.js'
+
+import {
+  actionIdForOp,
+  createQaActionExecutor,
+  gateCopilotConfirmation,
+  gateR2Confirmation,
+  isCopilotGatedTool,
+  isR2AgentTool,
+  isRpcClaimedTool,
+  logR2Denied,
+  type ActionExecutor,
+  type BoardWrite,
+  type ExecutorTool,
+} from './actions/r2Runtime.js'
+import {
+  isCopilotR2GateEnabled,
+  qaProjectRef,
+  resolveR2ExecutionMode,
+  type R2ExecutionMode,
+} from './actions/executionMode.js'
+import type { AgentChannel } from './query/resolveActor.js'
 
 export type { CopilotActor } from './assistantPending.js'
 
@@ -145,6 +167,7 @@ function summarizeAction(row: ActionRow) {
     fecha: row.fecha,
     hora: row.hora_limite,
     prioridad: row.prioridad,
+    responsable: row.responsable ?? null,
     href: actionHref(row.id),
   }
 }
@@ -319,6 +342,24 @@ function readOk(tool: CopilotToolName, data: unknown): CopilotToolResult {
   return { ok: true, tool, kind: 'read', data: wrapUntrustedToolData(data) }
 }
 
+const ACTION_GROUP_BY = ['area', 'responsable', 'estado'] as const
+type ActionGroupBy = (typeof ACTION_GROUP_BY)[number]
+
+function parseActionGroupBy(value: unknown): ActionGroupBy | null {
+  return typeof value === 'string' && (ACTION_GROUP_BY as readonly string[]).includes(value)
+    ? (value as ActionGroupBy)
+    : null
+}
+
+function countActionsBy(rows: ActionRow[], groupBy: ActionGroupBy): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const row of rows) {
+    const key = String(row[groupBy] ?? '').trim() || 'sin_dato'
+    counts[key] = (counts[key] ?? 0) + 1
+  }
+  return counts
+}
+
 async function toolGetMyActions(actor: CopilotActor, args: Record<string, unknown>): Promise<CopilotToolResult> {
   const scope = parseActionQueryScope(args.scope)
   const status_group = parseActionQueryStatusGroup(args.status_group, args.filter)
@@ -329,7 +370,11 @@ async function toolGetMyActions(actor: CopilotActor, args: Record<string, unknow
   const now = Date.now()
   const asOf = new Date().toISOString()
 
-  if (!canUseWideActionScope(scope, { rol: actor.rol, boardScope: actor.boardScope })) {
+  if (!canUseWideActionScope(scope, {
+    rol: actor.rol,
+    boardScope: actor.boardScope,
+    readCrossAreaExecution: actor.capabilities?.readCrossAreaExecution,
+  })) {
     return denied(
       'get_my_actions',
       'No tienes vista de tablero completo. Usa scope assigned_to_me o created_by_me.'
@@ -341,7 +386,10 @@ async function toolGetMyActions(actor: CopilotActor, args: Record<string, unknow
     visual === 'none' ? Promise.resolve([] as PriorityCatalogRow[]) : loadPriorityCatalog(actor),
   ])
 
+  // Filtro por persona sólo dentro de un alcance amplio ya autorizado.
+  const responsableFilter = isPersonalScope(scope) ? '' : asString(args.responsable_id, 80)
   const filtered = rows.filter((row) => {
+    if (responsableFilter && row.responsable !== responsableFilter) return false
     if (
       !actionMatchesStatusGroup(row, status_group, {
         today,
@@ -360,9 +408,13 @@ async function toolGetMyActions(actor: CopilotActor, args: Record<string, unknow
   const total = filtered.length
   const filters_applied = { status_group, visual }
   const population = populationLabel(scope)
+  // Agregados sobre toda la población autorizada y filtrada, antes de recortar items.
+  const groupBy = parseActionGroupBy(args.group_by)
+  const groups = groupBy ? countActionsBy(filtered, groupBy) : undefined
 
   return readOk('get_my_actions', {
     scope,
+    ...(groupBy ? { group_by: groupBy, groups } : {}),
     filters_applied,
     filter: status_group,
     status_group,
@@ -374,6 +426,7 @@ async function toolGetMyActions(actor: CopilotActor, args: Record<string, unknow
     count: total,
     returned: items.length,
     truncated: loadTruncated || filtered.length > items.length,
+    load_truncated: loadTruncated,
     items,
     spoken_hint:
       includeCount
@@ -551,6 +604,9 @@ async function proposeUpdate(actor: CopilotActor, args: Record<string, unknown>)
   const resolved = await resolveAction(actor, args)
   if ('missing' in resolved) return denied('update_action', resolved.missing)
   if ('question' in resolved) return clarification('update_action', resolved)
+  if (!await canWriteAction(actor, resolved, 'update_action')) {
+    return denied('update_action', 'La edición completa corresponde al creador o a un administrador autorizado.')
+  }
 
   const patch: Record<string, unknown> = {}
   const fields: CopilotProposal['fields'] = []
@@ -674,11 +730,8 @@ async function proposeDone(actor: CopilotActor, args: Record<string, unknown>): 
   const resolved = await resolveAction(actor, args)
   if ('missing' in resolved) return denied('mark_action_done', resolved.missing)
   if ('question' in resolved) return clarification('mark_action_done', resolved)
-  const canClose =
-    canManageActionsByRole(actor.rol) ||
-    resolved.responsable === actor.usuarioId ||
-    resolved.created_by === actor.usuarioId
-  if (!canClose) return denied('mark_action_done', 'Solo el responsable, quien la creó o Dirección pueden marcar Hecho.')
+  const canClose = await canWriteAction(actor, resolved, 'mark_action_done')
+  if (!canClose) return denied('mark_action_done', 'Solo el responsable, quien la creó o un administrador autorizado pueden marcar Hecho.')
   const { data: pending } = await actor.supabase
     .from('accion_checkpoints')
     .select('id,texto,obligatorio')
@@ -713,7 +766,7 @@ async function proposeVerify(actor: CopilotActor, args: Record<string, unknown>)
   const resolved = await resolveAction(actor, args)
   if ('missing' in resolved) return denied('verify_action', resolved.missing)
   if ('question' in resolved) return clarification('verify_action', resolved)
-  const canVerify = canManageActionsByRole(actor.rol) || resolved.created_by === actor.usuarioId
+  const canVerify = await canWriteAction(actor, resolved, 'verify_action')
   if (!canVerify) {
     return denied(
       'verify_action',
@@ -1148,9 +1201,29 @@ type PendingRow = {
   session_id?: string | null
 }
 
-async function executePayload(actor: CopilotActor, tool: string, payload: Record<string, unknown>) {
+async function canWriteAction(actor: CopilotActor, action: ActionRow, tool: string): Promise<boolean> {
+  if (tool === 'mark_action_done' && action.responsable === actor.usuarioId) return true
+  const rpc = tool === 'update_action' ? 'can_edit_accion_general_as' : 'can_manage_accion_full_as'
+  const { data, error } = await actor.supabase.rpc(rpc, {
+    p_accion_id: action.id, p_usuario_id: actor.usuarioId,
+  })
+  if (error) throw new Error('PERMISSION_DENIED: No se pudo validar la autorización de la acción.')
+  return data === true
+}
+
+async function executePayload(
+  actor: CopilotActor,
+  tool: string,
+  payload: Record<string, unknown>,
+  opts?: { actionId?: string }
+) {
+  if (tool === 'update_action' || tool === 'verify_action' || tool === 'mark_action_done') {
+    const action = await loadAction(actor, String(payload.action_id))
+    const ownsOperation = action && await canWriteAction(actor, action, tool)
+    if (!ownsOperation) throw new Error('PERMISSION_DENIED: Ya no tienes autorización sobre esa acción.')
+  }
   if (tool === 'create_action') {
-    const actionId = crypto.randomUUID()
+    const actionId = opts?.actionId ?? crypto.randomUUID()
     const checkpoints = sanitizeCheckpoints(payload.checkpoints)
     const fields = { ...payload }
     delete fields.checkpoints
@@ -1303,7 +1376,28 @@ async function executePayload(actor: CopilotActor, tool: string, payload: Record
   throw new Error('Herramienta de escritura no soportada.')
 }
 
-export async function confirmPendingOp(actor: CopilotActor, opId: string, options?: { fromTool?: boolean }) {
+/** Ejecutor de escrituras existente; R2 lo reutiliza para create_action y notify_action_email. */
+export const executeBoardWrite: BoardWrite = executePayload
+
+/**
+ * Opciones R2 para la confirmación HTTP. Sólo en modo qa (variables del servidor, proyecto QA
+ * autorizado) se inyecta un ejecutor; en cualquier otro caso la puerta responde "no habilitada".
+ */
+export function r2OptionsFromServerEnv(env: Record<string, string | undefined> = process.env) {
+  const mode = resolveR2ExecutionMode(env)
+  const projectRef = mode === 'qa' ? qaProjectRef(env) : null
+  if (!projectRef) return undefined
+  return { mode, executor: createQaActionExecutor({ boardWrite: executeBoardWrite, projectRef }), channel: 'web' as const }
+}
+
+export async function confirmPendingOp(
+  actor: CopilotActor,
+  opId: string,
+  options?: {
+    fromTool?: boolean
+    r2?: { mode?: R2ExecutionMode; executor?: ActionExecutor; channel?: AgentChannel }
+  }
+) {
   const { data, error } = await actor.supabase
     .from('assistant_pending_ops')
     .select('id,usuario_id,tool,resource_id,expected_updated_at,payload,preview,status,expires_at,result,channel,session_id')
@@ -1315,6 +1409,10 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string, option
 
   const sendsCommunication =
     isCommunicationWriteTool(row.tool) || row.tool.startsWith('gmail_') || (row.tool === 'notify_action_email' || row.tool === 'notify_user_email')
+  const r2Mode = options?.r2?.mode ?? resolveR2ExecutionMode()
+  if (r2Mode === 'qa' && (sendsCommunication || isGoogleWriteTool(row.tool))) {
+    throw new Error('EXECUTION_DISABLED: En QA los proveedores reales están deshabilitados; los avisos sólo se registran en el buzón QA.')
+  }
   if ((sendsCommunication || row.tool === 'update_daily_action_summary') && (options?.fromTool || !actor.accessToken)) {
     throw new Error('PERMISSION_DENIED: Aprueba el envío desde una sesión web autenticada.')
   }
@@ -1338,6 +1436,26 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string, option
         ? 'Esta operación fue cancelada.'
         : 'Esta operación ya no se puede confirmar.'
     )
+  }
+
+  const gatedCopilot = isCopilotGatedTool(row.tool) && isCopilotR2GateEnabled()
+  let r2Executor: ActionExecutor | null = null
+  if (isR2AgentTool(row.tool) || gatedCopilot) {
+    const gateOptions = {
+      fromTool: options?.fromTool,
+      mode: r2Mode,
+      executor: options?.r2?.executor,
+      channel: options?.r2?.channel,
+    }
+    const gateRow = { usuario_id: row.usuario_id, payload: row.payload }
+    try {
+      r2Executor = isR2AgentTool(row.tool)
+        ? await gateR2Confirmation(actor, { ...gateRow, tool: row.tool }, gateOptions)
+        : await gateCopilotConfirmation(actor, { ...gateRow, tool: row.tool as Parameters<typeof gateCopilotConfirmation>[1]['tool'] }, gateOptions)
+    } catch (err) {
+      await logR2Denied(actor, row.tool, opId, row.resource_id)
+      throw err
+    }
   }
 
   if ((row.channel === 'retell' || (row.session_id && row.payload?.draft_kind === 'email')) && row.tool.startsWith('gmail_')) {
@@ -1375,17 +1493,22 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string, option
     }
   }
 
-  const { data: claimed, error: claimError } = await actor.supabase
-    .from('assistant_pending_ops')
-    .update({ status: 'executing' })
-    .eq('id', opId)
-    .eq('status', 'pending')
-    .eq('payload', JSON.stringify(row.payload ?? {}))
-    .gt('expires_at', new Date().toISOString())
-    .select('id')
-    .maybeSingle()
-
-  if (claimError) throw new Error('DATABASE_ERROR: No se pudo reservar la operación.')
+  let claimed: unknown
+  if (r2Executor && isRpcClaimedTool(row.tool)) {
+    claimed = (await r2Executor.claim(actor, { id: opId, payload: row.payload })) ? { id: opId } : null
+  } else {
+    const { data: claimedRow, error: claimError } = await actor.supabase
+      .from('assistant_pending_ops')
+      .update({ status: 'executing' })
+      .eq('id', opId)
+      .eq('status', 'pending')
+      .eq('payload', JSON.stringify(row.payload ?? {}))
+      .gt('expires_at', new Date().toISOString())
+      .select('id')
+      .maybeSingle()
+    if (claimError) throw new Error('DATABASE_ERROR: No se pudo reservar la operación.')
+    claimed = claimedRow
+  }
   if (!claimed) {
     const { data: again } = await actor.supabase
       .from('assistant_pending_ops')
@@ -1400,7 +1523,7 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string, option
 
   let result: Record<string, unknown>
   try {
-    if (row.resource_id && row.expected_updated_at && isCopilotWriteTool(row.tool) && row.tool !== 'create_action') {
+    if (row.resource_id && row.expected_updated_at && (isCopilotWriteTool(row.tool) || isR2AgentTool(row.tool)) && row.tool !== 'create_action') {
       const current = await loadAction(actor, row.resource_id)
       if (!current?.updated_at || current.updated_at !== row.expected_updated_at) {
         await actor.supabase
@@ -1412,9 +1535,26 @@ export async function confirmPendingOp(actor: CopilotActor, opId: string, option
         throw new Error('El registro cambió después de la vista previa. Pide una nueva confirmación.')
       }
     }
-    result = isCommunicationWriteTool(row.tool)
-      ? await executeWhatsappWrite(actor, row.payload ?? {}, opId)
-      : await executePayload(actor, row.tool, row.payload ?? {})
+    if (r2Executor && isRpcClaimedTool(row.tool)) {
+      const tool = row.tool as ExecutorTool
+      const ctx = { opId, expectedUpdatedAt: row.expected_updated_at }
+      result = await r2Executor.execute(actor, tool, row.payload ?? {}, ctx)
+      if (!(await r2Executor.verify(actor, tool, row.payload ?? {}, result, ctx))) {
+        throw new Error('VERIFICATION_FAILED: No se pudo comprobar el efecto. Consulta el estado antes de reintentar.')
+      }
+    } else if (r2Executor && row.tool === 'create_action') {
+      const actionId = actionIdForOp(opId)
+      try {
+        result = await executePayload(actor, row.tool, row.payload ?? {}, { actionId })
+      } catch (err) {
+        if (!(await loadAction(actor, actionId))) throw err
+        result = { id: actionId, href: actionHref(actionId), created: true, replayed: true }
+      }
+    } else {
+      result = isCommunicationWriteTool(row.tool)
+        ? await executeWhatsappWrite(actor, row.payload ?? {}, opId)
+        : await executePayload(actor, row.tool, row.payload ?? {})
+    }
   } catch (err) {
     const needsPersonalConnection = row.tool.startsWith('gmail_') && err instanceof GoogleUserError &&
       ['not_connected', 'needs_reauth', 'missing_scope'].includes(err.code)

@@ -258,6 +258,107 @@ export function canViewAllBoardData(
 }
 
 /**
+ * Mientras sea true, pertenecer al área OKRS conserva la administración de OKRs y WhatsApp heredada.
+ * Debe coincidir con public.legacy_okrs_area_grants() (scripts/apply_r1_revoke_legacy_okrs_area.sql).
+ */
+export const LEGACY_OKRS_AREA_GRANTS = true
+
+/** Módulos de catálogo que conceden capacidades explícitas (tabla app_modules). */
+export const CAPABILITY_MODULES = {
+  okrsAdmin: 'okrs_admin',
+  whatsappAssistant: 'whatsapp_assistant',
+  whatsappInbox: 'whatsapp_inbox',
+  whatsappSettings: 'whatsapp_settings',
+  whatsappIdentityLink: 'whatsapp_identity_link',
+} as const
+
+export type AccessCapabilityInput = {
+  rol?: string | null
+  appRole?: string | null
+  area?: string | null
+  areas?: string[] | null
+  moduleKeys?: readonly string[] | null
+  active?: boolean | null
+  /** Rol de catálogo activo `super_admin` (por system_key o nombre), como en public.usuario_is_super_admin. */
+  catalogSuperAdmin?: boolean | null
+}
+
+export type CatalogRoleRef = { nombre?: string | null; system_key?: string | null; activo?: boolean | null }
+
+export function isSuperAdminCatalogRole(role: CatalogRoleRef | null | undefined): boolean {
+  if (!role || role.activo === false) return false
+  return role.system_key === SUPER_ADMIN_ROLE || normalizeRole(role.nombre) === normalizeRole(SUPER_ADMIN_ROLE)
+}
+
+/** Mismas claves que public.access_capabilities_for_usuario (en camelCase). */
+export type AccessCapabilities = {
+  active: boolean
+  superAdmin: boolean
+  direction: boolean
+  okrsArea: boolean
+  legacyOkrsAreaGrants: boolean
+  readAllOrganizationalData: boolean
+  readAllOkrs: boolean
+  readCrossAreaExecution: boolean
+  manageAll: boolean
+  adminAllOkrs: boolean
+  whatsappAssistant: boolean
+  whatsappInbox: boolean
+  whatsappSettings: boolean
+  whatsappIdentityLink: boolean
+}
+
+/**
+ * Única derivación de capacidades para R1 (cliente y API). Aditiva: no altera
+ * DIRECTION_ALLOWED_ROUTES ni canManageActionsByRole de origin/main.
+ */
+export function resolveAccessCapabilities(input: AccessCapabilityInput): AccessCapabilities {
+  const active = input.active !== false
+  const modules = input.moduleKeys ?? []
+  const superAdmin = active && (
+    isSuperAdminByRole(input.rol) || isAppSuperAdminByAppRole(input.appRole) || input.catalogSuperAdmin === true
+  )
+  const direction = active && isDirectionByRole(input.rol)
+  const okrsArea = active && userBelongsToArea('OKRS', input.area, input.areas)
+  const legacy = LEGACY_OKRS_AREA_GRANTS && okrsArea
+  const catalogAdmin = active && (isAdminByRole(input.rol) || isAppAdminByAppRole(input.appRole))
+  const granted = (key: string) => active && (superAdmin || modules.includes(key) || legacy)
+  return {
+    active,
+    superAdmin,
+    direction,
+    okrsArea,
+    legacyOkrsAreaGrants: LEGACY_OKRS_AREA_GRANTS,
+    readAllOrganizationalData: superAdmin,
+    readAllOkrs: superAdmin || direction || okrsArea,
+    readCrossAreaExecution: superAdmin || direction || okrsArea,
+    manageAll: superAdmin,
+    adminAllOkrs: catalogAdmin || granted(CAPABILITY_MODULES.okrsAdmin),
+    whatsappAssistant: granted(CAPABILITY_MODULES.whatsappAssistant),
+    whatsappInbox: granted(CAPABILITY_MODULES.whatsappInbox),
+    whatsappSettings: granted(CAPABILITY_MODULES.whatsappSettings),
+    whatsappIdentityLink: granted(CAPABILITY_MODULES.whatsappIdentityLink),
+  }
+}
+
+/** Envíos y bandeja WhatsApp (whatsapp-send-action, whatsapp-inbox). */
+export function canAccessWhatsAppInbox(input: AccessCapabilityInput): boolean {
+  return resolveAccessCapabilities(input).whatsappInbox
+}
+
+export function canUseWhatsAppAssistant(input: AccessCapabilityInput): boolean {
+  return resolveAccessCapabilities(input).whatsappAssistant
+}
+
+export function canConfigureWhatsApp(input: AccessCapabilityInput): boolean {
+  return resolveAccessCapabilities(input).whatsappSettings
+}
+
+export function canLinkWhatsAppPhones(input: AccessCapabilityInput): boolean {
+  return resolveAccessCapabilities(input).whatsappIdentityLink
+}
+
+/**
  * OKRs (/okrs y pestaña del dashboard): área OKRS, Super Admin o Dirección.
  */
 export function canAccessOkrs(

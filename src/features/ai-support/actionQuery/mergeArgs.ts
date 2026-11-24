@@ -101,7 +101,7 @@ export function mergeActionQueryArgs(
   const continuityFollowUp =
     /^(todas?|esas|esos|enlista(las|los)?|listalas?)([.?!\s]*)$/.test(text) ||
     (/^(cuales|cual|mostr|list|detalle|enlista)\b/.test(text) &&
-      !/(rojo|vencid|retraso|cree|cread|asign[eé]|he asignado|responsable|equipo|tablero|bloquead|prioridad|abiertas?|corporativ|org\b|en total)/.test(
+      !/(rojo|vencid|retraso|cree|cread|asign[eé]|he asignado|responsable|equipo|tablero|bloquead|prioridad|abiertas?|corporativ|org\b|en total|ayer|seguimiento|estancad|actualizaci)/.test(
         text
       ))
 
@@ -132,7 +132,11 @@ export function mergeActionQueryArgs(
     !/he asignado|asigne|asign[eé]/.test(text)
   ) {
     scope = 'assigned_to_me'
-  } else if (/todo el equipo|de mi equipo/.test(text)) {
+  } else if (
+    /todo el equipo|de mi equipo|\bdel equipo\b|\bel equipo\b|pendientes? (del|de el|tiene el) equipo|acciones? (del|de el|tiene el) equipo/.test(
+      text
+    )
+  ) {
     scope = 'team_authorized'
   } else if (
     /tablero|toda la org|corporativ|todas las acciones del tablero|en total|cuantas? (acciones? )?(hay|existen)/.test(
@@ -147,10 +151,19 @@ export function mergeActionQueryArgs(
   else if (/vencid|en retraso|atrasad/.test(text)) visual = 'overdue'
 
   if (/bloquead/.test(text)) status_group = 'blocked'
-  else if (/vencid|en retraso/.test(text) && visual === 'overdue') status_group = 'overdue'
   else if (
+    /sin actualizaci|sin seguimiento|estancad|que paso con|que paso con las|pendientes? de ayer|\bayer\b/.test(
+      text
+    )
+  ) {
+    status_group = 'stale'
+    visual = 'none'
+  } else if (/vencid|en retraso/.test(text) && visual === 'overdue') status_group = 'overdue'
+  else if (/por vencer|vencen (pronto|esta semana|en 7 dias)|proximos 7 dias/.test(text)) {
+    status_group = 'due_week'
+  } else if (
     (/\babiertas?\b/.test(text) || /\btodas?\b/.test(text) || /\btodos?\b/.test(text)) &&
-    !/vencid|en retraso|rojo|bloquead/.test(text)
+    !/vencid|en retraso|rojo|bloquead|ayer|seguimiento|estancad/.test(text)
   ) {
     status_group = 'open'
     visual = 'none'

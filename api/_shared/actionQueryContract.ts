@@ -60,13 +60,15 @@ export function populationLabel(scope: ActionQueryScope): string {
 
 export function canUseWideActionScope(
   scope: ActionQueryScope,
-  input: { rol?: string | null; boardScope?: 'role' | 'organization' }
+  input: { rol?: string | null; boardScope?: 'role' | 'organization'; readCrossAreaExecution?: boolean }
 ): boolean {
   if (scope === 'assigned_to_me' || scope === 'created_by_me' || scope === 'assigned_to_me_or_created') {
     return true
   }
   if (input.boardScope === 'organization') return true
   if (canViewAllBoardData(input.rol, null)) return true
+  // Super Admin, Dirección y área OKRS (capacidad derivada en servidor; misma regla que la RLS de acciones).
+  if (input.readCrossAreaExecution === true) return true
   // Misma regla que get_team_actions: Analista sin org scope no ve ajenas.
   return !isAnalystByRole(input.rol)
 }

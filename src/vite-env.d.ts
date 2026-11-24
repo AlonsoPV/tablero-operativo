@@ -17,3 +17,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+/** Espejo de AGENT_ORCHESTRATOR_R1 para el cliente. No concede ejecución. */
+declare const __AGENT_ORCHESTRATOR_R1__: boolean

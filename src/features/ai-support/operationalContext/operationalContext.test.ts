@@ -338,6 +338,26 @@ describe('operational assistant context', () => {
     expect(marked.truncated).toBe(true)
   })
 
+  it('breaks urgency ties in favor of OKR-linked actions', () => {
+    const ranked = buildOperationalSnapshot({
+      usuarioId: 'u1',
+      rol: 'Operativo',
+      areas: ['Operaciones'],
+      seesAllBoard: false,
+      canSeeOkrs: true,
+      openActions: [
+        action({ id: 'plain', titulo_accion: 'Sin OKR', responsable: 'u1', estado: 'Bloqueado', fecha: '2026-11-05' }),
+        action({ id: 'okr', titulo_accion: 'Con OKR', responsable: 'u1', estado: 'Bloqueado', fecha: '2026-11-06', es_okr: true }),
+        action({ id: 'late', titulo_accion: 'Retraso', responsable: 'u1', estado: 'Retraso', fecha: '2026-11-01' }),
+      ],
+      priorities: [],
+      okrData: null,
+      today: '2026-11-03',
+      nowMs,
+    })
+    expect(ranked.mine.map((item) => item.id)).toEqual(['late', 'okr', 'plain'])
+  })
+
   it('reduces tokens when slicing focused intents vs full board payload', () => {
     // Antes: tablero completo + OKRs siempre (proxy del envio previo).
     const beforePayload = {

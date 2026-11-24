@@ -11,6 +11,8 @@ type AssistantBriefingPanelProps = {
   actions: AssistantQuickAction[]
   loading?: boolean
   compact?: boolean
+  /** Corte ISO del snapshot operativo (FV-04). */
+  asOf?: string | null
   onAction: (action: AssistantQuickAction) => void
 }
 
@@ -19,8 +21,18 @@ export function AssistantBriefingPanel({
   actions,
   loading = false,
   compact = false,
+  asOf = null,
   onAction,
 }: AssistantBriefingPanelProps) {
+  const asOfLabel = asOf
+    ? new Date(asOf).toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })
+    : null
+  const urgencyClass =
+    briefing.priorityUrgency === 'danger'
+      ? 'text-destructive'
+      : briefing.priorityUrgency === 'warning'
+        ? 'text-warning'
+        : 'text-primary'
   return (
     <section
       className={cn(
@@ -62,7 +74,7 @@ export function AssistantBriefingPanel({
             compact ? 'px-3 py-2.5' : 'px-3.5 py-3'
           )}
         >
-          <p className="text-[10px] font-semibold uppercase tracking-[0.07em] text-primary">
+          <p className={cn('text-[10px] font-semibold uppercase tracking-[0.07em]', urgencyClass)}>
             Prioridad actual
           </p>
           <p
@@ -88,6 +100,12 @@ export function AssistantBriefingPanel({
             </Link>
           ) : null}
         </div>
+      ) : null}
+
+      {asOfLabel ? (
+        <p className="text-[10px] leading-4 text-muted-foreground">
+          Corte: {asOfLabel} · Fuentes: kanban_acciones (datos operativos, no glosario).
+        </p>
       ) : null}
 
       <div className="space-y-2">

@@ -46,6 +46,18 @@ El endpoint `/api/gemini-chat` se ejecuta en Vercel y llama a Gemini desde servi
 
 No uses `VITE_GEMINI_API_KEY`: cualquier variable con prefijo `VITE_` queda expuesta al navegador.
 
+### Orquestador R1 (Preview Hobby; no encender en Production)
+
+Un solo flag. Vite lo inyecta al cliente como `__AGENT_ORCHESTRATOR_R1__` (`vite.config.ts`). No existe `VITE_AGENT_ORCHESTRATOR_R1`.
+
+| Variable | Preview R1 | Production |
+|----------|------------|------------|
+| `AGENT_ORCHESTRATOR_R1` | `1` (solo Preview) | unset |
+| `R2_EXECUTION_MODE` | omitir | omitir |
+| `COPILOT_R2_GATE` | omitir | omitir |
+
+Tras cambiar el flag, **Redeploy** del Preview. Rollback: quitarlo del entorno Preview y redesplegar. H-01…H-10 y autorizaciones: `docs/agent/qa-r1-r2.md`. No crear proyecto Supabase ni apuntar a PROD.
+
 ### Voz / crear acciones (`/api/assistant-audio`, `/api/elevenlabs-tts`)
 
 | Variable | Valor |

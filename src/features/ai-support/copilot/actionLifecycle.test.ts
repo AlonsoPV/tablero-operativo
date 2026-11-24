@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   actionLifecycleTone,
+  communicationStatusLabel,
   mapProposalStatusToLifecycle,
+  pendingFailureStatus,
+  proposalStageLabel,
   toActionCardView,
 } from './actionLifecycle'
 import type { CopilotProposal } from './types'
@@ -23,9 +26,35 @@ describe('actionLifecycle / ActionCard view', () => {
     expect(mapProposalStatusToLifecycle('confirmed')).toBe('completed')
     expect(mapProposalStatusToLifecycle('cancelled')).toBe('cancelled')
     expect(mapProposalStatusToLifecycle('error')).toBe('error')
-    expect(actionLifecycleTone('pending_confirmation').rail).toContain('D97706')
-    expect(actionLifecycleTone('completed').rail).toContain('16A34A')
-    expect(actionLifecycleTone('error').rail).toContain('DC2626')
+    expect(actionLifecycleTone('pending_confirmation').tone).toBe('warning')
+    expect(actionLifecycleTone('completed').tone).toBe('success')
+    expect(actionLifecycleTone('error').rail).toBe('bg-destructive')
+    expect(actionLifecycleTone('completed').rail).not.toMatch(/#|slate/)
+  })
+
+  it('maps expired and conflict instead of falling back to pending', () => {
+    expect(mapProposalStatusToLifecycle('expired')).toBe('expired')
+    expect(mapProposalStatusToLifecycle('conflict')).toBe('conflict')
+    expect(actionLifecycleTone('conflict').tone).toBe('danger')
+    expect(communicationStatusLabel({ lifecycle: 'expired' })).toBe('Vencido')
+    expect(pendingFailureStatus(new Error('La autorización expiró. Solicita una nueva propuesta.'))).toBe(
+      'expired'
+    )
+    expect(
+      pendingFailureStatus(new Error('El registro cambió después de la vista previa. Pide una nueva confirmación.'))
+    ).toBe('conflict')
+    expect(pendingFailureStatus(new Error('otro'))).toBe('error')
+  })
+
+  it('shows Enviado only after the provider confirmed', () => {
+    expect(proposalStageLabel({ lifecycle: 'pending_confirmation', kind: 'whatsapp' })).toBe('Borrador')
+    expect(
+      proposalStageLabel({ lifecycle: 'executing', kind: 'whatsapp', approving: true })
+    ).toBe('Aprobado')
+    expect(proposalStageLabel({ lifecycle: 'executing', kind: 'email' })).toBe('En proceso')
+    expect(proposalStageLabel({ lifecycle: 'completed', kind: 'whatsapp' })).toBe('Enviado')
+    expect(proposalStageLabel({ lifecycle: 'completed', kind: 'board' })).toBe('Ejecutado')
+    expect(proposalStageLabel({ lifecycle: 'error', kind: 'email' })).toBe('Error')
   })
 
   it('builds email preview fields for workspace drafts without marking them sent', () => {

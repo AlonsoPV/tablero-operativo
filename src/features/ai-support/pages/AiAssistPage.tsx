@@ -49,15 +49,23 @@ import { assistantOperationalContextService } from '@/features/ai-support/servic
 import {
   buildAssistantBriefing,
   buildAssistantQuickActions,
+  resolveAssistantAudience,
   type AssistantQuickAction,
 } from '@/features/ai-support/assistantBriefing'
-import { AssistantBriefingPanel } from '@/features/ai-support/components/AssistantBriefingPanel'
+import { AssistantWelcome } from '@/features/ai-support/components/AssistantWelcome'
+import { AssistantActivity } from '@/features/ai-support/components/AssistantActivity'
 import { StructuredAssistantReply } from '@/features/ai-support/components/StructuredAssistantReply'
 import { AssistantReplyViews } from '@/features/ai-support/chatViews'
 import { AssistantProposalCard } from '@/features/ai-support/components/AssistantProposalCard'
 import { AssistantClarificationChips } from '@/features/ai-support/components/AssistantClarificationChips'
 import { ActionDraftList } from '@/features/ai-support/components/ActionDraftList'
 import { WorkIntentToggle } from '@/features/ai-support/components/WorkIntentToggle'
+import {
+  coerceResponseFormat,
+  FORMAT_LABEL,
+  RESPONSE_FORMATS,
+  type ResponseFormat,
+} from '@/features/ai-support/responseFormat'
 import {
   AssistantLaneChooser,
   AssistantLaneSwitch,
@@ -75,9 +83,11 @@ import {
   type WriteIntent,
 } from '@/features/ai-support/writeIntent'
 import { buildCreateApprovalMessage } from '@/features/ai-support/createWorkReply'
+import { friendlyAssistantError } from '@/features/ai-support/assistantErrors'
+import { tryKnowledgeReply } from '@/features/ai-support/knowledge/tryKnowledgeReply'
 import { groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
 import { useAppRole } from '@/features/auth/hooks/useAppRole'
-import { canViewAllBoardData } from '@/features/auth/lib/permissions'
+import { canViewAllBoardData, isDirectionByRole, isLeaderByRole } from '@/features/auth/lib/permissions'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { useAcciones } from '@/features/operations/hooks/useAcciones'
 import { useAccionCheckpoints } from '@/features/operations/hooks/useAccionCheckpoints'
@@ -147,8 +157,53 @@ type ActionContext = {
   notasEscalamiento?: string | null
 }
 
+const FORMAT_STORAGE_KEY = 'assistant.responseFormat'
+const CONVERSATION_STORAGE_KEY = 'assistant.conversationId'
+
+const FORMAT_OPTIONS = RESPONSE_FORMATS.map((id) => ({
+  id,
+  label: id === 'auto' ? 'Auto' : FORMAT_LABEL[id],
+}))
+
+/** La selección dura la sesión del navegador; sin almacenamiento disponible vuelve a Automático. */
+function readStoredFormat(): ResponseFormat {
+  try {
+    return coerceResponseFormat(window.sessionStorage.getItem(FORMAT_STORAGE_KEY))
+  } catch {
+    return 'auto'
+  }
+}
+
+function storeFormat(format: ResponseFormat) {
+  try {
+    window.sessionStorage.setItem(FORMAT_STORAGE_KEY, format)
+  } catch {
+    /* sin almacenamiento: la selección sólo vive en memoria */
+  }
+}
+
+/** Identificador estable de la conversación para que el servidor conserve contexto y formato. */
+function readConversationId(): string {
+  try {
+    const stored = window.sessionStorage.getItem(CONVERSATION_STORAGE_KEY)
+    if (stored) return stored
+    const created = crypto.randomUUID()
+    window.sessionStorage.setItem(CONVERSATION_STORAGE_KEY, created)
+    return created
+  } catch {
+    return crypto.randomUUID()
+  }
+}
+
 type GeminiChatResponse = {
   answer?: string
+  agent?: {
+    formatSelected?: string
+    status?: string
+    asOf?: string | null
+    blocks?: { data?: string[]; interpretation?: string[]; recommendation?: string[]; limitations?: string[] }
+    references?: Array<{ id: string; title: string; href: string }>
+  }
   error?: string
   proposals?: AiChatMessage['proposals']
   clarification?: AiChatMessage['clarification']
@@ -172,7 +227,11 @@ async function sendMessage({
   actionContext,
   okrContext,
   boardContext,
+  responseFormat,
+  conversationId,
 }: {
+  responseFormat: ResponseFormat
+  conversationId: string
   mode: typeof UNIFIED_ASSISTANT_MODE
   messages: AiChatMessage[]
   actionContext?: ActionContext | ActionContext[]
@@ -188,6 +247,8 @@ async function sendMessage({
     body: JSON.stringify({
       mode,
       requestId: messages.at(-1)?.requestId,
+      conversationId,
+      responseFormat,
       messages: messages.map(({ role, content }) => ({ role, content })),
       actionContext,
       okrContext,
@@ -213,11 +274,31 @@ async function sendMessage({
     throw new Error(data?.error || 'No se pudo generar una respuesta.')
   }
 
+  const agentUi =
+    data.agent?.status && !data.ui
+      ? {
+          views: [],
+          asOf: data.agent.asOf ?? undefined,
+          sources: ['orchestrator_r1'],
+        }
+      : data.ui
+        ? {
+            ...data.ui,
+            asOf: data.ui.asOf ?? data.agent?.asOf ?? undefined,
+            sources: data.ui.sources?.length
+              ? data.ui.sources
+              : data.agent?.status
+                ? ['orchestrator_r1']
+                : data.ui.sources,
+          }
+        : undefined
+
   return {
     answer: data.answer || 'No pude generar una respuesta en este momento.',
     proposals: data.proposals,
     clarification: data.clarification,
-    ui: data.ui ?? undefined,
+    ui: agentUi,
+    formatSelected: data.agent?.formatSelected,
   }
 }
 
@@ -632,6 +713,12 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     if (fromUrl) setLane(fromUrl)
   }, [searchParams])
   const [writeIntent, setWriteIntent] = useState<WriteIntent>('consult')
+  const [responseFormat, setResponseFormatState] = useState<ResponseFormat>(readStoredFormat)
+  const conversationId = useMemo(readConversationId, [])
+  const setResponseFormat = (format: ResponseFormat) => {
+    setResponseFormatState(format)
+    storeFormat(format)
+  }
   const [selectedActionIds, setSelectedActionIds] = useState<string[]>([])
   const [actionContextEnabled, setActionContextEnabled] = useState(true)
   const [selectedObjectiveIds, setSelectedObjectiveIds] = useState<string[]>([])
@@ -820,13 +907,22 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
       }),
     [actionsLoading, currentUser?.nombre, operationalLoad.isLoading, operationalSnapshot]
   )
+  const assistantAudience = useMemo(
+    () =>
+      resolveAssistantAudience({
+        isDirection: isDirectionByRole(currentUser?.rol),
+        isLeader: isLeaderByRole(currentUser?.rol),
+        canSeeTeam: seesAllBoard,
+      }),
+    [currentUser?.rol, seesAllBoard]
+  )
   const quickActions = useMemo(
     () =>
       buildAssistantQuickActions({
-        snapshot: operationalSnapshot,
+        audience: assistantAudience,
         canSeeOkrs,
       }),
-    [canSeeOkrs, operationalSnapshot]
+    [assistantAudience, canSeeOkrs]
   )
 
   const focusWelcome = useMemo(() => {
@@ -1003,6 +1099,21 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
           hasSelectedOkr: activeOkrContext,
         })
         const hasExplicitFocus = activeActionContext || activeOkrContext
+        const orchestratorEnabled = __AGENT_ORCHESTRATOR_R1__ === true
+
+        const knowledge = tryKnowledgeReply(trimmed)
+        if (knowledge) {
+          setMessages(
+            [
+              ...nextMessages,
+              {
+                role: 'assistant' as const,
+                content: knowledge.content,
+              },
+            ].slice(-MAX_MESSAGES)
+          )
+          return
+        }
 
         if (operationalSnapshot) {
           const turn = runConversationTurn({
@@ -1010,6 +1121,8 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
             previous: conversationState,
             snapshot: operationalSnapshot,
             people: conversationPeople,
+            responseFormat,
+            orchestratorEnabled,
           })
           if (turn.handled) {
             setConversationState(turn.reply.state)
@@ -1030,7 +1143,12 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
           setConversationState(turn.state.entity === 'none' ? null : turn.state)
         }
 
-        if (operationalSnapshot && (intent === 'okrs' || intent === 'team_delay')) {
+        if (
+          !orchestratorEnabled &&
+          operationalSnapshot &&
+          (intent === 'okrs' || intent === 'team_delay') &&
+          responseFormat === 'auto'
+        ) {
           const priorUserMessages = nextMessages
             .filter((row) => row.role === 'user')
             .map((row) => row.content)
@@ -1075,7 +1193,11 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               ? activeOkrContextPayload ?? undefined
               : undefined,
           boardContext: sliced?.boardContext ?? boardContext ?? undefined,
+          responseFormat,
+          conversationId,
         })
+        // Una directiva en el mensaje («modo reporte») cambia el formato de la sesión: el selector la refleja.
+        if (reply.formatSelected) setResponseFormat(coerceResponseFormat(reply.formatSelected))
         setMessages(
           [
             ...nextMessages,
@@ -1090,17 +1212,13 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         )
       }
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'No pude conectar con el asistente. Intenta nuevamente.'
+      const message = friendlyAssistantError(error)
       toast.error(message)
       setMessages([
         ...nextMessages,
         {
           role: 'assistant' as const,
-          content:
-            'No pude procesar tu solicitud en este momento. Revisa la configuracion o intenta nuevamente en unos minutos.',
+          content: message,
         },
       ])
     } finally {
@@ -1170,12 +1288,35 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               : 'rounded-2xl bg-background/85 px-3.5 py-3.5 ring-1 ring-border/40 sm:px-4'
           )}
         >
-          <AssistantBriefingPanel
+          <AssistantWelcome
             briefing={briefing}
+            counts={operationalSnapshot?.counts ?? null}
             actions={quickActions}
             loading={operationalLoad.isLoading || actionsLoading}
             compact={isPopup}
+            onAsk={(prompt) => {
+              setWriteIntent('consult')
+              void handleSend(prompt)
+            }}
             onAction={handleQuickAction}
+          />
+          {operationalSnapshot?.fetchedAt ? (
+            <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
+              Corte:{' '}
+              {new Date(operationalSnapshot.fetchedAt).toLocaleString('es-MX', {
+                timeZone: 'America/Mexico_City',
+              })}{' '}
+              · Fuentes: kanban_acciones
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div className={cn(isPopup ? 'px-0.5' : 'px-1')}>
+          <AssistantActivity
+            stage={writeIntent === 'create' ? 'preparing' : 'querying'}
+            compact={isPopup}
           />
         </div>
       ) : null}
@@ -1308,32 +1449,47 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         )}
       >
         {!isPopup ? (
-          <div className="flex items-center gap-1.5">
-            <WorkIntentToggle value={writeIntent} onChange={setWriteIntent} />
-            <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
-              <div className="flex w-max gap-1">
-                {suggestionChips.slice(0, conversationState ? 5 : 3).map((suggestion, index) => (
-                  <button
-                    key={`${suggestion}-${index}`}
-                    type="button"
-                    onClick={() => void handleSend(suggestion)}
-                    className={cn(
-                      'max-w-[11rem] shrink-0 truncate rounded-full px-2 py-1 text-[10px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      activeOkrContext
-                        ? 'bg-primary/10 text-primary hover:bg-primary/15'
-                        : activeActionContext
-                          ? 'bg-red-500/10 text-red-800 hover:bg-red-500/15 dark:text-red-200'
-                          : 'bg-muted/55 text-muted-foreground hover:bg-muted hover:text-foreground'
-                    )}
-                    disabled={loading}
-                  >
-                    {suggestion}
-                  </button>
-                ))}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <WorkIntentToggle value={writeIntent} onChange={setWriteIntent} className="shrink-0" />
+              <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
+                <div className="flex w-max gap-1">
+                  {suggestionChips.slice(0, conversationState ? 5 : 3).map((suggestion, index) => (
+                    <button
+                      key={`${suggestion}-${index}`}
+                      type="button"
+                      onClick={() => void handleSend(suggestion)}
+                      className={cn(
+                        'max-w-[11rem] shrink-0 truncate rounded-full px-2 py-1 text-[10px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                        activeOkrContext
+                          ? 'bg-primary/10 text-primary hover:bg-primary/15'
+                          : activeActionContext
+                            ? 'bg-red-500/10 text-red-800 hover:bg-red-500/15 dark:text-red-200'
+                            : 'bg-muted/55 text-muted-foreground hover:bg-muted hover:text-foreground'
+                      )}
+                      disabled={loading}
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
+            <WorkIntentToggle<ResponseFormat>
+              value={responseFormat}
+              onChange={setResponseFormat}
+              options={FORMAT_OPTIONS}
+              aria-label="Formato de respuesta"
+            />
           </div>
-        ) : null}
+        ) : (
+          <WorkIntentToggle<ResponseFormat>
+            value={responseFormat}
+            onChange={setResponseFormat}
+            options={FORMAT_OPTIONS}
+            aria-label="Formato de respuesta"
+          />
+        )}
         <Label htmlFor={inputId} className="sr-only">
           {activeOkrContext
             ? 'Pregunta sobre el OKR seleccionado'

@@ -19,6 +19,8 @@ import {
   sanitizeMessages,
 } from '../src/lib/assistantPrompts.js'
 import { buildAssistantUiFromToolResults } from '../src/features/ai-support/chatViews/buildViewsFromToolResults.js'
+import { isAgentOrchestratorEnabled, runChannelTurn, uiForTurn, webSessionId } from './_shared/orchestrator/channelAdapters.js'
+import { EMPTY_MODEL_TURN_MESSAGE } from './_shared/orchestrator/respond.js'
 
 type GeminiContent = {
   role: 'user' | 'model'
@@ -101,8 +103,10 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Solicitud invalida.' })
     }
 
-    const { mode, messages, actionContext, okrContext, boardContext, requestId } = body as {
+    const { mode, messages, actionContext, okrContext, boardContext, requestId, responseFormat, conversationId } = body as {
       requestId?: unknown
+      conversationId?: unknown
+      responseFormat?: unknown
       mode?: unknown
       messages?: unknown
       actionContext?: unknown
@@ -159,6 +163,51 @@ export default defineApiHandler(async (req, res) => {
       hasOkrContext,
       hasBoardContext,
     })
+
+    if (isAgentOrchestratorEnabled() && !hasActionContext && !hasOkrContext && lastUserMessage) {
+      try {
+        const turn = await runChannelTurn({
+          identity: {
+            supabase: auth.supabase,
+            authUserId: auth.authUserId,
+            usuarioId: auth.usuarioId,
+            rol: auth.rol,
+            active: true,
+            accessToken: auth.token,
+          },
+          channel: 'web',
+          sessionId: webSessionId(conversationId, requestId),
+          utterance: lastUserMessage,
+          responseFormat,
+        })
+        if (turn.handled) {
+          const persistedProposal = turn.proposal && 'tool' in turn.proposal ? turn.proposal : null
+          return res.status(200).json({
+            answer: turn.text,
+            proposals: persistedProposal ? [persistedProposal] : [],
+            clarification: turn.clarification,
+            ui: uiForTurn(turn, turn.text),
+            toolTrace: turn.toolsUsed.map((tool) => ({ tool, kind: 'read' })),
+            agent: {
+              intent: turn.intent,
+              status: turn.response.status,
+              format: turn.format,
+              formatSelected: turn.formatSelected,
+              offerDetail: turn.offerDetail,
+              blocks: turn.response.blocks,
+              references: turn.response.references,
+              asOf: turn.response.asOf,
+              executionEnabled: false,
+            },
+          })
+        }
+      } catch (error) {
+        console.error('Agent orchestrator error:', error)
+        return res.status(502).json({
+          error: 'No pude consultar el tablero en este momento. No muestro cifras inventadas.',
+        })
+      }
+    }
 
     const candidates = geminiModelCandidates(process.env.GEMINI_MODEL)
     const generationConfig = {
@@ -261,9 +310,13 @@ export default defineApiHandler(async (req, res) => {
       console.error('Gemini empty response:', {
         model,
         finishReason: loopResult.finishReason,
+        tools: loopResult.toolTrace.map((item) => item.tool),
       })
-      return res.status(502).json({
-        error: 'Gemini no regreso contenido util. Intenta con una pregunta mas corta o vuelve a intentar.',
+      return res.status(200).json({
+        answer: EMPTY_MODEL_TURN_MESSAGE,
+        proposals: [],
+        toolTrace: loopResult.toolTrace,
+        degraded: true,
       })
     }
 

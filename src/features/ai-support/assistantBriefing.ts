@@ -22,6 +22,7 @@ export type AssistantBriefingModel = {
   priorityTitle: string | null
   priorityReason: string | null
   priorityRecord: AssistantRecordLink | null
+  priorityUrgency: 'danger' | 'warning' | 'info' | null
 }
 
 export type AssistantQuickActionId =
@@ -30,12 +31,19 @@ export type AssistantQuickActionId =
   | 'verification'
   | 'daily'
   | 'okrs'
-  | 'create'
+  | 'team'
+  | 'team_overdue'
+  | 'executive'
+  | 'risks'
+  | 'okr_results'
+  | 'decisions'
+
+export type AssistantAudience = 'operativo' | 'lider' | 'direccion'
 
 export type AssistantQuickAction = {
   id: AssistantQuickActionId
   label: string
-  prompt?: string
+  prompt: string
   mode: 'consult' | 'create'
   disabled?: boolean
   disabledReason?: string
@@ -80,6 +88,7 @@ export function buildAssistantBriefing(input: {
       priorityTitle: null,
       priorityReason: null,
       priorityRecord: null,
+      priorityUrgency: null,
     }
   }
 
@@ -90,6 +99,7 @@ export function buildAssistantBriefing(input: {
       priorityTitle: null,
       priorityReason: null,
       priorityRecord: null,
+      priorityUrgency: null,
     }
   }
 
@@ -101,6 +111,7 @@ export function buildAssistantBriefing(input: {
       priorityTitle: null,
       priorityReason: null,
       priorityRecord: null,
+      priorityUrgency: null,
     }
   }
 
@@ -114,17 +125,27 @@ export function buildAssistantBriefing(input: {
   ].filter(Boolean)
 
   let priorityReason: string | null = null
+  let priorityUrgency: AssistantBriefingModel['priorityUrgency'] = null
   if (top) {
+    const okrNote = top.esOkr || top.okrImpactado ? ' Impacta un OKR.' : ''
     if (top.estado === 'Retraso' || top.dueBucket === 'overdue') {
-      priorityReason = 'Esta vencida o en retraso.'
+      priorityReason = `Esta vencida o en retraso.${okrNote}`
+      priorityUrgency = 'danger'
     } else if (top.estado === 'Bloqueado') {
-      priorityReason = 'Esta bloqueada y frena avance.'
+      priorityReason = `Esta bloqueada y frena avance.${okrNote}`
+      priorityUrgency = 'danger'
+    } else if (top.dueBucket === 'today') {
+      priorityReason = `Vence hoy.${okrNote}`
+      priorityUrgency = 'warning'
     } else if ((top.daysSinceUpdate ?? 0) >= 3) {
-      priorityReason = 'Lleva dias sin actualizacion.'
-    } else if (top.dueBucket === 'today' || top.dueBucket === 'week') {
-      priorityReason = 'Vence pronto.'
+      priorityReason = `Lleva ${top.daysSinceUpdate} dias sin actualizacion.${okrNote}`
+      priorityUrgency = 'warning'
+    } else if (top.dueBucket === 'week') {
+      priorityReason = `Vence esta semana.${okrNote}`
+      priorityUrgency = 'warning'
     } else {
-      priorityReason = 'Es la mas urgente en tu cola actual.'
+      priorityReason = `Es la mas urgente en tu cola actual.${okrNote}`
+      priorityUrgency = 'info'
     }
   }
 
@@ -134,57 +155,78 @@ export function buildAssistantBriefing(input: {
     priorityTitle: top?.titulo ?? null,
     priorityReason,
     priorityRecord: top ? actionRecordLink(top.id, top.titulo) : null,
+    priorityUrgency,
   }
 }
 
+const QUICK_ACTIONS: Record<AssistantQuickActionId, Omit<AssistantQuickAction, 'id' | 'mode'>> = {
+  priorities: { label: 'Mis prioridades', prompt: 'Que deberia priorizar hoy?' },
+  daily: {
+    label: 'Preparar mi daily',
+    prompt: 'Prepara mi daily con lo critico de hoy: retrasos, bloqueos y lo que vence.',
+  },
+  blocked: { label: 'Revisar bloqueos', prompt: 'Que acciones bloqueadas debo atender?' },
+  verification: {
+    label: 'Pendientes de verificación',
+    prompt: 'Que tengo pendiente de verificacion?',
+  },
+  okrs: { label: 'Consultar OKRs', prompt: 'Como van mis OKRs?' },
+  team: { label: 'Acciones del equipo', prompt: 'Que acciones abiertas tiene todo el equipo?' },
+  team_overdue: {
+    label: 'Retrasos del equipo',
+    prompt: 'Que acciones vencidas o en retraso tiene todo el equipo?',
+  },
+  executive: {
+    label: 'Panorama ejecutivo',
+    prompt: 'Dame un panorama ejecutivo del tablero: avance, retrasos, bloqueos y riesgos.',
+  },
+  risks: {
+    label: 'Riesgos y desviaciones',
+    prompt: 'Que riesgos y desviaciones hay en el tablero y que conviene atender primero?',
+  },
+  okr_results: { label: 'Resultados de OKRs', prompt: 'Como van los resultados de los OKRs?' },
+  decisions: {
+    label: 'Decisiones pendientes',
+    prompt: 'Que decisiones o escalamientos estan pendientes y quien debe resolverlos?',
+  },
+}
+
+const AUDIENCE_ACTIONS: Record<AssistantAudience, AssistantQuickActionId[]> = {
+  operativo: ['priorities', 'daily', 'blocked', 'verification'],
+  lider: ['team', 'team_overdue', 'verification', 'okrs'],
+  direccion: ['executive', 'risks', 'okr_results', 'decisions'],
+}
+
+const OKR_ACTIONS = new Set<AssistantQuickActionId>(['okrs', 'okr_results'])
+const OKR_FALLBACK: Record<AssistantAudience, AssistantQuickActionId> = {
+  operativo: 'priorities',
+  lider: 'priorities',
+  direccion: 'team_overdue',
+}
+
+/** Solo elige contenido: la vista de equipo exige `canSeeTeam` (canViewAllBoardData). */
+export function resolveAssistantAudience(input: {
+  isDirection: boolean
+  isLeader: boolean
+  canSeeTeam: boolean
+}): AssistantAudience {
+  if (!input.canSeeTeam) return 'operativo'
+  if (input.isLeader && !input.isDirection) return 'lider'
+  return 'direccion'
+}
+
 export function buildAssistantQuickActions(input: {
-  snapshot: OperationalSnapshot | null
+  audience: AssistantAudience
   canSeeOkrs: boolean
 }): AssistantQuickAction[] {
-  const c = input.snapshot?.counts
-  return [
-    {
-      id: 'priorities',
-      label: 'Mis prioridades',
-      prompt: 'Que deberia priorizar hoy?',
-      mode: 'consult',
-    },
-    {
-      id: 'blocked',
-      label: 'Acciones bloqueadas',
-      prompt: 'Que acciones bloqueadas debo atender?',
-      mode: 'consult',
-      disabled: Boolean(c && c.blocked === 0),
-      disabledReason: 'Sin bloqueos ahora',
-    },
-    {
-      id: 'verification',
-      label: 'Pendientes de verificacion',
-      prompt: 'Que tengo pendiente de verificacion?',
-      mode: 'consult',
-      disabled: Boolean(c && c.pendingVerification === 0),
-      disabledReason: 'Nada por verificar',
-    },
-    {
-      id: 'daily',
-      label: 'Preparar mi daily',
-      prompt: 'Prepara mi daily con lo critico de hoy: retrasos, bloqueos y lo que vence.',
-      mode: 'consult',
-    },
-    {
-      id: 'okrs',
-      label: 'Revisar mis OKRs',
-      prompt: 'Como van mis OKRs?',
-      mode: 'consult',
-      disabled: !input.canSeeOkrs,
-      disabledReason: 'Sin acceso a OKRs',
-    },
-    {
-      id: 'create',
-      label: 'Crear una accion',
-      mode: 'create',
-    },
-  ]
+  const ids = AUDIENCE_ACTIONS[input.audience]
+  if (!ids) {
+    throw new Error(`audience de asistente no soportado: ${String(input.audience)}`)
+  }
+  return ids.map((id) => {
+    const resolved = !input.canSeeOkrs && OKR_ACTIONS.has(id) ? OKR_FALLBACK[input.audience] : id
+    return { id: resolved, mode: 'consult', ...QUICK_ACTIONS[resolved] }
+  })
 }
 
 export function formatStructuredReplyContent(reply: AssistantStructuredReply): string {
