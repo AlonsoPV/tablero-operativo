@@ -414,3 +414,65 @@ export function planProactiveBatch(
 
   return results
 }
+
+export type PersonalizedDailySummaryInput = {
+  dateBucket: string
+  priorities: readonly string[]
+  overdueCount: number
+  criticalBlockers: readonly string[]
+  upcomingCommitmentsCount: number
+  pendingVerificationCount: number
+  recommendedAction?: string | null
+  href?: string | null
+}
+
+/**
+ * Construye un ÚNICO resumen diario personalizado en dry-run agrupando prioridades, vencidas,
+ * bloqueos críticos, compromisos próximos y pendientes de verificación (evita múltiples envíos).
+ */
+export function buildPersonalizedDailySummaryDigest(
+  input: PersonalizedDailySummaryInput,
+  prefs: ProactiveUserPreferences,
+  ctx: ProactivePolicyContext
+): ProactiveDecision {
+  const topPriorities = input.priorities
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+  const topBlocker = input.criticalBlockers.map((b) => b.trim()).filter(Boolean)[0] ?? null
+
+  const conclusionParts: string[] = []
+  if (input.overdueCount > 0) conclusionParts.push(`${input.overdueCount} vencida(s)`)
+  if (input.criticalBlockers.length > 0) conclusionParts.push(`${input.criticalBlockers.length} bloqueo(s) crítico(s)`)
+  if (input.upcomingCommitmentsCount > 0) conclusionParts.push(`${input.upcomingCommitmentsCount} compromiso(s) próximo(s)`)
+  if (input.pendingVerificationCount > 0) conclusionParts.push(`${input.pendingVerificationCount} por verificar`)
+
+  const headline =
+    conclusionParts.length > 0
+      ? `Hoy requiere atención: ${conclusionParts.join(' · ')}.`
+      : 'Sin alertas críticas hoy; operación al día.'
+
+  const detailLines: string[] = []
+  if (topPriorities.length > 0) {
+    detailLines.push('Prioridades:')
+    topPriorities.forEach((p, idx) => detailLines.push(`${idx + 1}. ${p}`))
+  }
+  if (topBlocker) detailLines.push(`Bloqueo crítico: ${topBlocker}`)
+
+  const candidate: ProactiveCandidate = {
+    category: 'daily_summary',
+    usuarioId: prefs.usuarioId,
+    entityId: `daily-digest-${input.dateBucket}`,
+    title: headline,
+    detail: detailLines.join('\n') || 'Revisa tus prioridades abiertas en Scrumban.',
+    dateBucket: input.dateBucket,
+    href: input.href ?? null,
+    suggestedAction:
+      (input.recommendedAction ?? '').trim() ||
+      (topBlocker
+        ? 'Responde "bloqueos" para destrabar el punto crítico o "detalle 1" para abrir la prioridad 1.'
+        : 'Responde "detalle 1" para revisar tu prioridad principal de hoy.'),
+  }
+
+  return evaluateProactiveFollowup(candidate, prefs, ctx)
+}

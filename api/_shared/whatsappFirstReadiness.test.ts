@@ -7,6 +7,7 @@ import {
   resolveWhatsAppProposalApproval,
 } from './whatsappR2Adapter.js'
 import {
+  buildPersonalizedDailySummaryDigest,
   evaluateProactiveFollowup,
   planGroupedProactiveDigest,
   PROACTIVE_CATEGORIES,
@@ -200,6 +201,44 @@ describe('WhatsApp First — B4 proactive follow-ups (8 categories, grouping, $0
     expect(decision.allowed).toBe(false)
     if (!decision.allowed) {
       expect(decision.reason).toBe('cost_cap_exceeded')
+    }
+  })
+
+  it('builds ONE consolidated personalized daily summary (<=900 chars, max 3 priorities, dry-run)', () => {
+    const decision = buildPersonalizedDailySummaryDigest(
+      {
+        dateBucket: '2026-11-24',
+        priorities: [
+          'Destrabar proveedor de empaque',
+          'Cerrar entregas Monterrey',
+          'Validar OKR entregas a tiempo',
+          'Cuarta prioridad que no debe saturar',
+        ],
+        overdueCount: 2,
+        criticalBlockers: ['Proveedor de empaque sin fecha confirmada'],
+        upcomingCommitmentsCount: 3,
+        pendingVerificationCount: 1,
+        href: 'https://scrumbanemx.vercel.app/asistente',
+      },
+      BASE_PREFS,
+      {
+        nowIso: '2026-11-24T16:00:00Z',
+        lastInboundAt: '2026-11-24T12:00:00Z',
+        sentTodayCount: 0,
+        sentDedupeKeys: new Set(),
+      }
+    )
+    expect(decision.dryRun).toBe(true)
+    expect(decision.allowed).toBe(true)
+    if (decision.allowed) {
+      expect(decision.bodyText.length).toBeLessThanOrEqual(900)
+      expect(decision.bodyText).toContain('2 vencida(s)')
+      expect(decision.bodyText).toContain('1 bloqueo(s) crítico(s)')
+      expect(decision.bodyText).toContain('3 compromiso(s) próximo(s)')
+      expect(decision.bodyText).toContain('1 por verificar')
+      expect(decision.bodyText).toContain('1. Destrabar proveedor de empaque')
+      expect(decision.bodyText).not.toContain('Cuarta prioridad')
+      expect(decision.bodyText).toContain('Acción sugerida:')
     }
   })
 })
