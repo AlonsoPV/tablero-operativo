@@ -86,6 +86,19 @@ export async function executeR3IntegratedCli({
 
   const target = resolveR3DevTarget(env)
   const previewConfig = resolvePreviewConfig(env)
+  const depMeta = preflight.checks?.flags_and_deployment_expected || {}
+  if (depMeta.deploymentSha && depMeta.deploymentSha !== previewConfig.expectedSha) {
+    throw new R3GuardError(
+      'DEPLOYMENT_SHA_MISMATCH',
+      `SHA desplegado (${depMeta.deploymentSha}) no coincide con R3_EXPECTED_SHA (${previewConfig.expectedSha})`,
+    )
+  }
+  if (depMeta.deploymentBranch && depMeta.deploymentBranch !== previewConfig.expectedBranch) {
+    throw new R3GuardError(
+      'DEPLOYMENT_BRANCH_MISMATCH',
+      `Rama desplegada (${depMeta.deploymentBranch}) no coincide con R3_EXPECTED_BRANCH (${previewConfig.expectedBranch})`,
+    )
+  }
   const identities = resolveQaIdentities(env)
   const fixturePrefix = resolveFixturePrefix(env)
   const windowMode = String(env.R3_EXPECTED_WINDOW || 'ON').toUpperCase() === 'OFF' ? 'OFF' : 'ON'
@@ -134,7 +147,14 @@ export async function executeR3IntegratedCli({
       ranAt: new Date().toISOString(),
       targetRef: target.ref,
       previewHost: previewConfig.host,
+      projectId: previewConfig.projectId,
+      teamId: previewConfig.teamId,
+      target: previewConfig.target,
       expectedSha: previewConfig.expectedSha,
+      expectedBranch: previewConfig.expectedBranch,
+      deploymentId: depMeta.deploymentId ?? null,
+      deploymentSha: depMeta.deploymentSha ?? null,
+      deploymentBranch: depMeta.deploymentBranch ?? null,
       runnerMutatedFlags: false,
       runnerDeployed: false,
       preflightStatus: preflight.status,

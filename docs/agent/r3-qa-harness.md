@@ -2,14 +2,17 @@
 
 Documentación operativa mínima para ejecutar el harness local e integrado de **R3 (`AGENT_MEMORY_R3`)** contra entornos autorizados de **Preview + Supabase DEV (`tgiuevzlyptzlfgxsfhj`)**.
 
-## Guardrails anti-Production (fail-closed)
+## Guardrails anti-Production y candidato autorizado (fail-closed)
 
 [`scripts/qa/r3DevGuard.mjs`](../../scripts/qa/r3DevGuard.mjs) bloquea la ejecución antes de emitir cualquier solicitud si detecta:
 
+- Ausencia o formato inválido de `R3_EXPECTED_SHA` (exige SHA Git completo e inmutable de 40 caracteres hex; sin valor por defecto hardcodeado).
+- Ausencia o rama prohibida en `R3_EXPECTED_BRANCH` (`main`, `master`, `production`, `prod` bloqueadas).
+- Discrepancia de proyecto (`prj_k71rhUH9uTFEEPWofF3NyyhcKEDn`), team (`alonsopvs-projects`), `target` (`preview` exclusivo), o discrepancia entre el SHA/rama del deployment real en Vercel y el candidato autorizado.
 - Referencia de Supabase Production: `xhpasmjzuwifmjhrsumb`.
 - Hosts de Production: `scrumbanemx.vercel.app`, `tablero-operativo.vercel.app`.
 - Entornos de ejecución: `NODE_ENV=production` o `VERCEL_ENV=production`.
-- Referencia de proyecto fuera de `R3_ALLOWED_DEV_REFS` (por defecto únicamente `tgiuevzlyptzlfgxsfhj`).
+- Referencia de proyecto fuera de `R3_ALLOWED_SUPABASE_REFS` (por defecto únicamente `tgiuevzlyptzlfgxsfhj`).
 - Carga del archivo `.env` raíz (exige `R3_ENV_FILE` dedicado, ej. `.env.r3.dev.local`, ignorado en `.gitignore`).
 - Ejecución integrada sin `R3_INTEGRATED_AUTH=AUTH-R3-INTEGRATED` ni flag `--execute`.
 - Rollback remoto sin `R3_ROLLBACK_AUTH=AUTH-R3-ROLLBACK-OFF` ni flag `--apply`.

@@ -12,24 +12,24 @@
  * Hardcoded isolation constraints:
  * - Project: prj_k71rhUH9uTFEEPWofF3NyyhcKEDn (tablero-operativo)
  * - Team:    alonsopvs-projects
- * - Scope:   target=["preview"], gitBranch="preview" ONLY
+ * - Scope:   target=["preview"], gitBranch=R3_EXPECTED_BRANCH (never main/master/production)
  * - Keys:    AGENT_ORCHESTRATOR_R1, AGENT_MEMORY_R3 ONLY -> "0" (fail-closed === '1')
- * - SHA:     fe8ddf4765359de65ed708996a2e7d486481145b ONLY
+ * - SHA:     R3_EXPECTED_SHA (explicit 40-char immutable Git SHA, externally configured)
  * - NEVER modifies Production, R2, R4, R0, SSO, CSP, or any other env var.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  DEFAULT_CANDIDATE_SHA,
-  DEFAULT_PREVIEW_BRANCH,
   DEFAULT_PROJECT_ID,
   DEFAULT_TEAM_ID,
   R3GuardError,
+  assertNoProductionConfig,
   isFlagOn,
   loadProtectedEnvFile,
   redactSecrets,
   requireRollbackExecutionAuth,
+  resolveAuthorizedCandidate,
 } from './r3DevGuard.mjs'
 
 export const ROLLBACK_FLAG_KEYS = Object.freeze(['AGENT_ORCHESTRATOR_R1', 'AGENT_MEMORY_R3'])
@@ -84,15 +84,24 @@ async function vercelRequest(fetchImpl, token, method, path, body = undefined) {
 }
 
 /**
- * Inspect current gitBranch=preview R3 flags via Vercel API (read-only).
+ * Inspect current preview gitBranch R3 flags via Vercel API (read-only).
  */
 export async function inspectPreviewBranchFlags({
   token,
   projectId = DEFAULT_PROJECT_ID,
   teamSlug = DEFAULT_TEAM_ID,
-  gitBranch = DEFAULT_PREVIEW_BRANCH,
+  gitBranch,
   fetchImpl = fetch,
 }) {
+  if (!gitBranch) {
+    return {
+      ok: false,
+      status: 0,
+      error: 'Falta gitBranch explícito para inspeccionar flags Preview',
+      flags: {},
+      otherVarsUnmodified: true,
+    }
+  }
   const qs = new URLSearchParams({ slug: teamSlug, gitBranch })
   const res = await vercelRequest(fetchImpl, token, 'GET', `/v9/projects/${projectId}/env?${qs.toString()}`)
   if (!res.ok) {
@@ -131,20 +140,97 @@ export async function inspectPreviewBranchFlags({
 }
 
 /**
+ * Inspect live Vercel Preview deployment metadata (read-only) and verify strict match
+ * against authorized projectId, preview target, candidate SHA, and candidate gitBranch.
+ */
+export async function inspectPreviewDeployment({
+  token,
+  host,
+  teamSlug = DEFAULT_TEAM_ID,
+  expectedProjectId = DEFAULT_PROJECT_ID,
+  expectedSha,
+  expectedBranch,
+  fetchImpl = fetch,
+}) {
+  const qs = new URLSearchParams({ slug: teamSlug })
+  const res = await vercelRequest(fetchImpl, token, 'GET', `/v13/deployments/${encodeURIComponent(host)}?${qs.toString()}`)
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      error: res.json?.error?.message || `HTTP ${res.status}`,
+      mismatchReasons: [`Vercel API rechazó consulta de deployment (${res.status})`],
+    }
+  }
+
+  const dep = res.json?.deployment || res.json || {}
+  const actualProjectId = dep.projectId || dep.project?.id || null
+  const actualTarget = dep.target ?? null
+  const actualReadyState = dep.readyState || dep.state || null
+  const actualSha = String(dep.meta?.githubCommitSha || '').trim().toLowerCase() || null
+  const actualBranch = String(dep.meta?.githubCommitRef || '').trim() || null
+
+  const mismatchReasons = []
+  if (actualProjectId !== expectedProjectId) {
+    mismatchReasons.push(`projectId real (${actualProjectId ?? 'null'}) != autorizado (${expectedProjectId})`)
+  }
+  if (actualTarget === 'production') {
+    mismatchReasons.push('deployment apunta a target=production (prohibido)')
+  }
+  if (actualReadyState !== 'READY') {
+    mismatchReasons.push(`readyState=${actualReadyState ?? 'unknown'} (se requiere READY)`)
+  }
+  if (actualSha !== String(expectedSha || '').toLowerCase()) {
+    mismatchReasons.push(`SHA desplegado (${actualSha ?? 'null'}) != R3_EXPECTED_SHA (${expectedSha})`)
+  }
+  if (actualBranch !== expectedBranch) {
+    mismatchReasons.push(`rama desplegada (${actualBranch ?? 'null'}) != R3_EXPECTED_BRANCH (${expectedBranch})`)
+  }
+
+  return {
+    ok: mismatchReasons.length === 0,
+    status: res.status,
+    deploymentId: dep.id ?? null,
+    url: dep.url ? `https://${dep.url}` : null,
+    projectId: actualProjectId,
+    target: actualTarget,
+    readyState: actualReadyState,
+    sha: actualSha,
+    branch: actualBranch,
+    mismatchReasons,
+  }
+}
+
+/**
  * Execute dry-run or authorized Rollback OFF.
  */
 export async function runR3RollbackOff({
   env = process.env,
   argv = process.argv.slice(2),
   fetchImpl = fetch,
-  projectId = DEFAULT_PROJECT_ID,
-  teamSlug = DEFAULT_TEAM_ID,
-  gitBranch = DEFAULT_PREVIEW_BRANCH,
-  sha = DEFAULT_CANDIDATE_SHA,
+  projectId,
+  teamSlug,
+  gitBranch,
+  sha,
   reportPath = null,
 } = {}) {
   const apply = argv.includes('--apply')
   const envOnly = argv.includes('--env-only')
+
+  assertNoProductionConfig(env)
+
+  // Always resolve & validate authorized candidate (never allows stale/hardcoded SHA or main branch)
+  const candidate = resolveAuthorizedCandidate({
+    ...env,
+    ...(projectId !== undefined ? { R3_VERCEL_PROJECT_ID: projectId } : {}),
+    ...(teamSlug !== undefined ? { R3_VERCEL_TEAM_ID: teamSlug } : {}),
+    ...(gitBranch !== undefined ? { R3_EXPECTED_BRANCH: gitBranch } : {}),
+    ...(sha !== undefined ? { R3_EXPECTED_SHA: sha } : {}),
+  })
+  const effectiveProjectId = candidate.projectId
+  const effectiveTeamSlug = candidate.teamId
+  const effectiveBranch = candidate.expectedBranch
+  const effectiveSha = candidate.expectedSha
 
   if (apply) {
     requireRollbackExecutionAuth(env, argv)
@@ -160,7 +246,13 @@ export async function runR3RollbackOff({
     }
   }
 
-  const before = await inspectPreviewBranchFlags({ token, projectId, teamSlug, gitBranch, fetchImpl })
+  const before = await inspectPreviewBranchFlags({
+    token,
+    projectId: effectiveProjectId,
+    teamSlug: effectiveTeamSlug,
+    gitBranch: effectiveBranch,
+    fetchImpl,
+  })
   if (!before.ok) {
     return {
       status: 'BLOCKED',
@@ -176,7 +268,14 @@ export async function runR3RollbackOff({
       status: 'READY',
       ranAt: new Date().toISOString(),
       tokenSource,
-      scope: { projectId, teamSlug, target: ['preview'], gitBranch, sha, keys: [...ROLLBACK_FLAG_KEYS] },
+      scope: {
+        projectId: effectiveProjectId,
+        teamSlug: effectiveTeamSlug,
+        target: ['preview'],
+        gitBranch: effectiveBranch,
+        sha: effectiveSha,
+        keys: [...ROLLBACK_FLAG_KEYS],
+      },
       flagsBefore: before.flags,
       allOffNow: ROLLBACK_FLAG_KEYS.every((k) => !before.flags[k]?.isOn),
       mutated: false,
@@ -189,7 +288,7 @@ export async function runR3RollbackOff({
     return report
   }
 
-  // Apply: strictly patch ONLY AGENT_ORCHESTRATOR_R1 and AGENT_MEMORY_R3 on gitBranch=preview -> "0"
+  // Apply: strictly patch ONLY AGENT_ORCHESTRATOR_R1 and AGENT_MEMORY_R3 on effectiveBranch -> "0"
   const patched = []
   for (const key of ROLLBACK_FLAG_KEYS) {
     const info = before.flags[key]
@@ -197,13 +296,13 @@ export async function runR3RollbackOff({
       patched.push({ key, action: 'already_absent', ok: true })
       continue
     }
-    const qs = new URLSearchParams({ slug: teamSlug })
-    const res = await vercelRequest(fetchImpl, token, 'PATCH', `/v9/projects/${projectId}/env/${info.id}?${qs.toString()}`, {
+    const qs = new URLSearchParams({ slug: effectiveTeamSlug })
+    const res = await vercelRequest(fetchImpl, token, 'PATCH', `/v9/projects/${effectiveProjectId}/env/${info.id}?${qs.toString()}`, {
       key,
       value: '0',
       type: 'plain',
       target: ['preview'],
-      gitBranch,
+      gitBranch: effectiveBranch,
       comment: 'R3 Rollback OFF — qa:r3:rollback (fail-closed, === 1 only)',
     })
     patched.push({
@@ -219,22 +318,28 @@ export async function runR3RollbackOff({
   const patchFailed = patched.some((p) => !p.ok)
 
   // Verify flags are OFF via read-only GET
-  const after = await inspectPreviewBranchFlags({ token, projectId, teamSlug, gitBranch, fetchImpl })
+  const after = await inspectPreviewBranchFlags({
+    token,
+    projectId: effectiveProjectId,
+    teamSlug: effectiveTeamSlug,
+    gitBranch: effectiveBranch,
+    fetchImpl,
+  })
   const allOffAfter = after.ok && ROLLBACK_FLAG_KEYS.every((k) => !after.flags[k]?.isOn)
 
-  // Single redeploy OFF of authorized SHA ref=preview (unless --env-only or patch failed)
+  // Single redeploy OFF of authorized SHA on effectiveBranch (unless --env-only or patch failed)
   let redeploy = { requested: !envOnly, executed: false, ok: true }
   if (!envOnly && !patchFailed && allOffAfter) {
-    const qs = new URLSearchParams({ slug: teamSlug, forceNew: '1' })
+    const qs = new URLSearchParams({ slug: effectiveTeamSlug, forceNew: '1' })
     const depRes = await vercelRequest(fetchImpl, token, 'POST', `/v13/deployments?${qs.toString()}`, {
       name: 'tablero-operativo',
-      project: projectId,
+      project: effectiveProjectId,
       gitSource: {
         type: 'github',
         org: 'AlonsoPV',
         repo: 'tablero-operativo',
-        ref: gitBranch,
-        sha,
+        ref: effectiveBranch,
+        sha: effectiveSha,
       },
     })
     redeploy = {
@@ -246,6 +351,8 @@ export async function runR3RollbackOff({
       url: depRes.json?.url ? `https://${depRes.json.url}` : null,
       readyState: depRes.json?.readyState ?? null,
       target: depRes.json?.target ?? null,
+      sha: effectiveSha,
+      ref: effectiveBranch,
       error: depRes.ok ? null : depRes.json?.error?.message || `HTTP ${depRes.status}`,
     }
   }
@@ -256,7 +363,14 @@ export async function runR3RollbackOff({
     status: ok ? 'PASS' : 'FAIL',
     ranAt: new Date().toISOString(),
     tokenSource,
-    scope: { projectId, teamSlug, target: ['preview'], gitBranch, sha, keys: [...ROLLBACK_FLAG_KEYS] },
+    scope: {
+      projectId: effectiveProjectId,
+      teamSlug: effectiveTeamSlug,
+      target: ['preview'],
+      gitBranch: effectiveBranch,
+      sha: effectiveSha,
+      keys: [...ROLLBACK_FLAG_KEYS],
+    },
     patched,
     flagsAfter: after.flags,
     allOffAfter,

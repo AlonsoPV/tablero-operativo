@@ -10,22 +10,19 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
 import {
-  DEFAULT_CANDIDATE_SHA,
   DEFAULT_DEV_REF,
-  DEFAULT_PREVIEW_BRANCH,
-  DEFAULT_PROJECT_ID,
-  DEFAULT_TEAM_ID,
   R3GuardError,
   assertNoProductionConfig,
   buildPreviewRequest,
   loadProtectedEnvFile,
   redactSecrets,
+  resolveAuthorizedCandidate,
   resolveFixturePrefix,
   resolvePreviewConfig,
   resolveQaIdentities,
   resolveR3DevTarget,
 } from './r3DevGuard.mjs'
-import { inspectPreviewBranchFlags, resolveVercelToken } from './r3-rollback-off.mjs'
+import { inspectPreviewBranchFlags, inspectPreviewDeployment, resolveVercelToken } from './r3-rollback-off.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -265,26 +262,47 @@ export async function runR3Preflight({
     })
   }
 
-  // 8. Rollback OFF disponible + 9. Flags y deployment esperados (Vercel read-only)
+  // 8. Rollback OFF disponible + 9. Flags y deployment esperados (Vercel read-only + correspondencia real SHA/rama)
   const { token: vercelToken, source: tokenSource } = resolveVercelToken(env)
   if (vercelToken) secretsToRedact.push(vercelToken)
 
-  if (!vercelToken) {
+  let candidate = null
+  try {
+    candidate = resolveAuthorizedCandidate(env)
+  } catch (error) {
+    const code = error instanceof R3GuardError ? error.code : 'CANDIDATE_ERROR'
+    const reason = error instanceof Error ? error.message : String(error)
+    const isMissingOnly = code === 'EXPECTED_SHA_MISSING' || code === 'EXPECTED_BRANCH_MISSING'
+    setCheck('rollback_off_available', 'BLOCKED', {
+      tokenSource,
+      code,
+      reason,
+    })
+    setCheck('flags_and_deployment_expected', isMissingOnly ? 'BLOCKED' : 'FAIL', {
+      code,
+      reason,
+    })
+  }
+
+  if (candidate && !vercelToken) {
     setCheck('rollback_off_available', 'BLOCKED', {
       tokenSource,
       reason: 'Sin VERCEL_TOKEN ni sesión Vercel CLI para verificar/ejecutar rollback OFF',
     })
     setCheck('flags_and_deployment_expected', 'BLOCKED', {
-      expectedSha: previewConfig?.expectedSha || DEFAULT_CANDIDATE_SHA,
-      expectedBranch: previewConfig?.expectedBranch || DEFAULT_PREVIEW_BRANCH,
-      reason: 'Sin acceso read-only a Vercel API para verificar flags gitBranch=preview',
+      expectedSha: candidate.expectedSha,
+      expectedBranch: candidate.expectedBranch,
+      projectId: candidate.projectId,
+      teamId: candidate.teamId,
+      target: candidate.target,
+      reason: `Sin acceso read-only a Vercel API para verificar flags y deployment de ${candidate.expectedBranch}`,
     })
-  } else {
+  } else if (candidate && vercelToken) {
     const inspected = await inspectPreviewBranchFlags({
       token: vercelToken,
-      projectId: env.R3_VERCEL_PROJECT_ID || DEFAULT_PROJECT_ID,
-      teamSlug: env.R3_VERCEL_TEAM_ID || DEFAULT_TEAM_ID,
-      gitBranch: previewConfig?.expectedBranch || DEFAULT_PREVIEW_BRANCH,
+      projectId: candidate.projectId,
+      teamSlug: candidate.teamId,
+      gitBranch: candidate.expectedBranch,
       fetchImpl,
     })
 
@@ -295,28 +313,71 @@ export async function runR3Preflight({
         reason: `Vercel API rechazó consulta read-only (${inspected.error})`,
       })
       setCheck('flags_and_deployment_expected', 'BLOCKED', {
+        expectedSha: candidate.expectedSha,
+        expectedBranch: candidate.expectedBranch,
         reason: `No se pudieron inspeccionar flags (${inspected.error})`,
       })
     } else {
       setCheck('rollback_off_available', 'PASS', {
         tokenSource,
         rollbackScript: 'scripts/qa/r3-rollback-off.mjs',
-        scope: `gitBranch=${previewConfig?.expectedBranch || DEFAULT_PREVIEW_BRANCH}`,
+        projectId: candidate.projectId,
+        teamId: candidate.teamId,
+        target: candidate.target,
+        scope: `gitBranch=${candidate.expectedBranch}`,
+        expectedSha: candidate.expectedSha,
       })
 
       const expectedWindow = String(env.R3_EXPECTED_WINDOW || 'ON').toUpperCase()
       const r1On = Boolean(inspected.flags.AGENT_ORCHESTRATOR_R1?.isOn)
       const r3On = Boolean(inspected.flags.AGENT_MEMORY_R3?.isOn)
-      const matchesExpected = expectedWindow === 'ON' ? r1On && r3On : !r1On && !r3On
+      const flagsMatch =
+        expectedWindow === 'ON'
+          ? r1On && r3On
+          : expectedWindow === 'R1_ONLY'
+            ? r1On && !r3On
+            : expectedWindow === 'OFF'
+              ? !r1On && !r3On
+              : false
 
-      setCheck('flags_and_deployment_expected', matchesExpected ? 'PASS' : 'BLOCKED', {
+      const depCheck = previewConfig
+        ? await inspectPreviewDeployment({
+            token: vercelToken,
+            host: previewConfig.host,
+            teamSlug: candidate.teamId,
+            expectedProjectId: candidate.projectId,
+            expectedSha: candidate.expectedSha,
+            expectedBranch: candidate.expectedBranch,
+            fetchImpl,
+          })
+        : { ok: false, mismatchReasons: ['Sin previewConfig válido para verificar SHA real del deployment'] }
+
+      const allOk = flagsMatch && depCheck.ok
+      const reasons = []
+      if (!flagsMatch) {
+        reasons.push(
+          `Flags actuales (R1=${inspected.flags.AGENT_ORCHESTRATOR_R1?.value ?? 'unset'}, R3=${inspected.flags.AGENT_MEMORY_R3?.value ?? 'unset'}) no coinciden con ventana esperada ${expectedWindow}`,
+        )
+      }
+      if (!depCheck.ok) {
+        reasons.push(...(depCheck.mismatchReasons || ['Discrepancia en deployment real']))
+      }
+
+      setCheck('flags_and_deployment_expected', allOk ? 'PASS' : !depCheck.ok ? 'FAIL' : 'BLOCKED', {
         expectedWindow,
-        expectedSha: previewConfig?.expectedSha || DEFAULT_CANDIDATE_SHA,
+        expectedSha: candidate.expectedSha,
+        expectedBranch: candidate.expectedBranch,
+        projectId: candidate.projectId,
+        teamId: candidate.teamId,
+        target: candidate.target,
+        deploymentId: depCheck.deploymentId ?? null,
+        deploymentSha: depCheck.sha ?? null,
+        deploymentBranch: depCheck.branch ?? null,
+        deploymentReadyState: depCheck.readyState ?? null,
+        deploymentTarget: depCheck.target ?? null,
         AGENT_ORCHESTRATOR_R1: inspected.flags.AGENT_ORCHESTRATOR_R1?.value ?? 'unset',
         AGENT_MEMORY_R3: inspected.flags.AGENT_MEMORY_R3?.value ?? 'unset',
-        reason: matchesExpected
-          ? undefined
-          : `Flags actuales (R1=${inspected.flags.AGENT_ORCHESTRATOR_R1?.value ?? 'unset'}, R3=${inspected.flags.AGENT_MEMORY_R3?.value ?? 'unset'}) no coinciden con ventana esperada ${expectedWindow}`,
+        reason: reasons.length ? reasons.join('; ') : undefined,
       })
     }
   }

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  DEFAULT_CANDIDATE_SHA,
   DEFAULT_DEV_REF,
+  DEFAULT_PROJECT_ID,
+  DEFAULT_TEAM_ID,
   FORBIDDEN_PROD_HOSTS,
   FORBIDDEN_PROD_REFS,
   REQUIRED_INTEGRATED_AUTH,
@@ -13,6 +14,7 @@ import {
   redactSecrets,
   requireIntegratedExecutionAuth,
   requireRollbackExecutionAuth,
+  resolveAuthorizedCandidate,
   resolveFixturePrefix,
   resolvePreviewConfig,
   resolveQaIdentities,
@@ -23,6 +25,9 @@ import { runR3Preflight } from './r3-preflight.mjs'
 import { ROLLBACK_FLAG_KEYS, runR3RollbackOff } from './r3-rollback-off.mjs'
 import { executeR3IntegratedCli } from './run-r3-integrated.mjs'
 
+const TEST_CANDIDATE_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+const TEST_CANDIDATE_BRANCH = 'release/r1-r3-minimal'
+
 const baseEnv = (overrides = {}) => ({
   R3_ALLOWED_SUPABASE_REFS: DEFAULT_DEV_REF,
   R3_DEV_SUPABASE_URL: `https://${DEFAULT_DEV_REF}.supabase.co`,
@@ -30,6 +35,11 @@ const baseEnv = (overrides = {}) => ({
   R3_DEV_SUPABASE_SERVICE_ROLE_KEY: 'service-dev-key-secret-67890',
   R3_PREVIEW_URL: 'https://tablero-operativo-test-alonsopvs-projects.vercel.app',
   R3_PREVIEW_BYPASS_SECRET: 'bypass-secret-abcdef',
+  R3_EXPECTED_SHA: TEST_CANDIDATE_SHA,
+  R3_EXPECTED_BRANCH: TEST_CANDIDATE_BRANCH,
+  R3_VERCEL_PROJECT_ID: DEFAULT_PROJECT_ID,
+  R3_VERCEL_TEAM_ID: DEFAULT_TEAM_ID,
+  R3_EXPECTED_TARGET: 'preview',
   R3_QA_DIRECCION_EMAIL: 'qa-dir@example.invalid',
   R3_QA_DIRECCION_PASSWORD: 'DireccionPassword!2026',
   R3_QA_LIDER_EMAIL: 'qa-lider@example.invalid',
@@ -338,12 +348,28 @@ describe('runR3Preflight & executeR3IntegratedCli — zero writes when BLOCKED',
     const fetchMock = vi.fn(async (url, opts = {}) => {
       const s = String(url)
       if (s.includes('/auth/v1/health')) return new Response('ok', { status: 200 })
+      if (s.includes('api.vercel.com/v13/deployments/')) {
+        return new Response(
+          JSON.stringify({
+            id: 'dpl_test_ready',
+            url: 'tablero-operativo-test-alonsopvs-projects.vercel.app',
+            projectId: DEFAULT_PROJECT_ID,
+            target: null,
+            readyState: 'READY',
+            meta: {
+              githubCommitSha: TEST_CANDIDATE_SHA,
+              githubCommitRef: TEST_CANDIDATE_BRANCH,
+            },
+          }),
+          { status: 200 },
+        )
+      }
       if (s.includes('api.vercel.com')) {
         return new Response(
           JSON.stringify({
             envs: [
-              { id: 'id1', key: 'AGENT_ORCHESTRATOR_R1', value: '1', gitBranch: 'preview', target: ['preview'] },
-              { id: 'id2', key: 'AGENT_MEMORY_R3', value: '1', gitBranch: 'preview', target: ['preview'] },
+              { id: 'id1', key: 'AGENT_ORCHESTRATOR_R1', value: '1', gitBranch: TEST_CANDIDATE_BRANCH, target: ['preview'] },
+              { id: 'id2', key: 'AGENT_MEMORY_R3', value: '1', gitBranch: TEST_CANDIDATE_BRANCH, target: ['preview'] },
             ],
           }),
           { status: 200 },
@@ -384,6 +410,103 @@ describe('runR3Preflight & executeR3IntegratedCli — zero writes when BLOCKED',
     expect(report.status).toBe('READY')
     expect(report.blockers).toEqual([])
     expect(report.writesPerformed).toBe(0)
+    expect(report.checks.flags_and_deployment_expected.deploymentSha).toBe(TEST_CANDIDATE_SHA)
+    expect(report.checks.flags_and_deployment_expected.deploymentBranch).toBe(TEST_CANDIDATE_BRANCH)
+  })
+
+  it('rejects real deployment SHA or branch mismatch and supports R1_ONLY window', async () => {
+    const supaMock = () => ({
+      auth: {
+        signInWithPassword: async ({ email }) => ({
+          data: { session: { access_token: `tok-${email}` }, user: { id: `auth-${email}` } },
+          error: null,
+        }),
+      },
+      from: (table) => ({
+        select: () => ({
+          eq: (_c, val) => ({
+            maybeSingle: async () =>
+              table === 'usuarios'
+                ? { data: { id: `u-${val}`, rol: val.includes('dir') ? 'Direccion' : 'Lider', activo: true }, error: null }
+                : { data: null, error: null },
+          }),
+          then: (res) => res({ data: [], count: 0, error: null }),
+        }),
+      }),
+    })
+
+    const makeFetch = ({ depSha, depBranch, r1Val, r3Val, depTarget = null }) =>
+      vi.fn(async (url, opts = {}) => {
+        const s = String(url)
+        if (s.includes('/auth/v1/health')) return new Response('ok', { status: 200 })
+        if (s.includes('api.vercel.com/v13/deployments/')) {
+          return new Response(
+            JSON.stringify({
+              id: 'dpl_check',
+              url: 'tablero-operativo-test-alonsopvs-projects.vercel.app',
+              projectId: DEFAULT_PROJECT_ID,
+              target: depTarget,
+              readyState: 'READY',
+              meta: { githubCommitSha: depSha, githubCommitRef: depBranch },
+            }),
+            { status: 200 },
+          )
+        }
+        if (s.includes('api.vercel.com')) {
+          return new Response(
+            JSON.stringify({
+              envs: [
+                { id: 'id1', key: 'AGENT_ORCHESTRATOR_R1', value: r1Val, gitBranch: TEST_CANDIDATE_BRANCH, target: ['preview'] },
+                { id: 'id2', key: 'AGENT_MEMORY_R3', value: r3Val, gitBranch: TEST_CANDIDATE_BRANCH, target: ['preview'] },
+              ],
+            }),
+            { status: 200 },
+          )
+        }
+        if (opts.method === 'HEAD') {
+          return new Response('', { status: 302, headers: { location: 'https://vercel.com/sso-api?url=x' } })
+        }
+        return new Response('<html>ok</html>', { status: 200 })
+      })
+
+    const mismatch = await runR3Preflight({
+      env: baseEnv({ R3_EXPECTED_WINDOW: 'OFF' }),
+      fetchImpl: makeFetch({
+        depSha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        depBranch: TEST_CANDIDATE_BRANCH,
+        r1Val: '0',
+        r3Val: '0',
+      }),
+      createSupabaseClient: supaMock,
+    })
+    expect(mismatch.status).toBe('FAIL')
+    expect(mismatch.checks.flags_and_deployment_expected.status).toBe('FAIL')
+    expect(mismatch.checks.flags_and_deployment_expected.reason).toContain('SHA desplegado')
+
+    const r1Only = await runR3Preflight({
+      env: baseEnv({ R3_EXPECTED_WINDOW: 'R1_ONLY' }),
+      fetchImpl: makeFetch({
+        depSha: TEST_CANDIDATE_SHA,
+        depBranch: TEST_CANDIDATE_BRANCH,
+        r1Val: '1',
+        r3Val: '0',
+      }),
+      createSupabaseClient: supaMock,
+    })
+    expect(r1Only.status).toBe('READY')
+    expect(r1Only.checks.flags_and_deployment_expected.status).toBe('PASS')
+  })
+
+  it('rejects missing/short R3_EXPECTED_SHA, forbidden branches, and wrong project/team/target', () => {
+    expect(() => resolveAuthorizedCandidate(baseEnv({ R3_EXPECTED_SHA: '' }))).toThrow(/R3_EXPECTED_SHA/)
+    expect(() => resolveAuthorizedCandidate(baseEnv({ R3_EXPECTED_SHA: '455911d' }))).toThrow(/40 caracteres/)
+    expect(() => resolveAuthorizedCandidate(baseEnv({ R3_EXPECTED_BRANCH: '' }))).toThrow(/R3_EXPECTED_BRANCH/)
+    expect(() => resolveAuthorizedCandidate(baseEnv({ R3_EXPECTED_BRANCH: 'main' }))).toThrow(/prohibida/)
+    expect(() => resolveAuthorizedCandidate(baseEnv({ R3_VERCEL_PROJECT_ID: 'prj_other' }))).toThrow(/proyecto autorizado/)
+    expect(() => resolveAuthorizedCandidate(baseEnv({ R3_VERCEL_TEAM_ID: 'other-team' }))).toThrow(/team autorizado/)
+    expect(() => resolveAuthorizedCandidate(baseEnv({ R3_EXPECTED_TARGET: 'production' }))).toThrow(/prohibido/)
+    // Configurable SHA never bypasses execution authorization
+    expect(() => requireIntegratedExecutionAuth(baseEnv({ R3_EXPECTED_SHA: TEST_CANDIDATE_SHA }), ['--execute'])).toThrow(/AUTH-R3-INTEGRATED/)
   })
 
   it('executeR3IntegratedCli aborts without invoking suite if preflight is BLOCKED', async () => {
@@ -399,8 +522,8 @@ describe('runR3Preflight & executeR3IntegratedCli — zero writes when BLOCKED',
   })
 })
 
-describe('runR3RollbackOff — independent, scoped exclusively to gitBranch=preview R3 flags', () => {
-  it('supports read-only dry-run and authorized apply patching ONLY R1/R3 on preview branch', async () => {
+describe('runR3RollbackOff — independent, scoped exclusively to authorized preview branch & SHA', () => {
+  it('supports read-only dry-run and authorized apply patching ONLY R1/R3 on candidate preview branch', async () => {
     const calls = []
     let flagVal = '1'
     const fetchMock = vi.fn(async (url, opts = {}) => {
@@ -409,8 +532,8 @@ describe('runR3RollbackOff — independent, scoped exclusively to gitBranch=prev
         return new Response(
           JSON.stringify({
             envs: [
-              { id: 'env_r1', key: 'AGENT_ORCHESTRATOR_R1', value: flagVal, gitBranch: 'preview', target: ['preview'] },
-              { id: 'env_r3', key: 'AGENT_MEMORY_R3', value: flagVal, gitBranch: 'preview', target: ['preview'] },
+              { id: 'env_r1', key: 'AGENT_ORCHESTRATOR_R1', value: flagVal, gitBranch: TEST_CANDIDATE_BRANCH, target: ['preview'] },
+              { id: 'env_r3', key: 'AGENT_MEMORY_R3', value: flagVal, gitBranch: TEST_CANDIDATE_BRANCH, target: ['preview'] },
             ],
           }),
           { status: 200 },
@@ -431,6 +554,8 @@ describe('runR3RollbackOff — independent, scoped exclusively to gitBranch=prev
     const dry = await runR3RollbackOff({ env: baseEnv(), argv: [], fetchImpl: fetchMock })
     expect(dry.status).toBe('READY')
     expect(dry.mutated).toBe(false)
+    expect(dry.scope.sha).toBe(TEST_CANDIDATE_SHA)
+    expect(dry.scope.gitBranch).toBe(TEST_CANDIDATE_BRANCH)
     expect(calls.every((c) => c.method === 'GET')).toBe(true)
 
     calls.length = 0
@@ -443,9 +568,11 @@ describe('runR3RollbackOff — independent, scoped exclusively to gitBranch=prev
     expect(applied.allOffAfter).toBe(true)
     const patchCalls = calls.filter((c) => c.method === 'PATCH')
     expect(patchCalls.map((c) => c.body.key)).toEqual([...ROLLBACK_FLAG_KEYS])
-    expect(patchCalls.every((c) => c.body.value === '0' && c.body.gitBranch === 'preview' && c.body.target.join(',') === 'preview')).toBe(true)
+    expect(
+      patchCalls.every((c) => c.body.value === '0' && c.body.gitBranch === TEST_CANDIDATE_BRANCH && c.body.target.join(',') === 'preview'),
+    ).toBe(true)
     const deployCall = calls.find((c) => c.method === 'POST')
-    expect(deployCall.body.gitSource.sha).toBe(DEFAULT_CANDIDATE_SHA)
-    expect(deployCall.body.gitSource.ref).toBe('preview')
+    expect(deployCall.body.gitSource.sha).toBe(TEST_CANDIDATE_SHA)
+    expect(deployCall.body.gitSource.ref).toBe(TEST_CANDIDATE_BRANCH)
   })
 })

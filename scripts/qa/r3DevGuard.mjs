@@ -17,8 +17,9 @@ import { basename, resolve } from 'node:path'
 export const DEFAULT_DEV_REF = 'tgiuevzlyptzlfgxsfhj'
 export const DEFAULT_PROJECT_ID = 'prj_k71rhUH9uTFEEPWofF3NyyhcKEDn'
 export const DEFAULT_TEAM_ID = 'alonsopvs-projects'
-export const DEFAULT_CANDIDATE_SHA = 'fe8ddf4765359de65ed708996a2e7d486481145b'
-export const DEFAULT_PREVIEW_BRANCH = 'preview'
+export const ALLOWED_PREVIEW_TARGET = 'preview'
+export const FULL_SHA_RE = /^[0-9a-f]{40}$/
+export const FORBIDDEN_BRANCHES = Object.freeze(['main', 'master', 'production', 'prod'])
 
 export const FORBIDDEN_PROD_REFS = Object.freeze(['xhpasmjzuwifmjhrsumb'])
 export const FORBIDDEN_PROD_HOSTS = Object.freeze([
@@ -29,6 +30,75 @@ export const FORBIDDEN_PROD_HOSTS = Object.freeze([
 
 export const REQUIRED_INTEGRATED_AUTH = 'AUTH-R3-INTEGRATED'
 export const REQUIRED_ROLLBACK_AUTH = 'AUTH-R3-ROLLBACK-OFF'
+
+/**
+ * Resolve and strictly validate the externally configured authorized candidate
+ * (SHA, gitBranch, Vercel project/team, and preview-only target).
+ * Never falls back to a hardcoded SHA to prevent circularity or stale-SHA runs.
+ */
+export function resolveAuthorizedCandidate(env = process.env) {
+  assertNoProductionConfig(env)
+
+  const expectedSha = String(env.R3_EXPECTED_SHA || '').trim().toLowerCase()
+  if (!expectedSha) {
+    throw new R3GuardError(
+      'EXPECTED_SHA_MISSING',
+      'Falta R3_EXPECTED_SHA (SHA completo e inmutable de 40 caracteres hex del candidato autorizado)',
+    )
+  }
+  if (!FULL_SHA_RE.test(expectedSha)) {
+    throw new R3GuardError(
+      'EXPECTED_SHA_INVALID',
+      `R3_EXPECTED_SHA debe ser un SHA Git completo de 40 caracteres hexadecimales (recibido: ${expectedSha.slice(0, 16)})`,
+    )
+  }
+
+  const expectedBranch = String(env.R3_EXPECTED_BRANCH || '').trim()
+  if (!expectedBranch) {
+    throw new R3GuardError(
+      'EXPECTED_BRANCH_MISSING',
+      'Falta R3_EXPECTED_BRANCH (rama Preview autorizada, ej. release/r1-r3-minimal)',
+    )
+  }
+  if (FORBIDDEN_BRANCHES.includes(expectedBranch.toLowerCase()) || /\s/.test(expectedBranch)) {
+    throw new R3GuardError(
+      'FORBIDDEN_BRANCH',
+      `R3_EXPECTED_BRANCH prohibida o inválida para Preview QA: ${expectedBranch}`,
+    )
+  }
+
+  const projectId = String(env.R3_VERCEL_PROJECT_ID || DEFAULT_PROJECT_ID).trim()
+  if (projectId !== DEFAULT_PROJECT_ID) {
+    throw new R3GuardError(
+      'PROJECT_ID_MISMATCH',
+      `R3_VERCEL_PROJECT_ID (${projectId}) no coincide con proyecto autorizado (${DEFAULT_PROJECT_ID})`,
+    )
+  }
+
+  const teamId = String(env.R3_VERCEL_TEAM_ID || DEFAULT_TEAM_ID).trim()
+  if (teamId !== DEFAULT_TEAM_ID) {
+    throw new R3GuardError(
+      'TEAM_ID_MISMATCH',
+      `R3_VERCEL_TEAM_ID (${teamId}) no coincide con team autorizado (${DEFAULT_TEAM_ID})`,
+    )
+  }
+
+  const target = String(env.R3_EXPECTED_TARGET || ALLOWED_PREVIEW_TARGET).trim().toLowerCase()
+  if (target !== ALLOWED_PREVIEW_TARGET) {
+    throw new R3GuardError(
+      'TARGET_NOT_PREVIEW',
+      `R3_EXPECTED_TARGET=${target} prohibido; únicamente target="${ALLOWED_PREVIEW_TARGET}" está permitido`,
+    )
+  }
+
+  return {
+    expectedSha,
+    expectedBranch,
+    projectId,
+    teamId,
+    target,
+  }
+}
 
 export class R3GuardError extends Error {
   constructor(code, message) {
@@ -230,6 +300,8 @@ export function resolvePreviewConfig(env = process.env, { allowLoopback = false 
     throw new R3GuardError('STORAGE_STATE_MISSING', `R3_PREVIEW_STORAGE_STATE no existe: ${storageStatePath}`)
   }
 
+  const candidate = resolveAuthorizedCandidate(env)
+
   return {
     baseUrl: `${parsed.origin}`,
     host,
@@ -237,8 +309,11 @@ export function resolvePreviewConfig(env = process.env, { allowLoopback = false 
     bypassSecret,
     shareToken,
     storageStatePath: storageStatePath ? resolve(storageStatePath) : null,
-    expectedSha: String(env.R3_EXPECTED_SHA || DEFAULT_CANDIDATE_SHA).trim(),
-    expectedBranch: String(env.R3_EXPECTED_BRANCH || DEFAULT_PREVIEW_BRANCH).trim(),
+    expectedSha: candidate.expectedSha,
+    expectedBranch: candidate.expectedBranch,
+    projectId: candidate.projectId,
+    teamId: candidate.teamId,
+    target: candidate.target,
   }
 }
 
