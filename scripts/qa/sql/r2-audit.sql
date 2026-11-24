@@ -4,7 +4,7 @@ with agent_fn as (
   select p.oid, p.proname, p.prosecdef, p.proconfig, p.proowner, pg_get_userbyid(p.proowner) as owner
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and p.proname in ('agent_execution_allowed', 'agent_execution_environment',
-    'agent_claim_pending_op', 'agent_apply_action_status', 'agent_action_block_history')
+    'agent_claim_pending_op', 'agent_edit_pending_op', 'agent_apply_action_status', 'agent_action_block_history')
 ),
 writer_fn as (
   select p.oid, p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as name, p.prosecdef
@@ -24,7 +24,7 @@ select 'rpc' as section, f.proname as name,
     'authenticated=' || has_function_privilege('authenticated', f.oid, 'execute')) as detail
 from agent_fn f
 union all
-select 'rpc', 'count', (select count(*) from agent_fn) = 5, (select count(*)::text from agent_fn)
+select 'rpc', 'count', (select count(*) from agent_fn) = 6, (select count(*)::text from agent_fn)
 union all
 select 'rpc_qa', p.proname,
   p.prosecdef and exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%')

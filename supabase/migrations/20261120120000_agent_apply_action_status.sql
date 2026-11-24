@@ -129,6 +129,152 @@ $$;
 revoke all on function public.agent_claim_pending_op(uuid, jsonb) from public, anon;
 grant execute on function public.agent_claim_pending_op(uuid, jsonb) to authenticated;
 
+-- Edición controlada de propuestas R2 pendientes (E8): actualiza payload/preview/CAS/request_key
+-- mediante RPC security definer, conservando el bloqueo anti-tampering para UPDATE directo de clientes.
+create or replace function public.assistant_pending_ops_guard_update()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_allow_edit boolean := false;
+  v_allow_agent_edit boolean := false;
+  v_workspace boolean := false;
+  v_agent_editable boolean := false;
+begin
+  if new.usuario_id is distinct from old.usuario_id
+     or new.tool is distinct from old.tool
+     or new.created_at is distinct from old.created_at
+  then
+    raise exception 'No se pueden modificar usuario/tool de una operacion pendiente.'
+      using errcode = '42501';
+  end if;
+
+  v_workspace := old.tool in (
+    'gmail_prepare_send',
+    'gmail_prepare_reply',
+    'calendar_prepare_event',
+    'calendar_prepare_update',
+    'calendar_prepare_cancel',
+    'whatsapp_prepare_send'
+  );
+  v_agent_editable := old.tool in (
+    'agent_create_action',
+    'agent_update_fields',
+    'agent_add_comment'
+  );
+
+  begin
+    v_allow_edit := current_setting('app.allow_pending_payload_edit', true) = 'on';
+    v_allow_agent_edit := current_setting('app.allow_agent_pending_edit', true) = 'on';
+  exception when others then
+    v_allow_edit := false;
+    v_allow_agent_edit := false;
+  end;
+
+  if current_user in ('service_role', 'postgres', 'supabase_admin')
+     and old.status = 'pending'
+     and (v_workspace or (old.tool = 'notify_action_email' and new.status = 'pending'))
+  then
+    return new;
+  end if;
+
+  if v_allow_edit
+     and v_workspace
+     and old.status = 'pending'
+     and new.status = 'pending'
+  then
+    if new.resource_id is distinct from old.resource_id
+       or new.expected_updated_at is distinct from old.expected_updated_at
+       or new.expires_at is distinct from old.expires_at
+    then
+      raise exception 'No se pueden modificar resource/expiry al editar el borrador.'
+        using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
+  if v_allow_agent_edit
+     and v_agent_editable
+     and old.status = 'pending'
+     and new.status = 'pending'
+  then
+    if new.resource_id is distinct from old.resource_id
+       or new.expires_at is distinct from old.expires_at
+    then
+      raise exception 'No se pueden modificar resource/expiry al editar la propuesta R2.'
+        using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
+  if new.resource_id is distinct from old.resource_id
+     or new.expected_updated_at is distinct from old.expected_updated_at
+     or new.payload is distinct from old.payload
+     or new.preview is distinct from old.preview
+     or new.expires_at is distinct from old.expires_at
+  then
+    raise exception 'No se pueden modificar payload/tool/preview de una operacion pendiente.'
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+create or replace function public.agent_edit_pending_op(
+  p_op_id uuid,
+  p_payload jsonb,
+  p_preview jsonb,
+  p_expected_updated_at timestamptz,
+  p_request_key text
+)
+returns timestamptz
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_me uuid := public.get_my_usuario_id();
+  v_op public.assistant_pending_ops%rowtype;
+begin
+  if not public.agent_execution_allowed() then
+    raise exception 'execution_disabled: la ejecucion del agente no esta habilitada en este entorno' using errcode = '42501';
+  end if;
+  if v_me is null or not exists (select 1 from public.usuarios where id = v_me and activo) then
+    raise exception 'not_authorized: usuario inactivo o sin sesion' using errcode = '42501';
+  end if;
+  select * into v_op from public.assistant_pending_ops where id = p_op_id for update;
+  if not found or v_op.usuario_id is distinct from v_me then
+    raise exception 'not_authorized: la operacion no pertenece al usuario' using errcode = '42501';
+  end if;
+  if v_op.status <> 'pending' then
+    raise exception 'invalid_state: la operacion ya no se puede editar' using errcode = '55000';
+  end if;
+  if v_op.expires_at <= now() then
+    raise exception 'expired: la autorizacion expiro' using errcode = '55000';
+  end if;
+  if v_op.tool not in ('agent_create_action', 'agent_update_fields', 'agent_add_comment') then
+    raise exception 'invalid_operation: este tipo de operacion no admite edicion' using errcode = '22023';
+  end if;
+
+  perform set_config('app.allow_agent_pending_edit', 'on', true);
+
+  update public.assistant_pending_ops
+  set payload = p_payload,
+      preview = p_preview,
+      expected_updated_at = p_expected_updated_at,
+      request_key = p_request_key
+  where id = p_op_id and usuario_id = v_me and status = 'pending';
+
+  return v_op.expires_at;
+end;
+$$;
+
+revoke all on function public.agent_edit_pending_op(uuid, jsonb, jsonb, timestamptz, text) from public, anon;
+grant execute on function public.agent_edit_pending_op(uuid, jsonb, jsonb, timestamptz, text) to authenticated;
+
 create table if not exists public.agent_action_receipts (
   pending_op_id uuid primary key references public.assistant_pending_ops(id) on delete cascade,
   usuario_id uuid not null references public.usuarios(id) on delete cascade,
