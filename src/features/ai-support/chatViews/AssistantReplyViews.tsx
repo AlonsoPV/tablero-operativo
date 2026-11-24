@@ -368,11 +368,39 @@ export function ErrorStateView({ view }: { view: AssistantErrorView }) {
 }
 
 function BriefView({ view, compact }: { view: AssistantBriefView; compact?: boolean }) {
+  const segments = view.summary
+    .split(/\n+|(?=\bRiesgo\s*—\s*)/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+
   return (
     <div className="space-y-2">
-      <p className={cn('text-foreground/90', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
-        {renderInlineMarkdown(view.summary)}
-      </p>
+      {segments.length > 1 ? (
+        <ul className="space-y-1.5">
+          {segments.slice(0, 6).map((segment, idx) => {
+            const isRisk = /^Riesgo\s*—\s*/i.test(segment)
+            const body = segment.replace(/^Riesgo\s*—\s*/i, '').trim()
+            return (
+              <li
+                key={`${idx}-${body.slice(0, 24)}`}
+                className={cn(
+                  'rounded-xl border px-3 py-2 text-foreground/90',
+                  isRisk
+                    ? 'border-amber-500/25 bg-amber-500/[0.05]'
+                    : 'border-border/50 bg-muted/25',
+                  compact ? 'text-[12px] leading-5' : 'text-[13px] leading-5'
+                )}
+              >
+                {renderInlineMarkdown(body)}
+              </li>
+            )
+          })}
+        </ul>
+      ) : (
+        <p className={cn('text-foreground/90', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
+          {renderInlineMarkdown(view.summary)}
+        </p>
+      )}
       {view.scope ? <p className="text-[11px] text-muted-foreground">{view.scope}</p> : null}
       {view.metrics?.length ? <MetricSummary metrics={view.metrics} compact={compact} /> : null}
     </div>
