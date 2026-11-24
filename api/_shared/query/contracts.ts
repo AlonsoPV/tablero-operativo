@@ -83,6 +83,15 @@ export type KeyResultItem = {
   measurable: boolean
 }
 
+export type OkrPace =
+  | 'sin_datos'
+  | 'programado'
+  | 'archivado'
+  | 'finalizado'
+  | 'en_ritmo'
+  | 'bajo_ritmo'
+  | 'sin_periodo'
+
 export type OkrItem = {
   id: string
   name: string
@@ -90,6 +99,10 @@ export type OkrItem = {
   withoutInitiatives: boolean
   insufficientKrs: number
   keyResults: KeyResultItem[]
+  startDate?: string | null
+  endDate?: string | null
+  /** Ritmo vs periodo transcurrido; null si la fuente no lo resolvió. */
+  pace?: OkrPace | null
 }
 
 export type QueryError = {

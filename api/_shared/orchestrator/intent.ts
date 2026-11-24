@@ -145,7 +145,11 @@ export function classifyAgentIntent(
     return { kind: 'executive_commitments', filter }
   }
 
-  if (/\b(avances estrategicos|avance estrategico|revisar avances estrategicos|resultados de los okrs?)\b/.test(text)) {
+  if (
+    /\b(avances estrategicos|avance estrategico|revisar avances estrategicos|resultados de los okrs?|objetivos estrategicos requieren atencion|objetivos estrategicos|que objetivos requieren atencion)\b/.test(
+      text
+    )
+  ) {
     return { kind: 'query_okrs', period: /\b(trimestre|trimestral|q[1-4])\b/.test(text) ? 'current_quarter' : 'all_active' }
   }
 

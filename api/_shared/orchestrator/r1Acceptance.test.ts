@@ -103,7 +103,7 @@ describe('R1 · escenarios conversacionales', () => {
     expect(r.intent).toBe('analyze_risk')
     expect(r.response.blocks.data).toContain('Acciones vencidas (acciones del tablero autorizado): 3.')
     expect(r.response.blocks.data).toContain('Acciones bloqueadas: 1.')
-    expect(r.response.blocks.data).toContain('Objetivos con avance menor a 40%: 1 de 2.')
+    expect(r.response.blocks.data).toContain('Objetivos bajo ritmo del periodo: 1 de 2.')
     expect(r.response.blocks.data.join(' ')).not.toMatch(/inferencia/i)
     expect(r.response.blocks.interpretation[0]).toMatch(/^Inferencia, no dato del sistema/)
     expect(r.response.blocks.recommendation[0]).toContain('bloqueadas')
