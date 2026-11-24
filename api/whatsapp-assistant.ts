@@ -25,8 +25,9 @@ import { composeSystemPrompt, sanitizeMessages } from '../src/lib/assistantPromp
 import type { CopilotProposal } from '../src/features/ai-support/copilot/types.js'
 import { COPILOT_FUNCTION_DECLARATIONS, isCopilotReadTool } from '../src/features/ai-support/copilot/catalog.js'
 import { proposalFromPendingRow } from './_shared/assistantGoogleTools.js'
-import { isAgentOrchestratorEnabled, runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
+import { runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
 import {
+  isWhatsAppR2ButtonsAllowedForUser,
   isWhatsAppVoiceNotesAllowedForUser,
   shouldUseWhatsAppOrchestrator,
 } from './_shared/whatsappPilotGate.js'
@@ -439,9 +440,15 @@ export default defineApiHandler(async (req, res) => {
     authUserId: String(usuario.user_id),
     rol: typeof usuario.rol === 'string' ? usuario.rol : null,
   }
+  const pilotIdentity = {
+    usuarioId,
+    waId,
+    active: usuario.activo === true,
+    aiAuthorized: allowed === true,
+  }
 
   if (action === 'voice_note') {
-    if (!isWhatsAppVoiceNotesAllowedForUser({ usuarioId, waId })) {
+    if (!isWhatsAppVoiceNotesAllowedForUser(pilotIdentity)) {
       return res.status(200).json({
         text: 'Las notas de voz por WhatsApp aún no están habilitadas para tu cuenta. Escríbeme tu consulta en texto.',
         transcript: null,
@@ -487,7 +494,7 @@ export default defineApiHandler(async (req, res) => {
           })),
         },
         runAssistant: async ({ transcript }) => {
-          if (shouldUseWhatsAppOrchestrator({ usuarioId, waId }) || isAgentOrchestratorEnabled()) {
+          if (shouldUseWhatsAppOrchestrator(pilotIdentity)) {
             const turn = await runChannelTurn({
               identity: {
                 supabase,
@@ -543,6 +550,13 @@ export default defineApiHandler(async (req, res) => {
       audioDelivery: voiceResult.ok ? voiceResult.audioDelivery : null,
       audioRetained: voiceResult.audioRetained,
       interactiveButtons: voiceInteractiveButtons,
+      proposals: [],
+    })
+  }
+
+  if (buttonId && /^(?:r2_confirm|r2_edit|r2_cancel):/i.test(buttonId) && !isWhatsAppR2ButtonsAllowedForUser(pilotIdentity)) {
+    return res.status(200).json({
+      text: 'Esta función aún no está habilitada para tu cuenta.',
       proposals: [],
     })
   }
@@ -731,7 +745,7 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Falta el mensaje.' })
     }
 
-    if (shouldUseWhatsAppOrchestrator({ usuarioId, waId })) {
+    if (shouldUseWhatsAppOrchestrator(pilotIdentity)) {
       const turn = await runChannelTurn({
         identity: {
           supabase,
