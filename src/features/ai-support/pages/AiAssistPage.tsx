@@ -1164,7 +1164,13 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         !looksLikeCommsPrepare(trimmed) &&
         (looksLikeDraftCorrection(trimmed) || writeIntent === 'create')
     )
-    const intent = isCorrection ? 'create' : resolveWriteIntent(trimmed, writeIntent)
+    const useUnifiedR2Orchestrator =
+      turnChannel === 'voice' || (__AGENT_ORCHESTRATOR_R1__ === true && writeIntent !== 'create')
+    const intent = useUnifiedR2Orchestrator
+      ? 'consult'
+      : isCorrection
+        ? 'create'
+        : resolveWriteIntent(trimmed, writeIntent)
 
     try {
       if (intent === 'create') {
