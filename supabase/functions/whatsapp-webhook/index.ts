@@ -634,6 +634,7 @@ async function graphSendMessage(supabase, body: Record<string, unknown>) {
   await context?.mark('provider_request')
   if (context) context.uncertain = true
   const url = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`
+  const providerStartedAt = performance.now()
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -661,6 +662,8 @@ async function graphSendMessage(supabase, body: Record<string, unknown>) {
   whatsappTrace('WHATSAPP_REPLY_SENT', {
     ...workerTrace(context),
     outbound_meta_id: extractMessageId(json),
+    provider_duration_ms: Math.round(performance.now() - providerStartedAt),
+    accepted_at: new Date().toISOString(),
   })
   return { ok: response.ok, status: response.status, json, raw }
 }
@@ -901,10 +904,20 @@ async function upsertThreadMessage(
   if (metaId) {
     const { data: existing } = await supabase
       .from('whatsapp_messages')
-      .select('id')
+      .select('id,payload')
       .eq('meta_message_id', metaId)
       .maybeSingle()
-    if (existing?.id) return existing.id as string
+    if (existing?.id) {
+      const incomingPayload = row.payload as Record<string, unknown> | undefined
+      if (row.direction === 'inbound' && incomingPayload?.flow) {
+        const { error } = await supabase
+          .from('whatsapp_messages')
+          .update({ payload: { ...((existing.payload as Record<string, unknown>) ?? {}), ...incomingPayload } })
+          .eq('id', existing.id)
+        if (error) throw error
+      }
+      return existing.id as string
+    }
   }
   const { data, error } = await supabase
     .from('whatsapp_messages')
@@ -921,8 +934,7 @@ async function upsertThreadMessage(
         .maybeSingle()
       return (again?.id as string | undefined) ?? null
     }
-    console.error('whatsapp_messages insert failed', error)
-    return null
+    throw error
   }
   return (data?.id as string | undefined) ?? null
 }
@@ -1049,6 +1061,12 @@ async function applyMetaStatus(
         .from('whatsapp_messages')
         .update(patch)
         .eq('id', current.id)
+      whatsappTrace('WHATSAPP_DELIVERY_UPDATED', {
+        job_id: (current.payload as Record<string, unknown> | null)?.correlation_id,
+        outbound_meta_id: metaId,
+        status,
+        provider_event_at: ts,
+      })
     }
   }
 
@@ -1452,11 +1470,17 @@ async function replyAi(
         request: graphBody,
         response: result.json,
         source: 'webhook_ai_reply',
+        correlation_id: workerContexts.get(supabase)?.id,
         flow: 'agent',
       },
     })
   } catch (error) {
-    console.error('whatsapp ai reply failed', error)
+    whatsappTrace('WHATSAPP_PROCESSING_FAILED', {
+      ...workerTrace(workerContexts.get(supabase)),
+      stage: 'ai_reply',
+      code: 'ai_reply_failed',
+    })
+    throw error
   }
 }
 
@@ -2437,6 +2461,18 @@ async function processWhatsAppPayload(payload, supabase) {
           whatsappTrace('WHATSAPP_USER_RESOLVED', {
             ...workerTrace(context),
             linked: Boolean(identity?.usuario_id),
+          })
+          await upsertThreadMessage(supabase, {
+            wa_id: waId,
+            usuario_id: identity?.usuario_id ?? null,
+            direction: 'inbound',
+            source: 'contact',
+            message_kind: message.type ?? 'unknown',
+            body_text: inboundPreview(message),
+            meta_message_id: message.id ?? null,
+            delivery_status: 'delivered',
+            delivered_at: new Date().toISOString(),
+            payload: { message, value, source: 'webhook_inbound', correlation_id: context?.id },
           })
           const { error: inboundError } = await supabase
             .from('external_inbound_messages')
@@ -3756,6 +3792,8 @@ async function runInboundWorker(req) {
     }
     const job = data?.[0]
     if (!job) break
+    const claimedAt = new Date()
+    const processingStartedAt = performance.now()
     const client = checkedWorkerClient(base, job)
     let ok = false,
       code = null
@@ -3767,6 +3805,10 @@ async function runInboundWorker(req) {
           stage: 'claimed',
           attempt: job.attempts,
           kind: job.kind,
+          claimed_at: claimedAt.toISOString(),
+          queue_ms: job.created_at
+            ? Math.max(0, claimedAt.getTime() - Date.parse(job.created_at))
+            : null,
         })
       )
       await processWhatsAppPayload(job.payload, client)
@@ -3818,6 +3860,7 @@ async function runInboundWorker(req) {
         event: 'whatsapp_processing',
         correlation_id: job.id,
         stage: ok ? 'completed' : 'attention_required',
+        processing_ms: Math.round(performance.now() - processingStartedAt),
       })
     )
   }

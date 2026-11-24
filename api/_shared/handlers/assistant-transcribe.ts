@@ -10,32 +10,15 @@ import {
 } from '../http.js'
 import { checkAssistantRateLimit, requireAssistantAuth } from '../assistantAuth.js'
 import { enableSystemCaCertificates } from '../enableSystemCa.js'
-import { geminiModelCandidates, isGeminiCapacityStatus } from '../geminiModel.js'
+import {
+  DEFAULT_TRANSCRIBE_MODEL,
+  transcribeAudioBase64WithGemini,
+  validateAudioPayload,
+} from '../audioTranscription.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from '../tlsError.js'
 
-const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
-const DEFAULT_MODEL = 'gemini-2.5-flash'
-const MAX_AUDIO_CHARS = 6_000_000
 const RATE_LIMIT = 25
 const RATE_WINDOW_MS = 60_000
-const ALLOWED_MIME = /^(audio\/(webm|mp4|mpeg|mp3|ogg|wav|x-wav|flac)|audio\/webm;codecs=opus|audio\/ogg;codecs=opus|audio\/mp4;codecs=mp4a\.40\.2)/i
-
-function cleanTranscript(text: string) {
-  const cleaned = text
-    .replace(/^["'`]+|["'`]+$/g, '')
-    .replace(/^transcripci[oó]n:\s*/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (
-    !cleaned ||
-    /^(no se (entiende|escucha|detecta|distingue).*(nada|audio|voz)?|silencio|(vac[ií]o)|n\/a|none)$/i.test(
-      cleaned
-    )
-  ) {
-    return ''
-  }
-  return cleaned
-}
 
 export default defineApiHandler(async (req, res) => {
   enableSystemCaCertificates()
@@ -72,79 +55,31 @@ export default defineApiHandler(async (req, res) => {
     const payload = body as { audioBase64?: unknown; mimeType?: unknown }
     const audioBase64 = typeof payload.audioBase64 === 'string' ? payload.audioBase64.trim() : ''
     const mimeType = typeof payload.mimeType === 'string' ? payload.mimeType.trim() : 'audio/webm'
-    if (!audioBase64 || audioBase64.length < 80) {
-      return res.status(400).json({ error: 'No llego audio para transcribir.' })
-    }
-    if (audioBase64.length > MAX_AUDIO_CHARS) {
-      return res.status(413).json({ error: 'El dictado es demasiado largo. Intenta en partes mas cortas.' })
-    }
-    if (!ALLOWED_MIME.test(mimeType.split(';')[0] ?? mimeType)) {
-      return res.status(400).json({ error: 'Formato de audio no soportado.' })
-    }
-
-    const candidates = geminiModelCandidates(
-      readStringEnv('GEMINI_TRANSCRIBE_MODEL', readStringEnv('GEMINI_MODEL', DEFAULT_MODEL)),
-    )
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), readNumberEnv('GEMINI_TIMEOUT_MS', 35000))
-    const geminiBody = {
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { inlineData: { mimeType: mimeType.split(';')[0] || 'audio/webm', data: audioBase64 } },
-            {
-              text: 'Transcribe este audio en espanol. Devuelve solo las palabras dichas, sin comillas ni comentarios. Si no hay habla, responde exactamente nada (cadena vacia).',
-            },
-          ],
-        },
-      ],
-      generationConfig: {
-        maxOutputTokens: 800,
-        temperature: 0,
-      },
+    const validation = validateAudioPayload({
+      mimeType,
+      base64Length: audioBase64.length,
+    })
+    if (!validation.ok) {
+      const status = validation.code === 'audio_too_large' ? 413 : 400
+      return res.status(status).json({ error: validation.message })
     }
 
-    let response: Response | undefined
-    try {
-      for (let i = 0; i < candidates.length; i++) {
-        const model = candidates[i]!
-        const url = `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
-        response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-          body: JSON.stringify(geminiBody),
-        })
-        if (response.ok) {
-          if (i > 0) console.warn('assistant-transcribe Gemini fallback model', { model })
-          break
-        }
-        const errorText = await response.text()
-        console.error('assistant-transcribe Gemini', model, response.status, errorText.slice(0, 400))
-        if (!isGeminiCapacityStatus(response.status) || i === candidates.length - 1) {
-          return res.status(502).json({ error: 'No se pudo transcribir el dictado.' })
-        }
-      }
-    } finally {
-      clearTimeout(timeout)
+    const result = await transcribeAudioBase64WithGemini({
+      audioBase64,
+      mimeType: validation.mimeType,
+      apiKey,
+      preferredModel: readStringEnv(
+        'GEMINI_TRANSCRIBE_MODEL',
+        readStringEnv('GEMINI_MODEL', DEFAULT_TRANSCRIBE_MODEL)
+      ),
+      timeoutMs: readNumberEnv('GEMINI_TIMEOUT_MS', 35000),
+    })
+
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.message })
     }
 
-    if (!response?.ok) {
-      return res.status(502).json({ error: 'No se pudo transcribir el dictado.' })
-    }
-
-    const data = (await response.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
-    }
-    const transcript = cleanTranscript(
-      data.candidates?.[0]?.content?.parts
-        ?.map((part) => part.text)
-        .filter(Boolean)
-        .join(' ') ?? ''
-    )
-
-    return res.status(200).json({ transcript })
+    return res.status(200).json({ transcript: result.transcript })
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       return res.status(504).json({ error: 'La transcripcion tardo demasiado.' })
