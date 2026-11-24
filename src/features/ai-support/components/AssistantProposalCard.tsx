@@ -20,6 +20,7 @@ import { sanitizeRecipientFacingText } from '@/features/ai-support/copilot/pendi
 import {
   actionLifecycleTone,
   actionTypeLabel,
+  proposalExecutionBadge,
   toActionCardView,
   type ActionLifecycleStatus,
 } from '@/features/ai-support/copilot/actionLifecycle'
@@ -29,6 +30,8 @@ import {
   editAssistantOp,
   searchWhatsappRecipients,
 } from '@/features/ai-support/services/assistantOpsClient'
+import { friendlyAssistantError } from '@/features/ai-support/assistantErrors'
+import { toneSoftClass } from '@/features/ai-support/components/ui/tones'
 
 type ProposalStatus = 'pending' | 'confirmed' | 'cancelled' | 'error'
 
@@ -83,8 +86,18 @@ export function AssistantProposalCard({
     Boolean(proposal.workspace?.needsInfo) ||
     Boolean(proposal.workspace?.incomplete) ||
     (view.kind === 'email' && !(proposal.workspace?.to && proposal.workspace.to.length > 0))
+  const simulated = proposal.simulated === true
+  const executionBadge = proposalExecutionBadge(view.status, simulated)
   const approveLabel =
-    dailySummary ? 'Aprobar cambio' : view.kind === 'board' ? 'Aprobar y ejecutar' : needsInfo ? 'Completar informacion' : 'Aprobar y enviar'
+    dailySummary
+      ? 'Aprobar cambio'
+      : simulated && view.kind === 'board'
+        ? 'Aprobar (simulación)'
+        : view.kind === 'board'
+          ? 'Aprobar y ejecutar'
+          : needsInfo
+            ? 'Completar informacion'
+            : 'Aprobar y enviar'
 
   const confirm = async () => {
     setBusy('confirm')
@@ -98,20 +111,22 @@ export function AssistantProposalCard({
       setResultHref(href)
       onResolved?.('confirmed', href)
       toast.success(
-        whatsappWrite
-          ? 'WhatsApp aceptado por el proveedor.'
-          : boardNotifyEmail
-            ? 'Correo aceptado por el proveedor.'
-            : googleWrite
-              ? 'Listo en Google Workspace.'
-              : dailySummary
-                ? 'Resumen diario actualizado.'
-                : view.kind === 'board'
-                  ? 'Accion creada en el tablero.'
-                : 'Operacion ejecutada.'
+        simulated
+          ? 'Simulación ejecutada. No se escribió en QA ni PROD.'
+          : whatsappWrite
+            ? 'WhatsApp aceptado por el proveedor.'
+            : boardNotifyEmail
+              ? 'Correo aceptado por el proveedor.'
+              : googleWrite
+                ? 'Listo en Google Workspace.'
+                : dailySummary
+                  ? 'Resumen diario actualizado.'
+                  : view.kind === 'board'
+                    ? 'Accion creada en el tablero.'
+                    : 'Operacion ejecutada.'
       )
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'No se pudo confirmar.'
+      const message = friendlyAssistantError(err)
       setError(message)
       setStatus('error')
       toast.error(message)
@@ -129,7 +144,7 @@ export function AssistantProposalCard({
       setStatus('cancelled')
       onResolved?.('cancelled')
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'No se pudo cancelar.'
+      const message = friendlyAssistantError(err)
       setError(message)
       toast.error(message)
     } finally {
@@ -140,9 +155,7 @@ export function AssistantProposalCard({
   return (
     <section
       className={cn(
-        'relative mt-3 overflow-hidden rounded-2xl border bg-white shadow-sm',
-        tone.border,
-        tone.card,
+        'relative mt-3 overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm',
         compact ? 'px-2.5 py-2' : 'px-3 py-2.5'
       )}
       aria-label={proposal.title}
@@ -151,10 +164,25 @@ export function AssistantProposalCard({
       <div className={cn('absolute inset-y-0 left-0 w-1.5', tone.rail)} aria-hidden />
       <div className="space-y-2.5 pl-2.5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={cn('rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em]', tone.badge)}>
+          <span
+            className={cn(
+              'rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] ring-1',
+              toneSoftClass[tone.tone]
+            )}
+          >
             {view.statusLabel}
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">{typeLabel}</span>
+          {executionBadge ? (
+            <span
+              className={cn(
+                'rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] ring-1',
+                executionBadge === 'Simulado' ? 'bg-amber-50 text-amber-800 ring-amber-200' : 'bg-emerald-50 text-emerald-800 ring-emerald-200'
+              )}
+            >
+              {executionBadge}
+            </span>
+          ) : null}
         </div>
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-700">{proposal.title}</p>

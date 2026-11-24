@@ -78,7 +78,7 @@ export function classifyCreateWorkKind(text: string): CreateWorkKind {
   if (looksLikeCommsPrepare(t) && !hasExplicitBoardCreateNoun(t)) return 'none'
 
   const asksCreate =
-    /\b(crea(r|me)?|genera(r|me)?|agrega(r|me)?|registra(r)?|anota(r)?|arma(r|me)?|propon(e|me|er)?)\b/.test(
+    /\b(crea(r|me)?|genera(r|me)?|agrega(r|me)?|registra(r)?|anota(r)?|arma(r|me)?|propon(e|me|er)?|agenda(r|me)?|programa(r|me)?|asigna(r|le|me)?)\b/.test(
       t
     )
   if (!asksCreate) return 'none'

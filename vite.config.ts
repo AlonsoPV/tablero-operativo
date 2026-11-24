@@ -1,36 +1,43 @@
 import path from 'path'
 import react from '@vitejs/plugin-react'
+import { loadEnv } from 'vite'
 import { defineConfig } from 'vitest/config'
 import { localApiPlugin } from './vite.apiPlugin'
 
-export default defineConfig({
-  plugins: [react(), localApiPlugin()],
-  build: {
-    chunkSizeWarningLimit: 1000,
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return
-          if (id.includes('@supabase')) return 'vendor-supabase'
-          if (id.includes('@tanstack')) return 'vendor-query'
-          if (id.includes('@radix-ui')) return 'vendor-radix'
-          if (id.includes('@dnd-kit')) return 'vendor-dnd'
-          if (id.includes('lucide-react')) return 'vendor-icons'
-          if (id.includes('react-dom') || id.includes('react-router-dom') || id.includes('react')) {
-            return 'vendor-react'
-          }
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  return {
+    define: {
+      __AGENT_ORCHESTRATOR_R1__: JSON.stringify(env.AGENT_ORCHESTRATOR_R1 === '1'),
+    },
+    plugins: [react(), localApiPlugin()],
+    build: {
+      chunkSizeWarningLimit: 1000,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return
+            if (id.includes('@supabase')) return 'vendor-supabase'
+            if (id.includes('@tanstack')) return 'vendor-query'
+            if (id.includes('@radix-ui')) return 'vendor-radix'
+            if (id.includes('@dnd-kit')) return 'vendor-dnd'
+            if (id.includes('lucide-react')) return 'vendor-icons'
+            if (id.includes('react-dom') || id.includes('react-router-dom') || id.includes('react')) {
+              return 'vendor-react'
+            }
+          },
         },
       },
     },
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
+      },
     },
-  },
-  test: {
-    globals: true,
-    environment: 'node',
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'api/**/*.test.ts'],
-  },
+    test: {
+      globals: true,
+      environment: 'node',
+      include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'api/**/*.test.ts'],
+    },
+  }
 })

@@ -92,9 +92,12 @@ function sortHot(items: OperationalActionItem[]) {
     if ((item.daysSinceUpdate ?? 0) >= STALE_DAYS) return 5
     return 6
   }
+  const okrLinked = (item: OperationalActionItem) => (item.esOkr || item.okrImpactado ? 0 : 1)
   return [...items].sort((a, b) => {
     const r = rank(a) - rank(b)
     if (r !== 0) return r
+    const okr = okrLinked(a) - okrLinked(b)
+    if (okr !== 0) return okr
     return `${a.fecha} ${a.hora}`.localeCompare(`${b.fecha} ${b.hora}`)
   })
 }

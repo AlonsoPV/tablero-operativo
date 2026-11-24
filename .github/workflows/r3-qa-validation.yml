@@ -1,0 +1,84 @@
+name: R3 QA Local Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'release/**'
+    paths:
+      - 'api/_shared/memory/**'
+      - 'api/_shared/orchestrator/**'
+      - 'api/_shared/actions/executionMode.ts'
+      - 'api/_shared/actions/copilotR2Gate.test.ts'
+      - 'api/gemini-chat.ts'
+      - 'scripts/qa/r3*.mjs'
+      - 'scripts/qa/run-r3-integrated.mjs'
+      - 'scripts/qa/qaGuard*.mjs'
+      - 'supabase/migrations/20261121150601_agent_memory_documents.sql'
+      - 'vitest.r3.config.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/r3-qa-validation.yml'
+  push:
+    branches:
+      - 'release/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r3-qa-local-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-harness-validation:
+    name: Local R3 Harness, Flags & Typecheck (No Remote Calls)
+    runs-on: ubuntu-latest
+    env:
+      # Hard fail-closed defaults: no remote tokens, no Production refs, flags OFF by default.
+      AGENT_ORCHESTRATOR_R1: '0'
+      AGENT_MEMORY_R3: '0'
+      R2_EXECUTION_MODE: disabled
+      COPILOT_R2_GATE: '0'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies (clean lockfile)
+        run: npm ci
+
+      - name: Verify R3 QA harness unit & guardrail tests (anti-Production fail-closed)
+        run: npm run qa:r3:test
+
+      - name: Verify QA environment guard tests
+        run: node --test scripts/qa/qaGuard.test.mjs
+
+      - name: Verify R1/R3 flag matrix & R2 production-disabled tests
+        run: >-
+          npx vitest run
+          api/_shared/orchestrator/channelAdapters.test.ts
+          api/_shared/orchestrator/mvpFlows.integration.test.ts
+          api/_shared/actions/copilotR2Gate.test.ts
+
+      - name: Verify TypeScript compilation
+        run: npx tsc -b --noEmit
+
+      - name: Verify no secret env files are tracked in git
+        run: |
+          if git ls-files '.env' '.env.*' ':!.env.example' | grep -q .; then
+            echo "ERROR: tracked .env file detected"
+            exit 1
+          fi
+
+# NOTE ON REMOTE R3 TESTS (Preflight / R3-I0..I7 / Rollback):
+# Remote execution against Preview + Supabase DEV MUST NOT run automatically in CI.
+# It remains strictly manual and authorized via local `.env.r3.dev.local` (never stored in repo)
+# with explicit authorization env vars (`R3_INTEGRATED_AUTH=AUTH-R3-INTEGRATED` /
+# `R3_ROLLBACK_AUTH=AUTH-R3-ROLLBACK-OFF`) and `r3DevGuard.mjs` Production blocklist enforcement.

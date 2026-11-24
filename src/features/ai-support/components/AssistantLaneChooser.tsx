@@ -2,6 +2,13 @@ import { Bot, MessageCircle, PenLine } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { AssistantLane } from '@/features/ai-support/writeIntent'
 
+/** 1 col en 320px; 2 col desde 380px. Ninguna vía viene preseleccionada. */
+export const ASSISTANT_LANE_GRID_CLASS = 'grid w-full max-w-lg grid-cols-1 min-[380px]:grid-cols-2'
+export const ASSISTANT_LANE_LABELS: Record<AssistantLane, string> = {
+  write: 'Consultar',
+  talk: 'Sesión guiada',
+}
+
 type AssistantLaneChooserProps = {
   compact?: boolean
   onChoose: (lane: AssistantLane) => void
@@ -34,6 +41,7 @@ function LaneOption({
     <button
       type="button"
       onClick={onClick}
+      aria-label={title}
       className={cn(
         'group flex w-full items-start gap-3 text-left transition duration-200',
         'rounded-2xl border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
@@ -86,7 +94,7 @@ export function AssistantLaneChooser({ compact = false, onChoose }: AssistantLan
       className={cn(
         'relative flex h-full min-h-0 flex-col justify-center overflow-hidden',
         'bg-[radial-gradient(120%_80%_at_50%_-10%,hsl(var(--primary)/0.14),transparent_55%),linear-gradient(180deg,hsl(var(--muted)/0.35)_0%,hsl(var(--background))_48%)]',
-        compact ? 'gap-3.5 px-3.5 py-5' : 'gap-4 px-5 py-6 sm:px-8 sm:py-8'
+        compact ? 'gap-3 px-3 py-4' : 'gap-3.5 px-4 py-5 sm:px-6 sm:py-6'
       )}
     >
       <div
@@ -107,7 +115,7 @@ export function AssistantLaneChooser({ compact = false, onChoose }: AssistantLan
           </span>
         </div>
         <h2 className={cn('font-semibold tracking-tight', compact ? 'text-base' : 'text-xl')}>
-          ¿Cómo te ayudo hoy?
+          ¿Cómo avanzamos?
         </h2>
         <p
           className={cn(
@@ -115,41 +123,38 @@ export function AssistantLaneChooser({ compact = false, onChoose }: AssistantLan
             compact ? 'text-xs' : 'text-sm'
           )}
         >
-          Elige una vía: sesión guiada o copiloto por texto.
+          Elige consultar el tablero o una sesión guiada. Nada está preseleccionado.
         </p>
       </div>
 
       <div
-        className={cn(
-          'relative mx-auto grid w-full max-w-lg grid-cols-1',
-          compact ? 'gap-2 min-[380px]:grid-cols-2' : 'gap-2.5 sm:grid-cols-2'
-        )}
+        className={cn('relative mx-auto', ASSISTANT_LANE_GRID_CLASS, compact ? 'gap-2' : 'gap-2.5')}
         role="group"
         aria-label="Vía del asistente"
       >
         <LaneOption
           compact={compact}
-          emphasis="primary"
+          emphasis="secondary"
+          icon={PenLine}
+          title={ASSISTANT_LANE_LABELS.write}
+          description={
+            compact
+              ? 'Copiloto · consulta y crea'
+              : 'Consulta, prioriza y propone acciones del tablero.'
+          }
+          onClick={() => onChoose('write')}
+        />
+        <LaneOption
+          compact={compact}
+          emphasis="secondary"
           icon={MessageCircle}
-          title="Hablar"
+          title={ASSISTANT_LANE_LABELS.talk}
           description={
             compact
               ? 'Guía 15 min · texto o voz'
               : 'Sesión de 15 min con Guía. Prioriza y cierra con reporte.'
           }
           onClick={() => onChoose('talk')}
-        />
-        <LaneOption
-          compact={compact}
-          emphasis="secondary"
-          icon={PenLine}
-          title="Escribir"
-          description={
-            compact
-              ? 'Copiloto · consulta y crea'
-              : 'Copiloto operativo: consulta, prioriza y crea acciones.'
-          }
-          onClick={() => onChoose('write')}
         />
       </div>
     </div>
@@ -158,8 +163,8 @@ export function AssistantLaneChooser({ compact = false, onChoose }: AssistantLan
 
 export function AssistantLaneSwitch({ lane, compact = false, onChange }: AssistantLaneSwitchProps) {
   const options: Array<{ id: AssistantLane; label: string; hint: string; icon: typeof MessageCircle }> = [
-    { id: 'talk', label: 'Hablar', hint: 'Guía 15 min', icon: MessageCircle },
-    { id: 'write', label: 'Escribir', hint: 'Copiloto', icon: PenLine },
+    { id: 'write', label: ASSISTANT_LANE_LABELS.write, hint: 'Copiloto', icon: PenLine },
+    { id: 'talk', label: ASSISTANT_LANE_LABELS.talk, hint: '15 min', icon: MessageCircle },
   ]
   return (
     <div

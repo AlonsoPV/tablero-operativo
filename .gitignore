@@ -8,3 +8,9 @@ dist/
 /api/*.js
 *.tsbuildinfo
 .DS_Store
+# Manifiestos y reportes locales de QA R1/R2 (sin secretos)
+.qa/
+.tmp/
+.backup/
+
+public/__qa_h05_session.json

@@ -3,6 +3,7 @@
  */
 import type { CopilotProposal } from '@/features/ai-support/copilot/types'
 import { sanitizeRecipientFacingText } from '@/features/ai-support/copilot/pendingOpTaxonomy'
+import { toneRailClass, type AssistantTone } from '@/features/ai-support/components/ui/tones'
 
 export type ActionLifecycleStatus =
   | 'preparing'
@@ -12,6 +13,19 @@ export type ActionLifecycleStatus =
   | 'completed'
   | 'error'
   | 'cancelled'
+  | 'expired'
+  | 'conflict'
+
+export type ProposalUiStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'cancelled'
+  | 'error'
+  | 'executing'
+  | 'preparing'
+  | 'needs_info'
+  | 'expired'
+  | 'conflict'
 
 export type ActionCardView = {
   id: string
@@ -53,6 +67,8 @@ export function actionStatusLabel(status: ActionLifecycleStatus): string {
   if (status === 'executing') return 'Ejecutando'
   if (status === 'completed') return 'Ejecutado'
   if (status === 'error') return 'Fallido'
+  if (status === 'expired') return 'Vencido'
+  if (status === 'conflict') return 'Conflicto'
   return 'Descartado'
 }
 
@@ -64,6 +80,8 @@ export function communicationStatusLabel(input: {
   errorMessage?: string | null
 }): string {
   if (input.lifecycle === 'cancelled') return 'Descartado'
+  if (input.lifecycle === 'expired') return 'Vencido'
+  if (input.lifecycle === 'conflict') return 'Conflicto'
   if (input.lifecycle === 'error' || input.errorMessage) return 'Fallido'
   if (input.lifecycle === 'executing') return 'Enviando'
   if (input.lifecycle === 'needs_info' || input.incomplete) {
@@ -83,13 +101,15 @@ export function communicationStatusLabel(input: {
 
 /** Mapear estado de UI/ops al ciclo de vida. */
 export function mapProposalStatusToLifecycle(
-  status: 'pending' | 'confirmed' | 'cancelled' | 'error' | 'executing' | 'preparing' | 'needs_info' | undefined,
+  status: ProposalUiStatus | undefined,
   busy?: 'confirm' | 'cancel' | 'edit' | null
 ): ActionLifecycleStatus {
   if (busy === 'confirm' || busy === 'cancel' || busy === 'edit' || status === 'executing') return 'executing'
   if (status === 'confirmed') return 'completed'
   if (status === 'cancelled') return 'cancelled'
   if (status === 'error') return 'error'
+  if (status === 'expired') return 'expired'
+  if (status === 'conflict') return 'conflict'
   if (status === 'needs_info') return 'needs_info'
   if (status === 'preparing') return 'preparing'
   return 'pending_confirmation'
@@ -98,7 +118,7 @@ export function mapProposalStatusToLifecycle(
 export function toActionCardView(
   proposal: CopilotProposal,
   opts?: {
-    status?: 'pending' | 'confirmed' | 'cancelled' | 'error' | 'executing' | 'preparing' | 'needs_info'
+    status?: ProposalUiStatus
     busy?: 'confirm' | 'cancel' | 'edit' | null
     errorMessage?: string | null
     resultHref?: string
@@ -164,59 +184,76 @@ export function toActionCardView(
   }
 }
 
-/** Clases Tailwind semánticas por estado (alineadas al informe). */
+/** Tono semántico del tema por estado (respeta modo oscuro; sin colores fijos). */
 export function actionLifecycleTone(status: ActionLifecycleStatus): {
+  tone: AssistantTone
   rail: string
-  badge: string
-  card: string
-  border: string
 } {
-  if (status === 'preparing') {
-    return {
-      rail: 'bg-[#2563EB]',
-      badge: 'border-[#2563EB]/30 bg-[#2563EB]/10 text-[#1D4ED8]',
-      card: 'bg-[#2563EB]/[0.06]',
-      border: 'border-[#2563EB]/25',
-    }
+  const tone: AssistantTone =
+    status === 'preparing'
+      ? 'info'
+      : status === 'pending_confirmation' || status === 'needs_info'
+        ? 'warning'
+        : status === 'executing'
+          ? 'violet'
+          : status === 'completed'
+            ? 'success'
+            : status === 'error' || status === 'conflict'
+              ? 'danger'
+              : 'neutral'
+  return { tone, rail: toneRailClass[tone] }
+}
+
+/** Estado terminal de una confirmacion fallida; los mensajes son los que emite assistant-ops. */
+export function pendingFailureStatus(error: unknown): 'expired' | 'conflict' | 'error' {
+  const opStatus = (error as { opStatus?: unknown } | null)?.opStatus
+  if (opStatus === 'expired' || opStatus === 'conflict') return opStatus
+  const message = error instanceof Error ? error.message : ''
+  if (/autorizaci[oó]n expir/i.test(message)) return 'expired'
+  if (/registro cambi[oó] despu[eé]s de la vista previa/i.test(message)) return 'conflict'
+  return 'error'
+}
+
+/**
+ * Etapa visible en la tarjeta: Borrador → Aprobado → En proceso → Enviado/Error.
+ * «Enviado» solo tras respuesta correcta del proveedor (confirmacion resuelta).
+ */
+export function proposalStageLabel(input: {
+  lifecycle: ActionLifecycleStatus
+  kind: ActionCardView['kind']
+  approving?: boolean
+}): string {
+  const comms = input.kind === 'whatsapp' || input.kind === 'email'
+  if (input.approving) return 'Aprobado'
+  switch (input.lifecycle) {
+    case 'preparing':
+    case 'pending_confirmation':
+      return 'Borrador'
+    case 'needs_info':
+      return 'Requiere información'
+    case 'executing':
+      return 'En proceso'
+    case 'completed':
+      return comms ? 'Enviado' : 'Ejecutado'
+    case 'error':
+      return 'Error'
+    case 'expired':
+      return 'Vencido'
+    case 'conflict':
+      return 'Conflicto'
+    default:
+      return 'Descartado'
   }
-  if (status === 'pending_confirmation' || status === 'needs_info') {
-    return {
-      rail: 'bg-[#D97706]',
-      badge: 'border-[#D97706]/30 bg-[#D97706]/10 text-[#B45309]',
-      card: 'bg-[#D97706]/[0.08]',
-      border: 'border-[#D97706]/28',
-    }
-  }
-  if (status === 'executing') {
-    return {
-      rail: 'bg-[#7C3AED]',
-      badge: 'border-[#7C3AED]/30 bg-[#7C3AED]/10 text-[#6D28D9]',
-      card: 'bg-[#7C3AED]/[0.08]',
-      border: 'border-[#7C3AED]/28',
-    }
-  }
-  if (status === 'completed') {
-    return {
-      rail: 'bg-[#16A34A]',
-      badge: 'border-[#16A34A]/30 bg-[#16A34A]/10 text-[#15803D]',
-      card: 'bg-[#16A34A]/[0.08]',
-      border: 'border-[#16A34A]/25',
-    }
-  }
-  if (status === 'error') {
-    return {
-      rail: 'bg-[#DC2626]',
-      badge: 'border-[#DC2626]/30 bg-[#DC2626]/10 text-[#B91C1C]',
-      card: 'bg-[#DC2626]/[0.08]',
-      border: 'border-[#DC2626]/28',
-    }
-  }
-  return {
-    rail: 'bg-slate-400',
-    badge: 'border-slate-300 bg-slate-100 text-slate-600',
-    card: 'bg-slate-500/[0.06]',
-    border: 'border-slate-300/70',
-  }
+}
+
+/** Badge de ejecución: simulado (pending) vs ejecutado (confirmado). */
+export function proposalExecutionBadge(
+  status: ActionLifecycleStatus,
+  simulated?: boolean
+): 'Simulado' | 'Ejecutado' | null {
+  if (status === 'completed') return 'Ejecutado'
+  if (simulated && (status === 'pending_confirmation' || status === 'executing')) return 'Simulado'
+  return null
 }
 
 export function actionTypeLabel(tool: string, kind: ActionCardView['kind']): string {

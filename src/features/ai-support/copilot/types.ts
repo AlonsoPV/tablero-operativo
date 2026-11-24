@@ -75,6 +75,8 @@ export type CopilotProposal = {
   record?: CopilotRecordRef
   expiresAt: string
   workspace?: CopilotWorkspacePreview
+  /** R2_EXECUTION_MODE=simulated: confirmar no escribe en QA/PROD. */
+  simulated?: boolean
 }
 
 export type CopilotToolResult = {

@@ -3,6 +3,8 @@ import {
   buildAssistantBriefing,
   buildAssistantQuickActions,
   formatStructuredReplyContent,
+  resolveAssistantAudience,
+  type AssistantAudience,
 } from './assistantBriefing'
 import { buildOperationalSnapshot } from './operationalContext/buildOperationalSnapshot'
 import type { AccionDiaria } from '@/types'
@@ -89,18 +91,47 @@ describe('assistantBriefing', () => {
     expect(briefing.priorityRecord?.href).toContain('accion=a1')
   })
 
-  it('exposes only actionable quick actions', () => {
-    const actions = buildAssistantQuickActions({ snapshot, canSeeOkrs: true })
-    expect(actions.map((item) => item.id)).toEqual([
-      'priorities',
-      'blocked',
-      'verification',
-      'daily',
-      'okrs',
-      'create',
-    ])
-    expect(actions.find((item) => item.id === 'blocked')?.disabled).toBe(false)
-    expect(actions.find((item) => item.id === 'create')?.mode).toBe('create')
+  it('picks four quick actions per role', () => {
+    const ids = (audience: AssistantAudience, canSeeOkrs = true) =>
+      buildAssistantQuickActions({ audience, canSeeOkrs }).map((item) => item.id)
+    expect(ids('operativo')).toEqual(['priorities', 'daily', 'blocked', 'verification'])
+    expect(ids('lider')).toEqual(['team', 'team_overdue', 'verification', 'okrs'])
+    expect(ids('direccion')).toEqual(['executive', 'risks', 'okr_results', 'decisions'])
+    expect(ids('lider', false)).not.toContain('okrs')
+    expect(ids('direccion', false)).not.toContain('okr_results')
+    expect(new Set(ids('lider', false)).size).toBe(4)
+  })
+
+  it('never grants team content without board scope', () => {
+    expect(resolveAssistantAudience({ isDirection: true, isLeader: false, canSeeTeam: false })).toBe(
+      'operativo'
+    )
+    expect(resolveAssistantAudience({ isDirection: false, isLeader: true, canSeeTeam: true })).toBe(
+      'lider'
+    )
+    expect(resolveAssistantAudience({ isDirection: true, isLeader: false, canSeeTeam: true })).toBe(
+      'direccion'
+    )
+  })
+
+  it('fails loudly when the page omits audience (H-05 AppErrorBoundary .map)', () => {
+    expect(() =>
+      buildAssistantQuickActions({
+        audience: undefined as unknown as AssistantAudience,
+        canSeeOkrs: true,
+      })
+    ).toThrow(/audience de asistente no soportado/)
+  })
+
+  it('Dirección with board scope gets executive actions, not a crash', () => {
+    const audience = resolveAssistantAudience({
+      isDirection: true,
+      isLeader: false,
+      canSeeTeam: true,
+    })
+    const actions = buildAssistantQuickActions({ audience, canSeeOkrs: true })
+    expect(actions.map((item) => item.id)).toEqual(['executive', 'risks', 'okr_results', 'decisions'])
+    expect(actions.every((item) => item.label && item.prompt)).toBe(true)
   })
 
   it('formats structured replies without markdown', () => {

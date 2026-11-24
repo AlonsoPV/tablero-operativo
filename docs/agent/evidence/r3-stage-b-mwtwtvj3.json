@@ -1,0 +1,76 @@
+{
+  "artifact": "R3-STAGE-B-SANITIZED-EVIDENCE",
+  "stage_b_status": "CLOSED_VALIDATED",
+  "validated_sha": "fe8ddf4765359de65ed708996a2e7d486481145b",
+  "run_id": "mwtwtvj3",
+  "ran_at_utc": "2026-11-23T23:41:57.088Z",
+  "target_supabase_dev_ref": "tgiuevzlyptzlfgxsfhj",
+  "preview_deployments": {
+    "window_on": {
+      "id": "dpl_9hWr69gUoWxfnQU7rY5CaBw1Ue3D",
+      "host": "tablero-operativo-nku2z0t1o-alonsopvs-projects.vercel.app",
+      "sha": "fe8ddf4765359de65ed708996a2e7d486481145b",
+      "ref": "preview",
+      "preflight_on": "READY (9/9)"
+    },
+    "rollback_off": {
+      "id": "dpl_DszyyvfvYLFfgHYrMn4uan2HYF9e",
+      "host": "tablero-operativo-dpp2y3azw-alonsopvs-projects.vercel.app",
+      "sha": "fe8ddf4765359de65ed708996a2e7d486481145b",
+      "ref": "preview",
+      "ready_state": "READY",
+      "preflight_off": "READY (9/9)"
+    }
+  },
+  "integrated_suite": {
+    "verdict": "PASS",
+    "passed": 8,
+    "failed": 0,
+    "blocked": 0,
+    "halted_on_critical": false,
+    "runner_mutated_flags": false,
+    "runner_deployed": false,
+    "cases": {
+      "R3-I0": "PASS",
+      "R3-I1": "PASS",
+      "R3-I2": "PASS",
+      "R3-I3": "PASS",
+      "R3-I4": "PASS",
+      "R3-I5": "PASS",
+      "R3-I6": "PASS",
+      "R3-I7": "PASS"
+    },
+    "key_assertions": {
+      "rls_anon_denied_code": "42501",
+      "rls_cross_insert_denied_code": "42501",
+      "rls_cross_update_rows": 0,
+      "rls_auth_doc_insert_denied_code": "42501",
+      "withdrawn_doc_hidden_visible_versions": 2,
+      "api_gemini_chat_http_status": 200,
+      "playwright_probe_status": "PASS",
+      "playwright_console_errors": 0
+    }
+  },
+  "fixture_cleanup": {
+    "prefix": "r3-int-mwtwtvj3-",
+    "memory_created": 3,
+    "memory_deleted": 3,
+    "documents_created": 2,
+    "documents_deleted": 2,
+    "remaining_memory": 0,
+    "remaining_documents": 0,
+    "sql_post_rollback_residual_memory": 0,
+    "sql_post_rollback_residual_documents": 0
+  },
+  "rollback_verification": {
+    "rollback_status": "PASS",
+    "agent_orchestrator_r1_after": "0",
+    "agent_memory_r3_after": "0",
+    "sso_intact": true,
+    "production_untouched": true,
+    "production_http_status": {
+      "tablero-operativo.vercel.app": 200,
+      "scrumbanemx.vercel.app": 200
+    }
+  }
+}
