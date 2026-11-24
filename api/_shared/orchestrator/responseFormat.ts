@@ -30,7 +30,16 @@ export function resolveFormat(selected: ResponseFormat, intent: AgentIntent['kin
   const text = normalize(utterance)
   const done = (format: ResolvedFormat, ambiguous = false): FormatResolution => ({ format, ambiguous })
 
-  if (intent === 'executive_brief' || intent === 'executive_commitments') return done('report')
+  if (
+    intent === 'executive_brief' ||
+    intent === 'executive_commitments' ||
+    intent === 'executive_discipline' ||
+    intent === 'executive_preventive' ||
+    intent === 'executive_evidence' ||
+    intent === 'executive_review'
+  ) {
+    return done('report')
+  }
   if (CAUSAL.test(text)) return done('analysis')
   if (intent === 'analyze_risk') return done(REPORT.test(text) ? 'report' : 'analysis')
   if (intent === 'aggregate_execution') return done('report')

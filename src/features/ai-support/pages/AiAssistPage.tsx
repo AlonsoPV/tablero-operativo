@@ -1351,6 +1351,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                     ui={message.ui}
                     narrative={message.structured ? undefined : message.content}
                     compact={isPopup}
+                    onFollowUp={(prompt) => void handleSend(prompt)}
                   />
                 ) : message.structured ? (
                   <StructuredAssistantReply reply={message.structured} compact={isPopup} />

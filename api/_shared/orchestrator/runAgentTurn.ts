@@ -44,11 +44,19 @@ import {
 import { classifyAgentIntent, type AgentIntent } from './intent.js'
 import {
   buildExecutiveDiagnosis,
+  DISCIPLINE_THRESHOLDS,
   executiveComparisonItems,
   executiveFindings,
   executiveMetrics,
   executivePriorityItems,
 } from './executiveDiagnosis.js'
+import {
+  buildDraftCommitmentsFromDiagnosis,
+  buildPendingTopicsFromDiagnosis,
+  createExecutiveSession,
+  nextExecutiveStage,
+  STAGE_METADATA,
+} from './executiveSession.js'
 import { FORMAT_DESCRIPTION, parseFormatDirective, resolveFormat } from './responseFormat.js'
 import {
   pickMostUrgent,
@@ -1125,6 +1133,497 @@ async function handleExecutiveCommitments(
   }
 }
 
+async function loadAuthorizedExecutiveData(state: TurnState) {
+  const boardReq: ActionsQueryRequest = {
+    entity: 'actions',
+    scope: 'board_authorized',
+    statusGroup: 'open',
+    visual: 'none',
+    limit: 50,
+  }
+  const canSeeBoard =
+    state.actor.capabilities.readCrossAreaExecution && authorizeQuery(state.actor, boardReq).allowed
+  const scope: ActionsQueryRequest['scope'] = canSeeBoard ? 'board_authorized' : 'assigned_to_me'
+  const openReq: ActionsQueryRequest = {
+    entity: 'actions',
+    scope,
+    statusGroup: 'open',
+    visual: 'none',
+    limit: 50,
+  }
+  const authOpen = authorizeQuery(state.actor, openReq)
+  if (!authOpen.allowed) {
+    return {
+      ok: false as const,
+      outcome: { response: forbidden(authOpen.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' as const, scope } },
+    }
+  }
+  const openRes = await queryActions(state.actor.copilot, openReq, state.dispatch)
+  if (openRes.status === 'forbidden') {
+    return {
+      ok: false as const,
+      outcome: {
+        response: forbidden(openRes.error?.message ?? 'No tienes acceso a las acciones solicitadas.'),
+        audit: { status: 'forbidden' as const, entity: 'actions' as const, scope },
+      },
+    }
+  }
+  if (openRes.status === 'error') {
+    const response = baseResponse('error')
+    response.blocks.data.push(statusMessage('error', 'las acciones', openRes.error?.message))
+    return {
+      ok: false as const,
+      outcome: { response, audit: { status: 'error' as const, entity: 'actions' as const, scope } },
+    }
+  }
+
+  const pendingVerReq: ActionsQueryRequest = {
+    entity: 'actions',
+    scope,
+    statusGroup: 'verification',
+    visual: 'none',
+    limit: 25,
+  }
+  const pendingVerRes = authorizeQuery(state.actor, pendingVerReq).allowed
+    ? await queryActions(state.actor.copilot, pendingVerReq, state.dispatch)
+    : null
+  const okrReq = { entity: 'okrs' as const, period: 'all_active' as const }
+  const okrRes = authorizeQuery(state.actor, okrReq).allowed
+    ? await queryOkrs(state.actor.copilot, okrReq, state.dispatch)
+    : null
+
+  const diagnosis = buildExecutiveDiagnosis({
+    actions: openRes.items,
+    pendingVerificationActions: pendingVerRes?.status === 'ok' ? pendingVerRes.items : [],
+    okrs: okrRes?.status === 'ok' ? okrRes.items : null,
+    today: state.today,
+  })
+  return { ok: true as const, canSeeBoard, scope, openReq, openRes, diagnosis }
+}
+
+async function handleExecutiveDiscipline(
+  state: TurnState,
+  intent: Extract<AgentIntent, { kind: 'executive_discipline' }>
+) {
+  const loaded = await loadAuthorizedExecutiveData(state)
+  if (!loaded.ok) return loaded.outcome
+  const { canSeeBoard, scope, openReq, openRes, diagnosis } = loaded
+  const sLabel = scopeLabel(scope)
+
+  const staleItems = diagnosis.discipline.staleActive.map((s) => s.action)
+  const prolongedItems = diagnosis.discipline.prolongedBlocked.map((s) => s.action)
+  const focusActions = [...staleItems, ...prolongedItems, ...diagnosis.discipline.withoutDate].filter(
+    (item, idx, arr) => arr.findIndex((x) => x.id === item.id) === idx
+  )
+
+  rememberActions(state, openReq, {
+    ...openRes,
+    items: focusActions.length > 0 ? focusActions : diagnosis.topPriorities.map((p) => p.action),
+  })
+
+  if (diagnosis.counts.open === 0 && diagnosis.counts.pendingVerification === 0) {
+    const empty = baseResponse('empty', openRes.asOf)
+    empty.blocks.data.push(`No hay acciones abiertas ni señales de disciplina operativa en ${sLabel}.`)
+    empty.blocks.limitations.push('No se inventan señales de seguimiento cuando no existen registros.')
+    return { response: empty, audit: { status: 'empty' as const, entity: 'actions', scope, total: 0 } }
+  }
+
+  const response = baseResponse(openRes.status === 'partial' ? 'partial' : 'ok', openRes.asOf)
+  const headline =
+    intent.focus === 'stale'
+      ? `Seguimiento en ${sLabel}: ${diagnosis.counts.staleActive} acción(es) activas con >= ${DISCIPLINE_THRESHOLDS.staleActiveDays} días sin actualización, ${diagnosis.counts.overdueNoFollowup} vencidas sin seguimiento y ${diagnosis.counts.prolongedBlocked} bloqueos prolongados.`
+      : `Disciplina operativa en ${sLabel}: ${diagnosis.counts.staleActive} sin seguimiento reciente, ${diagnosis.counts.prolongedBlocked} bloqueos prolongados, ${diagnosis.counts.pendingVerification} en Hecho pendientes de Verificado y ${diagnosis.counts.withoutDate} sin fecha compromiso.`
+
+  response.blocks.data.push(headline)
+
+  const findings: AnswerFinding[] = []
+  for (const s of diagnosis.discipline.staleActive.slice(0, 4)) {
+    const evidenceNote = s.hasOperationalEvidence
+      ? 'con evidencia cargada'
+      : 'sin evidencia operativa cargada'
+    findings.push({
+      basis: 'evidence',
+      risk: true,
+      text: `«${s.action.title}» (${s.action.responsableNombre ?? 'sin responsable'} · ${s.action.area ?? 'sin área'}): ${s.daysSinceUpdate} días sin actualización (${evidenceNote}).`,
+    })
+  }
+  for (const b of diagnosis.discipline.prolongedBlocked.slice(0, 3)) {
+    findings.push({
+      basis: 'evidence',
+      risk: true,
+      text: `Bloqueo prolongado: «${b.action.title}» lleva ${b.daysSinceUpdate} días bloqueada sin actualización.`,
+    })
+  }
+  if (diagnosis.counts.pendingVerification > 0) {
+    findings.push({
+      basis: 'evidence',
+      risk: true,
+      text: `${diagnosis.counts.pendingVerification} acción(es) en Hecho siguen pendientes de Verificado.`,
+    })
+  }
+  if (diagnosis.counts.withoutDate > 0) {
+    findings.push({
+      basis: 'evidence',
+      text: `${diagnosis.counts.withoutDate} acción(es) abiertas no tienen fecha compromiso definida.`,
+    })
+  }
+  findings.push({
+    basis: 'inference',
+    text: `Señal basada en última actualización registrada (umbral >= ${DISCIPLINE_THRESHOLDS.staleActiveDays}d); requiere validación operativa y no constituye incumplimiento confirmado.`,
+  })
+
+  response.blocks.interpretation.push(
+    ...findings.filter((f) => f.basis === 'inference').map((f) => f.text)
+  )
+  response.blocks.recommendation.push(
+    diagnosis.counts.overdueNoFollowup > 0
+      ? `Priorizar contacto hoy sobre las ${diagnosis.counts.overdueNoFollowup} acciones vencidas sin seguimiento y confirmar estatus real.`
+      : diagnosis.counts.staleActive > 0
+        ? `Solicitar actualización breve con evidencia operativa en las ${diagnosis.counts.staleActive} acciones sin movimiento.`
+        : 'La disciplina de seguimiento está al día; mantener ritmo semanal de verificación.'
+  )
+  response.blocks.recommendation.push(
+    'Puedes pedirme «Muéstrame las acciones que sustentan esta recomendación» para ver enlaces directos o iniciar una revisión ejecutiva de 15 minutos.'
+  )
+
+  if (!canSeeBoard) {
+    response.blocks.limitations.push('Alcance limitado por permiso a tus acciones asignadas.')
+  }
+  response.blocks.limitations.push(
+    'La fecha updated_at refleja última modificación técnica en el registro; no existe historial verificable de reprogramaciones en esta consulta.'
+  )
+
+  const answerActions: AnswerItem[] = (
+    focusActions.length > 0 ? focusActions.slice(0, 5) : diagnosis.topPriorities.map((p) => p.action)
+  ).map((a) => ({
+    kind: 'action' as const,
+    id: a.id,
+    title: a.title,
+    status: a.estado ?? null,
+    date: a.fecha ?? null,
+    priority: a.prioridad ?? null,
+    owner: a.responsableNombre ?? null,
+    flags: [
+      ...(a.estado === 'Bloqueado' ? ['bloqueada'] : []),
+      ...(!a.fecha ? ['sin fecha'] : []),
+      ...(a.updatedAt ? [`act. ${a.updatedAt.slice(0, 10)}`] : []),
+    ],
+    href: a.href,
+  }))
+
+  withFacts(response, {
+    primary: { value: diagnosis.counts.staleActive + diagnosis.counts.prolongedBlocked, text: headline },
+    metrics: [
+      { id: 'stale', label: 'Sin seguimiento', value: diagnosis.counts.staleActive, tone: diagnosis.counts.staleActive > 0 ? 'warning' : 'ok', scope: sLabel },
+      { id: 'prolonged_blocked', label: 'Bloqueo prolongado', value: diagnosis.counts.prolongedBlocked, tone: diagnosis.counts.prolongedBlocked > 0 ? 'danger' : 'ok', scope: sLabel },
+      { id: 'pending_verification', label: 'Pend. verificar', value: diagnosis.counts.pendingVerification, tone: diagnosis.counts.pendingVerification > 0 ? 'warning' : 'ok', scope: sLabel },
+      { id: 'without_date', label: 'Sin fecha', value: diagnosis.counts.withoutDate, tone: diagnosis.counts.withoutDate > 0 ? 'warning' : 'ok', scope: sLabel },
+    ],
+    items: [...answerActions, ...executiveComparisonItems(diagnosis)],
+    findings,
+    warnings: response.blocks.limitations,
+  })
+
+  return {
+    response,
+    audit: {
+      status: openRes.status === 'partial' ? ('partial' as const) : ('ok' as const),
+      entity: 'actions',
+      scope,
+      total: openRes.totals.total,
+    },
+  }
+}
+
+async function handleExecutivePreventive(state: TurnState) {
+  const loaded = await loadAuthorizedExecutiveData(state)
+  if (!loaded.ok) return loaded.outcome
+  const { canSeeBoard, scope, openReq, openRes, diagnosis } = loaded
+  const sLabel = scopeLabel(scope)
+
+  const preventiveActionItems = [
+    ...diagnosis.preventive.upcomingDue.map((u) => u.action),
+    ...diagnosis.discipline.staleActive.map((s) => s.action),
+    ...diagnosis.topPriorities.map((p) => p.action),
+  ].filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
+
+  rememberActions(state, openReq, { ...openRes, items: preventiveActionItems.slice(0, 8) })
+
+  if (diagnosis.counts.open === 0 && (diagnosis.okrSummary?.total ?? 0) === 0) {
+    const empty = baseResponse('empty', openRes.asOf)
+    empty.blocks.data.push(`No hay compromisos abiertos ni OKRs activos para evaluar riesgos preventivos en ${sLabel}.`)
+    empty.blocks.limitations.push('No se generan predicciones sin evidencia operativa vigente.')
+    return { response: empty, audit: { status: 'empty' as const, entity: 'actions', scope, total: 0 } }
+  }
+
+  const response = baseResponse(openRes.status === 'partial' ? 'partial' : 'ok', openRes.asOf)
+  const headline = `Inteligencia preventiva (${sLabel}): ${diagnosis.currentProblems.length} problema(s) actual(es), ${diagnosis.preventiveRisks.length} riesgo(s) potencial(es) esta semana y ${diagnosis.improvementOpportunities.length} oportunidad(es) de mejora.`
+  response.blocks.data.push(headline)
+
+  const findings: AnswerFinding[] = [
+    ...diagnosis.currentProblems.map((text) => ({
+      basis: 'evidence' as const,
+      risk: true,
+      text: `[Problema actual] ${text}`,
+    })),
+    ...diagnosis.preventiveRisks.map((text) => ({
+      basis: 'inference' as const,
+      risk: true,
+      text: `[Riesgo potencial] ${text}`,
+    })),
+    ...diagnosis.improvementOpportunities.map((text) => ({
+      basis: 'evidence' as const,
+      text: `[Oportunidad de mejora] ${text}`,
+    })),
+  ]
+
+  response.blocks.interpretation.push(...diagnosis.preventiveRisks.slice(0, 3))
+  response.blocks.recommendation.push(
+    diagnosis.preventive.upcomingDue.length > 0
+      ? `Asegurar avance hoy en los ${diagnosis.preventive.upcomingDue.length} compromiso(s) próximos a vencer (próximos ${DISCIPLINE_THRESHOLDS.upcomingDueDays} días) antes de que pasen a retraso.`
+      : 'Atender bloqueos activos y confirmar fechas en acciones sin fecha para prevenir retrasos la próxima semana.'
+  )
+  response.blocks.recommendation.push(
+    'Pide «Muéstrame las acciones que sustentan esta recomendación» para inspeccionar cada registro con enlace directo.'
+  )
+
+  if (!canSeeBoard) {
+    response.blocks.limitations.push('Alcance limitado por permiso a tus acciones asignadas.')
+  }
+  response.blocks.limitations.push(
+    'Los riesgos potenciales son señales preventivas basadas en fechas, carga y última actualización; no constituyen pronósticos no verificados.'
+  )
+
+  const items: AnswerItem[] = [
+    ...diagnosis.preventive.upcomingDue.slice(0, 3).map((u) => ({
+      kind: 'action' as const,
+      id: u.action.id,
+      title: u.action.title,
+      status: u.action.estado ?? null,
+      date: u.action.fecha ?? null,
+      priority: u.action.prioridad ?? null,
+      owner: u.action.responsableNombre ?? null,
+      flags: [u.daysUntilDue === 0 ? 'vence hoy' : `vence en ${u.daysUntilDue}d`],
+      href: u.action.href,
+    })),
+    ...executiveComparisonItems(diagnosis),
+  ]
+
+  withFacts(response, {
+    primary: { value: diagnosis.preventiveRisks.length, text: headline },
+    metrics: [
+      { id: 'upcoming', label: 'Por vencer (5d)', value: diagnosis.counts.upcomingDue, tone: diagnosis.counts.upcomingDue > 0 ? 'warning' : 'ok', scope: sLabel },
+      { id: 'stale', label: 'Sin seguimiento', value: diagnosis.counts.staleActive, tone: diagnosis.counts.staleActive > 0 ? 'warning' : 'ok', scope: sLabel },
+      { id: 'blocked', label: 'Bloqueadas', value: diagnosis.counts.blocked, tone: diagnosis.counts.blocked > 0 ? 'danger' : 'ok', scope: sLabel },
+      { id: 'current_problems', label: 'Problemas actuales', value: diagnosis.currentProblems.length, tone: diagnosis.currentProblems.length > 0 ? 'danger' : 'ok', scope: sLabel },
+    ],
+    items,
+    findings,
+    warnings: response.blocks.limitations,
+  })
+
+  return {
+    response,
+    audit: {
+      status: openRes.status === 'partial' ? ('partial' as const) : ('ok' as const),
+      entity: 'actions',
+      scope,
+      total: openRes.totals.total,
+    },
+  }
+}
+
+async function handleExecutiveEvidence(
+  state: TurnState,
+  intent: Extract<AgentIntent, { kind: 'executive_evidence' }>
+) {
+  let refs = state.ctx.lastActions
+  let scope: ActionsQueryRequest['scope'] = state.ctx.activeQuery?.scope ?? 'board_authorized'
+
+  if (refs.length === 0) {
+    const loaded = await loadAuthorizedExecutiveData(state)
+    if (!loaded.ok) return loaded.outcome
+    scope = loaded.scope
+    rememberActions(state, loaded.openReq, {
+      ...loaded.openRes,
+      items: loaded.diagnosis.topPriorities.map((p) => p.action),
+    })
+    refs = state.ctx.lastActions
+  }
+
+  if (refs.length === 0) {
+    const empty = baseResponse('empty')
+    empty.blocks.data.push('No hay acciones en el contexto actual ni abiertas en tu alcance para mostrar evidencia.')
+    return { response: empty, audit: { status: 'empty' as const, entity: 'actions', scope, total: 0 } }
+  }
+
+  const selected =
+    intent.priorityIndex !== undefined && refs[intent.priorityIndex]
+      ? [refs[intent.priorityIndex]!]
+      : refs.slice(0, 5)
+
+  if (selected.length === 1) {
+    state.ctx.lastEntity = { kind: 'action', id: selected[0]!.id, label: selected[0]!.title }
+  }
+
+  const response = baseResponse('ok')
+  const headline =
+    intent.priorityIndex !== undefined
+      ? `Evidencia de la Prioridad ${intent.priorityIndex + 1}: «${selected[0]!.title}».`
+      : `Evidencia trazable: ${selected.length} acción(es) autorizadas sustentan la recomendación anterior.`
+  response.blocks.data.push(headline)
+
+  const findings: AnswerFinding[] = selected.map((a) => ({
+    basis: 'evidence' as const,
+    risk: a.estado === 'Bloqueado' || a.estado === 'Retraso',
+    text: `«${a.title}» · Estado: ${a.estado ?? 'sin estado'} · Fecha: ${a.fecha ?? 'sin fecha'} · Responsable: ${a.responsableNombre ?? 'sin asignar'}${a.area ? ` · Área: ${a.area}` : ''}${a.updatedAt ? ` · Últ. act.: ${a.updatedAt.slice(0, 10)}` : ''} · Enlace: ${a.href}`,
+  }))
+
+  response.blocks.recommendation.push(
+    selected.length === 1
+      ? `Puedes abrir «${selected[0]!.title}» directo en Kanban o pedirme «Prepara un borrador de acción para destrabarla» (sin ejecutar hasta habilitar R2).`
+      : 'Selecciona una prioridad (ej. «Profundiza en la prioridad 1») o abre cualquiera de las acciones directamente en Kanban.'
+  )
+
+  withFacts(response, {
+    primary: { value: selected.length, text: headline },
+    metrics: [
+      { id: 'evidence_count', label: 'Acciones evidencia', value: selected.length, tone: 'neutral', scope: scopeLabel(scope) },
+    ],
+    items: selected.map((a) => ({
+      kind: 'action' as const,
+      id: a.id,
+      title: a.title,
+      status: a.estado ?? null,
+      date: a.fecha ?? null,
+      priority: a.prioridad ?? null,
+      owner: a.responsableNombre ?? null,
+      flags: [
+        ...(a.estado === 'Bloqueado' ? ['bloqueada'] : []),
+        ...(a.estado === 'Retraso' ? ['retraso'] : []),
+      ],
+      href: a.href,
+    })),
+    findings,
+    warnings: [],
+  })
+
+  return {
+    response,
+    audit: { status: 'ok' as const, entity: 'actions', scope, total: selected.length },
+  }
+}
+
+async function handleExecutiveReview(
+  state: TurnState,
+  intent: Extract<AgentIntent, { kind: 'executive_review' }>
+) {
+  const loaded = await loadAuthorizedExecutiveData(state)
+  if (!loaded.ok) return loaded.outcome
+  const { canSeeBoard, scope, openReq, openRes, diagnosis } = loaded
+  const sLabel = scopeLabel(scope)
+
+  rememberActions(state, openReq, {
+    ...openRes,
+    items: diagnosis.topPriorities.length > 0 ? diagnosis.topPriorities.map((p) => p.action) : openRes.items,
+  })
+
+  const session =
+    state.ctx.executiveSession ?? createExecutiveSession(openRes.asOf ?? new Date().toISOString())
+
+  if (intent.action === 'start') {
+    session.stage = 'overview'
+    session.focusedPriorityIndex = null
+  } else if (intent.action === 'next') {
+    session.stage = nextExecutiveStage(session.stage)
+  } else if (intent.action === 'skip') {
+    if (!session.skippedStages.includes(session.stage)) session.skippedStages.push(session.stage)
+    session.stage = nextExecutiveStage(session.stage)
+  } else if (intent.action === 'record_decision' && intent.note) {
+    session.decisions.push(intent.note)
+    session.stage = 'decisions'
+  } else if (intent.action === 'summary') {
+    session.stage = 'summary'
+  }
+
+  if (session.draftCommitments.length === 0) {
+    session.draftCommitments = buildDraftCommitmentsFromDiagnosis(diagnosis, state.today)
+  }
+  session.pendingTopics = buildPendingTopicsFromDiagnosis(diagnosis)
+  state.ctx.executiveSession = session
+
+  const meta = STAGE_METADATA[session.stage]
+  const response = baseResponse(openRes.status === 'partial' ? 'partial' : 'ok', openRes.asOf)
+  const headline = `Revisión ejecutiva (${meta.step}/6 · ${meta.label} · ~${meta.minutes} min): ${diagnosis.counts.open} abiertas, ${diagnosis.counts.overdue} vencidas, ${diagnosis.counts.blocked} bloqueadas en ${sLabel}.`
+  response.blocks.data.push(headline)
+
+  const findings: AnswerFinding[] = []
+
+  if (session.stage === 'summary') {
+    if (session.decisions.length > 0) {
+      for (const [i, dec] of session.decisions.entries()) {
+        findings.push({ basis: 'evidence', text: `Decisión ${i + 1}: ${dec}` })
+      }
+    } else {
+      findings.push({
+        basis: 'evidence',
+        text: 'Decisiones registradas en sesión: ninguna todavía (puedes decir «Decisión: ...» para agregarla).',
+      })
+    }
+    for (const draft of session.draftCommitments) {
+      findings.push({
+        basis: 'inference',
+        text: `Compromiso propuesto (borrador R2 OFF): «${draft.titulo}» · Responsable sugerido: ${draft.responsableSugerido} · Fecha propuesta: ${draft.fechaPropuesta ?? 'por definir'}.`,
+      })
+    }
+    for (const topic of session.pendingTopics) {
+      findings.push({ basis: 'evidence', risk: true, text: `Asunto pendiente: ${topic}` })
+    }
+    response.blocks.recommendation.push(
+      'Todos los compromisos propuestos permanecen como borradores no persistidos mientras R2 siga desactivado. Valida responsables y fechas antes de cargarlos en Kanban.'
+    )
+    response.blocks.limitations.push(
+      'R2 desactivado: no se creó ni modificó ninguna acción en el tablero.'
+    )
+  } else {
+    findings.push(...executiveFindings(diagnosis).slice(0, 6))
+    if (session.decisions.length > 0) {
+      findings.push({
+        basis: 'evidence',
+        text: `Decisiones capturadas en esta sesión: ${session.decisions.join(' | ')}.`,
+      })
+    }
+    response.blocks.recommendation.push(
+      `Guía paso ${meta.step}/6: puedes decir «Siguiente etapa», «Profundiza en la prioridad 1», «Omitir etapa», «Decisión: …» o «Resume nuestras decisiones y prepara los compromisos».`
+    )
+  }
+
+  if (!canSeeBoard) {
+    response.blocks.limitations.push('Alcance limitado por permiso a tus acciones asignadas.')
+  }
+
+  withFacts(response, {
+    primary: { value: meta.step, text: headline },
+    metrics: executiveMetrics(diagnosis, sLabel).slice(0, 4),
+    items: [
+      ...executivePriorityItems(diagnosis.topPriorities),
+      ...executiveComparisonItems(diagnosis),
+    ],
+    findings,
+    warnings: response.blocks.limitations,
+  })
+
+  return {
+    response,
+    audit: {
+      status: openRes.status === 'partial' ? ('partial' as const) : ('ok' as const),
+      entity: 'actions',
+      scope,
+      total: openRes.totals.total,
+    },
+  }
+}
+
 async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent, { kind: 'write_request' }>) {
   const auth = authorizeOperation(state.actor, 'propose_write')
   if (!auth.allowed) {
@@ -1553,6 +2052,18 @@ export async function runAgentTurn(
     case 'executive_commitments':
       outcome = await handleExecutiveCommitments(state, intent)
       break
+    case 'executive_discipline':
+      outcome = await handleExecutiveDiscipline(state, intent)
+      break
+    case 'executive_preventive':
+      outcome = await handleExecutivePreventive(state)
+      break
+    case 'executive_evidence':
+      outcome = await handleExecutiveEvidence(state, intent)
+      break
+    case 'executive_review':
+      outcome = await handleExecutiveReview(state, intent)
+      break
     case 'unsupported_metric':
       outcome = await handleUnsupportedMetric(state)
       break
@@ -1593,6 +2104,7 @@ export async function runAgentTurn(
       activeQuery: state.ctx.activeQuery,
       lastActions: state.ctx.lastActions,
       lastEntity: state.ctx.lastEntity,
+      executiveSession: state.ctx.executiveSession ?? null,
       fingerprint,
       responseFormat: selected,
       lastAnswer: cacheable ? { intent: intent.kind, response: outcome.response, auto: autoResolution } : null,

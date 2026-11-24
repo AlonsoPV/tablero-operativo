@@ -37,6 +37,18 @@ export type AgentIntent =
       kind: 'executive_commitments'
       filter: 'all' | 'verification' | 'by_owner' | 'overdue'
     }
+  | {
+      kind: 'executive_discipline'
+      focus: 'stale' | 'overview'
+    }
+  | { kind: 'executive_preventive' }
+  | { kind: 'executive_evidence'; priorityIndex?: number }
+  | {
+      kind: 'executive_review'
+      action: 'start' | 'next' | 'skip' | 'focus_priority' | 'record_decision' | 'summary'
+      priorityIndex?: number
+      note?: string
+    }
   | { kind: 'who_most_urgent' }
   | { kind: 'recommend_next' }
   | { kind: 'unsupported_metric'; domain: 'finance' }
@@ -139,6 +151,63 @@ export function classifyAgentIntent(
 
   if (/\b(prepara|preparar|genera|generar|arma|armar)\b/.test(text) && /\bborrador\b/.test(text) && /\b(accion|tarea)\b/.test(text)) {
     return { kind: 'write_request', operation: 'create_action', request: utterance.slice(0, 500) }
+  }
+
+  // Fase 2 — Revisión ejecutiva guiada (~15 min), disciplina operativa, inteligencia preventiva y trazabilidad
+  if (
+    /\b(revision ejecutiva|sesion ejecutiva|revisemos la operacion en 15|hagamos una revision|revision de 15 minutos)\b/.test(
+      text
+    )
+  ) {
+    return { kind: 'executive_review', action: 'start' }
+  }
+
+  if (
+    /\b(resume nuestras decisiones|resumen de decisiones|resumen ejecutivo final|prepara los compromisos|cerrar revision ejecutiva|cierra la revision)\b/.test(
+      text
+    )
+  ) {
+    return { kind: 'executive_review', action: 'summary' }
+  }
+
+  if (/^(?:decision|registra(?:r)?\s+(?:esta\s+)?decision|acordamos)\s*[:,-]?\s*(.+)$/i.test(text)) {
+    const note = utterance.replace(/^(?:decisi[oó]n|registra(?:r)?\s+(?:esta\s+)?decisi[oó]n|acordamos)\s*[:,-]?\s*/i, '').trim()
+    return { kind: 'executive_review', action: 'record_decision', ...(note ? { note: note.slice(0, 300) } : {}) }
+  }
+
+  if (/\b(siguiente etapa|siguiente punto|avanza(?:r)? (?:a la )?siguiente|continuar revision)\b/.test(text)) {
+    return { kind: 'executive_review', action: 'next' }
+  }
+
+  if (/\b(omitir etapa|saltar etapa|saltar (?:riesgos|prioridades|decisiones|bloqueos)|omitir este punto)\b/.test(text)) {
+    return { kind: 'executive_review', action: 'skip' }
+  }
+
+  if (
+    /\b(disciplina operativa|demasiado tiempo sin seguimiento|tiempo sin seguimiento|sin seguimiento|sin actualizacion reciente|bloqueos prolongados|donde estamos perdiendo disciplina)\b/.test(
+      text
+    )
+  ) {
+    const focus = /\b(demasiado tiempo|sin seguimiento|sin actualizacion)\b/.test(text) ? 'stale' : 'overview'
+    return { kind: 'executive_discipline', focus }
+  }
+
+  if (
+    /\b(podemos prevenir|prevenir esta semana|problemas podemos prevenir|inteligencia preventiva|riesgos preventivos|proximos a vencer esta semana|antes de que se conviertan)\b/.test(
+      text
+    )
+  ) {
+    return { kind: 'executive_preventive' }
+  }
+
+  if (
+    /\b(sustentan esta recomendacion|acciones que sustentan|respaldan esta recomendacion|ver evidencia|muestrame la evidencia|profundiza(?:r)? en la prioridad|detalle de la prioridad)\b/.test(
+      text
+    )
+  ) {
+    const match = text.match(/\bprioridad\s*#?\s*([1-3])\b/)
+    const priorityIndex = match ? Number(match[1]) - 1 : undefined
+    return { kind: 'executive_evidence', ...(priorityIndex !== undefined ? { priorityIndex } : {}) }
   }
 
   if (
