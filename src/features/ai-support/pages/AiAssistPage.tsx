@@ -2017,7 +2017,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
 
   return (
     <div className="-m-4 flex h-[calc(100%+2rem)] min-h-0 w-[calc(100%+2rem)] max-w-none flex-col gap-2 overflow-hidden p-3 sm:p-4">
-      <header className="flex shrink-0 flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-2.5">
+      <header className="flex shrink-0 flex-wrap items-center gap-1.5 sm:flex-nowrap sm:gap-2.5">
         <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
           <Bot className="h-3.5 w-3.5" aria-hidden />
         </span>
@@ -2030,7 +2030,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
             <div className="hidden h-5 w-px shrink-0 bg-border/70 sm:block" aria-hidden />
             <div
               className={cn(
-                'ml-auto w-[10.5rem] shrink-0 sm:ml-0 sm:w-[11.5rem]',
+                'ml-auto w-[8.75rem] shrink-0 sm:ml-0 sm:w-[11.5rem]',
                 lane !== 'write' && 'sm:ml-auto'
               )}
             >

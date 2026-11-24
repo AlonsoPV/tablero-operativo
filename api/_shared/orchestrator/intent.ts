@@ -227,7 +227,7 @@ export function classifyAgentIntent(
   }
 
   if (
-    /\b(resume nuestras decisiones|resumen de decisiones|resumen ejecutivo final|prepara los compromisos|cerrar revision ejecutiva|cierra la revision)\b/.test(
+    /\b(resume nuestras decisiones|resumen de decisiones|resumen ejecutivo final|resumen final|resumen de la sesion|prepara los compromisos|cerrar revision ejecutiva|cierra la revision)\b/.test(
       text
     )
   ) {
@@ -239,15 +239,24 @@ export function classifyAgentIntent(
     return { kind: 'executive_review', action: 'record_decision', ...(note ? { note: note.slice(0, 300) } : {}) }
   }
 
-  if (/\b(siguiente etapa|siguiente punto|avanza(?:r)? (?:a la )?siguiente|continuar revision)\b/.test(text)) {
+  if (
+    /\b(siguiente etapa|siguiente punto|avanza(?:r)? (?:a la )?siguiente|continuar revision)\b/.test(text) ||
+    (session?.hasExecutiveSession && /^(siguiente|avanza(?:r)?|continuar)$/.test(text))
+  ) {
     return { kind: 'executive_review', action: 'next' }
   }
 
-  if (/\b(etapa anterior|regresa(?:r)?(?: a la etapa)?|volver(?: a)?(?: la)? etapa|atras en la revision)\b/.test(text)) {
+  if (
+    /\b(etapa anterior|regresa(?:r)?(?: a la etapa)?|volver(?: a)?(?: la)? etapa|atras en la revision)\b/.test(text) ||
+    (session?.hasExecutiveSession && /^(volver|regresar|atras|anterior)$/.test(text))
+  ) {
     return { kind: 'executive_review', action: 'previous' }
   }
 
-  if (/\b(omitir etapa|saltar etapa|saltar (?:riesgos|prioridades|decisiones|bloqueos)|omitir este punto)\b/.test(text)) {
+  if (
+    /\b(omitir etapa|saltar etapa|saltar (?:riesgos|prioridades|decisiones|bloqueos)|omitir este punto)\b/.test(text) ||
+    (session?.hasExecutiveSession && /^(omitir|saltar)$/.test(text))
+  ) {
     return { kind: 'executive_review', action: 'skip' }
   }
 
