@@ -43,6 +43,10 @@ function toActionItem(raw: unknown): ActionItem | null {
     prioridad: str(row.prioridad),
     href: str(row.href) ?? `/kanban?accion=${encodeURIComponent(id)}`,
     responsableId: str(row.responsable),
+    ...(str(row.responsable_nombre) || str(row.responsableNombre)
+      ? { responsableNombre: str(row.responsable_nombre) ?? str(row.responsableNombre) }
+      : {}),
+    ...(str(row.area) ? { area: str(row.area) } : {}),
   }
 }
 

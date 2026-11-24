@@ -29,6 +29,14 @@ export type AgentIntent =
       statusGroup: 'open' | 'overdue' | 'blocked'
     }
   | { kind: 'analyze_risk' }
+  | {
+      kind: 'executive_brief'
+      focus: 'overview' | 'priorities' | 'execution' | 'recurrence'
+    }
+  | {
+      kind: 'executive_commitments'
+      filter: 'all' | 'verification' | 'by_owner' | 'overdue'
+    }
   | { kind: 'who_most_urgent' }
   | { kind: 'recommend_next' }
   | { kind: 'unsupported_metric'; domain: 'finance' }
@@ -76,8 +84,61 @@ export function classifyAgentIntent(
     return { kind: 'unsupported_metric', domain: 'finance' }
   }
 
-  if (/\b(riesgo|en peligro|amenaza|comprometiendo|poniendo en riesgo)\b/.test(text)) {
+  if (/\b(riesgos?|en peligro|amenaza|comprometiendo|poniendo en riesgo)\b/.test(text)) {
     return { kind: 'analyze_risk' }
+  }
+
+  // Inteligencia ejecutiva: diagnóstico operativo, prioridades, patrones repetidos y compromisos
+  if (
+    /\b(como esta mi empresa|como va mi empresa|como estamos hoy|estado general de la operacion|panorama ejecutivo|diagnostico operativo|analizar ejecucion de la empresa|analiza la ejecucion de la empresa|donde tenemos problemas de ejecucion)\b/.test(
+      text
+    )
+  ) {
+    const focus = /\b(problemas de ejecucion|analizar ejecucion|analiza la ejecucion)\b/.test(text)
+      ? 'execution'
+      : 'overview'
+    return { kind: 'executive_brief', focus }
+  }
+
+  if (
+    /\b(que requiere mi atencion|principales problemas|3 principales|tres principales|top 3|prioridades ejecutivas|que deberia priorizar hoy|que priorizar hoy)\b/.test(
+      text
+    )
+  ) {
+    return { kind: 'executive_brief', focus: 'priorities' }
+  }
+
+  if (/\b(que situaciones se estan repitiendo|situaciones repetidas|problemas repetitivos|reincidencia)\b/.test(text)) {
+    return { kind: 'executive_brief', focus: 'recurrence' }
+  }
+
+  if (
+    /\b(que departamentos presentan mayores retrasos|departamentos con mayores retrasos|areas con mas retrasos|que areas tienen mas retrasos)\b/.test(
+      text
+    )
+  ) {
+    return { kind: 'aggregate_execution', groupBy: 'area', statusGroup: 'overdue' }
+  }
+
+  if (
+    /\b(compromisos pendientes|acuerdos pendientes|compromisos por responsable|pendientes de verificacion|pendientes de verificado|en hecho pendientes|situaciones sin actualizacion)\b/.test(
+      text
+    )
+  ) {
+    const filter = /\b(verificacion|verificado|en hecho)\b/.test(text)
+      ? 'verification'
+      : /\bpor responsable\b/.test(text)
+        ? 'by_owner'
+        : 'all'
+    return { kind: 'executive_commitments', filter }
+  }
+
+  if (/\b(avances estrategicos|avance estrategico|revisar avances estrategicos|resultados de los okrs?)\b/.test(text)) {
+    return { kind: 'query_okrs', period: /\b(trimestre|trimestral|q[1-4])\b/.test(text) ? 'current_quarter' : 'all_active' }
+  }
+
+  if (/\b(prepara|preparar|genera|generar|arma|armar)\b/.test(text) && /\bborrador\b/.test(text) && /\b(accion|tarea)\b/.test(text)) {
+    return { kind: 'write_request', operation: 'create_action', request: utterance.slice(0, 500) }
   }
 
   if (

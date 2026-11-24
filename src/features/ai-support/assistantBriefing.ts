@@ -177,17 +177,20 @@ const QUICK_ACTIONS: Record<AssistantQuickActionId, Omit<AssistantQuickAction, '
     prompt: 'Que acciones vencidas o en retraso tiene todo el equipo?',
   },
   executive: {
-    label: 'Panorama ejecutivo',
-    prompt: 'Dame un panorama ejecutivo del tablero: avance, retrasos, bloqueos y riesgos.',
+    label: 'Atención hoy',
+    prompt: '¿Qué requiere mi atención hoy?',
   },
   risks: {
-    label: 'Riesgos y desviaciones',
-    prompt: 'Que riesgos y desviaciones hay en el tablero y que conviene atender primero?',
+    label: 'Analizar ejecución',
+    prompt: 'Analizar ejecución de la empresa',
   },
-  okr_results: { label: 'Resultados de OKRs', prompt: 'Como van los resultados de los OKRs?' },
+  okr_results: {
+    label: 'Avances estratégicos',
+    prompt: 'Revisar avances estratégicos',
+  },
   decisions: {
-    label: 'Decisiones pendientes',
-    prompt: 'Que decisiones o escalamientos estan pendientes y quien debe resolverlos?',
+    label: 'Compromisos pendientes',
+    prompt: 'Revisar compromisos pendientes',
   },
 }
 
