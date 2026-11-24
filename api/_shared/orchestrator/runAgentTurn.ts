@@ -25,7 +25,7 @@ import type {
   QueryResult,
   QueryStatus,
 } from '../query/contracts.js'
-import { queryActions, queryAggregate, queryOkrs, type ToolDispatcher } from '../query/index.js'
+import { okrBehindPace, queryActions, queryAggregate, queryOkrs, type ToolDispatcher } from '../query/index.js'
 import type { QueryAuditEntry, QueryAuditSink } from '../query/queryAudit.js'
 import type { AgentActor } from '../query/resolveActor.js'
 import { UNAVAILABLE_DOMAINS } from '../query/sourceCatalog.js'
@@ -585,10 +585,18 @@ async function handleOkrs(state: TurnState, intent: Extract<AgentIntent, { kind:
         (okr.withoutInitiatives ? ' · sin iniciativas' : '')
     )
   }
-  const lagging = result.items.filter((o) => o.progress != null && o.progress < 40)
+  const lagging = result.items.filter((o) => okrBehindPace(o, state.today))
+  const withoutPace = result.items.filter((o) => o.progress == null || (!o.pace && !o.startDate && !o.endDate))
   if (lagging.length) {
-    response.blocks.interpretation.push(`${lagging.length} objetivo(s) por debajo de 40% de avance: ${lagging.map((o) => o.name).join(', ')}.`)
-    response.blocks.recommendation.push('Revisa iniciativas y responsables de los objetivos rezagados.')
+    response.blocks.interpretation.push(
+      `${lagging.length} objetivo(s) bajo el ritmo esperado del periodo (avance vs tiempo transcurrido): ${lagging.map((o) => o.name).join(', ')}.`
+    )
+    response.blocks.recommendation.push('Revisa iniciativas y responsables de los objetivos que van bajo ritmo.')
+  }
+  if (withoutPace.length && !lagging.length) {
+    response.blocks.limitations.push(
+      `${withoutPace.length} objetivo(s) no tienen periodo o avance suficiente para evaluar ritmo; no se clasifican como riesgo.`
+    )
   }
   if (intent.period === 'current_quarter') {
     response.blocks.limitations.push('Se usan los objetivos activos; el periodo exacto de cada uno está en el módulo OKRs.')
@@ -596,7 +604,7 @@ async function handleOkrs(state: TurnState, intent: Extract<AgentIntent, { kind:
   response.blocks.limitations.push(...result.limitations)
   const unmeasuredKrs = result.items.reduce((sum, o) => sum + o.insufficientKrs, 0)
   const okrMetrics: AnswerMetric[] = [{ id: 'total', label: 'Objetivos activos', value: result.totals.total }]
-  okrMetrics.push({ id: 'lagging', label: 'Avance menor a 40%', value: lagging.length, tone: lagging.length ? 'warning' : 'ok' })
+  okrMetrics.push({ id: 'lagging', label: 'Bajo ritmo del periodo', value: lagging.length, tone: lagging.length ? 'warning' : 'ok' })
   if (unmeasuredKrs) okrMetrics.push({ id: 'unmeasured_krs', label: 'KR sin datos', value: unmeasuredKrs, tone: 'warning' })
   withFacts(response, {
     primary: { text: `${result.totals.total} objetivo(s) activo(s).`, value: result.totals.total },
@@ -604,7 +612,7 @@ async function handleOkrs(state: TurnState, intent: Extract<AgentIntent, { kind:
     items: result.items.slice(0, LIST_LIMIT).map(okrItem),
     findings: lagging.length
       ? [{
-          text: `${lagging.length} objetivo(s) por debajo de 40% de avance: ${lagging.map((o) => o.name).join(', ')}.`,
+          text: `${lagging.length} objetivo(s) bajo el ritmo esperado del periodo: ${lagging.map((o) => o.name).join(', ')}.`,
           basis: 'evidence',
           risk: true,
         }]
@@ -686,10 +694,10 @@ async function handleRisk(state: TurnState) {
   } else response.blocks.limitations.push(statusMessage(blocked.status, 'acciones bloqueadas'))
 
   const lagging = okrs && (okrs.status === 'ok' || okrs.status === 'partial')
-    ? okrs.items.filter((o) => o.progress != null && o.progress < 40)
+    ? okrs.items.filter((o) => okrBehindPace(o, state.today))
     : []
   if (okrs && (okrs.status === 'ok' || okrs.status === 'partial')) {
-    response.blocks.data.push(`Objetivos con avance menor a 40%: ${lagging.length} de ${okrs.totals.total}.`)
+    response.blocks.data.push(`Objetivos bajo ritmo del periodo: ${lagging.length} de ${okrs.totals.total}.`)
     const unmeasured = okrs.items.reduce((sum, o) => sum + o.insufficientKrs, 0)
     if (unmeasured) response.blocks.data.push(`KR sin datos para medir: ${unmeasured}.`)
   } else {
@@ -719,8 +727,8 @@ async function handleRisk(state: TurnState) {
     summary.push(`${blocked.totals.total} bloqueada(s)`)
   }
   if (okrOk && okrs) {
-    metrics.push({ id: 'lagging_okrs', label: 'Objetivos con avance menor a 40%', value: lagging.length, tone: lagging.length ? 'warning' : 'ok', scope: `de ${okrs.totals.total}` })
-    summary.push(`${lagging.length} de ${okrs.totals.total} objetivo(s) con avance menor a 40%`)
+    metrics.push({ id: 'lagging_okrs', label: 'Objetivos bajo ritmo del periodo', value: lagging.length, tone: lagging.length ? 'warning' : 'ok', scope: `de ${okrs.totals.total}` })
+    summary.push(`${lagging.length} de ${okrs.totals.total} objetivo(s) bajo ritmo del periodo`)
     const unmeasured = okrs.items.reduce((sum, o) => sum + o.insufficientKrs, 0)
     if (unmeasured) metrics.push({ id: 'unmeasured_krs', label: 'KR sin datos', value: unmeasured, tone: 'warning' })
   }
@@ -895,7 +903,7 @@ async function handleExecutiveBrief(
   if (diagnosis.okrSummary && diagnosis.okrSummary.total > 0) {
     const avg = diagnosis.okrSummary.avgProgress !== null ? `${diagnosis.okrSummary.avgProgress}% promedio` : 'sin avance calculable'
     response.blocks.data.push(
-      `Avance estratégico: ${diagnosis.okrSummary.total} OKR(s) activos (${avg}${diagnosis.okrSummary.atRisk.length > 0 ? `, ${diagnosis.okrSummary.atRisk.length} por debajo de 40%` : ''}).`
+      `Avance estratégico: ${diagnosis.okrSummary.total} OKR(s) activos (${avg}${diagnosis.okrSummary.atRisk.length > 0 ? `, ${diagnosis.okrSummary.atRisk.length} bajo ritmo del periodo` : ''}).`
     )
   }
 

@@ -124,7 +124,9 @@ const DEMO_OKRS = [
     krCount: 3,
     initiativesCount: 2,
     scope: 'company',
-    pace: 'behind',
+    start_date: '2026-10-01',
+    end_date: '2026-12-31',
+    pace: 'bajo_ritmo',
   },
   {
     id: 'okr-2',
@@ -133,7 +135,9 @@ const DEMO_OKRS = [
     krCount: 2,
     initiativesCount: 2,
     scope: 'company',
-    pace: 'on_track',
+    start_date: '2026-10-01',
+    end_date: '2026-12-31',
+    pace: 'en_ritmo',
   },
   {
     id: 'okr-3',
@@ -142,7 +146,9 @@ const DEMO_OKRS = [
     krCount: 2,
     initiativesCount: 0,
     scope: 'team',
-    pace: null,
+    start_date: null,
+    end_date: null,
+    pace: 'sin_datos',
   },
 ]
 
@@ -324,6 +330,16 @@ describe('Executive MVP — 5 End-to-End Demo Scenarios', () => {
     expect(okrTurn.turn.intent).toBe('query_okrs')
     expect(okrTurn.text).toContain('Elevar OTIF de entregas a 96%')
     expect(okrTurn.text).toContain('sin datos suficientes')
+    expect(okrTurn.text).toContain('bajo el ritmo esperado del periodo')
+
+    const attention = await runWebDemoTurn(
+      OWNER_ACTOR,
+      '¿Qué objetivos estratégicos requieren atención?',
+      { dispatch: createDemoDispatcher(), store, today: () => TODAY }
+    )
+    expect(attention.turn.handled).toBe(true)
+    expect(attention.turn.intent).toBe('query_okrs')
+    expect(attention.text).toContain('Elevar OTIF de entregas a 96%')
 
     const riskTurn = await runWebDemoTurn(
       OWNER_ACTOR,
@@ -333,6 +349,7 @@ describe('Executive MVP — 5 End-to-End Demo Scenarios', () => {
     expect(riskTurn.turn.handled).toBe(true)
     expect(riskTurn.turn.intent).toBe('analyze_risk')
     expect(riskTurn.text).toContain('32%')
+    expect(riskTurn.text).toContain('bajo ritmo del periodo')
   })
 
   it('Escenario 5: El dueño recibe recomendación y prepara un borrador de acción sin ejecutar R2', async () => {

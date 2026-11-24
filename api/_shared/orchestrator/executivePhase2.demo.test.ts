@@ -119,6 +119,9 @@ const PHASE2_OKRS = [
     krCount: 2,
     without_initiatives: false,
     insufficient_krs: 0,
+    start_date: '2026-10-01',
+    end_date: '2026-12-31',
+    pace: 'bajo_ritmo',
     krs: [{ id: 'kr-1', title: 'OTIF nacional', actual: 88, meta: 95, unidad: '%', progress: 34 }],
   },
   {
@@ -128,6 +131,9 @@ const PHASE2_OKRS = [
     krCount: 1,
     without_initiatives: true,
     insufficient_krs: 1,
+    start_date: '2026-10-01',
+    end_date: '2026-12-31',
+    pace: 'sin_datos',
     krs: [{ id: 'kr-2', title: 'Incidentes', actual: null, meta: 2, unidad: '#', progress: null }],
   },
 ]

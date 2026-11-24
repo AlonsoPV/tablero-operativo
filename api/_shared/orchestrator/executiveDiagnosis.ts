@@ -4,7 +4,7 @@
  * separando problemas actuales, riesgos potenciales y oportunidades de mejora.
  * Reutiliza los contratos de queryActions / queryAggregate / queryOkrs sin duplicar lógica ni permisos.
  */
-import type { ActionItem, OkrItem } from '../query/index.js'
+import { okrBehindPace, type ActionItem, type OkrItem } from '../query/index.js'
 import type { AnswerFinding, AnswerItem, AnswerMetric } from './answerContract.js'
 
 const HIGH_PRIORITY_RE = /\b(p1|alta|urgente|critica|crítica|roja?)\b/i
@@ -406,7 +406,7 @@ export function buildExecutiveDiagnosis(input: {
       total: input.okrs.length,
       withProgress: withProgress.length,
       avgProgress,
-      atRisk: withProgress.filter((o) => (o.progress ?? 0) < 40),
+      atRisk: input.okrs.filter((o) => okrBehindPace(o, today)),
       withoutData: input.okrs.filter((o) => o.progress == null),
       withoutInitiatives: input.okrs.filter((o) => o.withoutInitiatives),
     }
@@ -469,7 +469,7 @@ export function buildExecutiveDiagnosis(input: {
   }
   if (okrSummary && okrSummary.atRisk.length > 0) {
     preventiveRisks.push(
-      `${okrSummary.atRisk.length} OKR(s) avanzan < 40% y requieren acciones correctivas para no perder el periodo.`
+      `${okrSummary.atRisk.length} OKR(s) van bajo el ritmo esperado del periodo (avance vs tiempo transcurrido; no es un umbral fijo de 40%).`
     )
   }
 
@@ -642,9 +642,9 @@ export function executiveFindings(diagnosis: ExecutiveDiagnosis): AnswerFinding[
       findings.push({
         basis: 'evidence',
         risk: true,
-        text: `${diagnosis.okrSummary.atRisk.length} objetivo(s) estratégico(s) avanzan por debajo de 40%: ${diagnosis.okrSummary.atRisk
+        text: `${diagnosis.okrSummary.atRisk.length} objetivo(s) estratégico(s) van bajo el ritmo del periodo: ${diagnosis.okrSummary.atRisk
           .slice(0, 3)
-          .map((o) => `«${o.name}» (${Math.round(o.progress ?? 0)}%)`)
+          .map((o) => `«${o.name}» (${o.progress == null ? 'sin avance' : `${Math.round(o.progress)}%`}${o.pace ? ` · ${o.pace}` : ''})`)
           .join(', ')}.`,
       })
     }
