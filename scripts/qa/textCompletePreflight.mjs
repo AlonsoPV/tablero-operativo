@@ -14,6 +14,7 @@ import {
   TextCompleteGuardError,
   assertQaIsolation,
   buildQaPreviewRequest,
+  isLocalQaMode,
   loadQaEnvFile,
   redactQaSecrets,
   resolveCandidate,
@@ -251,7 +252,7 @@ export async function runTextCompletePreflight({
     })
   }
 
-  // 5. Preview SSO intact + authenticated access
+  // 5. Preview SSO intact + authenticated access (or local loopback reachability when allowLoopback)
   let previewConfig = null
   try {
     previewConfig = resolveQaPreviewConfig(env, { allowLoopback })
@@ -263,7 +264,24 @@ export async function runTextCompletePreflight({
   }
 
   if (previewConfig) {
-    if (previewConfig.authMode === 'none') {
+    if (previewConfig.authMode === 'local_loopback') {
+      try {
+        const localRes = await fetchImpl(`${previewConfig.baseUrl}/`, { method: 'GET', redirect: 'manual' })
+        const ok = localRes.status >= 200 && localRes.status < 400
+        setCheck('preview_sso_and_access', ok ? 'PASS' : 'BLOCKED', {
+          host: previewConfig.host,
+          authMode: 'local_loopback',
+          httpStatus: localRes.status,
+          reason: ok ? undefined : `App local devolvió HTTP ${localRes.status}`,
+        })
+      } catch (error) {
+        setCheck('preview_sso_and_access', 'BLOCKED', {
+          host: previewConfig.host,
+          authMode: 'local_loopback',
+          reason: `Error conectando a app local: ${error instanceof Error ? error.message.slice(0, 160) : String(error)}`,
+        })
+      }
+    } else if (previewConfig.authMode === 'none') {
       setCheck('preview_sso_and_access', 'BLOCKED', {
         host: previewConfig.host,
         authMode: 'none',
@@ -330,21 +348,63 @@ export async function runTextCompletePreflight({
     setCheck('harness_and_fixtures', 'FAIL', { reason: error instanceof Error ? error.message : String(error) })
   }
 
-  // 7. Vercel deployment SHA, branch, expected flags & rollback readiness (read-only)
-  const { token: vercelToken, source: tokenSource } = resolveVercelToken({
-    ...env,
-    VERCEL_TOKEN: env.TC_VERCEL_TOKEN || env.VERCEL_TOKEN,
-  })
-  if (vercelToken) secrets.push(vercelToken)
-
+  // 7. Deployment SHA, branch, expected flags & rollback readiness (Vercel remote OR local env)
   let candidate = null
   try {
     candidate = resolveCandidate(env)
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     setCheck('preview_sha_and_flags', 'BLOCKED', { reason })
-    setCheck('rollback_ready', 'BLOCKED', { tokenSource, reason })
+    setCheck('rollback_ready', 'BLOCKED', { reason })
   }
+
+  if (candidate && allowLoopback && isLocalQaMode(env)) {
+    const r1On = env.AGENT_ORCHESTRATOR_R1 === '1'
+    const r3On = env.AGENT_MEMORY_R3 === '1'
+    const r2Qa = env.R2_EXECUTION_MODE === 'qa'
+    const qaLocalOn = env.QA_LOCAL === '1'
+    const allowlistHasRef =
+      qaTarget != null &&
+      String(env.R2_QA_PROJECT_REFS || env.TC_QA_PROJECT_REFS || '')
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .includes(qaTarget.ref)
+    const r0Off = env.R0_ENABLED !== '1'
+    const r4Off = env.R4_ENABLED !== '1'
+    const reasons = []
+    if (!r1On) reasons.push('AGENT_ORCHESTRATOR_R1 != 1')
+    if (!r3On) reasons.push('AGENT_MEMORY_R3 != 1')
+    if (!r2Qa) reasons.push('R2_EXECUTION_MODE != qa')
+    if (!qaLocalOn) reasons.push('QA_LOCAL != 1')
+    if (!allowlistHasRef) reasons.push('R2_QA_PROJECT_REFS no incluye ref local QA')
+    if (!r0Off) reasons.push('R0_ENABLED debe permanecer OFF')
+    if (!r4Off) reasons.push('R4_ENABLED debe permanecer OFF')
+    setCheck('preview_sha_and_flags', reasons.length === 0 ? 'PASS' : 'BLOCKED', {
+      mode: 'local_qa',
+      expectedSha: candidate.expectedSha,
+      expectedBranch: candidate.expectedBranch,
+      flags: {
+        AGENT_ORCHESTRATOR_R1: env.AGENT_ORCHESTRATOR_R1 ?? 'unset',
+        AGENT_MEMORY_R3: env.AGENT_MEMORY_R3 ?? 'unset',
+        R2_EXECUTION_MODE: env.R2_EXECUTION_MODE ?? 'unset',
+        QA_LOCAL: env.QA_LOCAL ?? 'unset',
+        COPILOT_R2_GATE: env.COPILOT_R2_GATE ?? 'unset',
+        R0_ENABLED: env.R0_ENABLED ?? 'unset',
+        R4_ENABLED: env.R4_ENABLED ?? 'unset',
+      },
+      reason: reasons.length ? reasons.join('; ') : undefined,
+    })
+    setCheck('rollback_ready', 'PASS', {
+      mode: 'local_qa',
+      dbRollbackScript: 'supabase/scripts/rollback_agent_apply_action_status.sql',
+      scope: `local:${qaTarget?.ref ?? 'unknown'}`,
+    })
+  } else {
+  const { token: vercelToken, source: tokenSource } = resolveVercelToken({
+    ...env,
+    VERCEL_TOKEN: env.TC_VERCEL_TOKEN || env.VERCEL_TOKEN,
+  })
+  if (vercelToken) secrets.push(vercelToken)
 
   if (candidate && !vercelToken) {
     setCheck('preview_sha_and_flags', 'BLOCKED', {
@@ -421,6 +481,7 @@ export async function runTextCompletePreflight({
       })
     }
   }
+  }
 
   const hasFail = Object.values(checks).some((c) => c.critical && c.status === 'FAIL')
   const hasBlocked = Object.values(checks).some((c) => c.critical && c.status === 'BLOCKED')
@@ -450,7 +511,7 @@ if (isMain) {
   try {
     const env = loadQaEnvFile(process.env.TC_ENV_FILE, process.env)
     const reportPath = resolve('.qa/text-complete-preflight.json')
-    const report = await runTextCompletePreflight({ env, reportPath })
+    const report = await runTextCompletePreflight({ env, allowLoopback: isLocalQaMode(env), reportPath })
     console.log(JSON.stringify(report, null, 2))
     process.exit(report.status === 'READY' ? 0 : report.status === 'BLOCKED' ? 2 : 1)
   } catch (error) {

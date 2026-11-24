@@ -38,7 +38,12 @@ export const FULL_SHA_RE = /^[0-9a-f]{40}$/
 export const LOCAL_REF_RE = /^qalocal[a-z0-9]{13}$/
 
 export const REQUIRED_QA_AUTH = 'AUTH-TEXT-COMPLETE-QA'
+export const REQUIRED_LOCAL_QA_AUTH = 'AUTH-TEXT-COMPLETE-LOCAL-QA'
 export const REQUIRED_ROLLBACK_AUTH = 'AUTH-TEXT-COMPLETE-ROLLBACK'
+
+export function isLocalQaMode(env = process.env) {
+  return String(env.TC_LOCAL_QA || '').trim() === '1'
+}
 
 export class TextCompleteGuardError extends Error {
   constructor(code, message) {
@@ -191,8 +196,13 @@ export function resolveQaSupabaseTarget(env = process.env, { allowLoopback = fal
     throw new TextCompleteGuardError('QA_URL_INVALID', 'TC_QA_SUPABASE_URL no es una URL válida')
   }
 
+  const isLoopbackSupa = parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost'
+  if (allowLoopback && !isLoopbackSupa) {
+    throw new TextCompleteGuardError('QA_LOCAL_NOT_LOOPBACK', 'En modo local QA, TC_QA_SUPABASE_URL debe ser http://127.0.0.1:<puerto> o http://localhost:<puerto>')
+  }
+
   let ref = refFromSupabaseUrl(url)
-  if (!ref && allowLoopback && (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost')) {
+  if (!ref && allowLoopback && isLoopbackSupa) {
     const localRef = String(env.TC_QA_LOCAL_REF || '').trim().toLowerCase()
     if (!LOCAL_REF_RE.test(localRef)) {
       throw new TextCompleteGuardError('QA_LOCAL_REF_INVALID', 'TC_QA_LOCAL_REF debe ser qalocal + 13 caracteres [a-z0-9]')
@@ -244,6 +254,9 @@ export function resolveQaPreviewConfig(env = process.env, { allowLoopback = fals
     throw new TextCompleteGuardError('PREVIEW_IS_PROD', `TC_PREVIEW_URL apunta a Production (${host})`)
   }
   const isLoopback = host === '127.0.0.1' || host === 'localhost'
+  if (allowLoopback && !isLoopback) {
+    throw new TextCompleteGuardError('LOCAL_PREVIEW_NOT_LOOPBACK', 'En TC_LOCAL_QA=1, TC_PREVIEW_URL debe apuntar a loopback (127.0.0.1/localhost)')
+  }
   if (parsed.protocol !== 'https:' && !(allowLoopback && isLoopback)) {
     throw new TextCompleteGuardError('PREVIEW_NOT_HTTPS', 'TC_PREVIEW_URL debe usar https://')
   }
@@ -253,7 +266,8 @@ export function resolveQaPreviewConfig(env = process.env, { allowLoopback = fals
   const storageStatePath = String(env.TC_PREVIEW_STORAGE_STATE || '').trim() || null
 
   let authMode = 'none'
-  if (bypassSecret) authMode = 'vercel_protection_bypass'
+  if (allowLoopback && isLoopback) authMode = 'local_loopback'
+  else if (bypassSecret) authMode = 'vercel_protection_bypass'
   else if (storageStatePath) authMode = 'playwright_storage_state'
   else if (shareToken) authMode = 'vercel_share_token'
 
@@ -335,13 +349,18 @@ export function resolveTcFixturePrefix(env = process.env) {
 
 export function requireTextCompleteAuth(env = process.env, argv = process.argv.slice(2)) {
   const auth = String(env.TC_QA_AUTH || '').trim()
-  if (auth !== REQUIRED_QA_AUTH) {
-    throw new TextCompleteGuardError('AUTH_MISSING', `Ejecución bloqueada: requiere TC_QA_AUTH=${REQUIRED_QA_AUTH}`)
+  const localMode = isLocalQaMode(env)
+  const expected = localMode ? REQUIRED_LOCAL_QA_AUTH : REQUIRED_QA_AUTH
+  const valid = localMode
+    ? auth === REQUIRED_LOCAL_QA_AUTH || auth === REQUIRED_QA_AUTH
+    : auth === REQUIRED_QA_AUTH
+  if (!valid) {
+    throw new TextCompleteGuardError('AUTH_MISSING', `Ejecución bloqueada: requiere TC_QA_AUTH=${expected}`)
   }
   if (!argv.includes('--execute')) {
     throw new TextCompleteGuardError('EXECUTE_FLAG_MISSING', 'Ejecución bloqueada: agrega --execute junto con la autorización')
   }
-  return { authorized: true, token: REQUIRED_QA_AUTH }
+  return { authorized: true, token: auth }
 }
 
 export function requireTcRollbackAuth(env = process.env, argv = process.argv.slice(2)) {

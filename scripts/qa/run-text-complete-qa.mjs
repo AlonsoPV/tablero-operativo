@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
 import {
   TextCompleteGuardError,
+  isLocalQaMode,
   loadQaEnvFile,
   redactQaSecrets,
   requireTextCompleteAuth,
@@ -87,9 +88,10 @@ export async function executeTextCompleteCli({
   outDir = resolve('.qa'),
 } = {}) {
   const auth = requireTextCompleteAuth(env, argv)
+  const allowLoopback = isLocalQaMode(env)
 
   const preflightPath = resolve(outDir, 'text-complete-preflight.json')
-  const preflight = await preflightFn({ env, reportPath: preflightPath })
+  const preflight = await preflightFn({ env, allowLoopback, reportPath: preflightPath })
   if (preflight.status !== 'READY') {
     return {
       status: 'BLOCKED',
@@ -99,8 +101,8 @@ export async function executeTextCompleteCli({
     }
   }
 
-  const target = resolveQaSupabaseTarget(env)
-  const previewConfig = resolveQaPreviewConfig(env)
+  const target = resolveQaSupabaseTarget(env, { allowLoopback })
+  const previewConfig = resolveQaPreviewConfig(env, { allowLoopback })
   const identities = resolveTextCompleteIdentities(env)
   const fixturePrefix = resolveTcFixturePrefix(env)
   const runId = Date.now().toString(36)

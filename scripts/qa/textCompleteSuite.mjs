@@ -576,21 +576,21 @@ export async function runTextCompleteSuite({
       })
     }
 
-    // E2: Update fields (fecha + prioridad) on opAction
+    // E2: Update fields (fecha + prioridad) on opAction by lider (creator with general-edit RLS)
     if (halted) skipHalted('B', 'E2', 'R2 Actualizar campos')
     else {
       const t0 = Date.now()
-      const before = (await readAction(sessions.operativo.client, opAction.id)).data
+      const before = (await readAction(sessions.lider.client, opAction.id)).data
       const convId = `${tag}e2`
       await callChat({
         previewConfig,
-        accessToken: sessions.operativo.accessToken,
+        accessToken: sessions.lider.accessToken,
         conversationId: convId,
         messages: [{ role: 'user', content: `Muéstrame la acción ${opAction.titulo_accion}` }],
       })
       const propTurn = await callChat({
         previewConfig,
-        accessToken: sessions.operativo.accessToken,
+        accessToken: sessions.lider.accessToken,
         conversationId: convId,
         messages: [{ role: 'user', content: `Cambia la fecha de esa acción al ${due2} y prioridad alta` }],
       })
@@ -598,9 +598,9 @@ export async function runTextCompleteSuite({
       let after = null
       let audit = null
       if (prop?.id) {
-        await confirmWithReconcile(sessions.operativo, prop.id, opAction.id)
-        after = (await readAction(sessions.operativo.client, opAction.id)).data
-        audit = await readAudit(sessions.operativo.client, prop.id)
+        await confirmWithReconcile(sessions.lider, prop.id, opAction.id)
+        after = (await readAction(sessions.lider.client, opAction.id)).data
+        audit = await readAudit(sessions.lider.client, prop.id)
       }
       const ok = Boolean(
         before?.prioridad === 'P2_Media' &&
@@ -615,12 +615,18 @@ export async function runTextCompleteSuite({
       })
     }
 
-    // E3: Update status by lastEntity (opAction -> Hecho)
+    // E3: Update status by lastEntity (opAction -> Hecho by responsable operativo)
     if (halted) skipHalted('B', 'E3', 'R2 Cambiar estado por lastEntity', true)
     else {
       const t0 = Date.now()
-      const convId = `${tag}e2` // reuses session with lastEntity = opAction
+      const convId = `${tag}e3`
       const before = (await readAction(sessions.operativo.client, opAction.id)).data
+      await callChat({
+        previewConfig,
+        accessToken: sessions.operativo.accessToken,
+        conversationId: convId,
+        messages: [{ role: 'user', content: `Muéstrame la acción ${opAction.titulo_accion}` }],
+      })
       const propTurn = await callChat({
         previewConfig,
         accessToken: sessions.operativo.accessToken,
@@ -652,7 +658,7 @@ export async function runTextCompleteSuite({
     if (halted) skipHalted('B', 'E4', 'R2 Agregar comentario')
     else {
       const t0 = Date.now()
-      const convId = `${tag}e2`
+      const convId = `${tag}e3`
       const commentMarker = `${tag}e4-comentario-real`
       const propTurn = await callChat({
         previewConfig,
@@ -687,7 +693,7 @@ export async function runTextCompleteSuite({
       const deniedTurn = await callChat({
         previewConfig,
         accessToken: sessions.operativo.accessToken,
-        conversationId: `${tag}e2`,
+        conversationId: `${tag}e3`,
         messages: [{ role: 'user', content: 'Marca esa acción como verificada' }],
       })
       const deniedOk = deniedTurn.json?.agent?.status === 'forbidden' && (deniedTurn.json?.proposals?.length ?? 0) === 0
