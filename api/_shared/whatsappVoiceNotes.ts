@@ -14,7 +14,7 @@
 import {
   MAX_AUDIO_BYTES,
   normalizeAudioMime,
-  transcribeAudioBase64WithGemini,
+  transcribeAudioServerSide,
   validateAudioPayload,
   type TranscribeAudioResult,
 } from './audioTranscription.js'
@@ -470,10 +470,9 @@ export async function processWhatsAppVoiceNote(
     // 4. Transcribir con contrato verificado de Gemini (con manejo explícito de 503).
     const transcribed = deps.transcribe
       ? await deps.transcribe({ audioBase64, mimeType: validation.mimeType })
-      : await transcribeAudioBase64WithGemini({
+      : await transcribeAudioServerSide({
           audioBase64,
           mimeType: validation.mimeType,
-          apiKey: process.env.GEMINI_API_KEY ?? '',
         })
 
     if (!transcribed.ok) {

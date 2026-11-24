@@ -32,6 +32,7 @@ import {
   resolveVoiceProviderReadiness,
   sanitizeTextForVoiceSpeech,
 } from './_shared/voiceChannelAdapter.js'
+import { FREE_TIER_GEMINI_MODELS, resolveLlmProvider } from './_shared/aiProviders.js'
 
 type GeminiContent = {
   role: 'user' | 'model'
@@ -97,14 +98,6 @@ export default defineApiHandler(async (req, res) => {
     if (rate.ok === false) {
       return res.status(429).json({
         error: `Demasiadas solicitudes al asistente. Espera ${rate.retryAfterSec}s.`,
-      })
-    }
-
-    const apiKey = process.env.GEMINI_API_KEY
-
-    if (!apiKey) {
-      return res.status(500).json({
-        error: 'Falta configurar GEMINI_API_KEY en variables de entorno.',
       })
     }
 
@@ -232,7 +225,30 @@ export default defineApiHandler(async (req, res) => {
       }
     }
 
-    const candidates = geminiModelCandidates(process.env.GEMINI_MODEL)
+    const llmDecision = resolveLlmProvider(process.env)
+    const apiKey = (process.env.GEMINI_API_KEY ?? '').trim()
+    if (!llmDecision.canCallExternalApi || !apiKey) {
+      return res.status(503).json({
+        error: llmDecision.fallbackMessage,
+        retryable: false,
+        llmProvider: llmDecision.mode,
+        blockedReason: llmDecision.blockedReason,
+      })
+    }
+
+    const rawCandidates = geminiModelCandidates(process.env.GEMINI_MODEL)
+    const candidates =
+      llmDecision.mode === 'gemini_free_tier_verified'
+        ? rawCandidates.filter((m) => (FREE_TIER_GEMINI_MODELS as readonly string[]).includes(m))
+        : rawCandidates
+    if (candidates.length === 0) {
+      return res.status(503).json({
+        error: llmDecision.fallbackMessage,
+        retryable: false,
+        llmProvider: llmDecision.mode,
+        blockedReason: 'Sin modelos permitidos dentro de cuota gratuita; no se hace fallback a modelos de pago.',
+      })
+    }
     const generationConfig = {
       maxOutputTokens: readNumberEnv('GEMINI_MAX_TOKENS', DEFAULT_MAX_OUTPUT_TOKENS),
       temperature: readNumberEnv('GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE),

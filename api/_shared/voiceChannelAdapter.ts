@@ -10,6 +10,7 @@
  *    la garantía de finalización única de R4).
  */
 import type { AgentTurnResult } from './orchestrator/runAgentTurn.js'
+import { resolveAiProviderStack } from './aiProviders.js'
 
 export const VOICE_TURN_MODE = 'turn_based' as const
 export const VOICE_DEFAULT_LOCALE = 'es-MX' as const
@@ -19,27 +20,39 @@ export type VoiceProviderReadiness = {
   mode: typeof VOICE_TURN_MODE
   locale: typeof VOICE_DEFAULT_LOCALE
   realtimeStreamingAvailable: false
-  sttProvider: 'server_transcribe' | 'browser_speech_recognition'
-  ttsProvider: 'elevenlabs_live' | 'browser_es_mx_fallback'
+  sttProvider: 'server_transcribe' | 'local_whisper_adapter' | 'browser_speech_recognition'
+  ttsProvider: 'elevenlabs_live' | 'local_kokoro_adapter' | 'browser_es_mx_fallback'
+  llmProvider: 'gemini_free_tier_verified' | 'gemini_authorized_paid' | 'orchestrator_only_no_llm'
+  localTtsUrl?: string | null
   externalPaidCallsActive: boolean
 }
 
 export function resolveVoiceProviderReadiness(
   env: Record<string, string | undefined> = process.env
 ): VoiceProviderReadiness {
-  const hasElevenLabsKey = Boolean(env.ELEVENLABS_API_KEY?.trim())
-  const allowLiveTts = env.VOICE_TTS_LIVE === '1' && hasElevenLabsKey
-  const allowServerStt =
-    env.VOICE_STT_LIVE === '1' &&
-    Boolean(env.OPENAI_API_KEY?.trim() || env.GEMINI_API_KEY?.trim())
+  const stack = resolveAiProviderStack(env)
+  const sttProvider =
+    stack.stt.mode === 'server_stt_authorized'
+      ? 'server_transcribe'
+      : stack.stt.mode === 'local_whisper_adapter'
+        ? 'local_whisper_adapter'
+        : 'browser_speech_recognition'
+  const ttsProvider =
+    stack.tts.mode === 'elevenlabs_authorized'
+      ? 'elevenlabs_live'
+      : stack.tts.mode === 'local_kokoro_adapter'
+        ? 'local_kokoro_adapter'
+        : 'browser_es_mx_fallback'
 
   return {
     mode: VOICE_TURN_MODE,
     locale: VOICE_DEFAULT_LOCALE,
     realtimeStreamingAvailable: false,
-    sttProvider: allowServerStt ? 'server_transcribe' : 'browser_speech_recognition',
-    ttsProvider: allowLiveTts ? 'elevenlabs_live' : 'browser_es_mx_fallback',
-    externalPaidCallsActive: allowLiveTts || allowServerStt,
+    sttProvider,
+    ttsProvider,
+    llmProvider: stack.llm.mode,
+    ...(stack.tts.adapterUrl ? { localTtsUrl: stack.tts.adapterUrl } : {}),
+    externalPaidCallsActive: stack.externalPaidCallsActive,
   }
 }
 
@@ -131,8 +144,8 @@ export function formatVoiceSpokenReply(result: AgentTurnResult): string {
   )
 
   if (response.status === 'forbidden') {
-    const msg = firstCleanLines(response.blocks.limitations, 1)[0] ||
-      firstCleanLines(response.blocks.data, 1)[0] ||
+    const msg = firstCleanLines(response.blocks.data, 1)[0] ||
+      firstCleanLines(response.blocks.limitations, 1)[0] ||
       'No tienes permiso para consultar o modificar esa información.'
     return sanitizeTextForVoiceSpeech(msg)
   }

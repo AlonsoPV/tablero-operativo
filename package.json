@@ -36,7 +36,10 @@
     "qa:text:test": "vitest run --config vitest.text-complete.config.mjs",
     "qa:text:preflight": "node scripts/qa/textCompletePreflight.mjs",
     "qa:text:run": "node scripts/qa/run-text-complete-qa.mjs",
-    "qa:text:rollback": "node scripts/qa/textCompleteRollback.mjs"
+    "qa:text:rollback": "node scripts/qa/textCompleteRollback.mjs",
+    "demo:start": "node scripts/qa/demo-lifecycle.mjs start",
+    "demo:reset": "node scripts/qa/demo-lifecycle.mjs reset",
+    "demo:stop": "node scripts/qa/demo-lifecycle.mjs stop"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

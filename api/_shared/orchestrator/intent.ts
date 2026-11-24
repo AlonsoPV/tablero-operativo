@@ -191,7 +191,7 @@ export function classifyAgentIntent(
   }
 
   if (
-    /\b(compromisos pendientes|acuerdos pendientes|compromisos por responsable|pendientes de verificacion|pendientes de verificado|en hecho pendientes|situaciones sin actualizacion|compromisos? (?:que )?no se estan cumpliendo|compromisos? incumplidos?|compromisos? de (?:nuestra|la) ultima reunion|acuerdos? de (?:nuestra|la) ultima reunion)\b/.test(
+    /\b(compromisos pendientes|acuerdos pendientes|compromisos por responsable|pendientes de verificacion|pendientes de verificado|en hecho pendientes|situaciones sin actualizacion|compromisos? (?:que )?no se estan cumpliendo|compromisos? incumplidos?|compromisos? de (?:nuestra|la) ultima reunion|acuerdos? de (?:nuestra|la) ultima reunion|que acordamos en (?:la|nuestra) ultima reunion)\b/.test(
       text
     )
   ) {
@@ -297,6 +297,25 @@ export function classifyAgentIntent(
       return { kind: 'executive_review', action: 'focus_priority', priorityIndex }
     }
     return { kind: 'executive_evidence', ...(priorityIndex !== undefined ? { priorityIndex } : {}) }
+  }
+
+  if (
+    /\b(quien(?:es)? tienen? acciones vencidas|quien(?:es)? tienen? (?:tareas|compromisos) vencid[oa]s|quien(?:es)? van? atrasad[oa]s)\b/.test(
+      text
+    )
+  ) {
+    return { kind: 'aggregate_execution', groupBy: 'responsable', statusGroup: 'overdue' }
+  }
+
+  if (/\bcomo vamos con\b/.test(text)) {
+    return {
+      kind: 'query_actions',
+      scope: 'team_authorized',
+      statusGroup: 'open',
+      visual: 'none',
+      focusToday: false,
+      restrictedRequest: false,
+    }
   }
 
   if (

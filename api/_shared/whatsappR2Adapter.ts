@@ -167,12 +167,69 @@ export function buildProposalConfirmButtonId(binding: Pick<WhatsAppProposalBindi
   return `r2_confirm:${binding.proposalId}:${binding.version}`
 }
 
+export function buildProposalEditButtonId(binding: Pick<WhatsAppProposalBinding, 'proposalId' | 'version'>): string {
+  return `r2_edit:${binding.proposalId}:${binding.version}`
+}
+
 export function buildProposalCancelButtonId(binding: Pick<WhatsAppProposalBinding, 'proposalId'>): string {
   return `r2_cancel:${binding.proposalId}`
 }
 
+export type WhatsAppInteractiveReplyButton = {
+  type: 'reply'
+  reply: {
+    /** Meta Cloud API: máximo 256 caracteres; vincula propuesta y versión. */
+    id: string
+    /** Meta Cloud API: máximo 20 caracteres. */
+    title: string
+  }
+}
+
+/**
+ * Construye hasta 3 botones interactivos compatibles con Meta WhatsApp Cloud API
+ * (Confirmar / Editar / Cancelar) vinculados a propuesta y versión exacta.
+ * Si R2 está apagado (`disabled`), no emite botones de confirmación engañosos.
+ */
+export function buildWhatsAppInteractiveProposalButtons(
+  binding: WhatsAppProposalBinding,
+  executionMode: R2ExecutionMode = resolveR2ExecutionMode()
+): WhatsAppInteractiveReplyButton[] {
+  if (executionMode === 'disabled') return []
+
+  const buttons: WhatsAppInteractiveReplyButton[] = [
+    {
+      type: 'reply',
+      reply: {
+        id: buildProposalConfirmButtonId(binding).slice(0, 256),
+        title: 'Confirmar',
+      },
+    },
+  ]
+
+  if (binding.editable || isDefinitiveR2EditableTool(binding.operation)) {
+    buttons.push({
+      type: 'reply',
+      reply: {
+        id: buildProposalEditButtonId(binding).slice(0, 256),
+        title: 'Editar',
+      },
+    })
+  }
+
+  buttons.push({
+    type: 'reply',
+    reply: {
+      id: buildProposalCancelButtonId(binding).slice(0, 256),
+      title: 'Cancelar',
+    },
+  })
+
+  return buttons.slice(0, 3)
+}
+
 export type ParsedWhatsAppApproval =
   | { kind: 'confirm_bound'; proposalId: string; version: string }
+  | { kind: 'edit_bound'; proposalId: string; version: string }
   | { kind: 'cancel_bound'; proposalId: string }
   | { kind: 'confirm_code'; version: string }
   | { kind: 'cancel_code'; version?: string }
@@ -219,6 +276,14 @@ export function parseWhatsAppApprovalIntent(input: {
       kind: 'confirm_bound',
       proposalId: confirmButtonMatch[1]!,
       version: confirmButtonMatch[2]!.toUpperCase(),
+    }
+  }
+  const editButtonMatch = button.match(/^r2_edit:([^:]+):([A-Za-z0-9]{6,16})$/)
+  if (editButtonMatch) {
+    return {
+      kind: 'edit_bound',
+      proposalId: editButtonMatch[1]!,
+      version: editButtonMatch[2]!.toUpperCase(),
     }
   }
   const cancelButtonMatch = button.match(/^r2_cancel:([^:]+)$/)
@@ -268,6 +333,7 @@ export type WhatsAppApprovalResolution =
   | { status: 'ready_to_execute'; binding: WhatsAppProposalBinding }
   | { status: 'ready_to_cancel'; binding: WhatsAppProposalBinding }
   | { status: 'ready_to_edit'; binding: WhatsAppProposalBinding; patch: R2EditPatch }
+  | { status: 'edit_prompt'; binding: WhatsAppProposalBinding; message: string }
   | { status: 'draft_only_r2_off'; binding: WhatsAppProposalBinding; message: string }
   | { status: 'ambiguous'; message: string; candidates: WhatsAppProposalBinding[] }
   | { status: 'expired'; message: string }
@@ -304,7 +370,11 @@ export function resolveWhatsAppProposalApproval(input: {
   }
 
   const owned = input.pending.filter((p) => p.usuarioId === input.actorUsuarioId)
-  if (decision.kind === 'confirm_bound' || decision.kind === 'cancel_bound') {
+  if (
+    decision.kind === 'confirm_bound' ||
+    decision.kind === 'edit_bound' ||
+    decision.kind === 'cancel_bound'
+  ) {
     const targetProposalId = decision.proposalId
     const foreignMatch = input.pending.find(
       (p) => p.proposalId === targetProposalId && p.usuarioId !== input.actorUsuarioId
@@ -318,6 +388,32 @@ export function resolveWhatsAppProposalApproval(input: {
   }
 
   const activePending = owned.filter((p) => Date.parse(p.expiresAt) > nowMs)
+
+  if (decision.kind === 'edit_bound') {
+    const byId = owned.find((p) => p.proposalId === decision.proposalId)
+    if (!byId) return { status: 'not_found', message: 'No encontré esa propuesta pendiente.' }
+    if (Date.parse(byId.expiresAt) <= nowMs) {
+      return { status: 'expired', message: 'La propuesta expiró antes de editarse. Solicítala de nuevo.' }
+    }
+    if (byId.version !== decision.version) {
+      return {
+        status: 'version_mismatch',
+        message: 'La propuesta cambió de versión. Revisa el código vigente antes de editar.',
+      }
+    }
+    if (!isDefinitiveR2EditableTool(byId.operation)) {
+      return {
+        status: 'not_editable',
+        binding: byId,
+        message: 'Este tipo de propuesta no admite edición directa. Cancélala y solicita una nueva.',
+      }
+    }
+    return {
+      status: 'edit_prompt',
+      binding: byId,
+      message: `Indica el ajuste con: "editar ${byId.version} fecha=YYYY-MM-DD prioridad=P1_Alta responsable=Nombre" (sin aplicar cambios aún).`,
+    }
+  }
 
   if (decision.kind === 'cancel_bound') {
     const targetProposalId = decision.proposalId
@@ -686,15 +782,20 @@ export function formatWhatsAppProposalPrompt(
     binding.editable && mode !== 'disabled'
       ? ` Para ajustar responde "editar ${binding.version} fecha=YYYY-MM-DD".`
       : ''
+  const fieldLines = Array.isArray(options.proposal?.fields)
+    ? options.proposal.fields
+        .slice(0, 6)
+        .map((f) => `${f.label}: ${f.from ? `${f.from} -> ${f.to}` : f.to}`)
+    : []
   const lines = [
     mode === 'disabled'
       ? 'Borrador preparado (solo propuesta, R2 deshabilitado; no se aplicó ningún cambio).'
-      : 'Propuesta preparada (pendiente de aprobación; no se aplicó ningún cambio).',
-    binding.summary,
+      : 'Preparé la siguiente propuesta (pendiente de aprobación; no se aplicó ningún cambio):',
+    ...(fieldLines.length > 0 ? fieldLines : [binding.summary]),
     `Alcance: ${binding.scope} | Código: ${binding.version}`,
     mode === 'disabled'
       ? 'Mientras la ejecución automática esté desactivada, este borrador queda sólo para revisión en Scrumban.'
-      : `Para aprobar responde "confirmar ${binding.version}" o usa el botón Confirmar. Para cancelar responde "cancelar ${binding.version}".${editHint} Un "sí" suelto no ejecuta cambios.`,
+      : `¿Confirmas la operación? Responde "confirmar ${binding.version}" o usa el botón Confirmar. Para cancelar responde "cancelar ${binding.version}".${editHint} Un "sí" suelto no ejecuta cambios.`,
   ]
   return lines.join('\n')
 }

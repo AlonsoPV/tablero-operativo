@@ -5,7 +5,7 @@ import {
 } from '@/lib/elevenLabsTtsClient'
 
 export type SpeechPlaybackResult = {
-  provider: 'elevenlabs' | 'browser' | 'none'
+  provider: 'elevenlabs' | 'local_adapter' | 'browser' | 'none'
   firstAudioMs: number
   interrupted: boolean
   error?: string
@@ -14,6 +14,8 @@ export type SpeechPlaybackResult = {
 export type SpeakTextOptions = {
   /** Sólo intenta ElevenLabs cuando el servidor confirmó ttsProvider === 'elevenlabs_live'. */
   preferLiveTts?: boolean
+  /** Adaptador local opcional (ej. http://127.0.0.1:8766/synthesize para Kokoro/Piper en dev/demo). */
+  localTtsUrl?: string | null
   onStart?: () => void
   onEnd?: () => void
   onError?: (reason: string) => void
@@ -65,7 +67,7 @@ export function speakText(
     const elapsedMs = () =>
       Math.max(0, Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt))
 
-    const markStarted = (provider: 'elevenlabs' | 'browser') => {
+    const markStarted = (provider: 'elevenlabs' | 'local_adapter' | 'browser') => {
       if (notifiedStart || settled) return
       notifiedStart = true
       chosenProvider = provider
@@ -117,6 +119,51 @@ export function speakText(
       } catch {
         finish('No se pudo reproducir el audio; la respuesta sigue visible en pantalla.')
       }
+    }
+
+    const safeLocalUrl = (() => {
+      const raw = options.localTtsUrl?.trim()
+      if (!raw) return null
+      try {
+        const u = new URL(raw)
+        if (u.hostname !== '127.0.0.1' && u.hostname !== 'localhost') return null
+        return u.toString()
+      } catch {
+        return null
+      }
+    })()
+
+    if (safeLocalUrl) {
+      void (async () => {
+        try {
+          const res = await fetch(safeLocalUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: trimmed, locale: 'es-MX' }),
+          })
+          if (!res.ok || settled) {
+            playBrowser()
+            return
+          }
+          const blob = await res.blob()
+          if (settled) return
+          const objectUrl = URL.createObjectURL(blob)
+          audio = new Audio(objectUrl)
+          audio.onplay = () => markStarted('local_adapter')
+          audio.onended = () => {
+            URL.revokeObjectURL(objectUrl)
+            finish()
+          }
+          audio.onerror = () => {
+            URL.revokeObjectURL(objectUrl)
+            playBrowser()
+          }
+          await audio.play()
+        } catch {
+          playBrowser()
+        }
+      })()
+      return
     }
 
     if (!options.preferLiveTts) {

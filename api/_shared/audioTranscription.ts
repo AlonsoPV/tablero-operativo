@@ -9,6 +9,7 @@
  * Formatos explícitamente NO soportados: audio/amr, audio/3gpp, contenedores corruptos o no-audio.
  */
 import { geminiModelCandidates, isGeminiCapacityStatus } from './geminiModel.js'
+import { parseLoopbackAdapterUrl, resolveLlmProvider } from './aiProviders.js'
 
 export const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
 export const DEFAULT_TRANSCRIBE_MODEL = 'gemini-2.5-flash'
@@ -484,5 +485,219 @@ export async function transcribeAudioBase64WithGemini(input: {
     throw error
   } finally {
     clearTimeout(timeout)
+  }
+}
+
+export type ServerSttProviderId = 'whisper_http' | 'gemini_audio' | 'unavailable'
+
+export type ServerSttResolution = {
+  provider: ServerSttProviderId
+  endpointUrl: string | null
+  model: string | null
+  zeroCostSafe: boolean
+  reason: string
+}
+
+/**
+ * Resuelve el proveedor de transcripción server-side para notas de voz WhatsApp (OGG/Opus).
+ * Nunca utiliza SpeechRecognition del navegador (no existe en serverless).
+ * Soporta:
+ * 1) Endpoint HTTP Whisper-compatible (p. ej. servicio local faster-whisper en loopback o
+ *    API OpenAI/Groq compatible autorizada vía WHATSAPP_STT_URL).
+ * 2) Gemini multimodal de audio nativo (OGG/Opus), sujeto a `resolveLlmProvider`.
+ */
+export function resolveServerSttProvider(
+  env: Record<string, string | undefined> = process.env
+): ServerSttResolution {
+  const zeroCostOnly = env.AI_ZERO_COST_ONLY === '1' || env.GEMINI_FREE_TIER_ONLY === '1'
+
+  const loopbackStt = parseLoopbackAdapterUrl(env.LOCAL_STT_URL)
+  if (loopbackStt) {
+    return {
+      provider: 'whisper_http',
+      endpointUrl: loopbackStt,
+      model: (env.WHATSAPP_STT_MODEL || 'whisper-large-v3-turbo').trim(),
+      zeroCostSafe: true,
+      reason: 'Adaptador Whisper HTTP local en loopback (dev/demo $0 USD).',
+    }
+  }
+
+  const remoteSttUrl = (env.WHATSAPP_STT_URL ?? '').trim()
+  const remoteSttKey = (env.WHATSAPP_STT_API_KEY ?? '').trim()
+  if (remoteSttUrl && remoteSttKey) {
+    const freeTierConfirmed = env.WHATSAPP_STT_FREE_TIER_CONFIRMED === '1'
+    if (zeroCostOnly && !freeTierConfirmed) {
+      return {
+        provider: 'unavailable',
+        endpointUrl: null,
+        model: null,
+        zeroCostSafe: true,
+        reason:
+          'WHATSAPP_STT_URL bloqueado en modo $0 USD hasta acreditar cuota gratuita (WHATSAPP_STT_FREE_TIER_CONFIRMED=1).',
+      }
+    }
+    return {
+      provider: 'whisper_http',
+      endpointUrl: remoteSttUrl,
+      model: (env.WHATSAPP_STT_MODEL || 'whisper-large-v3-turbo').trim(),
+      zeroCostSafe: freeTierConfirmed,
+      reason: 'Endpoint Whisper HTTP server-side autorizado (soporte nativo OGG/Opus).',
+    }
+  }
+
+  const llm = resolveLlmProvider(env)
+  if (llm.canCallExternalApi && llm.model) {
+    return {
+      provider: 'gemini_audio',
+      endpointUrl: GEMINI_API_BASE_URL,
+      model: llm.model,
+      zeroCostSafe: llm.guaranteedZeroCost,
+      reason: `Gemini audio nativo (${llm.mode}).`,
+    }
+  }
+
+  return {
+    provider: 'unavailable',
+    endpointUrl: null,
+    model: null,
+    zeroCostSafe: true,
+    reason:
+      llm.blockedReason ||
+      'Sin proveedor STT server-side autorizado. Configura WHATSAPP_STT_URL o GEMINI_API_KEY autorizada.',
+  }
+}
+
+function extensionForAudioMime(mimeType: string): string {
+  const base = normalizeAudioMime(mimeType)
+  if (base === 'audio/ogg') return 'ogg'
+  if (base === 'audio/mpeg' || base === 'audio/mp3') return 'mp3'
+  if (base === 'audio/mp4') return 'm4a'
+  if (base === 'audio/wav' || base === 'audio/x-wav') return 'wav'
+  if (base === 'audio/webm') return 'webm'
+  if (base === 'audio/flac') return 'flac'
+  return 'ogg'
+}
+
+/**
+ * Transcribe audio OGG/Opus en servidor mediante endpoint Whisper HTTP (multipart/form-data).
+ * Compatible con faster-whisper local, Groq Whisper o OpenAI Whisper sin dependencias pesadas.
+ */
+export async function transcribeAudioBase64WithWhisperHttp(input: {
+  audioBase64: string
+  mimeType: string
+  endpointUrl: string
+  apiKey?: string
+  model?: string
+  language?: string
+  timeoutMs?: number
+  fetchImpl?: typeof fetch
+}): Promise<TranscribeAudioResult> {
+  const fetchFn = input.fetchImpl ?? fetch
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), input.timeoutMs ?? 25_000)
+
+  try {
+    const normalizedMime = normalizeAudioMime(input.mimeType) || 'audio/ogg'
+    const ext = extensionForAudioMime(normalizedMime)
+    const rawBytes = Buffer.from(input.audioBase64, 'base64')
+    const form = new FormData()
+    form.append('file', new Blob([rawBytes], { type: normalizedMime }), `voice-note.${ext}`)
+    form.append('model', input.model || 'whisper-large-v3-turbo')
+    form.append('language', input.language || 'es')
+    form.append('response_format', 'json')
+
+    const headers: Record<string, string> = {}
+    if (input.apiKey?.trim()) {
+      headers.Authorization = `Bearer ${input.apiKey.trim()}`
+    }
+
+    const response = await fetchFn(input.endpointUrl, {
+      method: 'POST',
+      headers,
+      body: form,
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      if (response.status === 503 || response.status === 429) {
+        return {
+          ok: false,
+          status: response.status,
+          code: 'provider_unavailable',
+          retryable: true,
+          message: 'El servicio de transcripción está saturado temporalmente. Escríbeme en texto o intenta de nuevo.',
+        }
+      }
+      return {
+        ok: false,
+        status: response.status,
+        code: 'provider_error',
+        message: 'No se pudo transcribir el audio en el servidor STT.',
+      }
+    }
+
+    const data = (await response.json()) as { text?: string; transcript?: string }
+    const transcript = cleanTranscript(data.text ?? data.transcript ?? '')
+    return { ok: true, transcript, model: input.model || 'whisper-http' }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      return {
+        ok: false,
+        status: 504,
+        code: 'timeout',
+        retryable: true,
+        message: 'La transcripción tardó demasiado.',
+      }
+    }
+    return {
+      ok: false,
+      status: 502,
+      code: 'provider_error',
+      message: 'Error al conectar con el servidor de transcripción.',
+    }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+/**
+ * Punto de entrada server-side unificado para notas de voz WhatsApp.
+ */
+export async function transcribeAudioServerSide(input: {
+  audioBase64: string
+  mimeType: string
+  env?: Record<string, string | undefined>
+  fetchImpl?: typeof fetch
+}): Promise<TranscribeAudioResult> {
+  const env = input.env ?? process.env
+  const resolved = resolveServerSttProvider(env)
+
+  if (resolved.provider === 'whisper_http' && resolved.endpointUrl) {
+    return transcribeAudioBase64WithWhisperHttp({
+      audioBase64: input.audioBase64,
+      mimeType: input.mimeType,
+      endpointUrl: resolved.endpointUrl,
+      apiKey: env.WHATSAPP_STT_API_KEY,
+      model: resolved.model ?? undefined,
+      fetchImpl: input.fetchImpl,
+    })
+  }
+
+  if (resolved.provider === 'gemini_audio') {
+    return transcribeAudioBase64WithGemini({
+      audioBase64: input.audioBase64,
+      mimeType: input.mimeType,
+      apiKey: env.GEMINI_API_KEY ?? '',
+      preferredModel: resolved.model ?? DEFAULT_TRANSCRIBE_MODEL,
+      fetchImpl: input.fetchImpl,
+    })
+  }
+
+  return {
+    ok: false,
+    status: 503,
+    code: 'provider_unavailable',
+    retryable: false,
+    message: resolved.reason,
   }
 }
