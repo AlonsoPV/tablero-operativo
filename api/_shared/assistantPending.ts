@@ -80,6 +80,7 @@ export async function createPendingOp(
     fields: input.proposal.fields,
     record: input.proposal.record ?? null,
     workspace: input.proposal.workspace ?? null,
+    batchId: input.proposal.batchId ?? null,
   }
   const row: Record<string, unknown> = {
     usuario_id: actor.usuarioId,
@@ -155,5 +156,6 @@ export async function createPendingOp(
     record: input.proposal.record,
     expiresAt: (data.expires_at as string) || expiresAt,
     workspace: input.proposal.workspace,
+    batchId: input.proposal.batchId,
   }
 }

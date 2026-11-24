@@ -20,6 +20,9 @@ import { sanitizeRecipientFacingText } from '@/features/ai-support/copilot/pendi
 import {
   actionLifecycleTone,
   actionTypeLabel,
+  boardR2StatusLabel,
+  isR2BoardProposalTool,
+  isR2EditableTool,
   proposalExecutionBadge,
   toActionCardView,
   type ActionLifecycleStatus,
@@ -75,13 +78,18 @@ export function AssistantProposalCard({
   const whatsappWrite = proposal.tool === 'whatsapp_prepare_send'
   const dailySummary = proposal.tool === 'update_daily_action_summary'
   const boardNotifyEmail = proposal.tool === 'notify_action_email'
-  const canEdit = !disableEdit && (googleWrite || whatsappWrite || boardNotifyEmail) && status === 'pending'
+  const r2Board = isR2BoardProposalTool(proposal.tool)
+  const canEdit =
+    !disableEdit &&
+    (googleWrite || whatsappWrite || boardNotifyEmail || isR2EditableTool(proposal.tool)) &&
+    status === 'pending'
   const view = toActionCardView(proposal, {
     status: busy === 'confirm' || busy === 'cancel' ? 'executing' : status,
     busy,
     errorMessage: error,
     resultHref,
   })
+  const statusLabel = r2Board ? boardR2StatusLabel(view.status) : view.statusLabel
   const tone = actionLifecycleTone(view.status)
   const typeLabel = actionTypeLabel(view.tool, view.kind)
   const needsInfo =
@@ -177,7 +185,7 @@ export function AssistantProposalCard({
               toneSoftClass[tone.tone]
             )}
           >
-            {view.statusLabel}
+            {statusLabel}
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">{typeLabel}</span>
           {executionBadge ? (
@@ -398,7 +406,7 @@ export function AssistantProposalCard({
                 {busy === 'cancel' ? (
                   <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden />
                 ) : null}
-                Descartar
+                {r2Board ? 'Cancelar' : 'Descartar'}
               </Button>
             </div>
           </div>
@@ -419,7 +427,11 @@ export function AssistantProposalCard({
             setStatus('pending')
             onUpdated?.(next)
             setEditOpen(false)
-            toast.success('Borrador actualizado. Confirma de nuevo para enviar.')
+            toast.success(
+              r2Board
+                ? 'Campos actualizados. La aprobación previa queda invalidada; confirma de nuevo.'
+                : 'Borrador actualizado. Confirma de nuevo para enviar.'
+            )
           } catch (err) {
             toast.error(err instanceof Error ? err.message : 'No se pudo editar.')
           } finally {
@@ -534,12 +546,26 @@ function EditWorkspaceDialog({
   proposal: CopilotProposal
   busy: boolean
   onOpenChange: (open: boolean) => void
-  onSave: (patch: { recipientId?: string; subject?: string; body?: string; title?: string; start?: string; end?: string }) => Promise<void>
+  onSave: (patch: {
+    recipientId?: string
+    subject?: string
+    body?: string
+    title?: string
+    start?: string
+    end?: string
+    fecha?: string
+    responsableHint?: string
+    prioridad?: string
+    titulo?: string
+    contenido?: string
+  }) => Promise<void>
 }) {
   const workspace = proposal.workspace
   const isWhatsapp = workspace?.kind === 'whatsapp' || proposal.tool === 'whatsapp_prepare_send'
   const isEmail = !isWhatsapp && (workspace?.kind === 'email' || proposal.tool.startsWith('gmail_'))
   const isBoardEmail = proposal.tool === 'notify_action_email'
+  const isBoardR2 = isR2EditableTool(proposal.tool)
+  const fieldValue = (label: string) => proposal.fields.find((field) => field.label === label)?.to ?? ''
   const [recipient, setRecipient] = useState<NamedPerson>()
   const [subject, setSubject] = useState(workspace?.subject ?? '')
   const [body, setBody] = useState(
@@ -547,22 +573,69 @@ function EditWorkspaceDialog({
       ? workspace?.message ?? proposal.fields.find((field) => field.label === 'Mensaje')?.to ?? ''
       : isWhatsapp ? sanitizeRecipientFacingText(workspace?.body) : workspace?.body ?? ''
   )
-  const [title, setTitle] = useState(workspace?.title ?? '')
+  const [title, setTitle] = useState(workspace?.title ?? fieldValue('Título'))
   const [start, setStart] = useState(workspace?.start ?? '')
   const [end, setEnd] = useState(workspace?.end ?? '')
+  const [fecha, setFecha] = useState(fieldValue('Fecha').slice(0, 10))
+  const [responsableHint, setResponsableHint] = useState(fieldValue('Responsable'))
+  const [prioridad, setPrioridad] = useState(fieldValue('Prioridad'))
+  const [contenido, setContenido] = useState(fieldValue('Comentario'))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[min(92dvh,40rem)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {isWhatsapp ? 'Editar WhatsApp' : isEmail ? 'Editar correo' : 'Editar evento'}
+            {isBoardR2
+              ? 'Editar propuesta'
+              : isWhatsapp
+                ? 'Editar WhatsApp'
+                : isEmail
+                  ? 'Editar correo'
+                  : 'Editar evento'}
           </DialogTitle>
           <DialogDescription>
-            Los cambios actualizan el borrador. Debes volver a confirmar antes de enviarlo.
+            {isBoardR2
+              ? 'Cualquier cambio invalida la aprobación previa. Debes confirmar de nuevo.'
+              : 'Los cambios actualizan el borrador. Debes volver a confirmar antes de enviarlo.'}
           </DialogDescription>
         </DialogHeader>
-        {isWhatsapp || isEmail ? (
+        {isBoardR2 ? (
+          <div className="space-y-3">
+            {proposal.tool === 'agent_add_comment' ? (
+              <label className="space-y-1 text-xs font-medium">
+                Comentario
+                <textarea
+                  className="min-h-24 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={contenido}
+                  maxLength={2000}
+                  onChange={(event) => setContenido(event.target.value)}
+                />
+              </label>
+            ) : (
+              <>
+                {proposal.tool === 'agent_create_action' ? (
+                  <label className="space-y-1 text-xs font-medium">
+                    Título
+                    <Input value={title} maxLength={70} onChange={(event) => setTitle(event.target.value)} />
+                  </label>
+                ) : null}
+                <label className="space-y-1 text-xs font-medium">
+                  Fecha (YYYY-MM-DD)
+                  <Input value={fecha} onChange={(event) => setFecha(event.target.value)} />
+                </label>
+                <label className="space-y-1 text-xs font-medium">
+                  Responsable
+                  <Input value={responsableHint} onChange={(event) => setResponsableHint(event.target.value)} />
+                </label>
+                <label className="space-y-1 text-xs font-medium">
+                  Prioridad (P1_Alta, P2_Media, P3_Baja)
+                  <Input value={prioridad} onChange={(event) => setPrioridad(event.target.value)} />
+                </label>
+              </>
+            )}
+          </div>
+        ) : isWhatsapp || isEmail ? (
           <div className="space-y-3">
             {isWhatsapp ? (
               <WhatsappRecipientDropdown
@@ -612,9 +685,18 @@ function EditWorkspaceDialog({
             disabled={busy}
             onClick={() =>
               void onSave(
-                isWhatsapp
-                  ? { body, recipientId: recipient?.id }
-                  : isBoardEmail ? { body } : isEmail ? { subject, body } : { title, start, end }
+                isBoardR2
+                  ? proposal.tool === 'agent_add_comment'
+                    ? { contenido }
+                    : {
+                        fecha: fecha || undefined,
+                        responsableHint: responsableHint || undefined,
+                        prioridad: prioridad || undefined,
+                        titulo: title || undefined,
+                      }
+                  : isWhatsapp
+                    ? { body, recipientId: recipient?.id }
+                    : isBoardEmail ? { body } : isEmail ? { subject, body } : { title, start, end }
               )
             }
           >
