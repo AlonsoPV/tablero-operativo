@@ -28,7 +28,11 @@
     "auth:password": "node scripts/set-user-password.mjs",
     "auth:password-batch": "node scripts/set-users-password-batch.mjs",
     "auth:create-analistas-emx": "node scripts/create-analistas-emx-batch.mjs",
-    "auth:fix-users": "node --use-system-ca scripts/fix-auth-users-via-admin.mjs"
+    "auth:fix-users": "node --use-system-ca scripts/fix-auth-users-via-admin.mjs",
+    "qa:r3:preflight": "node scripts/qa/r3-preflight.mjs",
+    "qa:r3:integrated": "node scripts/qa/run-r3-integrated.mjs",
+    "qa:r3:rollback": "node scripts/qa/r3-rollback-off.mjs",
+    "qa:r3:test": "vitest run --config vitest.r3.config.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -75,6 +79,7 @@
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.14",
     "globals": "^15.12.0",
+    "playwright": "^1.56.1",
     "typescript-eslint": "^8.72.1",
     "vitest": "^4.1.2"
   }
