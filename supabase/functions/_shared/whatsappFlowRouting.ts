@@ -18,6 +18,8 @@ export type WhatsAppIntent =
 export type WhatsAppInboundRoute =
   | { kind: 'ops_button'; buttonId: string }
   | { kind: 'agent_aiop'; opId: string; action: 'confirm' | 'cancel' }
+  | { kind: 'agent_r2_button'; buttonId: string }
+  | { kind: 'agent_voice_note' }
   | { kind: 'mas_info' }
   | { kind: 'agent_consult' }
   | { kind: 'agent_channel'; channel: 'text' | 'voice' }
@@ -30,9 +32,14 @@ export type WhatsAppInboundRoute =
   | { kind: 'ignore' }
 
 const AIOP_RE = /^aiop:([0-9a-fA-F-]{36}):(ok|no)$/i
+const R2_BUTTON_RE = /^(?:r2_confirm|r2_edit|r2_cancel):[A-Za-z0-9_:-]{6,180}$/
 const OPS_BUTTON_RE = /^(act|chk|tchk):/i
 const EXPLICIT_TASK_RE =
   /\b(marca|marcar|actualiza|actualizar|cambia|cambiar|cierra|cerrar|pon|poner)\b[\s\S]{0,40}\b(tarea|accion|acción|checkpoint)\b|\btarea\s*#?\s*\d+/i
+
+export function isR2ProposalButtonId(raw: string | null | undefined): boolean {
+  return R2_BUTTON_RE.test((raw ?? '').trim())
+}
 
 export function parseAiOpButtonId(raw: string | null | undefined): {
   opId: string
@@ -115,12 +122,14 @@ export function looksLikeQueryText(text: string | null | undefined): boolean {
   if (!t) return false
   if (/[?]/.test(text ?? '')) return true
   if (
-    /^(que|qué|cual|cuál|cuantas|cuántas|cuantos|cuántos|como|cómo|donde|dónde)\b/.test(t)
+    /^(que|qué|cual|cuál|cuantas|cuántas|cuantos|cuántos|como|cómo|donde|dónde|quien|quién)\b/.test(
+      t
+    )
   ) {
     return true
   }
   return (
-    /\b(que tareas|qué tareas|tareas vencidas|acciones vencidas|como van|cómo van|okrs?|indicadores|resumen|prioridad|prioriz|bloqueadas|rojas|dashboard|tablero)\b/.test(
+    /\b(que tareas|qué tareas|tareas vencidas|acciones vencidas|como van|cómo van|como vamos|okrs?|indicadores|resumen|prioridad|prioriz|bloqueadas|bloqueando|bloqueos|rojas|dashboard|tablero|pendiente hoy|acordamos|ultima reunion|necesita mi atencion|proyecto)\b/.test(
       t
     ) && !EXPLICIT_TASK_RE.test(text ?? '')
   )
@@ -260,6 +269,8 @@ export type ResolveWhatsAppInboundInput = {
   buttonTitle?: string | null
   textBody?: string | null
   messageType?: string | null
+  /** Habilita el enrutamiento de notas de voz (`audio`) al asistente IA (Fase B, opt-in). */
+  voiceNotesEnabled?: boolean
 }
 
 /**
@@ -280,6 +291,10 @@ export function resolveWhatsAppInboundRoute(input: ResolveWhatsAppInboundInput):
     return { kind: 'agent_aiop', opId: aiOp.opId, action: aiOp.action }
   }
 
+  if (buttonId && isR2ProposalButtonId(buttonId)) {
+    return { kind: 'agent_r2_button', buttonId }
+  }
+
   const channelButton = parseAiChannelButtonId(buttonId)
   if (channelButton) {
     return { kind: 'agent_channel', channel: channelButton }
@@ -293,10 +308,16 @@ export function resolveWhatsAppInboundRoute(input: ResolveWhatsAppInboundInput):
     return { kind: 'ops_button', buttonId }
   }
 
+  if (messageType === 'audio') {
+    if (input.canUseAi && input.voiceNotesEnabled === true) {
+      return { kind: 'agent_voice_note' }
+    }
+    return { kind: 'ignore' }
+  }
+
   if (
     messageType === 'image' ||
     messageType === 'document' ||
-    messageType === 'audio' ||
     messageType === 'video'
   ) {
     return { kind: 'ignore' }
@@ -384,6 +405,10 @@ export function intentForRoute(route: WhatsAppInboundRoute): WhatsAppIntent {
       return 'CLARIFICATION'
     case 'agent_aiop':
       return route.action === 'cancel' ? 'CANCEL' : 'TASK_UPDATE'
+    case 'agent_r2_button':
+      return route.buttonId.startsWith('r2_cancel:') ? 'CANCEL' : 'TASK_UPDATE'
+    case 'agent_voice_note':
+      return 'QUERY'
     case 'cancel':
       return 'CANCEL'
     case 'agent_free_text':
@@ -419,6 +444,8 @@ export function flowForRoute(route: WhatsAppInboundRoute): WhatsAppFlow | null {
     case 'ops_help':
       return 'ops'
     case 'agent_aiop':
+    case 'agent_r2_button':
+    case 'agent_voice_note':
     case 'agent_free_text':
     case 'agent_consult':
     case 'agent_channel':

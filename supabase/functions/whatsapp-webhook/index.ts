@@ -32,6 +32,8 @@ type WhatsAppIntent =
 type WhatsAppInboundRoute =
   | { kind: 'ops_button'; buttonId: string }
   | { kind: 'agent_aiop'; opId: string; action: 'confirm' | 'cancel' }
+  | { kind: 'agent_r2_button'; buttonId: string }
+  | { kind: 'agent_voice_note' }
   | { kind: 'mas_info' }
   | { kind: 'agent_consult' }
   | { kind: 'agent_channel'; channel: 'text' | 'voice' }
@@ -44,9 +46,14 @@ type WhatsAppInboundRoute =
   | { kind: 'ignore' }
 
 const AIOP_RE = /^aiop:([0-9a-fA-F-]{36}):(ok|no)$/i
+const R2_BUTTON_RE = /^(?:r2_confirm|r2_edit|r2_cancel):[A-Za-z0-9_:-]{6,180}$/
 const OPS_BUTTON_RE = /^(act|chk|tchk):/i
 const EXPLICIT_TASK_RE =
   /\b(marca|marcar|actualiza|actualizar|cambia|cambiar|cierra|cerrar|pon|poner)\b[\s\S]{0,40}\b(tarea|accion|acción|checkpoint)\b|\btarea\s*#?\s*\d+/i
+
+function isR2ProposalButtonId(raw: string | null | undefined): boolean {
+  return R2_BUTTON_RE.test((raw ?? '').trim())
+}
 
 function parseAiOpButtonId(raw: string | null | undefined): {
   opId: string
@@ -129,12 +136,14 @@ function looksLikeQueryText(text: string | null | undefined): boolean {
   if (!t) return false
   if (/[?]/.test(text ?? '')) return true
   if (
-    /^(que|qué|cual|cuál|cuantas|cuántas|cuantos|cuántos|como|cómo|donde|dónde)\b/.test(t)
+    /^(que|qué|cual|cuál|cuantas|cuántas|cuantos|cuántos|como|cómo|donde|dónde|quien|quién)\b/.test(
+      t
+    )
   ) {
     return true
   }
   return (
-    /\b(que tareas|qué tareas|tareas vencidas|acciones vencidas|como van|cómo van|okrs?|indicadores|resumen|prioridad|prioriz|bloqueadas|rojas|dashboard|tablero)\b/.test(
+    /\b(que tareas|qué tareas|tareas vencidas|acciones vencidas|como van|cómo van|como vamos|okrs?|indicadores|resumen|prioridad|prioriz|bloqueadas|bloqueando|bloqueos|rojas|dashboard|tablero|pendiente hoy|acordamos|ultima reunion|necesita mi atencion|proyecto)\b/.test(
       t
     ) && !EXPLICIT_TASK_RE.test(text ?? '')
   )
@@ -274,6 +283,8 @@ type ResolveWhatsAppInboundInput = {
   buttonTitle?: string | null
   textBody?: string | null
   messageType?: string | null
+  /** Habilita el enrutamiento de notas de voz (`audio`) al asistente IA (Fase B, opt-in). */
+  voiceNotesEnabled?: boolean
 }
 
 /**
@@ -294,6 +305,10 @@ function resolveWhatsAppInboundRoute(input: ResolveWhatsAppInboundInput): WhatsA
     return { kind: 'agent_aiop', opId: aiOp.opId, action: aiOp.action }
   }
 
+  if (buttonId && isR2ProposalButtonId(buttonId)) {
+    return { kind: 'agent_r2_button', buttonId }
+  }
+
   const channelButton = parseAiChannelButtonId(buttonId)
   if (channelButton) {
     return { kind: 'agent_channel', channel: channelButton }
@@ -307,10 +322,16 @@ function resolveWhatsAppInboundRoute(input: ResolveWhatsAppInboundInput): WhatsA
     return { kind: 'ops_button', buttonId }
   }
 
+  if (messageType === 'audio') {
+    if (input.canUseAi && input.voiceNotesEnabled === true) {
+      return { kind: 'agent_voice_note' }
+    }
+    return { kind: 'ignore' }
+  }
+
   if (
     messageType === 'image' ||
     messageType === 'document' ||
-    messageType === 'audio' ||
     messageType === 'video'
   ) {
     return { kind: 'ignore' }
@@ -398,6 +419,10 @@ function intentForRoute(route: WhatsAppInboundRoute): WhatsAppIntent {
       return 'CLARIFICATION'
     case 'agent_aiop':
       return route.action === 'cancel' ? 'CANCEL' : 'TASK_UPDATE'
+    case 'agent_r2_button':
+      return route.buttonId.startsWith('r2_cancel:') ? 'CANCEL' : 'TASK_UPDATE'
+    case 'agent_voice_note':
+      return 'QUERY'
     case 'cancel':
       return 'CANCEL'
     case 'agent_free_text':
@@ -433,6 +458,8 @@ function flowForRoute(route: WhatsAppInboundRoute): WhatsAppFlow | null {
     case 'ops_help':
       return 'ops'
     case 'agent_aiop':
+    case 'agent_r2_button':
+    case 'agent_voice_note':
     case 'agent_free_text':
     case 'agent_consult':
     case 'agent_channel':
@@ -1443,15 +1470,48 @@ async function replyAi(
   to: string,
   body: string,
   usuarioId: string | null,
-  proposalId?: string | null
+  proposalId?: string | null,
+  interactiveButtons?: Array<{ type: 'reply'; reply: { id: string; title: string } }>
 ) {
   try {
-    const canButtons = Boolean(
-      proposalId && /^[0-9a-fA-F-]{36}$/.test(proposalId)
-    )
-    const graphBody = canButtons
-      ? interactiveAiOpPayload(to, body, proposalId as string)
-      : textPayload(to, body)
+    const customButtons = Array.isArray(interactiveButtons)
+      ? interactiveButtons
+          .filter(
+            (b) =>
+              b?.type === 'reply' &&
+              typeof b.reply?.id === 'string' &&
+              b.reply.id.trim().length > 0 &&
+              typeof b.reply?.title === 'string' &&
+              b.reply.title.trim().length > 0
+          )
+          .slice(0, 3)
+      : []
+    const canCustomButtons = customButtons.length > 0
+    const canButtons =
+      canCustomButtons ||
+      Boolean(proposalId && /^[0-9a-fA-F-]{36}$/.test(proposalId))
+    const graphBody = canCustomButtons
+      ? {
+          messaging_product: 'whatsapp',
+          to,
+          type: 'interactive',
+          interactive: {
+            type: 'button',
+            body: { text: body.slice(0, 1024) },
+            action: {
+              buttons: customButtons.map((b) => ({
+                type: 'reply',
+                reply: {
+                  id: b.reply.id.slice(0, 256),
+                  title: b.reply.title.slice(0, 20),
+                },
+              })),
+            },
+          },
+        }
+      : canButtons
+        ? interactiveAiOpPayload(to, body, proposalId as string)
+        : textPayload(to, body)
     const result = await graphSendMessage(supabase, graphBody)
     const metaId = extractMessageId(result.json)
     await upsertThreadMessage(supabase, {
@@ -1557,6 +1617,9 @@ function resolveStructuredInboundRoute(input: {
 
   const aiOp = parseAiOpButton(buttonId)
   if (aiOp) return { kind: 'agent_aiop', opId: aiOp.opId, action: aiOp.action }
+  if (buttonId && isR2ProposalButtonId(buttonId)) {
+    return { kind: 'agent_r2_button', buttonId }
+  }
 
   const early = resolveWhatsAppInboundRoute({
     canUseAi: false,
@@ -1568,11 +1631,12 @@ function resolveStructuredInboundRoute(input: {
   if (early.kind === 'agent_channel') return early
   if (early.kind === 'mas_info') return early
   if (early.kind === 'ops_button') return early
+  const voiceNotesFlag = Deno.env.get('WHATSAPP_VOICE_NOTES_ENABLED') === '1'
   if (
     early.kind === 'ignore' &&
     (messageType === 'image' ||
       messageType === 'document' ||
-      messageType === 'audio' ||
+      (messageType === 'audio' && !voiceNotesFlag) ||
       messageType === 'video')
   ) {
     return early
@@ -1581,14 +1645,18 @@ function resolveStructuredInboundRoute(input: {
 }
 
 async function callWhatsAppAssistant(input: {
-  action: 'chat' | 'confirm' | 'cancel'
+  action: 'chat' | 'confirm' | 'cancel' | 'voice_note'
   waId: string
   usuarioId: string
   text?: string
   opId?: string
+  buttonId?: string
+  mediaId?: string
+  mimeType?: string | null
 }): Promise<{
   text: string
   proposals?: Array<{ id?: string; title?: string; summary?: string }>
+  interactiveButtons?: Array<{ type: 'reply'; reply: { id: string; title: string } }>
   handoff?: string | null
 } | null> {
   const secret = Deno.env.get('WHATSAPP_ASSISTANT_SECRET')?.trim() || ''
@@ -1617,11 +1685,15 @@ async function callWhatsAppAssistant(input: {
         usuario_id: input.usuarioId,
         text: input.text ?? '',
         op_id: input.opId ?? '',
+        ...(input.buttonId ? { button_id: input.buttonId } : {}),
+        ...(input.mediaId ? { media_id: input.mediaId } : {}),
+        ...(input.mimeType ? { mime_type: input.mimeType } : {}),
       }),
     })
     const json = (await response.json()) as {
       text?: unknown
       proposals?: Array<{ id?: string; title?: string; summary?: string }>
+      interactiveButtons?: Array<{ type: 'reply'; reply: { id: string; title: string } }>
       handoff?: unknown
       error?: unknown
     }
@@ -1631,11 +1703,15 @@ async function callWhatsAppAssistant(input: {
       return {
         text: 'No pude consultar el tablero ahora.',
         proposals: [],
+        interactiveButtons: [],
         handoff,
       }
     return {
       text,
       proposals: Array.isArray(json.proposals) ? json.proposals : [],
+      interactiveButtons: Array.isArray(json.interactiveButtons)
+        ? json.interactiveButtons
+        : [],
       handoff,
     }
   } catch (error) {
@@ -1643,6 +1719,7 @@ async function callWhatsAppAssistant(input: {
     return {
       text: 'No pude consultar el tablero ahora.',
       proposals: [],
+      interactiveButtons: [],
       handoff: null,
     }
   } finally {
@@ -1655,9 +1732,12 @@ async function maybeHandleWhatsAppAi(
   input: {
     waId: string
     usuarioId: string
-    action: 'chat' | 'confirm' | 'cancel'
+    action: 'chat' | 'confirm' | 'cancel' | 'voice_note'
     text?: string
     opId?: string
+    buttonId?: string
+    mediaId?: string
+    mimeType?: string | null
     /** Si ya se llamó a can_use_ai_whatsapp_for_usuario, evitar RPC duplicado. */
     aiAllowed?: boolean
   }
@@ -1684,10 +1764,20 @@ async function maybeHandleWhatsAppAi(
     usuarioId: input.usuarioId,
     text: input.text,
     opId: input.opId,
+    buttonId: input.buttonId,
+    mediaId: input.mediaId,
+    mimeType: input.mimeType,
   })
   const text = result?.text || 'No pude consultar el tablero ahora.'
   const proposalId = result?.proposals?.[0]?.id
-  await replyAi(supabase, input.waId, text, input.usuarioId, proposalId)
+  await replyAi(
+    supabase,
+    input.waId,
+    text,
+    input.usuarioId,
+    proposalId,
+    result?.interactiveButtons
+  )
   if (result?.handoff === 'task_update') {
     await upsertFlowSession(supabase, {
       phone: normalizePhone(input.waId) || input.waId,
@@ -2711,6 +2801,7 @@ async function processWhatsAppPayload(payload, supabase) {
           if (
             structured &&
             structured.kind !== 'agent_aiop' &&
+            structured.kind !== 'agent_r2_button' &&
             structured.kind !== 'mas_info' &&
             structured.kind !== 'agent_channel'
           ) {
@@ -2736,6 +2827,7 @@ async function processWhatsAppPayload(payload, supabase) {
               agentSessionActive,
               clarificationPending,
               correlatedTargetCount,
+              voiceNotesEnabled: Deno.env.get('WHATSAPP_VOICE_NOTES_ENABLED') === '1',
               ...routeInput,
             })
             route = structured ?? classified.route
@@ -2765,6 +2857,70 @@ async function processWhatsAppPayload(payload, supabase) {
               correlated_target_count: correlatedTargetCount ?? null,
             },
           })
+
+          // --- AgentRouter: R2 interactive buttons (Confirmar / Editar / Cancelar) ---
+          if (route.kind === 'agent_r2_button') {
+            if (!canUseAi) {
+              await replyText(
+                supabase,
+                waId,
+                'No tienes permiso para confirmar o editar esta propuesta.',
+                identity.usuario_id,
+                { flow: 'ops' }
+              )
+              continue
+            }
+            const aiHandled = await maybeHandleWhatsAppAi(supabase, {
+              waId,
+              usuarioId: identity.usuario_id,
+              action: 'chat',
+              buttonId: route.buttonId,
+              aiAllowed: canUseAi,
+            })
+            if (!aiHandled) {
+              await replyText(
+                supabase,
+                waId,
+                'No pude procesar el botón de la propuesta ahora. Intenta de nuevo en unos minutos.',
+                identity.usuario_id,
+                { flow: 'agent' }
+              )
+            }
+            continue
+          }
+
+          // --- AgentRouter: inbound voice note (OGG/Opus -> server STT -> assistant) ---
+          if (route.kind === 'agent_voice_note') {
+            const mediaId = message.audio?.id?.trim() || ''
+            if (!canUseAi || !mediaId) {
+              continue
+            }
+            await upsertFlowSession(supabase, {
+              phone: normalizePhone(waId) || waId,
+              usuarioId: identity.usuario_id,
+              flowType: 'chatbot_query',
+              status: 'active',
+              intent: 'QUERY',
+            })
+            const aiHandled = await maybeHandleWhatsAppAi(supabase, {
+              waId,
+              usuarioId: identity.usuario_id,
+              action: 'voice_note',
+              mediaId,
+              mimeType: message.audio?.mime_type ?? 'audio/ogg',
+              aiAllowed: canUseAi,
+            })
+            if (!aiHandled) {
+              await replyText(
+                supabase,
+                waId,
+                'No pude procesar tu nota de voz ahora. Por favor escríbeme tu consulta en texto.',
+                identity.usuario_id,
+                { flow: 'agent' }
+              )
+            }
+            continue
+          }
 
           // --- AgentRouter: aiop confirm/cancel ---
           if (route.kind === 'agent_aiop') {
@@ -3320,7 +3476,9 @@ async function acceptWhatsAppWebhook(
   whatsappTrace('WHATSAPP_WEBHOOK_PERSISTED', { request_id: requestId, count: events.length })
   return new Response('EVENT_RECEIVED', { status: 200 })
 }
+
 // END_WHATSAPP_INGRESS
+
 
 
 

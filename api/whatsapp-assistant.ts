@@ -26,6 +26,10 @@ import type { CopilotProposal } from '../src/features/ai-support/copilot/types.j
 import { COPILOT_FUNCTION_DECLARATIONS, isCopilotReadTool } from '../src/features/ai-support/copilot/catalog.js'
 import { proposalFromPendingRow } from './_shared/assistantGoogleTools.js'
 import { isAgentOrchestratorEnabled, runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
+import {
+  isWhatsAppVoiceNotesAllowedForUser,
+  shouldUseWhatsAppOrchestrator,
+} from './_shared/whatsappPilotGate.js'
 import { R2_EXECUTION_DISABLED_MESSAGE, resolveR2ExecutionMode } from './_shared/actions/executionMode.js'
 import { editR2PendingOp } from './_shared/actions/r2Runtime.js'
 import {
@@ -437,6 +441,16 @@ export default defineApiHandler(async (req, res) => {
   }
 
   if (action === 'voice_note') {
+    if (!isWhatsAppVoiceNotesAllowedForUser({ usuarioId, waId })) {
+      return res.status(200).json({
+        text: 'Las notas de voz por WhatsApp aún no están habilitadas para tu cuenta. Escríbeme tu consulta en texto.',
+        transcript: null,
+        replyMode: 'text',
+        audioDelivery: null,
+        audioRetained: false,
+        proposals: [],
+      })
+    }
     const mediaId = typeof payload.media_id === 'string' ? payload.media_id.trim() : ''
     const mimeType = typeof payload.mime_type === 'string' ? payload.mime_type.trim() : null
     const durationSeconds =
@@ -452,6 +466,7 @@ export default defineApiHandler(async (req, res) => {
         : payload.prefer_voice_reply === true
           ? 'audio'
           : 'text'
+    let voiceInteractiveButtons: ReturnType<typeof buildWhatsAppInteractiveProposalButtons> = []
     const voiceResult = await processWhatsAppVoiceNote(
       {
         waId,
@@ -472,7 +487,7 @@ export default defineApiHandler(async (req, res) => {
           })),
         },
         runAssistant: async ({ transcript }) => {
-          if (isAgentOrchestratorEnabled()) {
+          if (shouldUseWhatsAppOrchestrator({ usuarioId, waId }) || isAgentOrchestratorEnabled()) {
             const turn = await runChannelTurn({
               identity: {
                 supabase,
@@ -500,6 +515,9 @@ export default defineApiHandler(async (req, res) => {
                   turn.response.blocks.data[0] ?? '',
                   turn.batchId ?? null
                 )
+                if (hydrated.length === 1) {
+                  voiceInteractiveButtons = buildWhatsAppInteractiveProposalButtons(hydrated[0]!.binding, mode)
+                }
                 const body = hydrated
                   .map(({ binding, proposal }) =>
                     formatWhatsAppProposalPrompt(binding, { executionMode: mode, proposal })
@@ -524,6 +542,7 @@ export default defineApiHandler(async (req, res) => {
       replyMode: voiceResult.ok ? voiceResult.replyMode : 'text',
       audioDelivery: voiceResult.ok ? voiceResult.audioDelivery : null,
       audioRetained: voiceResult.audioRetained,
+      interactiveButtons: voiceInteractiveButtons,
       proposals: [],
     })
   }
@@ -712,7 +731,7 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Falta el mensaje.' })
     }
 
-    if (isAgentOrchestratorEnabled()) {
+    if (shouldUseWhatsAppOrchestrator({ usuarioId, waId })) {
       const turn = await runChannelTurn({
         identity: {
           supabase,

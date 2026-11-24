@@ -18,6 +18,7 @@ import {
   type ProactiveCandidate,
   type ProactiveUserPreferences,
 } from './whatsappProactive.js'
+import { resolveWhatsAppInboundRoute } from '../../src/lib/whatsappFlowRouting.js'
 
 describe('WhatsApp Phase 4 — Server-side STT, R2 Interactive Buttons & Prioritized Proactive Digest', () => {
   it('resolves server-side STT without browser SpeechRecognition and enforces $0 fail-closed guard', () => {
@@ -221,5 +222,46 @@ describe('WhatsApp Phase 4 — Server-side STT, R2 Interactive Buttons & Priorit
     expect(digest.dedupeKeys[1]).toContain('overdue_alert')
     expect(digest.dedupeKeys[2]).toContain('okr_risk_alert')
     expect(digest.bodyText).toContain('2 aviso(s) adicional(es)')
+  })
+
+  it('routes natural executive queries, R2 buttons, and opt-in voice notes cleanly on the existing webhook router', () => {
+    const naturalQueries = [
+      '¿Qué tengo pendiente hoy?',
+      '¿Qué está bloqueando a mi equipo?',
+      'quien tiene acciones vencidas',
+      'que deberia priorizar',
+      'como vamos con los okrs',
+      'que acordamos en la ultima reunion',
+      'como vamos con el proyecto de logistica',
+      'que necesita mi atencion',
+    ]
+    for (const q of naturalQueries) {
+      expect(resolveWhatsAppInboundRoute({ canUseAi: true, textBody: q })).toEqual({
+        kind: 'agent_free_text',
+        text: q,
+      })
+    }
+
+    // R2 interactive buttons routed cleanly while legacy ops & aiop buttons stay untouched
+    expect(
+      resolveWhatsAppInboundRoute({ canUseAi: true, buttonId: 'r2_confirm:op-1:ABCD1234' })
+    ).toEqual({ kind: 'agent_r2_button', buttonId: 'r2_confirm:op-1:ABCD1234' })
+    expect(
+      resolveWhatsAppInboundRoute({ canUseAi: true, buttonId: 'r2_edit:op-1:ABCD1234' })
+    ).toEqual({ kind: 'agent_r2_button', buttonId: 'r2_edit:op-1:ABCD1234' })
+    expect(
+      resolveWhatsAppInboundRoute({ canUseAi: true, buttonId: 'act:123:done' })
+    ).toEqual({ kind: 'ops_button', buttonId: 'act:123:done' })
+
+    // Voice notes opt-in (legacy audio ignore preserved by default)
+    expect(
+      resolveWhatsAppInboundRoute({ canUseAi: true, messageType: 'audio' })
+    ).toEqual({ kind: 'ignore' })
+    expect(
+      resolveWhatsAppInboundRoute({ canUseAi: true, messageType: 'audio', voiceNotesEnabled: true })
+    ).toEqual({ kind: 'agent_voice_note' })
+    expect(
+      resolveWhatsAppInboundRoute({ canUseAi: false, messageType: 'audio', voiceNotesEnabled: true })
+    ).toEqual({ kind: 'ignore' })
   })
 })

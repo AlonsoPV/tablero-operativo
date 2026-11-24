@@ -307,7 +307,10 @@ export function classifyAgentIntent(
     return { kind: 'aggregate_execution', groupBy: 'responsable', statusGroup: 'overdue' }
   }
 
-  if (/\bcomo vamos con\b/.test(text)) {
+  if (
+    /\bcomo vamos con\b/.test(text) &&
+    !/\b(okrs?|objetivos?|resultados? clave|krs?|metas?)\b/.test(text)
+  ) {
     return {
       kind: 'query_actions',
       scope: 'team_authorized',
