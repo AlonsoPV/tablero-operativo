@@ -20,7 +20,7 @@ import { loadAgentCapabilities } from '../query/actorCapabilities.js'
 import type { ActionActiveQuery } from '../../../src/features/ai-support/actionQuery/types.js'
 import type { AccessCapabilities } from '../../../src/features/auth/lib/permissions.js'
 import { isAgentMemoryEnabled } from '../memory/flag.js'
-import { createMemoryStore } from '../memory/store.js'
+import { loadSupabaseMemoryStore } from '../memory/store.js'
 
 /** Web y WhatsApp comparten contexto entre instancias; voz rehidrata desde consult_log. */
 function defaultStoreForChannel(input: { identity: VerifiedIdentity; channel: AgentChannel }): SessionContextStore {
@@ -114,6 +114,8 @@ export async function runChannelTurn(
   if (input.seedActiveQuery && !(await store.get(key))) {
     await store.set(key, { ...emptySessionContext(), activeQuery: input.seedActiveQuery })
   }
+  const memoryStore =
+    overrides.memoryStore ?? (isAgentMemoryEnabled() ? await loadSupabaseMemoryStore(input.identity.supabase) : undefined)
   const result = await runAgentTurn(
     { actor, utterance: input.utterance, responseFormat: input.responseFormat },
     {
@@ -122,7 +124,7 @@ export async function runChannelTurn(
       audit: overrides.audit ?? supabaseQueryAuditSink(actor),
       now: overrides.now,
       today: overrides.today,
-      memoryStore: overrides.memoryStore ?? (isAgentMemoryEnabled() ? createMemoryStore() : undefined),
+      memoryStore,
     }
   )
   return { ...result, text: result.handled ? formatForChannel(result, input.channel) : '' }
