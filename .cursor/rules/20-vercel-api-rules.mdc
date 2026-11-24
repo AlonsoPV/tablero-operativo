@@ -1,0 +1,24 @@
+---
+description: Vercel build, serverless entrypoint, ESM bundling, and TypeScript rules to prevent redundant builds and Hobby limit breaches.
+globs:
+  - "api/**"
+  - "vercel.json"
+  - "package.json"
+  - "scripts/bundle-api.mjs"
+  - "tsconfig*.json"
+---
+
+# Scrumban — Vercel & Serverless API Rules
+
+## Prevent Redundant Builds & Hobby Function Limit Breaches
+
+- **Never** name a `package.json` script `vercel-build`. Vercel's `@vercel/node` builder invokes `vercel-build` once per `api/*.ts` entrypoint (multiplying build time by 13×). Use `build:vercel` referenced from `vercel.json` `buildCommand`.
+- **Never** place `*.test.ts` files directly in `api/` root. Keep all API tests under `api/_shared/` so Vercel only registers the 11 production serverless handlers (staying safely under the 12-function Hobby cap).
+- **Keep `scripts/bundle-api.mjs` idempotent:** Local runs (`VERCEL !== '1'`) must never modify `api/*.ts` in place. Vercel runs (`VERCEL === '1'`) mark bundled files so repeated invocations cannot cumulatively re-bundle output.
+- **No redundant deployments:** Do not trigger manual deploys when Git auto-deploy already started for the target SHA, and never redeploy separately per env var.
+
+## TypeScript & Build Hygiene
+
+- `tsconfig.api.json` excludes `api/**/*.test.ts` and enables `incremental: true` (`tsBuildInfoFile` under `node_modules/.tmp/`), preserving `strict: true`, `noUnusedLocals`, and `noUnusedParameters`.
+- Always validate API changes with: `npx tsc -b`, `npm run build`, `node scripts/bundle-api.mjs`, and targeted Vitest suites for affected handlers.
+- Do not change `vercel.json` security headers (CSP, HSTS, X-Frame-Options) or `commandForIgnoringBuildStep` without explicit scope authorization.

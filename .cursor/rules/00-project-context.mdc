@@ -1,0 +1,34 @@
+---
+description: Canonical Scrumban environment IDs, critical component map, anti-Production guardrails, and lean operating rules.
+alwaysApply: true
+---
+
+# Scrumban — Project Context & Guardrails
+
+> **Authority boundary:** These rules provide static context and safety constraints only. They **never** authorize remote writes, deploys, flag changes, migrations, or merges. Every remote write requires explicit per-window user authorization.
+
+## Canonical Identifiers
+
+- **GitHub repo:** `AlonsoPV/tablero-operativo` (`main` = Production)
+- **Vercel project:** `tablero-operativo` (`prj_k71rhUH9uTFEEPWofF3NyyhcKEDn`), team `alonsopvs-projects`
+- **Production domains:** `tablero-operativo.vercel.app`, `scrumbanemx.vercel.app`
+- **Supabase DEV:** `tgiuevzlyptzlfgxsfhj`
+- **Supabase Production:** `xhpasmjzuwifmjhrsumb` (**HARD BLOCKED** unless explicit Production authorization is given)
+
+## Critical Component Map
+
+- **Serverless API entrypoints (11 handlers):** `api/*.ts` (bundled by `scripts/bundle-api.mjs`)
+- **R1 Orchestrator:** `api/_shared/orchestrator/*`, `api/_shared/query/*`, `api/gemini-chat.ts` (flag `AGENT_ORCHESTRATOR_R1 === '1'`)
+- **R3 Memory & Documents:** `api/_shared/memory/*`, `supabase/migrations/20261121150601_agent_memory_documents.sql` (flag `AGENT_MEMORY_R3 === '1'`)
+- **R2 Execution (NO-GO):** `api/_shared/actions/*` (must remain disabled; no R2 migration in DEV/PROD)
+- **Legacy critical paths:** `api/whatsapp-assistant.ts` (`can_use_ai_whatsapp_for_usuario`), `api/_shared/guideWork.ts` (no `GUIDE_WRITE_CLOSED`), `src/features/auth/lib/permissions.ts`, `src/features/auth/lib/moduleAccess.ts`
+- **QA Harness:** `scripts/qa/r3DevGuard.mjs`, `r3-preflight.mjs`, `run-r3-integrated.mjs`, `r3-rollback-off.mjs`
+
+## Mandatory Guardrails & Lean Discipline
+
+- **Never** touch Supabase Production (`xhpasmjzuwifmjhrsumb`), Vercel `target=["production"]`, `main`, or other branches without explicit authorization.
+- **Never** store, log, or print secrets, JWTs, passwords, service role keys, or PII. Protected local env files (`.env*` except `.env.example`) must never be committed.
+- **Never** disable SSO Protection, RLS, CSP, or `r3DevGuard.mjs` checks.
+- **No redundant work:** Do not repeat full audits, test suites, or builds when valid evidence already exists for the same Git tree (`HEAD^{tree}`) and no relevant files changed.
+- **No redundant deployments:** Consolidate env changes before deploying; reuse existing READY deployments whenever safe.
+- **Concise executive reporting:** Keep summaries factual, sanitized, and brief; distinguish live runtime verification from unit/static checks.
