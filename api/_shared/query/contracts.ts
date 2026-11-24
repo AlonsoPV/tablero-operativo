@@ -69,6 +69,8 @@ export type ActionItem = {
   responsableId?: string | null
   responsableNombre?: string | null
   area?: string | null
+  updatedAt?: string | null
+  evidenciaCargada?: boolean | null
 }
 
 export type KeyResultItem = {

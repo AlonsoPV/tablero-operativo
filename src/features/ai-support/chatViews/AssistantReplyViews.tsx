@@ -408,15 +408,23 @@ function ReplyViewBlock({
  * Renderiza vistas estructuradas del copiloto.
  * Si hay summary narrativo y las vistas ya lo incluyen (list/brief/ops), no lo duplica.
  */
+const EXECUTIVE_FOLLOWUP_CHIPS = [
+  { label: 'Ver evidencia', prompt: 'Muéstrame las acciones que sustentan esta recomendación.' },
+  { label: 'Prevenir esta semana', prompt: '¿Qué problemas podemos prevenir esta semana?' },
+  { label: 'Revisión de 15 min', prompt: 'Hagamos una revisión ejecutiva de 15 minutos.' },
+] as const
+
 export function AssistantReplyViews({
   ui,
   narrative,
   compact,
+  onFollowUp,
 }: {
   ui: AssistantUiPayload
   /** Texto del modelo; se muestra solo si aporta algo distinto a las vistas. */
   narrative?: string
   compact?: boolean
+  onFollowUp?: (prompt: string) => void
 }) {
   const showNarrative = useMemo(() => {
     const text = narrative?.trim()
@@ -453,6 +461,27 @@ export function AssistantReplyViews({
       {ui.views.map((view, index) => (
         <ReplyViewBlock key={`${view.type}-${index}`} view={view} compact={compact} />
       ))}
+      {onFollowUp && ui.views.some((v) => v.type === 'operational_summary') ? (
+        <div
+          className="flex flex-wrap gap-1.5 pt-0.5"
+          role="group"
+          aria-label="Acciones contextuales de profundización"
+        >
+          {EXECUTIVE_FOLLOWUP_CHIPS.map((chip) => (
+            <button
+              key={chip.label}
+              type="button"
+              onClick={() => onFollowUp(chip.prompt)}
+              className={cn(
+                'rounded-full bg-primary/10 px-2.5 py-1 font-medium text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                compact ? 'text-[10px]' : 'text-[11px]'
+              )}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {asOfLabel || (ui.sources && ui.sources.length > 0) ? (
         <p className={cn('text-muted-foreground', compact ? 'text-[10px] leading-4' : 'text-[11px] leading-4')}>
           {asOfLabel ? `Corte: ${asOfLabel}` : null}

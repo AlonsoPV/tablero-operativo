@@ -11,13 +11,17 @@ import type { ActionItem } from '../query/contracts.js'
 import type { AgentActor, AgentChannel } from '../query/resolveActor.js'
 import { coerceResponseFormat, type FormatResolution, type ResponseFormat } from './answerContract.js'
 import type { AgentIntent } from './intent.js'
+import type { ExecutiveSessionState } from './executiveSession.js'
 import type { AgentResponse } from './respond.js'
 
 export const SESSION_CONTEXT_TTL_MS = 30 * 60 * 1000
 const MAX_REFERENCED_ITEMS = 12
 const MAX_SESSIONS = 2_000
 
-export type ReferencedAction = Pick<ActionItem, 'id' | 'title' | 'estado' | 'fecha' | 'prioridad' | 'responsableId' | 'responsableNombre' | 'href'>
+export type ReferencedAction = Pick<
+  ActionItem,
+  'id' | 'title' | 'estado' | 'fecha' | 'prioridad' | 'responsableId' | 'responsableNombre' | 'area' | 'updatedAt' | 'href'
+>
 
 /**
  * Última respuesta con datos, sólo en memoria de la instancia (nunca se persiste en la tabla):
@@ -36,6 +40,8 @@ export type SessionContext = {
   /** Formato elegido para la sesión; ausente equivale a 'auto'. */
   responseFormat?: ResponseFormat
   lastAnswer?: CachedAnswer | null
+  /** Sesión ejecutiva guiada (~15 min) en curso; sólo memoria de sesión, nunca persiste compromisos. */
+  executiveSession?: ExecutiveSessionState | null
   /** Huella de capacidades con la que se construyó; si cambia, el contexto se descarta. */
   fingerprint?: string
   updatedAt: number
@@ -66,6 +72,8 @@ export function toReferencedActions(items: ActionItem[]): ReferencedAction[] {
     prioridad: item.prioridad,
     responsableId: item.responsableId ?? null,
     responsableNombre: item.responsableNombre ?? null,
+    area: item.area ?? null,
+    updatedAt: item.updatedAt ?? null,
     href: item.href,
   }))
 }
