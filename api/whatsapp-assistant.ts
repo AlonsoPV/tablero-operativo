@@ -26,7 +26,8 @@ import { isGoogleWriteTool } from '../src/features/ai-support/copilot/googleWork
 import { COPILOT_FUNCTION_DECLARATIONS, isCopilotReadTool } from '../src/features/ai-support/copilot/catalog.js'
 import { proposalFromPendingRow } from './_shared/assistantGoogleTools.js'
 import { guideAppBaseUrl } from './_shared/guideUserLinks.js'
-import { isAgentOrchestratorEnabled, runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
+import { runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
+import { shouldUseWhatsAppOrchestrator } from './_shared/whatsappPilotGate.js'
 
 const WHATSAPP_READ_ONLY_DECLARATIONS = COPILOT_FUNCTION_DECLARATIONS.filter((d) =>
   isCopilotReadTool(d.name)
@@ -414,14 +415,21 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Falta el mensaje.' })
     }
 
-    if (isAgentOrchestratorEnabled()) {
+    if (
+      shouldUseWhatsAppOrchestrator({
+        usuarioId,
+        waId,
+        active: usuario.activo === true,
+        aiAuthorized: allowed === true,
+      })
+    ) {
       const turn = await runChannelTurn({
         identity: {
           supabase,
           authUserId: actor.authUserId,
           usuarioId,
           rol: actor.rol,
-          active: usuario.activo !== false,
+          active: usuario.activo === true,
         },
         channel: 'whatsapp',
         sessionId: waId,
