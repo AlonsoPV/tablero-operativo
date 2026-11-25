@@ -1,3 +1,4 @@
+import { classifyConsultation } from '../consultation/classifyConsultation'
 import type { AssistantIntent } from './types'
 import { findTermsInText } from '../operationalSemantics/operationalDictionary'
 
@@ -19,10 +20,15 @@ export function detectAssistantIntent(
   options: {
     hasSelectedAction?: boolean
     hasSelectedOkr?: boolean
+    priorUserMessages?: string[]
   } = {}
 ): AssistantIntent {
   const text = normalize(message)
   if (!text) return 'general'
+
+  if (classifyConsultation(message, { priorUserMessages: options.priorUserMessages }).kind === 'concept') {
+    return 'concept'
+  }
 
   const termIds = new Set(findTermsInText(text).map((t) => t.id))
 

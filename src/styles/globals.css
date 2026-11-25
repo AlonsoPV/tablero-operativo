@@ -27,6 +27,16 @@
     --radius: 0.5rem;
     --card-radius: calc(var(--radius) - 2px);
 
+    /* Tonos semánticos (estados de interfaz) */
+    --success: 142 71% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 32 95% 44%;
+    --warning-foreground: 0 0% 100%;
+    --info: 221 83% 53%;
+    --info-foreground: 0 0% 100%;
+    --surface-deep: 222 62% 18%;
+    --surface-deep-foreground: 0 0% 100%;
+
     /* Semáforo KPI */
     --semaforo-verde: 142 71% 45%;
     --semaforo-amarillo: 38 92% 50%;
@@ -105,6 +115,15 @@
     --input: 220 26% 18%;
     --ring: 217 91% 60%;
 
+    --success: 142 60% 50%;
+    --success-foreground: 222 47% 11%;
+    --warning: 38 92% 56%;
+    --warning-foreground: 222 47% 11%;
+    --info: 217 91% 64%;
+    --info-foreground: 222 47% 11%;
+    --surface-deep: 222 58% 16%;
+    --surface-deep-foreground: 220 14% 96%;
+
     /* Sidebar en dark mantiene el mismo estilo premium */
     --sidebar-background: 222 47% 11%;
     --sidebar-foreground: 220 14% 96%;
@@ -119,6 +138,17 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 

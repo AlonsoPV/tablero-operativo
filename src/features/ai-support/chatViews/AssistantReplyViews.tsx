@@ -1,9 +1,11 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowUpRight, ChevronDown, Lightbulb } from 'lucide-react'
+import { AlertCircle, ArrowUpRight, ChevronDown, ChevronRight, Inbox, Lightbulb } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProgressBar } from '@/features/okrs/okrPresentation'
 import { ROUTES } from '@/constants'
+import { todayWallClockCDMX } from '@/lib/dateUtils'
+import { SectionEyebrow, toneDotClass, toneSoftClass, type AssistantTone } from '@/features/ai-support/components/ui'
 import type {
   AssistantActionListView,
   AssistantActionRowView,
@@ -21,22 +23,18 @@ import type {
 
 const INITIAL_VISIBLE = 5
 
-function SectionLabel({ children }: { children: ReactNode }) {
-  return (
-    <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-primary">{children}</p>
-  )
-}
+type FollowUp = (prompt: string) => void
 
-function metricToneClass(tone: AssistantMetric['tone']) {
+function metricTone(tone: AssistantMetric['tone']): AssistantTone {
   switch (tone) {
     case 'danger':
-      return 'bg-red-500/10 text-red-900 ring-red-500/25 dark:text-red-100'
+      return 'danger'
     case 'warning':
-      return 'bg-amber-500/10 text-amber-950 ring-amber-500/25 dark:text-amber-100'
+      return 'warning'
     case 'ok':
-      return 'bg-emerald-500/10 text-emerald-950 ring-emerald-500/25 dark:text-emerald-100'
+      return 'success'
     default:
-      return 'bg-muted/50 text-foreground/90 ring-border/40'
+      return 'neutral'
   }
 }
 
@@ -59,21 +57,75 @@ export function MetricSummary({
       {metrics.map((metric) => (
         <div
           key={metric.id}
-          className={cn(
-            'rounded-xl px-2.5 py-2 ring-1',
-            metricToneClass(metric.tone),
-            compact && 'px-2 py-1.5'
-          )}
+          className={cn('rounded-xl px-2.5 py-2 ring-1', toneSoftClass[metricTone(metric.tone)], compact && 'px-2 py-1.5')}
           title={metric.scope}
         >
-          <p className="text-[10px] font-medium uppercase tracking-[0.04em] opacity-75">
-            {metric.label}
-          </p>
-          <p className={cn('font-semibold tabular-nums', compact ? 'text-base' : 'text-lg')}>
-            {metric.value}
-          </p>
+          <p className="text-[11px] font-medium opacity-80">{metric.label}</p>
+          <p className={cn('font-semibold tabular-nums', compact ? 'text-base' : 'text-lg')}>{metric.value}</p>
         </div>
       ))}
+    </div>
+  )
+}
+
+/** Consulta simple: número grande, desglose breve y alcance; sin Hallazgo/Evidencia. */
+function MetricResult({
+  metric,
+  summary,
+  scope,
+  compact,
+  onFollowUp,
+}: {
+  metric: AssistantMetric
+  summary: string
+  scope?: string
+  compact?: boolean
+  onFollowUp?: FollowUp
+}) {
+  const tone = metricTone(metric.tone)
+  const numeric = typeof metric.value === 'number' ? metric.value : Number(metric.value)
+  return (
+    <div
+      className={cn(
+        'rounded-2xl bg-card ring-1 ring-border/70 shadow-[0_12px_28px_-24px_hsl(var(--foreground)/0.5)]',
+        compact ? 'p-3' : 'p-4'
+      )}
+    >
+      <div className="flex items-end gap-3">
+        <span
+          className={cn(
+            'font-semibold leading-none tracking-tight tabular-nums',
+            tone === 'success' ? 'text-success' : tone === 'danger' ? 'text-destructive' : 'text-foreground',
+            compact ? 'text-3xl' : 'text-4xl'
+          )}
+        >
+          {metric.value}
+        </span>
+        <span className="pb-0.5 text-sm font-medium text-muted-foreground">{metric.label}</span>
+      </div>
+      <p className={cn('mt-2 text-foreground/85', compact ? 'text-[12px] leading-5' : 'text-[13px] leading-5')}>
+        {summary}
+      </p>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        {scope ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-foreground/[0.04] px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+            <span className={cn('h-1.5 w-1.5 rounded-full', toneDotClass.primary)} aria-hidden />
+            {scope}
+          </span>
+        ) : (
+          <span />
+        )}
+        {onFollowUp && Number.isFinite(numeric) && numeric > 0 ? (
+          <button
+            type="button"
+            onClick={() => onFollowUp('Enlistalas')}
+            className="inline-flex items-center gap-0.5 rounded-full text-xs font-semibold text-primary transition hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Ver detalle
+            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -85,49 +137,30 @@ function formatFecha(fecha: string | null | undefined) {
   return `${match[3]}/${match[2]}/${match[1]}`
 }
 
-function renderInlineMarkdown(text: string) {
-  const parts: ReactNode[] = []
-  const pattern = /(\*\*([^*]+)\*\*|\[([^\]]+)\]\((\/[^)\s]*|https?:\/\/[^)\s]+)\))/g
-  let last = 0
-  let match: RegExpExecArray | null
-  let key = 0
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > last) parts.push(text.slice(last, match.index))
-    if (match[2]) {
-      parts.push(
-        <strong key={`b-${key++}`} className="font-semibold text-foreground">
-          {match[2]}
-        </strong>
-      )
-    } else if (match[3] && match[4]) {
-      const href = match[4]
-      parts.push(
-        href.startsWith('/') ? (
-          <Link
-            key={`a-${key++}`}
-            to={href}
-            state={{ from: 'assistant' }}
-            className="font-medium text-primary underline-offset-2 hover:underline"
-          >
-            {match[3]}
-          </Link>
-        ) : (
-          <a
-            key={`a-${key++}`}
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-medium text-primary underline-offset-2 hover:underline"
-          >
-            {match[3]}
-          </a>
-        )
-      )
-    }
-    last = match.index + match[0].length
+function splitEstado(raw: string | null | undefined) {
+  const [estado, ...owner] = (raw ?? '').split(' · ')
+  return { estado: estado?.trim() || null, owner: owner.join(' · ').trim() || null }
+}
+
+function estadoTone(estado: string | null, fecha?: string | null): AssistantTone {
+  const closed = estado === 'Hecho' || estado === 'Verificado'
+  if (!closed && fecha && fecha.slice(0, 10) < todayWallClockCDMX()) return 'danger'
+  switch (estado) {
+    case 'Retraso':
+    case 'Bloqueado':
+      return 'danger'
+    case 'Hoy':
+      return 'warning'
+    case 'Hecho':
+    case 'Verificado':
+      return 'success'
+    default:
+      return 'primary'
   }
-  if (last < text.length) parts.push(text.slice(last))
-  return parts.length ? parts : text
+}
+
+function isCriticalPriority(prioridad: string | null | undefined) {
+  return Boolean(prioridad && /^(p1|critica|crítica|alta)$/i.test(prioridad.trim()))
 }
 
 export function ActionRow({
@@ -137,38 +170,122 @@ export function ActionRow({
   action: AssistantActionRowView
   compact?: boolean
 }) {
-  const meta = [action.estado, formatFecha(action.fecha), action.prioridad, action.responsable]
-    .filter(Boolean)
-    .join(' · ')
+  const [open, setOpen] = useState(false)
+  const { estado, owner } = splitEstado(action.estado)
+  const responsable = action.responsable || owner
+  const fecha = formatFecha(action.fecha)
+  const tone = estadoTone(estado, action.fecha)
+  const meta = [responsable, fecha].filter(Boolean).join(' · ')
+
   return (
     <li className="min-w-0">
-      <Link
-        to={action.href}
-        state={{ from: 'assistant' }}
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
         className={cn(
-          'group flex min-h-11 items-start justify-between gap-2 rounded-xl bg-muted/35 px-2.5 py-2 ring-1 ring-transparent transition hover:bg-muted/55 hover:ring-border/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'group flex w-full items-center gap-2.5 rounded-xl px-2.5 text-left transition duration-150',
+          'hover:bg-foreground/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           compact ? 'py-1.5' : 'py-2'
         )}
       >
-        <div className="min-w-0 space-y-0.5">
-          <p
+        <span className={cn('h-2 w-2 shrink-0 rounded-full', toneDotClass[tone])} title={estado ?? undefined} aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span
             className={cn(
-              'truncate font-medium text-foreground',
+              'block truncate font-medium text-foreground',
               compact ? 'text-[12px] leading-4' : 'text-[13px] leading-5'
             )}
           >
             {action.title}
-          </p>
-          {meta ? (
-            <p className="truncate text-[11px] text-muted-foreground">{meta}</p>
-          ) : null}
-        </div>
-        <ArrowUpRight
-          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary opacity-70 transition group-hover:opacity-100"
+          </span>
+          {meta ? <span className="block truncate text-[11px] text-muted-foreground">{meta}</span> : null}
+        </span>
+        {isCriticalPriority(action.prioridad) ? (
+          <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1', toneSoftClass.danger)}>
+            {action.prioridad}
+          </span>
+        ) : null}
+        <ChevronDown
+          className={cn(
+            'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150',
+            open && 'rotate-180'
+          )}
           aria-hidden
         />
-      </Link>
+      </button>
+      {open ? (
+        <div className="animate-in fade-in-0 slide-in-from-top-1 mx-2.5 mb-1.5 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 border-l-2 border-border/70 pl-3 text-[11px] text-muted-foreground duration-150">
+          {estado ? (
+            <span>
+              Estado: <span className="font-medium text-foreground">{estado}</span>
+            </span>
+          ) : null}
+          {fecha ? <span>Fecha límite: {fecha}</span> : null}
+          {action.prioridad ? <span>Prioridad: {action.prioridad}</span> : null}
+          {responsable ? <span>Responsable: {responsable}</span> : null}
+          <Link
+            to={action.href}
+            className="inline-flex items-center gap-0.5 font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Abrir en kanban
+            <ArrowUpRight className="h-3 w-3" aria-hidden />
+          </Link>
+        </div>
+      ) : null}
     </li>
+  )
+}
+
+function ListFooter({
+  shown,
+  total,
+  truncated,
+  canExpand,
+  onExpand,
+  remainingServer = 0,
+}: {
+  shown: number
+  total: number
+  truncated: boolean
+  canExpand: boolean
+  onExpand: () => void
+  remainingServer?: number
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 px-1 text-[11px] text-muted-foreground">
+      <span>
+        Mostrando {shown} de {total}
+        {truncated ? ' (lista parcial)' : ''}
+      </span>
+      {canExpand ? (
+        <button
+          type="button"
+          className="inline-flex items-center gap-0.5 font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onExpand}
+        >
+          Ver más
+          <ChevronDown className="h-3 w-3" aria-hidden />
+        </button>
+      ) : null}
+      {remainingServer > 0 ? (
+        <Link to={ROUTES.KANBAN} className="font-medium text-primary hover:underline">
+          Ver en kanban ({remainingServer} más)
+        </Link>
+      ) : null}
+    </div>
+  )
+}
+
+function ViewHeader({ summary, scope, compact }: { summary?: string; scope?: string; compact?: boolean }) {
+  if (!summary && !scope) return null
+  return (
+    <div className="space-y-0.5 px-1">
+      {summary ? (
+        <p className={cn('text-foreground/90', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>{summary}</p>
+      ) : null}
+      {scope ? <p className="text-[11px] text-muted-foreground">{scope}</p> : null}
+    </div>
   )
 }
 
@@ -182,45 +299,23 @@ export function ActionList({
   const [expanded, setExpanded] = useState(false)
   const limit = expanded ? view.actions.length : Math.min(INITIAL_VISIBLE, view.actions.length)
   const shown = view.actions.slice(0, limit)
-  const canExpand = view.actions.length > INITIAL_VISIBLE
-  const remainingServer = Math.max(0, view.total - view.visible)
 
   return (
     <div className="space-y-2">
-      {view.summary ? (
-        <p className={cn('text-foreground/90', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
-          {view.summary}
-        </p>
-      ) : null}
-      {view.scope ? (
-        <p className="text-[11px] text-muted-foreground">{view.scope}</p>
-      ) : null}
-      <ul className="space-y-1.5">
+      <ViewHeader summary={view.summary} scope={view.scope} compact={compact} />
+      <ul className="divide-y divide-border/50 rounded-2xl bg-card p-1 ring-1 ring-border/70">
         {shown.map((action) => (
           <ActionRow key={action.id} action={action} compact={compact} />
         ))}
       </ul>
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-        <span>
-          Mostrando {shown.length} de {view.total}
-          {view.truncated ? ' (lista parcial)' : ''}
-        </span>
-        {canExpand && !expanded ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-0.5 font-medium text-primary hover:underline"
-            onClick={() => setExpanded(true)}
-          >
-            Ver más
-            <ChevronDown className="h-3 w-3" aria-hidden />
-          </button>
-        ) : null}
-        {remainingServer > 0 ? (
-          <Link to={ROUTES.KANBAN} className="font-medium text-primary hover:underline">
-            Ver en kanban ({remainingServer} más)
-          </Link>
-        ) : null}
-      </div>
+      <ListFooter
+        shown={shown.length}
+        total={view.total}
+        truncated={view.truncated}
+        canExpand={view.actions.length > INITIAL_VISIBLE && !expanded}
+        onExpand={() => setExpanded(true)}
+        remainingServer={Math.max(0, view.total - view.visible)}
+      />
     </div>
   )
 }
@@ -235,54 +330,30 @@ export function OKRProgressList({
   const [expanded, setExpanded] = useState(false)
   const limit = expanded ? view.okrs.length : Math.min(INITIAL_VISIBLE, view.okrs.length)
   const shown = view.okrs.slice(0, limit)
-  const canExpand = view.okrs.length > INITIAL_VISIBLE
 
   return (
     <div className="space-y-2">
-      {view.summary ? (
-        <p className={cn('text-foreground/90', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
-          {view.summary}
-        </p>
-      ) : null}
-      {view.scope ? (
-        <p className="text-[11px] text-muted-foreground">{view.scope}</p>
-      ) : null}
-      <ul className="space-y-2">
+      <ViewHeader summary={view.summary} scope={view.scope} compact={compact} />
+      <ul className="divide-y divide-border/50 rounded-2xl bg-card p-1 ring-1 ring-border/70">
         {shown.map((okr) => (
           <OkrProgressRow key={okr.id} okr={okr} compact={compact} />
         ))}
       </ul>
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-        <span>
-          Mostrando {shown.length} de {view.total}
-          {view.truncated ? ' (lista parcial)' : ''}
-        </span>
-        {canExpand && !expanded ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-0.5 font-medium text-primary hover:underline"
-            onClick={() => setExpanded(true)}
-          >
-            Ver más
-            <ChevronDown className="h-3 w-3" aria-hidden />
-          </button>
-        ) : null}
-      </div>
+      <ListFooter
+        shown={shown.length}
+        total={view.total}
+        truncated={view.truncated}
+        canExpand={view.okrs.length > INITIAL_VISIBLE && !expanded}
+        onExpand={() => setExpanded(true)}
+      />
     </div>
   )
 }
 
 function OkrProgressRow({ okr, compact }: { okr: AssistantOkrRowView; compact?: boolean }) {
-  const progressLabel =
-    okr.progress == null ? 'Sin avance calculable' : `${Math.round(okr.progress)}%`
-  const scopeLabel =
-    okr.scope === 'team' ? 'Equipo' : okr.scope === 'company' ? 'Empresa' : okr.scope || null
-  const meta = [
-    scopeLabel,
-    `${okr.krCount} KR${okr.krCount === 1 ? '' : 's'}`,
-    okr.pace,
-    okr.initiativesHint,
-  ]
+  const progressLabel = okr.progress == null ? 'Sin avance calculable' : `${Math.round(okr.progress)}%`
+  const scopeLabel = okr.scope === 'team' ? 'Equipo' : okr.scope === 'company' ? 'Empresa' : okr.scope || null
+  const meta = [scopeLabel, `${okr.krCount} KR${okr.krCount === 1 ? '' : 's'}`, okr.pace, okr.initiativesHint]
     .filter(Boolean)
     .join(' · ')
 
@@ -291,22 +362,15 @@ function OkrProgressRow({ okr, compact }: { okr: AssistantOkrRowView; compact?: 
       <Link
         to={okr.href}
         className={cn(
-          'block space-y-1.5 rounded-xl bg-muted/35 px-2.5 py-2 transition hover:bg-muted/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'block space-y-1.5 rounded-xl px-2.5 py-2 transition duration-150 hover:bg-foreground/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           compact && 'py-1.5'
         )}
       >
         <div className="flex items-start justify-between gap-2">
-          <p
-            className={cn(
-              'min-w-0 font-medium text-foreground',
-              compact ? 'text-[12px] leading-4' : 'text-[13px] leading-5'
-            )}
-          >
+          <p className={cn('min-w-0 font-medium text-foreground', compact ? 'text-[12px] leading-4' : 'text-[13px] leading-5')}>
             {okr.nombre}
           </p>
-          <span className="shrink-0 text-[11px] font-semibold tabular-nums text-foreground/80">
-            {progressLabel}
-          </span>
+          <span className="shrink-0 text-[11px] font-semibold tabular-nums text-foreground/80">{progressLabel}</span>
         </div>
         <ProgressBar
           value={okr.progress}
@@ -330,50 +394,63 @@ export function RecommendationCard({
   const text = 'text' in view ? view.text : ''
   const nextAction = 'nextAction' in view ? view.nextAction : undefined
   return (
-    <div
-      className={cn(
-        'rounded-xl bg-primary/5 px-2.5 py-2 ring-1 ring-primary/15',
-        compact && 'py-1.5'
-      )}
-    >
-      <div className="mb-1 flex items-center gap-1.5">
-        <Lightbulb className="h-3 w-3 text-primary" aria-hidden />
-        <SectionLabel>Recomendacion</SectionLabel>
-      </div>
-      <p className={cn('text-foreground/90', compact ? 'text-[12px] leading-4' : 'text-[13px] leading-5')}>
-        {text}
-      </p>
-      {nextAction ? (
-        <p className="mt-1 text-[11px] text-muted-foreground">Siguiente: {nextAction}</p>
-      ) : null}
+    <div className={cn('rounded-2xl bg-primary/[0.06] px-3 py-2.5 ring-1 ring-primary/15', compact && 'px-2.5 py-2')}>
+      <SectionEyebrow icon={Lightbulb}>Recomendación</SectionEyebrow>
+      <p className={cn('mt-1 text-foreground/90', compact ? 'text-[12px] leading-5' : 'text-[13px] leading-5')}>{text}</p>
+      {nextAction ? <p className="mt-1 text-[11px] text-muted-foreground">Siguiente: {nextAction}</p> : null}
     </div>
   )
 }
 
 export function EmptyStateView({ view }: { view: AssistantEmptyView }) {
   return (
-    <div className="rounded-xl bg-muted/30 px-2.5 py-2 text-[13px] text-muted-foreground ring-1 ring-border/35">
-      <p>{view.message}</p>
-      {view.scope ? <p className="mt-1 text-[11px]">{view.scope}</p> : null}
+    <div className="flex items-start gap-3 rounded-2xl bg-card px-3 py-3 ring-1 ring-border/70">
+      <span
+        className={cn('inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ring-1', toneSoftClass.neutral)}
+        aria-hidden
+      >
+        <Inbox className="h-4 w-4 text-muted-foreground" />
+      </span>
+      <div className="min-w-0 pt-0.5">
+        <p className="text-[13px] leading-5 text-foreground/90">{view.message}</p>
+        {view.scope ? <p className="mt-0.5 text-[11px] text-muted-foreground">{view.scope}</p> : null}
+      </div>
     </div>
   )
 }
 
 export function ErrorStateView({ view }: { view: AssistantErrorView }) {
   return (
-    <div className="rounded-xl bg-destructive/10 px-2.5 py-2 text-[13px] text-destructive ring-1 ring-destructive/25">
-      {view.message}
+    <div className="flex items-start gap-2 rounded-2xl bg-destructive/[0.06] px-3 py-2.5 text-[13px] leading-5 text-foreground ring-1 ring-destructive/25">
+      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
+      <p>{view.message}</p>
     </div>
   )
 }
 
-function BriefView({ view, compact }: { view: AssistantBriefView; compact?: boolean }) {
+function BriefView({
+  view,
+  compact,
+  onFollowUp,
+}: {
+  view: AssistantBriefView
+  compact?: boolean
+  onFollowUp?: FollowUp
+}) {
+  if (view.metrics?.length === 1) {
+    return (
+      <MetricResult
+        metric={view.metrics[0]!}
+        summary={view.summary}
+        scope={view.scope ?? view.metrics[0]!.scope}
+        compact={compact}
+        onFollowUp={onFollowUp}
+      />
+    )
+  }
   return (
     <div className="space-y-2">
-      <p className={cn('text-foreground/90', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
-        {renderInlineMarkdown(view.summary)}
-      </p>
-      {view.scope ? <p className="text-[11px] text-muted-foreground">{view.scope}</p> : null}
+      <ViewHeader summary={view.summary} scope={view.scope} compact={compact} />
       {view.metrics?.length ? <MetricSummary metrics={view.metrics} compact={compact} /> : null}
     </div>
   )
@@ -388,18 +465,18 @@ function OperationalSummaryView({
 }) {
   return (
     <div className="space-y-3">
-      <div className="space-y-1">
-        <SectionLabel>Resumen operativo</SectionLabel>
-        <p className={cn('text-foreground/90', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
-          {renderInlineMarkdown(view.summary)}
-        </p>
+      <div className="space-y-1 px-1">
+        <SectionEyebrow>Resumen operativo</SectionEyebrow>
+        <p className={cn('text-foreground/90', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>{view.summary}</p>
         {view.scope ? <p className="text-[11px] text-muted-foreground">{view.scope}</p> : null}
       </div>
       <MetricSummary metrics={view.metrics} compact={compact} />
       {view.actions?.length ? (
         <div className="space-y-1.5">
-          <SectionLabel>Acciones prioritarias</SectionLabel>
-          <ul className="space-y-1.5">
+          <SectionEyebrow tone="muted" className="px-1">
+            Acciones prioritarias
+          </SectionEyebrow>
+          <ul className="divide-y divide-border/50 rounded-2xl bg-card p-1 ring-1 ring-border/70">
             {view.actions.slice(0, 6).map((action) => (
               <ActionRow key={action.id} action={action} compact={compact} />
             ))}
@@ -408,17 +485,17 @@ function OperationalSummaryView({
       ) : null}
       {view.okrs?.length ? (
         <div className="space-y-1.5">
-          <SectionLabel>OKRs relevantes</SectionLabel>
-          <ul className="space-y-2">
+          <SectionEyebrow tone="muted" className="px-1">
+            OKRs relevantes
+          </SectionEyebrow>
+          <ul className="divide-y divide-border/50 rounded-2xl bg-card p-1 ring-1 ring-border/70">
             {view.okrs.slice(0, 4).map((okr) => (
               <OkrProgressRow key={okr.id} okr={okr} compact={compact} />
             ))}
           </ul>
         </div>
       ) : null}
-      {view.recommendation ? (
-        <RecommendationCard view={view.recommendation} compact={compact} />
-      ) : null}
+      {view.recommendation ? <RecommendationCard view={view.recommendation} compact={compact} /> : null}
     </div>
   )
 }
@@ -426,13 +503,15 @@ function OperationalSummaryView({
 function ReplyViewBlock({
   view,
   compact,
+  onFollowUp,
 }: {
   view: AssistantReplyView
   compact?: boolean
+  onFollowUp?: FollowUp
 }) {
   switch (view.type) {
     case 'brief':
-      return <BriefView view={view} compact={compact} />
+      return <BriefView view={view} compact={compact} onFollowUp={onFollowUp} />
     case 'action_list':
       return <ActionList view={view} compact={compact} />
     case 'okr_list':
@@ -454,12 +533,6 @@ function ReplyViewBlock({
  * Renderiza vistas estructuradas del copiloto.
  * Si hay summary narrativo y las vistas ya lo incluyen (list/brief/ops), no lo duplica.
  */
-const EXECUTIVE_FOLLOWUP_CHIPS = [
-  { label: 'Ver evidencia', prompt: 'Muéstrame las acciones que sustentan esta recomendación.' },
-  { label: 'Prevenir esta semana', prompt: '¿Qué problemas podemos prevenir esta semana?' },
-  { label: 'Revisión de 15 min', prompt: 'Hagamos una revisión ejecutiva de 15 minutos.' },
-] as const
-
 export function AssistantReplyViews({
   ui,
   narrative,
@@ -470,89 +543,39 @@ export function AssistantReplyViews({
   /** Texto del modelo; se muestra solo si aporta algo distinto a las vistas. */
   narrative?: string
   compact?: boolean
-  onFollowUp?: (prompt: string) => void
+  /** Permite que una vista pida el detalle dentro del mismo chat. */
+  onFollowUp?: FollowUp
 }) {
-  const showNarrative = useMemo(() => {
-    const text = narrative?.trim()
-    if (!text) return false
+  const narrativeText = useMemo(() => {
     const primary = ui.views[0]
-    if (!primary) return true
-    if (primary.type === 'brief' && primary.summary === text) return false
-    if (primary.type === 'action_list' && primary.summary === text) return false
-    if (primary.type === 'operational_summary' && primary.summary === text) return false
-    if (ui.summary && ui.summary === text) return false
+    const primarySummary =
+      primary && 'summary' in primary && typeof primary.summary === 'string' ? primary.summary : ''
+    let text = narrative?.trim() ?? ''
+    // La vista ya muestra su resumen: conservar solo lo que el texto agrega (p. ej. cambio de alcance).
+    for (const repeated of [primarySummary, ui.summary ?? '']) {
+      if (repeated && text.includes(repeated)) text = text.replace(repeated, '').trim()
+    }
+    if (!text || !primary) return text
     // Evitar muro de texto cuando ya hay listas/métricas
     if (
-      (primary.type === 'action_list' ||
-        primary.type === 'okr_list' ||
-        primary.type === 'operational_summary') &&
+      (primary.type === 'action_list' || primary.type === 'okr_list' || primary.type === 'operational_summary') &&
       text.length > 280
     ) {
-      return false
+      return ''
     }
-    return text.length > 0 && text !== ui.summary
+    return text
   }, [narrative, ui])
-
-  const asOfLabel = ui.asOf
-    ? new Date(ui.asOf).toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })
-    : null
 
   return (
     <div className={cn('space-y-3', compact && 'space-y-2.5')}>
-      {showNarrative ? (
-        <p className={cn('text-foreground/90', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
-          {renderInlineMarkdown(narrative!.trim())}
+      {narrativeText ? (
+        <p className={cn('whitespace-pre-line px-1 text-foreground/90', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
+          {narrativeText}
         </p>
       ) : null}
       {ui.views.map((view, index) => (
-        <ReplyViewBlock key={`${view.type}-${index}`} view={view} compact={compact} />
+        <ReplyViewBlock key={`${view.type}-${index}`} view={view} compact={compact} onFollowUp={onFollowUp} />
       ))}
-      {onFollowUp && ui.views.some((v) => v.type === 'operational_summary') ? (
-        <div
-          className="flex flex-wrap gap-1.5 pt-0.5"
-          role="group"
-          aria-label="Acciones contextuales de profundización"
-        >
-          {(() => {
-            const firstAction = ui.views.flatMap((view) =>
-              view.type === 'operational_summary' || view.type === 'action_list' ? view.actions ?? [] : []
-            )[0]
-            return firstAction ? (
-              <Link
-                to={firstAction.href}
-                state={{ from: 'assistant' }}
-                className={cn(
-                  'inline-flex min-h-9 items-center rounded-full bg-primary px-2.5 py-1 font-medium text-primary-foreground transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  compact ? 'text-[10px]' : 'text-[11px]'
-                )}
-              >
-                Abrir evidencia
-              </Link>
-            ) : null
-          })()}
-          {EXECUTIVE_FOLLOWUP_CHIPS.map((chip) => (
-            <button
-              key={chip.label}
-              type="button"
-              onClick={() => onFollowUp(chip.prompt)}
-              className={cn(
-                'min-h-9 rounded-full bg-primary/10 px-2.5 py-1 font-medium text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                compact ? 'text-[10px]' : 'text-[11px]'
-              )}
-            >
-              {chip.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {asOfLabel || (ui.sources && ui.sources.length > 0) ? (
-        <p className={cn('text-muted-foreground', compact ? 'text-[10px] leading-4' : 'text-[11px] leading-4')}>
-          {asOfLabel ? `Corte: ${asOfLabel}` : null}
-          {asOfLabel && ui.sources?.length ? ' · ' : null}
-          {ui.sources?.length ? `Fuentes: ${ui.sources.join(', ')}` : null}
-          {ui.limitations?.length ? ` · ${ui.limitations.join(' ')}` : null}
-        </p>
-      ) : null}
     </div>
   )
 }

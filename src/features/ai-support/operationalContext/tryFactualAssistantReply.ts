@@ -105,7 +105,7 @@ export function tryFactualAssistantReply(
   intent: AssistantIntent,
   options: { priorUserMessages?: string[] } = {}
 ): { content: string; structured: AssistantStructuredReply; ui: AssistantUiPayload } | null {
-  if (intent === 'selected_action' || intent === 'selected_okr') return null
+  if (intent === 'selected_action' || intent === 'selected_okr' || intent === 'concept') return null
 
   const listAsk = isListRequest(message)
   const briefAsk = isBriefCountRequest(message) || isSimpleCountQuestion(message)

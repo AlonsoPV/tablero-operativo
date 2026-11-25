@@ -7,6 +7,7 @@ export type AssistantIntent =
   | 'team_delay'
   | 'selected_action'
   | 'selected_okr'
+  | 'concept'
   | 'general'
 
 export type OperationalActionItem = {

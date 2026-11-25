@@ -9,6 +9,7 @@ const ITEM_CAPS: Record<AssistantIntent, number> = {
   team_delay: 10,
   selected_action: 4,
   selected_okr: 4,
+  concept: 0,
   general: 8,
 }
 

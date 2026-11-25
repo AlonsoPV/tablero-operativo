@@ -50,6 +50,22 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          foreground: "hsl(var(--info-foreground))",
+        },
+        "surface-deep": {
+          DEFAULT: "hsl(var(--surface-deep))",
+          foreground: "hsl(var(--surface-deep-foreground))",
+        },
         /* Semáforo KPI */
         semaforo: {
           verde: "hsl(var(--semaforo-verde))",
@@ -101,6 +117,10 @@ export default {
           "0%": { backgroundPosition: "-200% center" },
           "100%": { backgroundPosition: "200% center" },
         },
+        "assistant-wave": {
+          "0%, 100%": { transform: "scaleY(0.45)" },
+          "50%": { transform: "scaleY(1)" },
+        },
       },
       animation: {
         "challenge-fade-up": "challenge-fade-up 0.45s ease-out both",
@@ -108,6 +128,7 @@ export default {
         "challenge-pulse-soft": "challenge-pulse-soft 4.5s ease-in-out infinite",
         "challenge-progress": "challenge-progress 0.7s ease-out both",
         shiny: "shiny 6s linear infinite",
+        "assistant-wave": "assistant-wave 1.6s ease-in-out infinite",
       },
     },
   },

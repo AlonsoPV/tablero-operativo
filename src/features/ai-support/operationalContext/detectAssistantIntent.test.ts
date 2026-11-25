@@ -17,7 +17,10 @@ describe('detectAssistantIntent', () => {
     ).toBe('selected_action')
   })
 
-  it('falls back to general without signals', () => {
-    expect(detectAssistantIntent('Explicame Scrumban en dos lineas')).toBe('general')
+  it('explains a definition instead of opening OKR data', () => {
+    expect(detectAssistantIntent('¿Qué es un OKR?')).toBe('concept')
+    expect(detectAssistantIntent('¿Qué significa KR?')).toBe('concept')
+    expect(detectAssistantIntent('Explicame Scrumban en dos lineas')).toBe('concept')
+    expect(detectAssistantIntent('¿Cuáles son nuestros OKRs?')).toBe('okrs')
   })
 })

@@ -1,6 +1,6 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowUpRight, ChevronDown, Loader2, Pencil } from 'lucide-react'
+import { ArrowUpRight, ChevronDown, Loader2, Mail, MessageCircle, Pencil, CalendarDays, LayoutGrid } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -20,23 +20,21 @@ import { sanitizeRecipientFacingText } from '@/features/ai-support/copilot/pendi
 import {
   actionLifecycleTone,
   actionTypeLabel,
-  boardR2StatusLabel,
-  isR2BoardProposalTool,
-  isR2EditableTool,
-  proposalExecutionBadge,
+  pendingFailureStatus,
+  proposalStageLabel,
   toActionCardView,
   type ActionLifecycleStatus,
 } from '@/features/ai-support/copilot/actionLifecycle'
+import { friendlyAssistantError } from '@/features/ai-support/assistantErrors'
+import { StatusPill } from '@/features/ai-support/components/ui'
 import {
   cancelAssistantOp,
   confirmAssistantOp,
   editAssistantOp,
   searchWhatsappRecipients,
 } from '@/features/ai-support/services/assistantOpsClient'
-import { friendlyAssistantError } from '@/features/ai-support/assistantErrors'
-import { toneSoftClass } from '@/features/ai-support/components/ui/tones'
 
-type ProposalStatus = 'pending' | 'confirmed' | 'cancelled' | 'error'
+type ProposalStatus = 'pending' | 'confirmed' | 'cancelled' | 'error' | 'expired' | 'conflict'
 
 type AssistantProposalCardProps = {
   proposal: CopilotProposal
@@ -49,10 +47,24 @@ type AssistantProposalCardProps = {
   cancelOp?: (opId: string) => Promise<void>
   /** Oculta editar aunque no sea readOnly (liga sin login). */
   disableEdit?: boolean
-  /** R2 OFF: no ejecutar ni sugerir que la ejecución está disponible. */
-  executionLocked?: boolean
   onResolved?: (status: 'confirmed' | 'cancelled', href?: string) => void
   onUpdated?: (proposal: CopilotProposal) => void
+}
+
+const KIND_ICON = {
+  whatsapp: MessageCircle,
+  email: Mail,
+  event: CalendarDays,
+  board: LayoutGrid,
+} as const
+
+function PreviewRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex gap-3 text-[12px] leading-5">
+      <dt className="w-20 shrink-0 text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 flex-1 text-foreground">{children}</dd>
+    </div>
+  )
 }
 
 export function AssistantProposalCard({
@@ -63,7 +75,6 @@ export function AssistantProposalCard({
   confirmOp,
   cancelOp,
   disableEdit = false,
-  executionLocked = false,
   onResolved,
   onUpdated,
 }: AssistantProposalCardProps) {
@@ -78,43 +89,31 @@ export function AssistantProposalCard({
   const whatsappWrite = proposal.tool === 'whatsapp_prepare_send'
   const dailySummary = proposal.tool === 'update_daily_action_summary'
   const boardNotifyEmail = proposal.tool === 'notify_action_email'
-  const r2Board = isR2BoardProposalTool(proposal.tool)
-  const canEdit =
-    !disableEdit &&
-    (googleWrite || whatsappWrite || boardNotifyEmail || isR2EditableTool(proposal.tool)) &&
-    status === 'pending'
+  const canEdit = !disableEdit && (googleWrite || whatsappWrite || boardNotifyEmail) && status === 'pending'
   const view = toActionCardView(proposal, {
     status: busy === 'confirm' || busy === 'cancel' ? 'executing' : status,
     busy,
     errorMessage: error,
     resultHref,
   })
-  const statusLabel = r2Board ? boardR2StatusLabel(view.status) : view.statusLabel
   const tone = actionLifecycleTone(view.status)
+  const stageLabel = proposalStageLabel({
+    lifecycle: view.status,
+    kind: view.kind,
+    approving: busy === 'confirm',
+  })
   const typeLabel = actionTypeLabel(view.tool, view.kind)
+  const KindIcon = KIND_ICON[view.kind]
   const needsInfo =
     Boolean(view.whatsappPreview?.needsInfo) ||
     Boolean(proposal.workspace?.needsInfo) ||
     Boolean(proposal.workspace?.incomplete) ||
     (view.kind === 'email' && !(proposal.workspace?.to && proposal.workspace.to.length > 0))
-  const simulated = proposal.simulated === true
-  const executionBadge = proposalExecutionBadge(view.status, simulated)
   const approveLabel =
-    dailySummary
-      ? 'Aprobar cambio'
-      : simulated && view.kind === 'board'
-        ? 'Aprobar (simulación)'
-        : view.kind === 'board'
-          ? 'Aprobar y ejecutar'
-          : needsInfo
-            ? 'Completar informacion'
-            : 'Aprobar y enviar'
+    dailySummary ? 'Aprobar cambio' : view.kind === 'board' ? 'Aprobar y ejecutar' : needsInfo ? 'Completar informacion' : 'Aprobar y enviar'
+  const terminal = status === 'expired' || status === 'conflict'
 
   const confirm = async () => {
-    if (executionLocked) {
-      toast.error('R2 desactivado: este compromiso queda como borrador. No se ejecuta ni se persiste.')
-      return
-    }
     setBusy('confirm')
     setError(null)
     try {
@@ -126,24 +125,28 @@ export function AssistantProposalCard({
       setResultHref(href)
       onResolved?.('confirmed', href)
       toast.success(
-        simulated
-          ? 'Simulación ejecutada. No se escribió en QA ni PROD.'
-          : whatsappWrite
-            ? 'WhatsApp aceptado por el proveedor.'
-            : boardNotifyEmail
-              ? 'Correo aceptado por el proveedor.'
-              : googleWrite
-                ? 'Listo en Google Workspace.'
-                : dailySummary
-                  ? 'Resumen diario actualizado.'
-                  : view.kind === 'board'
-                    ? 'Accion creada en el tablero.'
-                    : 'Operacion ejecutada.'
+        whatsappWrite
+          ? 'WhatsApp aceptado por el proveedor.'
+          : boardNotifyEmail
+            ? 'Correo aceptado por el proveedor.'
+            : googleWrite
+              ? 'Listo en Google Workspace.'
+              : dailySummary
+                ? 'Resumen diario actualizado.'
+                : view.kind === 'board'
+                  ? 'Accion creada en el tablero.'
+                : 'Operacion ejecutada.'
       )
     } catch (err) {
-      const message = friendlyAssistantError(err)
+      const failure = pendingFailureStatus(err)
+      const message =
+        failure === 'expired'
+          ? 'La autorización venció. Pide una nueva propuesta.'
+          : failure === 'conflict'
+            ? 'El registro cambió después de la vista previa. Pide una nueva propuesta.'
+            : friendlyAssistantError(err)
       setError(message)
-      setStatus('error')
+      setStatus(failure)
       toast.error(message)
     } finally {
       setBusy(null)
@@ -170,142 +173,106 @@ export function AssistantProposalCard({
   return (
     <section
       className={cn(
-        'relative mt-3 overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm',
-        compact ? 'px-2.5 py-2' : 'px-3 py-2.5'
+        'relative mt-2 overflow-hidden rounded-2xl bg-card ring-1 ring-border/70',
+        'shadow-[0_12px_28px_-24px_hsl(var(--foreground)/0.5)]',
+        compact ? 'py-2.5 pl-4 pr-3' : 'py-3 pl-5 pr-4'
       )}
       aria-label={proposal.title}
       data-action-status={view.status}
     >
-      <div className={cn('absolute inset-y-0 left-0 w-1.5', tone.rail)} aria-hidden />
-      <div className="space-y-2.5 pl-2.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={cn(
-              'rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] ring-1',
-              toneSoftClass[tone.tone]
-            )}
-          >
-            {statusLabel}
+      <span className={cn('absolute inset-y-0 left-0 w-1', tone.rail)} aria-hidden />
+      <div className="space-y-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
+            <KindIcon className="h-3.5 w-3.5" aria-hidden />
+            {typeLabel}
           </span>
-          <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">{typeLabel}</span>
-          {executionBadge ? (
-            <span
-              className={cn(
-                'rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] ring-1',
-                executionBadge === 'Simulado' ? 'bg-amber-50 text-amber-800 ring-amber-200' : 'bg-emerald-50 text-emerald-800 ring-emerald-200'
-              )}
-            >
-              {executionBadge}
-            </span>
-          ) : null}
+          <StatusPill tone={tone.tone} pulse={view.status === 'executing'}>
+            {stageLabel}
+          </StatusPill>
         </div>
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-700">{proposal.title}</p>
-          <p className={cn('mt-0.5 text-slate-900', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
-            {proposal.summary}
-          </p>
+          {proposal.title.trim().toLowerCase() !== typeLabel.toLowerCase() ? (
+            <p className={cn('font-semibold text-foreground', compact ? 'text-[13px] leading-5' : 'text-sm leading-5')}>
+              {proposal.title}
+            </p>
+          ) : null}
+          {proposal.summary ? (
+            <p className={cn('mt-0.5 text-foreground/85', compact ? 'text-[12px] leading-5' : 'text-[13px] leading-5')}>
+              {proposal.summary}
+            </p>
+          ) : null}
         </div>
 
         {view.kind === 'whatsapp' && view.whatsappPreview ? (
-          <div className="space-y-2 rounded-xl border border-emerald-200/70 bg-emerald-50/80 p-2.5 text-[12px] leading-5">
-            <div className="flex gap-2">
-              <span className="w-24 shrink-0 text-emerald-800/70">Para</span>
-              <span className="font-medium text-emerald-950">
-                {view.whatsappPreview.recipientName || '—'}
-                {view.whatsappPreview.phone ? ` · ${view.whatsappPreview.phone}` : ''}
-              </span>
-            </div>
-            {view.whatsappPreview.needsInfo ? (
-              <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-amber-900">
-                Completar informacion
-                {view.whatsappPreview.needsInfoReason
-                  ? `: ${view.whatsappPreview.needsInfoReason}`
-                  : '.'}
-              </p>
-            ) : null}
+          <div className="space-y-2 border-t border-border/60 pt-2.5">
+            <dl>
+              <PreviewRow label="Canal">WhatsApp</PreviewRow>
+              <PreviewRow label="Para">
+                <span className="font-medium">
+                  {view.whatsappPreview.recipientName || '—'}
+                  {view.whatsappPreview.phone ? ` · ${view.whatsappPreview.phone}` : ''}
+                </span>
+              </PreviewRow>
+            </dl>
             {view.whatsappPreview.body ? (
-              <div className="ml-auto max-w-[92%] rounded-2xl rounded-br-md bg-emerald-600 px-3 py-2 text-white whitespace-pre-wrap">
+              <div className="ml-auto max-w-[92%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-success px-3 py-2 text-[12px] leading-5 text-success-foreground">
                 {view.whatsappPreview.body}
               </div>
             ) : null}
           </div>
         ) : view.kind === 'email' && view.emailPreview ? (
-          <dl className="space-y-1 rounded-xl border border-blue-200/70 bg-blue-50/70 p-2.5 text-[12px] leading-5">
-            {view.emailPreview.from ? (
-              <div className="flex gap-2">
-                <dt className="w-24 shrink-0 text-slate-500">De</dt>
-                <dd>{view.emailPreview.from}</dd>
-              </div>
-            ) : null}
-            <div className="flex gap-2">
-              <dt className="w-24 shrink-0 text-slate-500">Para</dt>
-              <dd>{view.emailPreview.to.join(', ') || '—'}</dd>
-            </div>
-            {view.emailPreview.cc?.length ? (
-              <div className="flex gap-2">
-                <dt className="w-24 shrink-0 text-slate-500">CC</dt>
-                <dd>{view.emailPreview.cc.join(', ')}</dd>
-              </div>
-            ) : null}
-            <div className="flex gap-2">
-              <dt className="w-24 shrink-0 text-slate-500">Asunto</dt>
-              <dd className="font-medium">{view.emailPreview.subject || '—'}</dd>
-            </div>
+          <dl className="space-y-0.5 border-t border-border/60 pt-2.5">
+            <PreviewRow label="Canal">Correo</PreviewRow>
+            {view.emailPreview.from ? <PreviewRow label="De">{view.emailPreview.from}</PreviewRow> : null}
+            <PreviewRow label="Para">{view.emailPreview.to.join(', ') || '—'}</PreviewRow>
+            {view.emailPreview.cc?.length ? <PreviewRow label="CC">{view.emailPreview.cc.join(', ')}</PreviewRow> : null}
+            <PreviewRow label="Asunto">
+              <span className="font-medium">{view.emailPreview.subject || '—'}</span>
+            </PreviewRow>
             {view.emailPreview.body ? (
-              <div className="flex gap-2">
-                <dt className="w-24 shrink-0 text-slate-500">Cuerpo</dt>
-                <dd className="max-h-40 overflow-y-auto whitespace-pre-wrap">{view.emailPreview.body}</dd>
-              </div>
+              <PreviewRow label="Mensaje">
+                <span className="block max-h-40 overflow-y-auto whitespace-pre-wrap">{view.emailPreview.body}</span>
+              </PreviewRow>
             ) : null}
           </dl>
         ) : view.kind === 'event' && view.eventPreview ? (
-          <dl className="space-y-1 rounded-xl border border-white/70 bg-white/90 p-2.5 text-[12px] leading-5">
-            <div className="flex gap-2">
-              <dt className="w-24 shrink-0 text-slate-500">Titulo</dt>
-              <dd>{view.eventPreview.title || '—'}</dd>
-            </div>
+          <dl className="space-y-0.5 border-t border-border/60 pt-2.5">
+            <PreviewRow label="Titulo">{view.eventPreview.title || '—'}</PreviewRow>
             {view.eventPreview.start ? (
-              <div className="flex gap-2">
-                <dt className="w-24 shrink-0 text-slate-500">Inicio</dt>
-                <dd>{view.eventPreview.start.replace('T', ' ')} (CDMX)</dd>
-              </div>
+              <PreviewRow label="Inicio">{view.eventPreview.start.replace('T', ' ')} (CDMX)</PreviewRow>
             ) : null}
             {view.eventPreview.end ? (
-              <div className="flex gap-2">
-                <dt className="w-24 shrink-0 text-slate-500">Fin</dt>
-                <dd>{view.eventPreview.end.replace('T', ' ')} (CDMX)</dd>
-              </div>
+              <PreviewRow label="Fin">{view.eventPreview.end.replace('T', ' ')} (CDMX)</PreviewRow>
             ) : null}
             {view.eventPreview.attendees?.length ? (
-              <div className="flex gap-2">
-                <dt className="w-24 shrink-0 text-slate-500">Participantes</dt>
-                <dd>{view.eventPreview.attendees.join(', ')}</dd>
-              </div>
+              <PreviewRow label="Participantes">{view.eventPreview.attendees.join(', ')}</PreviewRow>
             ) : null}
           </dl>
         ) : proposal.fields.length > 0 ? (
-          <dl className="space-y-1 rounded-xl border border-white/70 bg-white/90 p-2.5">
+          <dl className="space-y-0.5 border-t border-border/60 pt-2.5">
             {proposal.fields.map((field) => (
-              <div key={`${field.label}-${field.to}`} className="flex gap-2 text-[12px] leading-5">
-                <dt className="w-24 shrink-0 text-slate-500">{field.label}</dt>
-                <dd className="min-w-0 text-slate-900">
-                  {field.from ? (
-                    <>
-                      <span className="text-slate-400 line-through">{field.from}</span>
-                      {' → '}
-                    </>
-                  ) : null}
-                  {field.to}
-                </dd>
-              </div>
+              <PreviewRow key={`${field.label}-${field.to}`} label={field.label}>
+                {field.from ? (
+                  <>
+                    <span className="text-muted-foreground line-through">{field.from}</span>
+                    {' → '}
+                  </>
+                ) : null}
+                {field.to}
+              </PreviewRow>
             ))}
           </dl>
         ) : null}
 
-        {error ? <p className="text-[11px] text-red-700">{error}</p> : null}
+        {error ? (
+          <p className="rounded-xl bg-destructive/[0.06] px-2.5 py-1.5 text-[12px] text-foreground ring-1 ring-destructive/20">
+            {error}
+          </p>
+        ) : null}
 
         {status === 'confirmed' ? (
-          <p className="text-[12px] text-slate-800">
+          <p className="text-[12px] text-foreground/85">
             {whatsappWrite
               ? 'Aceptado por el proveedor (no implica entrega al destinatario).'
               : 'Completado.'}
@@ -317,7 +284,7 @@ export function AssistantProposalCard({
                     href={resultHref}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-0.5 font-medium text-[#2563EB] hover:underline"
+                    className="inline-flex items-center gap-0.5 font-semibold text-primary hover:underline"
                   >
                     Abrir
                     <ArrowUpRight className="h-3 w-3" aria-hidden />
@@ -325,7 +292,7 @@ export function AssistantProposalCard({
                 ) : (
                   <Link
                     to={resultHref}
-                    className="inline-flex items-center gap-0.5 font-medium text-[#2563EB] hover:underline"
+                    className="inline-flex items-center gap-0.5 font-semibold text-primary hover:underline"
                   >
                     Abrir registro
                     <ArrowUpRight className="h-3 w-3" aria-hidden />
@@ -335,19 +302,17 @@ export function AssistantProposalCard({
             ) : null}
           </p>
         ) : status === 'cancelled' ? (
-          <p className="text-[12px] text-slate-500">Descartado.</p>
-        ) : executionLocked && view.kind === 'board' ? (
-          <p className="text-[12px] text-slate-500">
-            R2 desactivado: este compromiso queda como borrador. No hay ejecución disponible.
-          </p>
+          <p className="text-[12px] text-muted-foreground">Descartado.</p>
+        ) : terminal ? (
+          <p className="text-[12px] text-muted-foreground">Esta propuesta ya no se puede aprobar.</p>
         ) : readOnly ? (
-          <p className="text-[12px] text-slate-500">
+          <p className="text-[12px] text-muted-foreground">
             Pendiente de revision. Inicia sesion como el dueno para editar, aprobar o descartar.
           </p>
         ) : (
           <div className="space-y-2">
             {needsInfo ? (
-              <p className="text-[11px] text-amber-800">
+              <p className="text-[11px] text-warning">
                 Faltan datos indispensables.
                 {view.whatsappPreview?.needsInfoReason
                   ? ` ${view.whatsappPreview.needsInfoReason}`
@@ -406,7 +371,7 @@ export function AssistantProposalCard({
                 {busy === 'cancel' ? (
                   <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden />
                 ) : null}
-                {r2Board ? 'Cancelar' : 'Descartar'}
+                Descartar
               </Button>
             </div>
           </div>
@@ -427,13 +392,9 @@ export function AssistantProposalCard({
             setStatus('pending')
             onUpdated?.(next)
             setEditOpen(false)
-            toast.success(
-              r2Board
-                ? 'Campos actualizados. La aprobación previa queda invalidada; confirma de nuevo.'
-                : 'Borrador actualizado. Confirma de nuevo para enviar.'
-            )
+            toast.success('Borrador actualizado. Confirma de nuevo para enviar.')
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'No se pudo editar.')
+            toast.error(friendlyAssistantError(err))
           } finally {
             setBusy(null)
           }
@@ -546,26 +507,12 @@ function EditWorkspaceDialog({
   proposal: CopilotProposal
   busy: boolean
   onOpenChange: (open: boolean) => void
-  onSave: (patch: {
-    recipientId?: string
-    subject?: string
-    body?: string
-    title?: string
-    start?: string
-    end?: string
-    fecha?: string
-    responsableHint?: string
-    prioridad?: string
-    titulo?: string
-    contenido?: string
-  }) => Promise<void>
+  onSave: (patch: { recipientId?: string; subject?: string; body?: string; title?: string; start?: string; end?: string }) => Promise<void>
 }) {
   const workspace = proposal.workspace
   const isWhatsapp = workspace?.kind === 'whatsapp' || proposal.tool === 'whatsapp_prepare_send'
   const isEmail = !isWhatsapp && (workspace?.kind === 'email' || proposal.tool.startsWith('gmail_'))
   const isBoardEmail = proposal.tool === 'notify_action_email'
-  const isBoardR2 = isR2EditableTool(proposal.tool)
-  const fieldValue = (label: string) => proposal.fields.find((field) => field.label === label)?.to ?? ''
   const [recipient, setRecipient] = useState<NamedPerson>()
   const [subject, setSubject] = useState(workspace?.subject ?? '')
   const [body, setBody] = useState(
@@ -573,69 +520,22 @@ function EditWorkspaceDialog({
       ? workspace?.message ?? proposal.fields.find((field) => field.label === 'Mensaje')?.to ?? ''
       : isWhatsapp ? sanitizeRecipientFacingText(workspace?.body) : workspace?.body ?? ''
   )
-  const [title, setTitle] = useState(workspace?.title ?? fieldValue('Título'))
+  const [title, setTitle] = useState(workspace?.title ?? '')
   const [start, setStart] = useState(workspace?.start ?? '')
   const [end, setEnd] = useState(workspace?.end ?? '')
-  const [fecha, setFecha] = useState(fieldValue('Fecha').slice(0, 10))
-  const [responsableHint, setResponsableHint] = useState(fieldValue('Responsable'))
-  const [prioridad, setPrioridad] = useState(fieldValue('Prioridad'))
-  const [contenido, setContenido] = useState(fieldValue('Comentario'))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[min(92dvh,40rem)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {isBoardR2
-              ? 'Editar propuesta'
-              : isWhatsapp
-                ? 'Editar WhatsApp'
-                : isEmail
-                  ? 'Editar correo'
-                  : 'Editar evento'}
+            {isWhatsapp ? 'Editar WhatsApp' : isEmail ? 'Editar correo' : 'Editar evento'}
           </DialogTitle>
           <DialogDescription>
-            {isBoardR2
-              ? 'Cualquier cambio invalida la aprobación previa. Debes confirmar de nuevo.'
-              : 'Los cambios actualizan el borrador. Debes volver a confirmar antes de enviarlo.'}
+            Los cambios actualizan el borrador. Debes volver a confirmar antes de enviarlo.
           </DialogDescription>
         </DialogHeader>
-        {isBoardR2 ? (
-          <div className="space-y-3">
-            {proposal.tool === 'agent_add_comment' ? (
-              <label className="space-y-1 text-xs font-medium">
-                Comentario
-                <textarea
-                  className="min-h-24 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  value={contenido}
-                  maxLength={2000}
-                  onChange={(event) => setContenido(event.target.value)}
-                />
-              </label>
-            ) : (
-              <>
-                {proposal.tool === 'agent_create_action' ? (
-                  <label className="space-y-1 text-xs font-medium">
-                    Título
-                    <Input value={title} maxLength={70} onChange={(event) => setTitle(event.target.value)} />
-                  </label>
-                ) : null}
-                <label className="space-y-1 text-xs font-medium">
-                  Fecha (YYYY-MM-DD)
-                  <Input value={fecha} onChange={(event) => setFecha(event.target.value)} />
-                </label>
-                <label className="space-y-1 text-xs font-medium">
-                  Responsable
-                  <Input value={responsableHint} onChange={(event) => setResponsableHint(event.target.value)} />
-                </label>
-                <label className="space-y-1 text-xs font-medium">
-                  Prioridad (P1_Alta, P2_Media, P3_Baja)
-                  <Input value={prioridad} onChange={(event) => setPrioridad(event.target.value)} />
-                </label>
-              </>
-            )}
-          </div>
-        ) : isWhatsapp || isEmail ? (
+        {isWhatsapp || isEmail ? (
           <div className="space-y-3">
             {isWhatsapp ? (
               <WhatsappRecipientDropdown
@@ -685,18 +585,9 @@ function EditWorkspaceDialog({
             disabled={busy}
             onClick={() =>
               void onSave(
-                isBoardR2
-                  ? proposal.tool === 'agent_add_comment'
-                    ? { contenido }
-                    : {
-                        fecha: fecha || undefined,
-                        responsableHint: responsableHint || undefined,
-                        prioridad: prioridad || undefined,
-                        titulo: title || undefined,
-                      }
-                  : isWhatsapp
-                    ? { body, recipientId: recipient?.id }
-                    : isBoardEmail ? { body } : isEmail ? { subject, body } : { title, start, end }
+                isWhatsapp
+                  ? { body, recipientId: recipient?.id }
+                  : isBoardEmail ? { body } : isEmail ? { subject, body } : { title, start, end }
               )
             }
           >

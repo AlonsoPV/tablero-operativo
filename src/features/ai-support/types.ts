@@ -14,9 +14,8 @@ export type AiChatMessage = {
   ui?: AssistantUiPayload
   proposals?: CopilotProposal[]
   clarification?: CopilotClarification
-  /** Servidor: R2 simulated|qa. Nunca lo decide el cliente. */
-  executionEnabled?: boolean
-  batchId?: string
-  /** El proveedor falló de forma recuperable; el usuario puede reintentar el mismo turno. */
-  retryable?: boolean
+  /** Intencion con la que se resolvio el turno; habilita el chip de correccion. */
+  intent?: 'consult' | 'create'
+  /** Respuesta de error local: no se reenvia como historial al modelo. */
+  failed?: boolean
 }

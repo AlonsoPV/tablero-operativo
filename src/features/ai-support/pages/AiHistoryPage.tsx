@@ -2,9 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
-  ArrowRight,
   CheckCircle2,
-  ClipboardList,
   History,
   Loader2,
   MessageCircle,
@@ -22,11 +20,12 @@ import { cn } from '@/lib/utils'
 import { todayWallClockCDMX } from '@/lib/dateUtils'
 import { ActionDraftList } from '@/features/ai-support/components/ActionDraftList'
 import { groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
+import { GuideHistoryList } from '@/features/guide/components/GuideHistoryList'
 import { GuideReportActions } from '@/features/guide/components/GuideReportActions'
 import { GuideReportBody } from '@/features/guide/components/GuideReportBody'
 import { countPendingCommunications } from '@/features/guide/components/GuideCommunicationsSection'
 import { pendingWorkItems, pendingWorkToAnalysis } from '@/features/guide/pendingWork'
-import { reportPreviewText, reportStatusLabel } from '@/features/guide/reportPreviewText'
+import { reportStatusLabel } from '@/features/guide/reportPreviewText'
 import { listSessionWorkspaceOps } from '@/features/ai-support/services/assistantOpsClient'
 import type { CopilotProposal } from '@/features/ai-support/copilot/types'
 
@@ -600,55 +599,7 @@ export function AiHistoryPage() {
           </Button>
         </div>
       ) : (
-        <div className="space-y-2.5">
-          {entries.map((entry) => {
-            const work = createdWorkItems(entry)
-            return (
-              <button
-                key={entry.id}
-                type="button"
-                onClick={() => openEntry(entry.id)}
-                className="group flex w-full items-start gap-3 rounded-[1.35rem] bg-card p-3.5 text-left ring-1 ring-border/60 transition hover:bg-muted/30 hover:ring-primary/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  <Sparkles className="h-4 w-4" aria-hidden />
-                </span>
-                <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold tracking-tight">
-                        {entry.topic || 'Sesion con Guia'}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {formatFriendlyDate(entry.created_at)}
-                      </p>
-                    </div>
-                    <ArrowRight
-                      className="mt-1 h-4 w-4 shrink-0 text-muted-foreground/50 transition group-hover:translate-x-0.5 group-hover:text-primary"
-                      aria-hidden
-                    />
-                  </div>
-                  <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
-                    {reportPreviewText(entry)}
-                  </p>
-                  {reportStatusLabel(entry.report_status) && !entry.executive_report ? (
-                    <span className="inline-flex items-center pt-0.5 text-[11px] font-medium text-muted-foreground">
-                      {reportStatusLabel(entry.report_status)}
-                    </span>
-                  ) : null}
-                  {work.length > 0 ? (
-                    <span className="inline-flex items-center gap-1 pt-0.5 text-[11px] font-medium text-primary">
-                      <ClipboardList className="h-3 w-3" aria-hidden />
-                      {work.length === 1
-                        ? '1 elemento en tablero'
-                        : `${work.length} en tablero`}
-                    </span>
-                  ) : null}
-                </div>
-              </button>
-            )
-          })}
-        </div>
+        <GuideHistoryList entries={entries} onOpen={(entry) => openEntry(entry.id)} />
       )}
     </div>
   )

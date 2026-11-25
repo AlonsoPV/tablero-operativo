@@ -5,6 +5,8 @@ import {
 import { matchPeopleByName, type NamedPerson } from '@/features/ai-support/copilot/matching'
 import { looksLikeCommsPrepare } from '@/features/ai-support/operationalSemantics/classifyCreateWork'
 import { parseFormatDirective } from '@/features/ai-support/responseFormat'
+import { isConceptualQuestion } from '@/features/ai-support/consultation/classifyConsultation'
+import { isMethodQuestion } from '@/features/ai-support/consultation/speechAct'
 import {
   initialConversationState,
   toActiveQuery,
@@ -204,6 +206,22 @@ export function applyConversationTurn(input: ApplyTurnInput): ApplyTurnResult {
       updatedAt: now,
     }
     return { kind: 'handoff', state, reason: 'format_directive' }
+  }
+
+  // Explicar o asesorar no busca un responsable, aunque la frase mencione acciones.
+  if (isMethodQuestion(message) || isConceptualQuestion(message)) {
+    return {
+      kind: 'handoff',
+      reason: 'non_kanban',
+      state: {
+        ...(prev ?? initialConversationState()),
+        entity: 'none',
+        intent: 'handoff',
+        person: null,
+        pendingClarification: null,
+        updatedAt: now,
+      },
+    }
   }
 
   // --- Aclaración pendiente ---
