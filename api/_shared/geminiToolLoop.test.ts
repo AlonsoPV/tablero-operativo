@@ -103,3 +103,55 @@ it.each([false, true])('returns a persisted summary email after a prose fallback
   expect(result.text).toBe(proposal.summary)
   expect(model).toHaveBeenCalledTimes(modelStartsWithProse ? 2 : 1)
 })
+
+it('retries a 503 generateContent once when no writes have run', async () => {
+  const fetchModel = vi.fn()
+    .mockResolvedValueOnce(new Response('overloaded', { status: 503 }))
+    .mockResolvedValueOnce(Response.json({
+      candidates: [{ content: { parts: [{ text: 'Respuesta recuperada.' }] } }],
+    }))
+  vi.stubGlobal('fetch', fetchModel)
+  const result = await runGeminiToolLoop({
+    apiKey: 'test-key',
+    url: 'https://example.test',
+    model: 'test-model',
+    systemInstruction: '',
+    contents: [],
+    generationConfig: {},
+    actor: {} as never,
+    timeoutMs: 4000,
+    allowPersonalGmailWrites: false,
+  })
+  expect(result.text).toBe('Respuesta recuperada.')
+  expect(fetchModel).toHaveBeenCalledTimes(2)
+  expect(dispatchCopilotTool).not.toHaveBeenCalled()
+})
+
+it('does not retry generateContent after a write proposal', async () => {
+  vi.mocked(dispatchCopilotTool).mockResolvedValueOnce({
+    ok: true,
+    kind: 'proposal',
+    tool: 'create_action',
+    proposal: { id: 'p1', tool: 'create_action', summary: 'Crear' },
+  } as never)
+  const fetchModel = vi.fn()
+    .mockResolvedValueOnce(Response.json({
+      candidates: [{ content: { parts: [{ functionCall: { name: 'create_action', args: {} } }] } }],
+    }))
+    .mockResolvedValueOnce(new Response('overloaded', { status: 503 }))
+  vi.stubGlobal('fetch', fetchModel)
+  await expect(
+    runGeminiToolLoop({
+      apiKey: 'test-key',
+      url: 'https://example.test',
+      model: 'test-model',
+      systemInstruction: '',
+      contents: [],
+      generationConfig: {},
+      actor: {} as never,
+      timeoutMs: 4000,
+      allowPersonalGmailWrites: false,
+    })
+  ).rejects.toMatchObject({ status: 503 })
+  expect(fetchModel).toHaveBeenCalledTimes(2)
+})

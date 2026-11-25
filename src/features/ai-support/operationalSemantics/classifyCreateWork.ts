@@ -76,6 +76,8 @@ export function classifyCreateWorkKind(text: string): CreateWorkKind {
   const t = normalize(text)
   // «Generame / prepara un WhatsApp» no es create Kanban
   if (looksLikeCommsPrepare(t) && !hasExplicitBoardCreateNoun(t)) return 'none'
+  // «Agrega/anota un comentario» o «Registra un bloqueo» en una acción existente va al orquestador R2 (/api/gemini-chat), no al borrador de creación.
+  if (/\b(comentario|bloqueo)\b/.test(t) && !/\b(crea(?:r|me)?|genera(?:r|me)?)\b/.test(t)) return 'none'
 
   const asksCreate =
     /\b(crea(r|me)?|genera(r|me)?|agrega(r|me)?|registra(r)?|anota(r)?|arma(r|me)?|propon(e|me|er)?|agenda(r|me)?|programa(r|me)?|asigna(r|le|me)?)\b/.test(
@@ -104,6 +106,22 @@ export function classifyCreateWorkKind(text: string): CreateWorkKind {
   return 'none'
 }
 
+/** Consultas ejecutivas / documentales: no abrir el carril de crear acciones. */
+export function looksLikeExecutiveConsult(text: string): boolean {
+  const t = normalize(text)
+  if (!t) return false
+  return (
+    /\b(revision ejecutiva|sesion ejecutiva|revision de 15|hagamos una revision)\b/.test(t) ||
+    /\b(resume nuestras decisiones|prepara los compromisos|siguiente etapa|etapa anterior|omitir etapa)\b/.test(t) ||
+    /\b(muestrame la evidencia|profundiza(?:r)? en la (prioridad|accion)|cual era la prioridad|ver evidencia)\b/.test(t) ||
+    /\b(como esta mi empresa|que requiere mi atencion|objetivos estrategicos)\b/.test(t) ||
+    /^decision\b/.test(t) ||
+    /\bbusca(?:r)? documentos?\b/.test(t) ||
+    (/\b(memoria|documentos?|documentacion)\b/.test(t) &&
+      /\b(empresa|organizacion|oficial|politica|procedimiento)\b/.test(t))
+  )
+}
+
 export function resolveCreateWriteIntent(
   text: string,
   selected: 'consult' | 'create'
@@ -112,6 +130,7 @@ export function resolveCreateWriteIntent(
   if (looksLikeCommsPrepare(text) && !hasExplicitBoardCreateNoun(text)) {
     return 'consult'
   }
+  if (looksLikeExecutiveConsult(text)) return 'consult'
   if (selected === 'create') return 'create'
   const kind = classifyCreateWorkKind(text)
   return kind === 'none' ? 'consult' : 'create'

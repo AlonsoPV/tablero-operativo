@@ -133,8 +133,33 @@ async function belongsToOkrsArea(
   })
 }
 
+async function hasAiAssistCatalogModule(
+  supabase: SupabaseClient,
+  usuarioId: string,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from('usuario_catalog_roles')
+    .select('catalog_roles(activo, catalog_role_modules(module_key))')
+    .eq('user_id', usuarioId)
+
+  return (data ?? []).some((row) => {
+    const raw = (row as {
+      catalog_roles?:
+        | { activo?: boolean | null; catalog_role_modules?: Array<{ module_key?: string }> }
+        | Array<{ activo?: boolean | null; catalog_role_modules?: Array<{ module_key?: string }> }>
+        | null
+    }).catalog_roles
+    const roles = Array.isArray(raw) ? raw : raw ? [raw] : []
+    return roles.some(
+      (r) =>
+        r.activo !== false &&
+        (r.catalog_role_modules ?? []).some((m) => m.module_key === 'ai_assist'),
+    )
+  })
+}
+
 /**
- * Exige Bearer JWT válido + fila en `usuarios` + (opcional) área OKRS / Super Admin.
+ * Exige Bearer JWT válido + fila en `usuarios` + (opcional) área OKRS, módulo ai_assist, Super Admin o Dirección.
  */
 export async function requireAssistantAuth(
   req: VercelRequestLike,
@@ -182,12 +207,15 @@ export async function requireAssistantAuth(
   if (requireAiScope) {
     const privileged = await isSuperAdminAssistantUser(supabase, authData.user.id, usuario.id as string, rol)
     if (!privileged && !isDirectionByRole(rol)) {
-      const inOkrs = await belongsToOkrsArea(supabase, usuario.id as string, area)
-      if (!inOkrs) {
+      const [inOkrs, hasAiModule] = await Promise.all([
+        belongsToOkrsArea(supabase, usuario.id as string, area),
+        hasAiAssistCatalogModule(supabase, usuario.id as string),
+      ])
+      if (!inOkrs && !hasAiModule) {
         return {
           ok: false,
           status: 403,
-          error: 'El Asistente IA requiere acceso OKRs, Super Admin o Dirección para consultas ejecutivas.',
+          error: 'El Asistente IA requiere acceso OKRs, módulo Asistente IA, Super Admin o Dirección.',
         }
       }
     }

@@ -4,6 +4,7 @@ import {
   looksLikeCommsPrepare,
   looksLikeCreateWork,
   looksLikeDraftCorrection,
+  looksLikeExecutiveConsult,
   resolveWriteIntent,
 } from './writeIntent'
 
@@ -57,5 +58,26 @@ describe('writeIntent', () => {
     expect(looksLikeDraftCorrection('no, es el 7 de noviembre')).toBe(true)
     expect(looksLikeDraftCorrection('el viernes')).toBe(true)
     expect(looksLikeDraftCorrection('Crea una accion para comprar insumos')).toBe(false)
+  })
+
+  it('no abre el carril Crear ante revisión ejecutiva, decisión o documentos', () => {
+    expect(looksLikeExecutiveConsult('Hagamos una revisión ejecutiva de 15 minutos.')).toBe(true)
+    expect(looksLikeExecutiveConsult('Decisión: escalar el permiso aduanal')).toBe(true)
+    expect(looksLikeExecutiveConsult('Busca documentos de la política oficial')).toBe(true)
+    expect(resolveWriteIntent('Decisión: escalar el permiso aduanal', 'create')).toBe('consult')
+    expect(resolveWriteIntent('Resume nuestras decisiones y prepara los compromisos', 'create')).toBe(
+      'consult'
+    )
+  })
+
+  it('envia comentarios y bloqueos de acciones existentes al orquestador R2 y no a plan_actions', () => {
+    expect(looksLikeCreateWork('Agrega un comentario a la acción Revisión inventario: validado')).toBe(false)
+    expect(looksLikeCreateWork('Registra un bloqueo en la acción Cierre fiscal por falta de factura')).toBe(false)
+    expect(resolveWriteIntent('Agrega un comentario a la acción Revisión inventario: validado', 'consult')).toBe(
+      'consult'
+    )
+    expect(resolveWriteIntent('Registra un bloqueo en la acción Cierre fiscal por proveedor', 'consult')).toBe(
+      'consult'
+    )
   })
 })

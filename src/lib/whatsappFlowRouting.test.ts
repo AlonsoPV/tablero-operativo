@@ -511,6 +511,49 @@ describe('whatsappFlowRouting', () => {
       expect(intent).toBe('CANCEL')
       expect(intentForRoute(route)).toBe('CANCEL')
     })
+
+    it('Group B audio routing separates assistant voice note, ambiguous audio, and disabled/evidence-only', () => {
+      // 1. Nota de voz al asistente sin evidencia pendiente y flag ON
+      expect(
+        resolveWhatsAppInboundRoute({
+          canUseAi: true,
+          voiceNotesEnabled: true,
+          hasWaitingEvidence: false,
+          messageType: 'audio',
+        })
+      ).toEqual({ kind: 'agent_voice_note' })
+
+      // 2. Audio ambiguo: evidencia pendiente + sesión activa con asistente
+      expect(
+        resolveWhatsAppInboundRoute({
+          canUseAi: true,
+          voiceNotesEnabled: true,
+          hasWaitingEvidence: true,
+          agentSessionActive: true,
+          messageType: 'audio',
+        })
+      ).toEqual({ kind: 'audio_ambiguous' })
+
+      // 3. Evidencia pendiente sin sesión activa (conserva flujo handleEvidence, no va a IA)
+      expect(
+        resolveWhatsAppInboundRoute({
+          canUseAi: true,
+          voiceNotesEnabled: true,
+          hasWaitingEvidence: true,
+          agentSessionActive: false,
+          messageType: 'audio',
+        })
+      ).toEqual({ kind: 'ignore' })
+
+      // 4. Flag OFF o usuario sin permiso: no enruta audio al asistente
+      expect(
+        resolveWhatsAppInboundRoute({
+          canUseAi: true,
+          voiceNotesEnabled: false,
+          messageType: 'audio',
+        })
+      ).toEqual({ kind: 'ignore' })
+    })
   })
 
   it('anti-drift: Edge _shared espeja src/lib/whatsappFlowRouting.ts', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { friendlyAssistantError } from './assistantErrors'
+import { AssistantRequestError, friendlyAssistantError, isRetryableAssistantError } from './assistantErrors'
 
 describe('friendlyAssistantError', () => {
   it('hides SQL, internal codes and raw JSON', () => {
@@ -25,5 +25,8 @@ describe('friendlyAssistantError', () => {
     )
     expect(friendlyAssistantError(new Error('Demasiadas consultas.'))).toContain('Espera')
     expect(friendlyAssistantError(null)).toContain('Intenta de nuevo')
+    expect(friendlyAssistantError(new Error('El proveedor de IA está saturado'))).toMatch(/reintentar/i)
+    expect(isRetryableAssistantError(new AssistantRequestError('saturado', true))).toBe(true)
+    expect(isRetryableAssistantError(new AssistantRequestError('no', false))).toBe(false)
   })
 })

@@ -32,6 +32,9 @@ type WhatsAppIntent =
 type WhatsAppInboundRoute =
   | { kind: 'ops_button'; buttonId: string }
   | { kind: 'agent_aiop'; opId: string; action: 'confirm' | 'cancel' }
+  | { kind: 'agent_r2_button'; buttonId: string }
+  | { kind: 'agent_voice_note' }
+  | { kind: 'audio_ambiguous' }
   | { kind: 'mas_info' }
   | { kind: 'agent_consult' }
   | { kind: 'agent_channel'; channel: 'text' | 'voice' }
@@ -44,9 +47,14 @@ type WhatsAppInboundRoute =
   | { kind: 'ignore' }
 
 const AIOP_RE = /^aiop:([0-9a-fA-F-]{36}):(ok|no)$/i
+const R2_BUTTON_RE = /^(?:r2_confirm|r2_edit|r2_cancel):[A-Za-z0-9_:-]{6,180}$/
 const OPS_BUTTON_RE = /^(act|chk|tchk):/i
 const EXPLICIT_TASK_RE =
   /\b(marca|marcar|actualiza|actualizar|cambia|cambiar|cierra|cerrar|pon|poner)\b[\s\S]{0,40}\b(tarea|accion|acción|checkpoint)\b|\btarea\s*#?\s*\d+/i
+
+function isR2ProposalButtonId(raw: string | null | undefined): boolean {
+  return R2_BUTTON_RE.test((raw ?? '').trim())
+}
 
 function parseAiOpButtonId(raw: string | null | undefined): {
   opId: string
@@ -129,15 +137,28 @@ function looksLikeQueryText(text: string | null | undefined): boolean {
   if (!t) return false
   if (/[?]/.test(text ?? '')) return true
   if (
-    /^(que|qué|cual|cuál|cuantas|cuántas|cuantos|cuántos|como|cómo|donde|dónde)\b/.test(t)
+    /^(que|qué|cual|cuál|cuantas|cuántas|cuantos|cuántos|como|cómo|donde|dónde|quien|quién)\b/.test(
+      t
+    )
   ) {
     return true
   }
   return (
-    /\b(que tareas|qué tareas|tareas vencidas|acciones vencidas|como van|cómo van|okrs?|indicadores|resumen|prioridad|prioriz|bloqueadas|rojas|dashboard|tablero)\b/.test(
+    /\b(que tareas|qué tareas|tareas vencidas|acciones vencidas|como van|cómo van|como vamos|okrs?|indicadores|resumen|prioridad|prioriz|bloqueadas|bloqueando|bloqueos|rojas|dashboard|tablero|pendiente hoy|acordamos|ultima reunion|necesita mi atencion|proyecto)\b/.test(
       t
     ) && !EXPLICIT_TASK_RE.test(text ?? '')
   )
+}
+
+const WRITE_REQUEST_START_RE =
+  /^(crea|crear|creame|registra|registrar|agrega|agregar|anota|anotar|genera|generar|programa|programar|agenda|agendar|propon|proponer)\b/
+const WRITE_REQUEST_OBJECT_RE =
+  /\b(accion|acciones|tarea|tareas|iniciativa|iniciativas|pendiente|compromiso|bloqueo)\b/
+
+function looksLikeWriteRequestText(text: string | null | undefined): boolean {
+  const t = foldWaText(text)
+  if (!t) return false
+  return WRITE_REQUEST_START_RE.test(t) && WRITE_REQUEST_OBJECT_RE.test(t)
 }
 
 function looksLikeCancelText(text: string | null | undefined): boolean {
@@ -274,6 +295,12 @@ type ResolveWhatsAppInboundInput = {
   buttonTitle?: string | null
   textBody?: string | null
   messageType?: string | null
+  /** Habilita el enrutamiento de notas de voz (`audio`) al asistente IA (Fase B, opt-in). */
+  voiceNotesEnabled?: boolean
+  /** True si el usuario tiene una solicitud de evidencia pendiente (`whatsapp_result_requests.status = 'waiting'`). */
+  hasWaitingEvidence?: boolean
+  /** Solo true para usuario piloto autorizado; evita cambios a usuarios legacy. */
+  writeGuardrailEnabled?: boolean
 }
 
 /**
@@ -294,6 +321,10 @@ function resolveWhatsAppInboundRoute(input: ResolveWhatsAppInboundInput): WhatsA
     return { kind: 'agent_aiop', opId: aiOp.opId, action: aiOp.action }
   }
 
+  if (buttonId && isR2ProposalButtonId(buttonId)) {
+    return { kind: 'agent_r2_button', buttonId }
+  }
+
   const channelButton = parseAiChannelButtonId(buttonId)
   if (channelButton) {
     return { kind: 'agent_channel', channel: channelButton }
@@ -307,10 +338,21 @@ function resolveWhatsAppInboundRoute(input: ResolveWhatsAppInboundInput): WhatsA
     return { kind: 'ops_button', buttonId }
   }
 
+  if (messageType === 'audio') {
+    if (input.canUseAi && input.voiceNotesEnabled === true) {
+      if (input.hasWaitingEvidence === true && agentSessionActive) {
+        return { kind: 'audio_ambiguous' }
+      }
+      if (input.hasWaitingEvidence !== true) {
+        return { kind: 'agent_voice_note' }
+      }
+    }
+    return { kind: 'ignore' }
+  }
+
   if (
     messageType === 'image' ||
     messageType === 'document' ||
-    messageType === 'audio' ||
     messageType === 'video'
   ) {
     return { kind: 'ignore' }
@@ -350,6 +392,10 @@ function resolveWhatsAppInboundRoute(input: ResolveWhatsAppInboundInput): WhatsA
       return { kind: 'agent_free_text', text: freeText }
     }
     return { kind: 'ops_help', text: freeText }
+  }
+
+  if (input.canUseAi && input.writeGuardrailEnabled === true && looksLikeWriteRequestText(freeText)) {
+    return { kind: 'agent_free_text', text: freeText }
   }
 
   if (looksLikeExplicitTaskUpdate(freeText)) {
@@ -398,6 +444,12 @@ function intentForRoute(route: WhatsAppInboundRoute): WhatsAppIntent {
       return 'CLARIFICATION'
     case 'agent_aiop':
       return route.action === 'cancel' ? 'CANCEL' : 'TASK_UPDATE'
+    case 'agent_r2_button':
+      return route.buttonId.startsWith('r2_cancel:') ? 'CANCEL' : 'TASK_UPDATE'
+    case 'agent_voice_note':
+      return 'QUERY'
+    case 'audio_ambiguous':
+      return 'UNKNOWN'
     case 'cancel':
       return 'CANCEL'
     case 'agent_free_text':
@@ -433,12 +485,15 @@ function flowForRoute(route: WhatsAppInboundRoute): WhatsAppFlow | null {
     case 'ops_help':
       return 'ops'
     case 'agent_aiop':
+    case 'agent_r2_button':
+    case 'agent_voice_note':
     case 'agent_free_text':
     case 'agent_consult':
     case 'agent_channel':
       return 'agent'
     case 'ask_flow':
     case 'cancel':
+    case 'audio_ambiguous':
       return null
     case 'mas_info':
       return null
@@ -634,6 +689,7 @@ async function graphSendMessage(supabase, body: Record<string, unknown>) {
   await context?.mark('provider_request')
   if (context) context.uncertain = true
   const url = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`
+  const providerStartedAt = performance.now()
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -661,6 +717,8 @@ async function graphSendMessage(supabase, body: Record<string, unknown>) {
   whatsappTrace('WHATSAPP_REPLY_SENT', {
     ...workerTrace(context),
     outbound_meta_id: extractMessageId(json),
+    provider_duration_ms: Math.round(performance.now() - providerStartedAt),
+    accepted_at: new Date().toISOString(),
   })
   return { ok: response.ok, status: response.status, json, raw }
 }
@@ -901,10 +959,20 @@ async function upsertThreadMessage(
   if (metaId) {
     const { data: existing } = await supabase
       .from('whatsapp_messages')
-      .select('id')
+      .select('id,payload')
       .eq('meta_message_id', metaId)
       .maybeSingle()
-    if (existing?.id) return existing.id as string
+    if (existing?.id) {
+      const incomingPayload = row.payload as Record<string, unknown> | undefined
+      if (row.direction === 'inbound' && incomingPayload?.flow) {
+        const { error } = await supabase
+          .from('whatsapp_messages')
+          .update({ payload: { ...((existing.payload as Record<string, unknown>) ?? {}), ...incomingPayload } })
+          .eq('id', existing.id)
+        if (error) throw error
+      }
+      return existing.id as string
+    }
   }
   const { data, error } = await supabase
     .from('whatsapp_messages')
@@ -921,8 +989,7 @@ async function upsertThreadMessage(
         .maybeSingle()
       return (again?.id as string | undefined) ?? null
     }
-    console.error('whatsapp_messages insert failed', error)
-    return null
+    throw error
   }
   return (data?.id as string | undefined) ?? null
 }
@@ -1049,6 +1116,12 @@ async function applyMetaStatus(
         .from('whatsapp_messages')
         .update(patch)
         .eq('id', current.id)
+      whatsappTrace('WHATSAPP_DELIVERY_UPDATED', {
+        job_id: (current.payload as Record<string, unknown> | null)?.correlation_id,
+        outbound_meta_id: metaId,
+        status,
+        provider_event_at: ts,
+      })
     }
   }
 
@@ -1425,15 +1498,48 @@ async function replyAi(
   to: string,
   body: string,
   usuarioId: string | null,
-  proposalId?: string | null
+  proposalId?: string | null,
+  interactiveButtons?: Array<{ type: 'reply'; reply: { id: string; title: string } }>
 ) {
   try {
-    const canButtons = Boolean(
-      proposalId && /^[0-9a-fA-F-]{36}$/.test(proposalId)
-    )
-    const graphBody = canButtons
-      ? interactiveAiOpPayload(to, body, proposalId as string)
-      : textPayload(to, body)
+    const customButtons = Array.isArray(interactiveButtons)
+      ? interactiveButtons
+          .filter(
+            (b) =>
+              b?.type === 'reply' &&
+              typeof b.reply?.id === 'string' &&
+              b.reply.id.trim().length > 0 &&
+              typeof b.reply?.title === 'string' &&
+              b.reply.title.trim().length > 0
+          )
+          .slice(0, 3)
+      : []
+    const canCustomButtons = customButtons.length > 0
+    const canButtons =
+      canCustomButtons ||
+      Boolean(proposalId && /^[0-9a-fA-F-]{36}$/.test(proposalId))
+    const graphBody = canCustomButtons
+      ? {
+          messaging_product: 'whatsapp',
+          to,
+          type: 'interactive',
+          interactive: {
+            type: 'button',
+            body: { text: body.slice(0, 1024) },
+            action: {
+              buttons: customButtons.map((b) => ({
+                type: 'reply',
+                reply: {
+                  id: b.reply.id.slice(0, 256),
+                  title: b.reply.title.slice(0, 20),
+                },
+              })),
+            },
+          },
+        }
+      : canButtons
+        ? interactiveAiOpPayload(to, body, proposalId as string)
+        : textPayload(to, body)
     const result = await graphSendMessage(supabase, graphBody)
     const metaId = extractMessageId(result.json)
     await upsertThreadMessage(supabase, {
@@ -1452,11 +1558,17 @@ async function replyAi(
         request: graphBody,
         response: result.json,
         source: 'webhook_ai_reply',
+        correlation_id: workerContexts.get(supabase)?.id,
         flow: 'agent',
       },
     })
   } catch (error) {
-    console.error('whatsapp ai reply failed', error)
+    whatsappTrace('WHATSAPP_PROCESSING_FAILED', {
+      ...workerTrace(workerContexts.get(supabase)),
+      stage: 'ai_reply',
+      code: 'ai_reply_failed',
+    })
+    throw error
   }
 }
 
@@ -1521,6 +1633,76 @@ function parseAiOpButton(raw: string | null | undefined) {
   return parseAiOpButtonId(raw)
 }
 
+const EDGE_PILOT_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function parseEdgePilotAllowlist(raw: string | undefined): {
+  uuids: Set<string>
+  phones: Set<string>
+  size: number
+} {
+  const uuids = new Set<string>()
+  const phones = new Set<string>()
+  for (const token of (raw ?? '').split(/[\s,;]+/)) {
+    const trimmed = token.trim()
+    if (!trimmed) continue
+    if (EDGE_PILOT_UUID_RE.test(trimmed)) {
+      uuids.add(trimmed.toLowerCase())
+      continue
+    }
+    const digits = trimmed.replace(/\D+/g, '')
+    if (digits.length >= 10 && digits.length <= 15 && /^[+\d().\-\s]+$/.test(trimmed)) {
+      phones.add(digits)
+    }
+  }
+  return { uuids, phones, size: uuids.size + phones.size }
+}
+
+/**
+ * Aislamiento fail-closed en Edge idéntico al gate de Vercel (`whatsappPilotGate.ts`):
+ * garantiza que notas de voz conversacionales y botones R2 nunca afecten usuarios fuera del piloto.
+ */
+function isEdgeWhatsAppPilotAllowed(input: {
+  usuarioId: string
+  waId: string
+  active: boolean
+  aiAuthorized: boolean
+}): boolean {
+  if (!EDGE_PILOT_UUID_RE.test(input.usuarioId.trim())) return false
+  if (input.active !== true || input.aiAuthorized !== true) return false
+
+  const pilotEnabled = Deno.env.get('WHATSAPP_PILOT_ENABLED') === '1'
+  const allowlist = parseEdgePilotAllowlist(
+    Deno.env.get('WHATSAPP_ORCHESTRATOR_PILOT_USERS')
+  )
+
+  if (pilotEnabled) {
+    if (allowlist.size === 0) return false
+    if (allowlist.uuids.has(input.usuarioId.trim().toLowerCase())) return true
+    const digits = input.waId.replace(/\D+/g, '')
+    return Boolean(digits.length >= 10 && digits.length <= 15 && allowlist.phones.has(digits))
+  }
+
+  const globalEnabled =
+    Deno.env.get('WHATSAPP_GLOBAL_ORCHESTRATOR_ENABLED') === '1' &&
+    Deno.env.get('AGENT_ORCHESTRATOR_R1') === '1'
+  return globalEnabled && allowlist.size === 0
+}
+
+async function isActiveUsuarioEdge(
+  supabase: ReturnType<typeof adminClient>,
+  usuarioId: string
+): Promise<boolean> {
+  if (!EDGE_PILOT_UUID_RE.test(usuarioId.trim())) return false
+  const { data, error } = await supabase
+    .from('usuarios')
+    .select('id,activo')
+    .eq('id', usuarioId)
+    .maybeSingle()
+  if (error || !data?.id) return false
+  return data.activo === true
+}
+
 /** Botones / media que no requieren RPC can_use_ai. null = hay que resolver texto libre. */
 function resolveStructuredInboundRoute(input: {
   buttonId?: string | null
@@ -1533,6 +1715,9 @@ function resolveStructuredInboundRoute(input: {
 
   const aiOp = parseAiOpButton(buttonId)
   if (aiOp) return { kind: 'agent_aiop', opId: aiOp.opId, action: aiOp.action }
+  if (buttonId && isR2ProposalButtonId(buttonId)) {
+    return { kind: 'agent_r2_button', buttonId }
+  }
 
   const early = resolveWhatsAppInboundRoute({
     canUseAi: false,
@@ -1544,11 +1729,12 @@ function resolveStructuredInboundRoute(input: {
   if (early.kind === 'agent_channel') return early
   if (early.kind === 'mas_info') return early
   if (early.kind === 'ops_button') return early
+  const voiceNotesFlag = Deno.env.get('WHATSAPP_VOICE_NOTES_ENABLED') === '1'
   if (
     early.kind === 'ignore' &&
     (messageType === 'image' ||
       messageType === 'document' ||
-      messageType === 'audio' ||
+      (messageType === 'audio' && !voiceNotesFlag) ||
       messageType === 'video')
   ) {
     return early
@@ -1556,15 +1742,61 @@ function resolveStructuredInboundRoute(input: {
   return null
 }
 
+/**
+ * Compuerta Grupo B para notas de voz en Supabase Edge:
+ * exige WHATSAPP_VOICE_NOTES_ENABLED=1 y, si existe WHATSAPP_VOICE_NOTES_PILOT_USERS,
+ * restringe estrictamente a las identidades (usuario_id / wa_id) listadas (sin comodines).
+ */
+function isVoiceNotesAllowedForUser(input: {
+  usuarioId: string
+  waId: string
+  active: boolean
+  aiAuthorized: boolean
+}): boolean {
+  if (Deno.env.get('WHATSAPP_VOICE_NOTES_ENABLED') !== '1') return false
+  if (!isEdgeWhatsAppPilotAllowed(input)) return false
+  const voiceScopedRaw = (Deno.env.get('WHATSAPP_VOICE_NOTES_PILOT_USERS') || '').trim()
+  if (!voiceScopedRaw) return true
+  const scoped = parseEdgePilotAllowlist(voiceScopedRaw)
+  if (scoped.size === 0) return false
+  const userKey = input.usuarioId.trim().toLowerCase()
+  const waDigits = input.waId.replace(/\D+/g, '')
+  return (
+    scoped.uuids.has(userKey) ||
+    Boolean(waDigits.length >= 10 && waDigits.length <= 15 && scoped.phones.has(waDigits))
+  )
+}
+
+async function hasWaitingEvidenceRequest(
+  supabase: ReturnType<typeof adminClient>,
+  waId: string
+): Promise<boolean> {
+  const nowIso = new Date().toISOString()
+  const variants = phoneVariants(waId)
+  const { data } = await supabase
+    .from('whatsapp_result_requests')
+    .select('id')
+    .in('wa_id', variants.length ? variants : [waId])
+    .eq('status', 'waiting')
+    .gt('expires_at', nowIso)
+    .limit(1)
+    .maybeSingle()
+  return Boolean(data?.id)
+}
+
 async function callWhatsAppAssistant(input: {
-  action: 'chat' | 'confirm' | 'cancel'
+  action: 'chat' | 'confirm' | 'cancel' | 'voice_note'
   waId: string
   usuarioId: string
   text?: string
   opId?: string
+  buttonId?: string
+  mediaId?: string
+  mimeType?: string | null
 }): Promise<{
   text: string
   proposals?: Array<{ id?: string; title?: string; summary?: string }>
+  interactiveButtons?: Array<{ type: 'reply'; reply: { id: string; title: string } }>
   handoff?: string | null
 } | null> {
   const secret = Deno.env.get('WHATSAPP_ASSISTANT_SECRET')?.trim() || ''
@@ -1593,11 +1825,15 @@ async function callWhatsAppAssistant(input: {
         usuario_id: input.usuarioId,
         text: input.text ?? '',
         op_id: input.opId ?? '',
+        ...(input.buttonId ? { button_id: input.buttonId } : {}),
+        ...(input.mediaId ? { media_id: input.mediaId } : {}),
+        ...(input.mimeType ? { mime_type: input.mimeType } : {}),
       }),
     })
     const json = (await response.json()) as {
       text?: unknown
       proposals?: Array<{ id?: string; title?: string; summary?: string }>
+      interactiveButtons?: Array<{ type: 'reply'; reply: { id: string; title: string } }>
       handoff?: unknown
       error?: unknown
     }
@@ -1607,11 +1843,15 @@ async function callWhatsAppAssistant(input: {
       return {
         text: 'No pude consultar el tablero ahora.',
         proposals: [],
+        interactiveButtons: [],
         handoff,
       }
     return {
       text,
       proposals: Array.isArray(json.proposals) ? json.proposals : [],
+      interactiveButtons: Array.isArray(json.interactiveButtons)
+        ? json.interactiveButtons
+        : [],
       handoff,
     }
   } catch (error) {
@@ -1619,6 +1859,7 @@ async function callWhatsAppAssistant(input: {
     return {
       text: 'No pude consultar el tablero ahora.',
       proposals: [],
+      interactiveButtons: [],
       handoff: null,
     }
   } finally {
@@ -1631,9 +1872,12 @@ async function maybeHandleWhatsAppAi(
   input: {
     waId: string
     usuarioId: string
-    action: 'chat' | 'confirm' | 'cancel'
+    action: 'chat' | 'confirm' | 'cancel' | 'voice_note'
     text?: string
     opId?: string
+    buttonId?: string
+    mediaId?: string
+    mimeType?: string | null
     /** Si ya se llamó a can_use_ai_whatsapp_for_usuario, evitar RPC duplicado. */
     aiAllowed?: boolean
   }
@@ -1660,10 +1904,20 @@ async function maybeHandleWhatsAppAi(
     usuarioId: input.usuarioId,
     text: input.text,
     opId: input.opId,
+    buttonId: input.buttonId,
+    mediaId: input.mediaId,
+    mimeType: input.mimeType,
   })
   const text = result?.text || 'No pude consultar el tablero ahora.'
   const proposalId = result?.proposals?.[0]?.id
-  await replyAi(supabase, input.waId, text, input.usuarioId, proposalId)
+  await replyAi(
+    supabase,
+    input.waId,
+    text,
+    input.usuarioId,
+    proposalId,
+    result?.interactiveButtons
+  )
   if (result?.handoff === 'task_update') {
     await upsertFlowSession(supabase, {
       phone: normalizePhone(input.waId) || input.waId,
@@ -2438,6 +2692,18 @@ async function processWhatsAppPayload(payload, supabase) {
             ...workerTrace(context),
             linked: Boolean(identity?.usuario_id),
           })
+          await upsertThreadMessage(supabase, {
+            wa_id: waId,
+            usuario_id: identity?.usuario_id ?? null,
+            direction: 'inbound',
+            source: 'contact',
+            message_kind: message.type ?? 'unknown',
+            body_text: inboundPreview(message),
+            meta_message_id: message.id ?? null,
+            delivery_status: 'delivered',
+            delivered_at: new Date().toISOString(),
+            payload: { message, value, source: 'webhook_inbound', correlation_id: context?.id },
+          })
           const { error: inboundError } = await supabase
             .from('external_inbound_messages')
             .insert({
@@ -2614,7 +2880,69 @@ async function processWhatsAppPayload(payload, supabase) {
             )
               continue
           }
-          // --- Shared: evidencia pendiente (Ops) antes de routers ---
+          // --- Shared: separación de audio ambiguo vs evidencia pendiente (Ops) vs nota de voz asistente ---
+          let prefetchedCanUseAi: boolean | null = null
+          let prefetchedUserActive: boolean | null = null
+          let voiceNotesForUser = false
+          if (
+            message.type === 'audio' &&
+            Deno.env.get('WHATSAPP_VOICE_NOTES_ENABLED') === '1'
+          ) {
+            prefetchedCanUseAi = await canUseAiWhatsApp(supabase, identity.usuario_id)
+            if (prefetchedCanUseAi) {
+              prefetchedUserActive = await isActiveUsuarioEdge(
+                supabase,
+                identity.usuario_id
+              )
+              voiceNotesForUser = isVoiceNotesAllowedForUser({
+                usuarioId: identity.usuario_id,
+                waId,
+                active: prefetchedUserActive,
+                aiAuthorized: prefetchedCanUseAi,
+              })
+            }
+          }
+          let waitingEvidenceForAudio = false
+          if (message.type === 'audio' && voiceNotesForUser) {
+            waitingEvidenceForAudio = await hasWaitingEvidenceRequest(supabase, waId)
+            if (waitingEvidenceForAudio) {
+              const audioCanUseAi = prefetchedCanUseAi === true
+              const audioAgentActive = audioCanUseAi
+                ? await hasActiveAgentSession(supabase, waId)
+                : false
+              if (audioCanUseAi && audioAgentActive) {
+                await upsertThreadMessage(supabase, {
+                  wa_id: waId,
+                  usuario_id: identity.usuario_id,
+                  direction: 'inbound',
+                  source: 'contact',
+                  message_kind: 'audio',
+                  body_text: inboundPreview(message),
+                  meta_message_id: message.id ?? null,
+                  delivery_status: 'delivered',
+                  sent_at: new Date().toISOString(),
+                  delivered_at: new Date().toISOString(),
+                  payload: {
+                    message,
+                    value,
+                    source: 'webhook_inbound',
+                    flow: null,
+                    route_kind: 'audio_ambiguous',
+                    intent: 'UNKNOWN',
+                  },
+                })
+                await replyText(
+                  supabase,
+                  waId,
+                  'Recibí tu audio, pero tienes una solicitud de evidencia pendiente y una conversación activa con el asistente. Para evitar errores no lo guardé aún: si es evidencia de tu tarea, envíala por texto/foto o responde "evidencia"; si es una consulta para el asistente, responde "cancelar" para cerrar la evidencia pendiente y vuelve a enviar tu nota de voz.',
+                  identity.usuario_id,
+                  { flow: 'ops', event: 'audio_ambiguous_clarification' }
+                )
+                continue
+              }
+            }
+          }
+
           if (
             message.type === 'text' ||
             message.type === 'image' ||
@@ -2668,6 +2996,7 @@ async function processWhatsAppPayload(payload, supabase) {
           // Deferir RPC: botones ops / media ignore no consultan can_use_ai.
           const structured = resolveStructuredInboundRoute(routeInput)
           let canUseAi = false
+          let pilotAllowed = false
           let agentSessionActive = false
           let clarificationPending = false
           let correlatedTargetCount: number | undefined
@@ -2675,12 +3004,33 @@ async function processWhatsAppPayload(payload, supabase) {
           if (
             structured &&
             structured.kind !== 'agent_aiop' &&
+            structured.kind !== 'agent_r2_button' &&
             structured.kind !== 'mas_info' &&
             structured.kind !== 'agent_channel'
           ) {
             route = structured
           } else {
-            canUseAi = await canUseAiWhatsApp(supabase, identity.usuario_id)
+            canUseAi =
+              prefetchedCanUseAi !== null
+                ? prefetchedCanUseAi
+                : await canUseAiWhatsApp(supabase, identity.usuario_id)
+            const needsPilotCheck =
+              canUseAi &&
+              (structured?.kind === 'agent_r2_button' ||
+                voiceNotesForUser ||
+                looksLikeWriteRequestText(routeInput.textBody))
+            if (needsPilotCheck) {
+              const userActive =
+                prefetchedUserActive !== null
+                  ? prefetchedUserActive
+                  : await isActiveUsuarioEdge(supabase, identity.usuario_id)
+              pilotAllowed = isEdgeWhatsAppPilotAllowed({
+                usuarioId: identity.usuario_id,
+                waId,
+                active: userActive,
+                aiAuthorized: canUseAi,
+              })
+            }
             agentSessionActive = canUseAi
               ? await hasActiveAgentSession(supabase, waId)
               : false
@@ -2700,6 +3050,9 @@ async function processWhatsAppPayload(payload, supabase) {
               agentSessionActive,
               clarificationPending,
               correlatedTargetCount,
+              voiceNotesEnabled: voiceNotesForUser && pilotAllowed,
+              hasWaitingEvidence: waitingEvidenceForAudio,
+              writeGuardrailEnabled: pilotAllowed,
               ...routeInput,
             })
             route = structured ?? classified.route
@@ -2729,6 +3082,70 @@ async function processWhatsAppPayload(payload, supabase) {
               correlated_target_count: correlatedTargetCount ?? null,
             },
           })
+
+          // --- AgentRouter: R2 interactive buttons (Confirmar / Editar / Cancelar) ---
+          if (route.kind === 'agent_r2_button') {
+            if (!canUseAi || !pilotAllowed) {
+              await replyText(
+                supabase,
+                waId,
+                'No tienes permiso para confirmar o editar esta propuesta.',
+                identity.usuario_id,
+                { flow: 'ops' }
+              )
+              continue
+            }
+            const aiHandled = await maybeHandleWhatsAppAi(supabase, {
+              waId,
+              usuarioId: identity.usuario_id,
+              action: 'chat',
+              buttonId: route.buttonId,
+              aiAllowed: canUseAi,
+            })
+            if (!aiHandled) {
+              await replyText(
+                supabase,
+                waId,
+                'No pude procesar el botón de la propuesta ahora. Intenta de nuevo en unos minutos.',
+                identity.usuario_id,
+                { flow: 'agent' }
+              )
+            }
+            continue
+          }
+
+          // --- AgentRouter: inbound voice note (OGG/Opus -> server STT -> assistant) ---
+          if (route.kind === 'agent_voice_note') {
+            const mediaId = message.audio?.id?.trim() || ''
+            if (!canUseAi || !pilotAllowed || !mediaId) {
+              continue
+            }
+            await upsertFlowSession(supabase, {
+              phone: normalizePhone(waId) || waId,
+              usuarioId: identity.usuario_id,
+              flowType: 'chatbot_query',
+              status: 'active',
+              intent: 'QUERY',
+            })
+            const aiHandled = await maybeHandleWhatsAppAi(supabase, {
+              waId,
+              usuarioId: identity.usuario_id,
+              action: 'voice_note',
+              mediaId,
+              mimeType: message.audio?.mime_type ?? 'audio/ogg',
+              aiAllowed: canUseAi,
+            })
+            if (!aiHandled) {
+              await replyText(
+                supabase,
+                waId,
+                'No pude procesar tu nota de voz ahora. Por favor escríbeme tu consulta en texto.',
+                identity.usuario_id,
+                { flow: 'agent' }
+              )
+            }
+            continue
+          }
 
           // --- AgentRouter: aiop confirm/cancel ---
           if (route.kind === 'agent_aiop') {
@@ -3284,7 +3701,10 @@ async function acceptWhatsAppWebhook(
   whatsappTrace('WHATSAPP_WEBHOOK_PERSISTED', { request_id: requestId, count: events.length })
   return new Response('EVENT_RECEIVED', { status: 200 })
 }
+
 // END_WHATSAPP_INGRESS
+
+
 
 
 
@@ -3756,6 +4176,8 @@ async function runInboundWorker(req) {
     }
     const job = data?.[0]
     if (!job) break
+    const claimedAt = new Date()
+    const processingStartedAt = performance.now()
     const client = checkedWorkerClient(base, job)
     let ok = false,
       code = null
@@ -3767,6 +4189,10 @@ async function runInboundWorker(req) {
           stage: 'claimed',
           attempt: job.attempts,
           kind: job.kind,
+          claimed_at: claimedAt.toISOString(),
+          queue_ms: job.created_at
+            ? Math.max(0, claimedAt.getTime() - Date.parse(job.created_at))
+            : null,
         })
       )
       await processWhatsAppPayload(job.payload, client)
@@ -3818,6 +4244,7 @@ async function runInboundWorker(req) {
         event: 'whatsapp_processing',
         correlation_id: job.id,
         stage: ok ? 'completed' : 'attention_required',
+        processing_ms: Math.round(performance.now() - processingStartedAt),
       })
     )
   }

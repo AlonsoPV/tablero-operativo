@@ -1,6 +1,7 @@
 import { defineApiHandler, readRequestBody } from './_shared/http.js'
 import { checkAssistantRateLimit, createServiceRoleClient, requireAssistantAuth } from './_shared/assistantAuth.js'
-import { cancelPendingOp, confirmPendingOp, editActionEmailPendingOp } from './_shared/assistantOpsRuntime.js'
+import { cancelPendingOp, confirmPendingOp, editActionEmailPendingOp, r2OptionsFromServerEnv } from './_shared/assistantOpsRuntime.js'
+import { editR2PendingOp, isR2AgentTool } from './_shared/actions/r2Runtime.js'
 import { editGooglePendingOp, listSessionGoogleOps } from './_shared/assistantGoogleTools.js'
 import { searchLinkedWhatsappPeople } from './_shared/resolveCommunicationRecipient.js'
 import { editWhatsappPendingOp } from './_shared/assistantCommunicationDrafts.js'
@@ -65,6 +66,12 @@ export default defineApiHandler(async (req, res) => {
       title?: unknown
       start?: unknown
       end?: unknown
+      fecha?: unknown
+      responsableId?: unknown
+      responsableHint?: unknown
+      prioridad?: unknown
+      titulo?: unknown
+      contenido?: unknown
     }
     const action = typeof payload.action === 'string' ? payload.action : ''
     const opId = typeof payload.op_id === 'string' ? payload.op_id.trim() : ''
@@ -82,6 +89,17 @@ export default defineApiHandler(async (req, res) => {
       const tool = typeof opRow?.tool === 'string' ? opRow.tool : ''
       if (tool === 'notify_action_email' && typeof payload.body === 'string') {
         const proposal = await editActionEmailPendingOp(actor, opId, payload.body)
+        return res.status(200).json({ status: 'pending', proposal })
+      }
+      if (isR2AgentTool(tool)) {
+        const proposal = await editR2PendingOp(actor, opId, {
+          fecha: typeof payload.fecha === 'string' ? payload.fecha : undefined,
+          responsableId: typeof payload.responsableId === 'string' ? payload.responsableId : undefined,
+          responsableHint: typeof payload.responsableHint === 'string' ? payload.responsableHint : undefined,
+          prioridad: typeof payload.prioridad === 'string' ? payload.prioridad : undefined,
+          titulo: typeof payload.titulo === 'string' ? payload.titulo : undefined,
+          contenido: typeof payload.contenido === 'string' ? payload.contenido : undefined,
+        })
         return res.status(200).json({ status: 'pending', proposal })
       }
       if (!isCommunicationWriteTool(tool) && !isGoogleWriteTool(tool)) {
@@ -113,7 +131,7 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Accion invalida. Usa confirm, cancel o edit.' })
     }
 
-    const result = await confirmPendingOp(actor, opId)
+    const result = await confirmPendingOp(actor, opId, { r2: r2OptionsFromServerEnv() })
     return res.status(200).json(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'No se pudo completar la operacion.'

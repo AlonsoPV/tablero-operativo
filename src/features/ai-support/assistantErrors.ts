@@ -1,5 +1,23 @@
 const GENERIC_ERROR = 'No pude completar la solicitud. Intenta de nuevo en unos segundos.'
 
+export class AssistantRequestError extends Error {
+  retryable: boolean
+  constructor(message: string, retryable = false) {
+    super(message)
+    this.name = 'AssistantRequestError'
+    this.retryable = retryable
+  }
+}
+
+export function isRetryableAssistantError(error: unknown): boolean {
+  if (error instanceof AssistantRequestError) return error.retryable
+  if (error && typeof error === 'object' && 'retryable' in error) {
+    return Boolean((error as { retryable?: unknown }).retryable)
+  }
+  const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
+  return /saturad|reintentar sin perder|503|capacity|overloaded/i.test(raw)
+}
+
 const TECHNICAL_PATTERN =
   /\b(sql|select|insert|update|delete|relation|violates|constraint|syntax|pgrst\d*|postgres|supabase|stack|undefined|null|exception|typeerror|referenceerror)\b|[{}[\]<>]|\b[A-Z]{2,}\d{2,}\b|\bat \S+ \(/i
 
@@ -16,6 +34,9 @@ export function friendlyAssistantError(error: unknown): string {
   }
   if (/demasiadas consultas|too many|rate limit|\b429\b/i.test(text)) {
     return 'Hay demasiadas consultas en este momento. Espera un momento e intenta de nuevo.'
+  }
+  if (/saturad|503|overloaded|capacidad/i.test(text)) {
+    return 'El proveedor de IA está saturado. Tu pregunta se conservó; puedes reintentar sin perder la conversación.'
   }
   if (/endpoint|\/api\//i.test(text)) {
     return 'El servicio del asistente no esta disponible en este entorno. Intenta de nuevo mas tarde.'

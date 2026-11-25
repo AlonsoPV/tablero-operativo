@@ -57,6 +57,9 @@ import { AssistantActivity } from '@/features/ai-support/components/AssistantAct
 import { StructuredAssistantReply } from '@/features/ai-support/components/StructuredAssistantReply'
 import { AssistantReplyViews } from '@/features/ai-support/chatViews'
 import { AssistantProposalCard } from '@/features/ai-support/components/AssistantProposalCard'
+import { isR2BoardProposalTool } from '@/features/ai-support/copilot/actionLifecycle'
+import { confirmAssistantOp } from '@/features/ai-support/services/assistantOpsClient'
+import type { CopilotProposal } from '@/features/ai-support/copilot/types'
 import { AssistantClarificationChips } from '@/features/ai-support/components/AssistantClarificationChips'
 import { ActionDraftList } from '@/features/ai-support/components/ActionDraftList'
 import { WorkIntentToggle } from '@/features/ai-support/components/WorkIntentToggle'
@@ -83,8 +86,12 @@ import {
   type WriteIntent,
 } from '@/features/ai-support/writeIntent'
 import { buildCreateApprovalMessage } from '@/features/ai-support/createWorkReply'
-import { friendlyAssistantError } from '@/features/ai-support/assistantErrors'
-import { tryKnowledgeReply } from '@/features/ai-support/knowledge/tryKnowledgeReply'
+import {
+  AssistantRequestError,
+  friendlyAssistantError,
+  isRetryableAssistantError,
+} from '@/features/ai-support/assistantErrors'
+import { looksLikeDocumentaryAsk, tryKnowledgeReply } from '@/features/ai-support/knowledge/tryKnowledgeReply'
 import { groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
 import { useAppRole } from '@/features/auth/hooks/useAppRole'
 import { canViewAllBoardData, isDirectionByRole, isLeaderByRole } from '@/features/auth/lib/permissions'
@@ -159,6 +166,7 @@ type ActionContext = {
 
 const FORMAT_STORAGE_KEY = 'assistant.responseFormat'
 const CONVERSATION_STORAGE_KEY = 'assistant.conversationId'
+const TRANSCRIPT_STORAGE_KEY = 'assistant.transcript'
 
 const FORMAT_OPTIONS = RESPONSE_FORMATS.map((id) => ({
   id,
@@ -195,17 +203,48 @@ function readConversationId(): string {
   }
 }
 
+function readStoredTranscript(conversationId: string): AiChatMessage[] {
+  try {
+    const raw = window.sessionStorage.getItem(TRANSCRIPT_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as { conversationId?: string; messages?: AiChatMessage[] }
+    if (parsed.conversationId !== conversationId || !Array.isArray(parsed.messages)) return []
+    return parsed.messages.filter(
+      (row) =>
+        row &&
+        (row.role === 'user' || row.role === 'assistant') &&
+        typeof row.content === 'string'
+    )
+  } catch {
+    return []
+  }
+}
+
+function storeTranscript(conversationId: string, messages: AiChatMessage[]) {
+  try {
+    window.sessionStorage.setItem(
+      TRANSCRIPT_STORAGE_KEY,
+      JSON.stringify({ conversationId, messages })
+    )
+  } catch {
+    /* sin almacenamiento: la conversación sólo vive en memoria */
+  }
+}
+
 type GeminiChatResponse = {
   answer?: string
   agent?: {
     formatSelected?: string
     status?: string
     asOf?: string | null
+    executionEnabled?: boolean
     blocks?: { data?: string[]; interpretation?: string[]; recommendation?: string[]; limitations?: string[] }
     references?: Array<{ id: string; title: string; href: string }>
   }
   error?: string
+  retryable?: boolean
   proposals?: AiChatMessage['proposals']
+  batchId?: string | null
   clarification?: AiChatMessage['clarification']
   ui?: AiChatMessage['ui']
 }
@@ -260,18 +299,28 @@ async function sendMessage({
 
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      throw new Error(data?.error || 'No autorizado para usar el Asistente IA.')
+      throw new AssistantRequestError(data?.error || 'No autorizado para usar el Asistente IA.')
     }
     if (response.status === 429) {
-      throw new Error(data?.error || 'Demasiadas consultas. Espera un momento e intenta de nuevo.')
+      throw new AssistantRequestError(
+        data?.error || 'Demasiadas consultas. Espera un momento e intenta de nuevo.',
+        true
+      )
+    }
+    if (response.status === 503 || data?.retryable) {
+      throw new AssistantRequestError(
+        data?.error ||
+          'El proveedor de IA está saturado. Tu pregunta se conservó; puedes reintentar sin perder la conversación.',
+        true
+      )
     }
     if (response.status === 404) {
-      throw new Error(
+      throw new AssistantRequestError(
         'No se encontro el endpoint /api/gemini-chat. En local usa Vercel dev o prueba desde el despliegue de Vercel.'
       )
     }
 
-    throw new Error(data?.error || 'No se pudo generar una respuesta.')
+    throw new AssistantRequestError(data?.error || 'No se pudo generar una respuesta.')
   }
 
   const agentUi =
@@ -299,6 +348,8 @@ async function sendMessage({
     clarification: data.clarification,
     ui: agentUi,
     formatSelected: data.agent?.formatSelected,
+    executionEnabled: data.agent?.executionEnabled === true,
+    batchId: data.batchId ?? undefined,
   }
 }
 
@@ -726,7 +777,17 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
   const [selectedInitiativeIds, setSelectedInitiativeIds] = useState<string[]>([])
   const [okrContextEnabled, setOkrContextEnabled] = useState(true)
   const [focusKind, setFocusKind] = useState<FocusKind>('portfolio')
-  const [messages, setMessages] = useState<AiChatMessage[]>([])
+  const [messages, setMessages] = useState<AiChatMessage[]>(() =>
+    readStoredTranscript(
+      (() => {
+        try {
+          return window.sessionStorage.getItem(CONVERSATION_STORAGE_KEY) ?? ''
+        } catch {
+          return ''
+        }
+      })()
+    )
+  )
   const [conversationState, setConversationState] = useState<ConversationQueryState | null>(null)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -898,15 +959,6 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         ? CONVERSATION_FILTER_CHIPS
         : PORTFOLIO_PROMPTS
 
-  const briefing = useMemo(
-    () =>
-      buildAssistantBriefing({
-        userName: currentUser?.nombre,
-        snapshot: operationalSnapshot,
-        loading: operationalLoad.isLoading || actionsLoading,
-      }),
-    [actionsLoading, currentUser?.nombre, operationalLoad.isLoading, operationalSnapshot]
-  )
   const assistantAudience = useMemo(
     () =>
       resolveAssistantAudience({
@@ -915,6 +967,16 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         canSeeTeam: seesAllBoard,
       }),
     [currentUser?.rol, seesAllBoard]
+  )
+  const briefing = useMemo(
+    () =>
+      buildAssistantBriefing({
+        userName: currentUser?.nombre,
+        snapshot: operationalSnapshot,
+        loading: operationalLoad.isLoading || actionsLoading,
+        audience: assistantAudience,
+      }),
+    [actionsLoading, assistantAudience, currentUser?.nombre, operationalLoad.isLoading, operationalSnapshot]
   )
   const quickActions = useMemo(
     () =>
@@ -960,6 +1022,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     setMessages([])
     setConversationState(null)
     setInput('')
+    storeTranscript(conversationId, [])
   }
 
   const clearFilters = () => {
@@ -1040,13 +1103,23 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, loading, showBriefing])
 
-  const handleSend = async (prompt = input) => {
+  useEffect(() => {
+    storeTranscript(conversationId, messages)
+  }, [conversationId, messages])
+
+  const handleSend = async (prompt = input, options?: { retry?: boolean }) => {
     const trimmed = prompt.trim()
     if (!trimmed || loading) return
 
-    const nextMessages = [...messages, { role: 'user' as const, content: trimmed, requestId: crypto.randomUUID() }].slice(
-      -MAX_MESSAGES
-    )
+    const baseMessages = options?.retry
+      ? messages.filter((row) => !row.retryable)
+      : messages
+    const last = baseMessages.at(-1)
+    const nextMessages = (
+      options?.retry && last?.role === 'user' && last.content === trimmed
+        ? baseMessages
+        : [...baseMessages, { role: 'user' as const, content: trimmed, requestId: crypto.randomUUID() }]
+    ).slice(-MAX_MESSAGES)
 
     setMessages(nextMessages)
     setInput('')
@@ -1101,7 +1174,8 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         const hasExplicitFocus = activeActionContext || activeOkrContext
         const orchestratorEnabled = __AGENT_ORCHESTRATOR_R1__ === true
 
-        const knowledge = tryKnowledgeReply(trimmed)
+        const knowledge =
+          looksLikeDocumentaryAsk(trimmed) ? null : tryKnowledgeReply(trimmed)
         if (knowledge) {
           setMessages(
             [
@@ -1207,18 +1281,22 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               proposals: reply.proposals,
               clarification: reply.clarification,
               ui: reply.ui,
+              executionEnabled: reply.executionEnabled,
+              batchId: reply.batchId,
             },
           ].slice(-MAX_MESSAGES)
         )
       }
     } catch (error) {
       const message = friendlyAssistantError(error)
+      const retryable = isRetryableAssistantError(error)
       toast.error(message)
       setMessages([
         ...nextMessages,
         {
           role: 'assistant' as const,
           content: message,
+          retryable,
         },
       ])
     } finally {
@@ -1351,6 +1429,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                     ui={message.ui}
                     narrative={message.structured ? undefined : message.content}
                     compact={isPopup}
+                    onFollowUp={(prompt) => void handleSend(prompt)}
                   />
                 ) : message.structured ? (
                   <StructuredAssistantReply reply={message.structured} compact={isPopup} />
@@ -1360,6 +1439,21 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               ) : (
                 message.content
               )}
+              {message.role === 'assistant' && message.retryable ? (
+                <button
+                  type="button"
+                  className="mt-2 inline-flex min-h-9 items-center rounded-full bg-primary/10 px-3 py-1 text-[12px] font-medium text-primary hover:bg-primary/15"
+                  onClick={() => {
+                    const previousUser = [...visibleMessages]
+                      .slice(0, index)
+                      .reverse()
+                      .find((row) => row.role === 'user')
+                    if (previousUser) void handleSend(previousUser.content, { retry: true })
+                  }}
+                >
+                  Reintentar esta consulta
+                </button>
+              ) : null}
               {message.role === 'assistant' && message.clarification ? (
                 <AssistantClarificationChips
                   clarification={message.clarification}
@@ -1367,23 +1461,19 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                   onSelect={(label) => void handleSend(label)}
                 />
               ) : null}
-              {message.role === 'assistant' && message.proposals?.length
-                ? message.proposals.map((proposal) => (
-                    <AssistantProposalCard
-                      key={proposal.id}
-                      proposal={proposal}
-                      compact={isPopup}
-                      onResolved={(status) => {
-                        if (status === 'confirmed') {
-                          void queryClient.invalidateQueries({ queryKey: ['acciones'] })
-                          void queryClient.invalidateQueries({
-                            queryKey: ['assistant-operational-context'],
-                          })
-                        }
-                      }}
-                    />
-                  ))
-                : null}
+              {message.role === 'assistant' && message.proposals?.length ? (
+                <AssistantProposalGroup
+                  proposals={message.proposals}
+                  compact={isPopup}
+                  executionEnabled={message.executionEnabled === true}
+                  onBoardConfirmed={() => {
+                    void queryClient.invalidateQueries({ queryKey: ['acciones'] })
+                    void queryClient.invalidateQueries({
+                      queryKey: ['assistant-operational-context'],
+                    })
+                  }}
+                />
+              ) : null}
               {message.role === 'assistant' && message.analysis ? (
                 <div className="mt-3 space-y-2 border-t border-border/50 pt-2.5">
                   {message.analysis.nextSteps.length > 0 && message.analysis.actionDrafts.length === 0 ? (
@@ -1989,6 +2079,101 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
           {composer}
         </div>
       )}
+    </div>
+  )
+}
+
+function AssistantProposalGroup({
+  proposals,
+  compact,
+  executionEnabled,
+  onBoardConfirmed,
+}: {
+  proposals: CopilotProposal[]
+  compact: boolean
+  executionEnabled: boolean
+  onBoardConfirmed: () => void
+}) {
+  const [statusById, setStatusById] = useState<Record<string, 'pending' | 'confirmed' | 'cancelled' | 'error'>>({})
+  const [batchBusy, setBatchBusy] = useState(false)
+  const groups = new Map<string, CopilotProposal[]>()
+  for (const proposal of proposals) {
+    const key = proposal.batchId ?? proposal.id
+    const list = groups.get(key) ?? []
+    list.push(proposal)
+    groups.set(key, list)
+  }
+
+  const lockFor = (proposal: CopilotProposal) =>
+    isR2BoardProposalTool(proposal.tool) && !executionEnabled && proposal.simulated !== true
+
+  return (
+    <div className="space-y-2">
+      {[...groups.entries()].map(([key, items]) => {
+        const pending = items.filter((item) => (statusById[item.id] ?? 'pending') === 'pending')
+        const confirmed = items.filter((item) => statusById[item.id] === 'confirmed')
+        const failed = items.filter((item) => statusById[item.id] === 'error')
+        const showBatch = items.length > 1 && items[0]?.batchId
+        const batchLocked = items.some(lockFor)
+        const batchLabel =
+          failed.length > 0 && confirmed.length > 0
+            ? 'Parcial'
+            : failed.length > 0
+              ? 'Fallida'
+              : confirmed.length === items.length
+                ? 'Ejecutada'
+                : 'Pendiente'
+        return (
+          <div key={key} className="space-y-2">
+            {showBatch ? (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 bg-muted/30 px-3 py-2">
+                <p className="text-[12px] text-foreground/80">
+                  Lote de {items.length} propuestas · {batchLabel}
+                </p>
+                {!batchLocked && pending.length > 0 ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 rounded-full px-3"
+                    disabled={batchBusy}
+                    onClick={() => {
+                      void (async () => {
+                        setBatchBusy(true)
+                        for (const item of pending) {
+                          try {
+                            await confirmAssistantOp(item.id)
+                            setStatusById((current) => ({ ...current, [item.id]: 'confirmed' }))
+                            onBoardConfirmed()
+                          } catch {
+                            setStatusById((current) => ({ ...current, [item.id]: 'error' }))
+                          }
+                        }
+                        setBatchBusy(false)
+                      })()
+                    }}
+                  >
+                    {batchBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+                    Aprobar {pending.length} de este lote
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+            {items.map((proposal) => (
+              <AssistantProposalCard
+                key={proposal.id}
+                proposal={proposal}
+                compact={compact}
+                status={statusById[proposal.id]}
+                executionLocked={lockFor(proposal)}
+                onResolved={(status) => {
+                  setStatusById((current) => ({ ...current, [proposal.id]: status === 'confirmed' ? 'confirmed' : 'cancelled' }))
+                  if (status === 'confirmed') onBoardConfirmed()
+                }}
+              />
+            ))}
+          </div>
+        )
+      })}
     </div>
   )
 }

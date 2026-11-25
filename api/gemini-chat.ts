@@ -7,6 +7,7 @@ import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assista
 import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
 import {
+  geminiErrorStatus,
   geminiModelCandidates,
   isGeminiCapacityStatus,
   normalizeGeminiModel,
@@ -181,10 +182,15 @@ export default defineApiHandler(async (req, res) => {
           responseFormat,
         })
         if (turn.handled) {
-          const persistedProposal = turn.proposal && 'tool' in turn.proposal ? turn.proposal : null
+          const proposals = turn.proposals?.length
+            ? turn.proposals
+            : turn.proposal && 'tool' in turn.proposal
+              ? [turn.proposal]
+              : []
           return res.status(200).json({
             answer: turn.text,
-            proposals: persistedProposal ? [persistedProposal] : [],
+            proposals,
+            batchId: turn.batchId ?? null,
             clarification: turn.clarification,
             ui: uiForTurn(turn, turn.text),
             toolTrace: turn.toolsUsed.map((tool) => ({ tool, kind: 'read' })),
@@ -197,7 +203,7 @@ export default defineApiHandler(async (req, res) => {
               blocks: turn.response.blocks,
               references: turn.response.references,
               asOf: turn.response.asOf,
-              executionEnabled: false,
+              executionEnabled: turn.executionEnabled === true,
             },
           })
         }
@@ -228,6 +234,7 @@ export default defineApiHandler(async (req, res) => {
     let loopResult: Awaited<ReturnType<typeof runGeminiToolLoop>> | undefined
     let model = candidates[0] ?? normalizeGeminiModel(process.env.GEMINI_MODEL)
     let lastError: unknown
+    let sawCapacity = false
 
     for (let i = 0; i < candidates.length; i++) {
       model = candidates[i]!
@@ -253,8 +260,7 @@ export default defineApiHandler(async (req, res) => {
         break
       } catch (error) {
         lastError = error
-        const status =
-          typeof (error as { status?: number }).status === 'number' ? (error as { status: number }).status : 0
+        const status = geminiErrorStatus(error)
         const safeReason = readGeminiError(error instanceof Error ? error.message : '')
         console.error('Gemini API Error:', { status, model, reason: safeReason })
         if ([400, 401, 403, 404].includes(status)) {
@@ -266,13 +272,15 @@ export default defineApiHandler(async (req, res) => {
         }
         const hasMore = i < candidates.length - 1
         if (isGeminiCapacityStatus(status) && hasMore) {
+          sawCapacity = true
           console.warn('Gemini capacity; trying next model', { model, status, next: candidates[i + 1] })
           continue
         }
         if (isGeminiCapacityStatus(status)) {
           return res.status(503).json({
             error:
-              'Gemini esta saturado o limitando solicitudes. Intenta de nuevo en unos minutos.',
+              'El proveedor de IA está saturado. Tu pregunta se conservó; puedes reintentar sin perder la conversación.',
+            retryable: true,
           })
         }
         throw error
@@ -312,6 +320,13 @@ export default defineApiHandler(async (req, res) => {
         finishReason: loopResult.finishReason,
         tools: loopResult.toolTrace.map((item) => item.tool),
       })
+      if (sawCapacity || isGeminiCapacityStatus(geminiErrorStatus(lastError))) {
+        return res.status(503).json({
+          error:
+            'El proveedor de IA no completó la respuesta. Tu pregunta se conservó; reintenta en un momento.',
+          retryable: true,
+        })
+      }
       return res.status(200).json({
         answer: EMPTY_MODEL_TURN_MESSAGE,
         proposals: [],

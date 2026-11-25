@@ -34,4 +34,10 @@ describe('creationDraft', () => {
       'Cerrar el reporte',
     ])
   })
+
+  it('preserva el titulo explicito despues de llamada antes de para el YYYY-MM-DD', () => {
+    const draft = draftFromRequest('Crea una acción llamada tc-qa-run1-e9-cross para el 2026-12-04')
+    expect(draft.intent).toBe('create')
+    expect(draft.title.toLowerCase()).toBe('tc-qa-run1-e9-cross')
+  })
 })

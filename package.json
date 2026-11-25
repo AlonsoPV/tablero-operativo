@@ -32,7 +32,11 @@
     "qa:r3:preflight": "node scripts/qa/r3-preflight.mjs",
     "qa:r3:integrated": "node scripts/qa/run-r3-integrated.mjs",
     "qa:r3:rollback": "node scripts/qa/r3-rollback-off.mjs",
-    "qa:r3:test": "vitest run --config vitest.r3.config.mjs"
+    "qa:r3:test": "vitest run --config vitest.r3.config.mjs",
+    "qa:text:test": "vitest run --config vitest.text-complete.config.mjs",
+    "qa:text:preflight": "node scripts/qa/textCompletePreflight.mjs",
+    "qa:text:run": "node scripts/qa/run-text-complete-qa.mjs",
+    "qa:text:rollback": "node scripts/qa/textCompleteRollback.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

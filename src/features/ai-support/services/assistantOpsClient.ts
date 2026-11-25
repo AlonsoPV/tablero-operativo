@@ -37,7 +37,21 @@ export async function cancelAssistantOp(opId: string) {
 
 export async function editAssistantOp(
   opId: string,
-  patch: { recipientId?: string; recipientName?: string; subject?: string; body?: string; title?: string; start?: string; end?: string }
+  patch: {
+    recipientId?: string
+    recipientName?: string
+    subject?: string
+    body?: string
+    title?: string
+    start?: string
+    end?: string
+    fecha?: string
+    responsableId?: string
+    responsableHint?: string
+    prioridad?: string
+    titulo?: string
+    contenido?: string
+  }
 ) {
   const headers = await getAssistantAuthHeaders()
   const response = await fetch('/api/assistant-ops', {

@@ -168,6 +168,9 @@ function summarizeAction(row: ActionRow) {
     hora: row.hora_limite,
     prioridad: row.prioridad,
     responsable: row.responsable ?? null,
+    area: row.area ?? null,
+    updated_at: row.updated_at ?? null,
+    evidencia_cargada: row.evidencia_cargada ?? null,
     href: actionHref(row.id),
   }
 }
@@ -1202,7 +1205,7 @@ type PendingRow = {
 }
 
 async function canWriteAction(actor: CopilotActor, action: ActionRow, tool: string): Promise<boolean> {
-  if (tool === 'mark_action_done' && action.responsable === actor.usuarioId) return true
+  if ((tool === 'mark_action_done' || tool === 'update_action') && action.responsable === actor.usuarioId) return true
   const rpc = tool === 'update_action' ? 'can_edit_accion_general_as' : 'can_manage_accion_full_as'
   const { data, error } = await actor.supabase.rpc(rpc, {
     p_accion_id: action.id, p_usuario_id: actor.usuarioId,
@@ -1256,7 +1259,12 @@ async function executePayload(
   }
   if (tool === 'update_action') {
     const id = String(payload.action_id)
-    const patch = (payload.patch ?? {}) as Record<string, unknown>
+    const patch: Record<string, unknown> = { ...((payload.patch ?? {}) as Record<string, unknown>) }
+    if (typeof patch.prioridad === 'string' && patch.prioridad.trim() && !('prioridad_id' in patch)) {
+      // acciones_diarias_sync_prioridad_id() prioriza NEW.prioridad_id sobre NEW.prioridad;
+      // limpiar prioridad_id obliga al trigger a resolver la nueva prioridad en public.priorities.
+      patch.prioridad_id = null
+    }
     const { error, count } = await actor.supabase
       .from('acciones_diarias')
       .update(patch, { count: 'exact' })

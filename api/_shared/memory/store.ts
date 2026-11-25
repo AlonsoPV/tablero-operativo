@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AgentDocumentRow, AgentMemoryRow, MemoryRecallHit, MemoryRecallResult } from './types.js'
 
 export type MemoryActor = {
@@ -116,6 +117,38 @@ export function createMemoryStore(seed?: {
 }
 
 export type MemoryStore = ReturnType<typeof createMemoryStore>
+
+/**
+ * Carga memoria confirmada y documentos publicados desde Supabase usando el JWT
+ * del usuario autenticado (respetando RLS). Falla cerrado devolviendo listas vacías
+ * si las tablas R3 aún no existen o el usuario no tiene permiso.
+ */
+export async function loadSupabaseMemoryStore(supabase: SupabaseClient): Promise<MemoryStore> {
+  try {
+    const [memRes, docRes] = await Promise.all([
+      supabase
+        .from('agent_memory')
+        .select(
+          'id,usuario_id,area_id,memory_type,body,source_kind,source_ref,content_hash,validation_status,access_level,version,supersedes_id,created_at,updated_at,expires_at,confirmed_by,confirmed_at',
+        )
+        .eq('validation_status', 'confirmed')
+        .limit(200),
+      supabase
+        .from('agent_documents')
+        .select(
+          'id,logical_id,title,body,version,status,access_level,area_id,content_hash,source_label,published_at,withdrawn_at',
+        )
+        .eq('status', 'published')
+        .limit(200),
+    ])
+    return createMemoryStore({
+      memories: (!memRes.error && Array.isArray(memRes.data) ? memRes.data : []) as AgentMemoryRow[],
+      documents: (!docRes.error && Array.isArray(docRes.data) ? docRes.data : []) as AgentDocumentRow[],
+    })
+  } catch {
+    return createMemoryStore()
+  }
+}
 
 export function hashMemoryBody(body: string) {
   return hashBody(body)

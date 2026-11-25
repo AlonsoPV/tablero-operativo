@@ -72,6 +72,42 @@ export function actionStatusLabel(status: ActionLifecycleStatus): string {
   return 'Descartado'
 }
 
+/** Estados de tarjeta R2 en chat: Ejecutada / Pendiente / Rechazada / Fallida / Parcial. */
+export function boardR2StatusLabel(status: ActionLifecycleStatus): string {
+  if (status === 'completed') return 'Ejecutada'
+  if (status === 'pending_confirmation' || status === 'preparing') return 'Pendiente'
+  if (status === 'cancelled') return 'Rechazada'
+  if (status === 'error') return 'Fallida'
+  if (status === 'conflict') return 'Parcial'
+  if (status === 'executing') return 'Ejecutando'
+  if (status === 'expired') return 'Vencida'
+  return actionStatusLabel(status)
+}
+
+const R2_BOARD_TOOLS = new Set([
+  'create_action',
+  'update_action',
+  'add_action_comment',
+  'update_checklist_item',
+  'mark_action_done',
+  'verify_action',
+  'agent_create_action',
+  'agent_set_action_status',
+  'agent_register_blocker',
+  'agent_update_fields',
+  'agent_add_comment',
+  'agent_verify_action',
+  'agent_notify_responsable',
+])
+
+export function isR2BoardProposalTool(tool: string): boolean {
+  return R2_BOARD_TOOLS.has(tool)
+}
+
+export function isR2EditableTool(tool: string): boolean {
+  return tool === 'agent_update_fields' || tool === 'agent_create_action' || tool === 'agent_add_comment'
+}
+
 /** Etiqueta de comunicacion: no confundir aceptado con entregado. */
 export function communicationStatusLabel(input: {
   lifecycle: ActionLifecycleStatus
@@ -261,11 +297,13 @@ export function actionTypeLabel(tool: string, kind: ActionCardView['kind']): str
   if (tool === 'notify_action_email') return 'Correo de accion'
   if (kind === 'email') return 'Correo'
   if (kind === 'event') return 'Evento'
-  if (tool === 'create_action') return 'Crear accion'
-  if (tool === 'update_action') return 'Actualizar accion'
-  if (tool === 'mark_action_done') return 'Marcar hecho'
-  if (tool === 'verify_action') return 'Verificar'
-  if (tool === 'add_action_comment') return 'Comentario'
+  if (tool === 'create_action' || tool === 'agent_create_action') return 'Crear accion'
+  if (tool === 'update_action' || tool === 'agent_update_fields') return 'Actualizar accion'
+  if (tool === 'mark_action_done' || tool === 'agent_set_action_status') return 'Cambiar estado'
+  if (tool === 'verify_action' || tool === 'agent_verify_action') return 'Verificar'
+  if (tool === 'add_action_comment' || tool === 'agent_add_comment') return 'Comentario'
+  if (tool === 'agent_register_blocker') return 'Registrar bloqueo'
+  if (tool === 'agent_notify_responsable') return 'Avisar responsable'
   if (tool === 'update_checklist_item') return 'Checklist'
   if (tool === 'confirm_pending_op') return 'Confirmar'
   if (tool === 'cancel_pending_op') return 'Cancelar'
