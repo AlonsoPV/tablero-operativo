@@ -52,6 +52,8 @@ export type EntityCatalogUser = {
   nombre: string
   activo?: boolean
   areas?: string[]
+  hasWhatsApp?: boolean
+  email?: string | null
 }
 
 export type EntityCatalogBoard = {
@@ -156,7 +158,10 @@ function extractResponsablePatch(utterance: string): { self: boolean; hint: stri
   }
   const named =
     cleanSpaces(utterance).match(
-      /\b(?:as[ií]gna(?:da|do|la|lo|sela|selo|r)?|reas[ií]gna(?:da|do|la|lo|r)?|responsable(?:\s+sea|\s+a|\s*[:=])?|mejor\s+a|ponle\s+(?:una\s+(?:tarea|acci[oó]n)\s+)?a|d[eé]jale\s+(?:un\s+pendiente\s+)?a|enc[aá]rgale\s+(?:esto\s+)?a|dile\s+a)\s+(?:a\s+)?([A-ZÁÉÍÓÚÑa-záéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+)?)/i
+      /\b(?:[Aa]s[ií]gna(?:da|do|la|lo|le|sela|selo|r)?|[Rr]eas[ií]gna(?:da|do|la|lo|r)?|[Rr]esponsable(?:\s+sea|\s+a|\s*[:=])?|[Mm]ejor\s+a|[Pp]onle\s+(?:una\s+(?:tarea|acci[oó]n)\s+)?a|[Dd][eé]jale\s+(?:un\s+pendiente\s+)?a|[Ee]nc[aá]rgale\s+(?:esto\s+)?a|[Dd]ile\s+a)\s+(?:a\s+)?([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+)?)/
+    ) ??
+    cleanSpaces(utterance).match(
+      /\b(?:as[ií]gna(?:da|do|la|lo|le|sela|selo|r)?|reas[ií]gna(?:da|do|la|lo|r)?|responsable(?:\s+sea|\s+a|\s*[:=])?|mejor\s+a|ponle\s+(?:una\s+(?:tarea|acci[oó]n)\s+)?a|d[eé]jale\s+(?:un\s+pendiente\s+)?a|enc[aá]rgale\s+(?:esto\s+)?a|dile\s+a)\s+(?:a\s+)?([a-záéíóúñ]{3,})/i
     ) ??
     cleanSpaces(utterance).match(
       /\bque\s+se\s+encargue\s+([A-ZÁÉÍÓÚÑa-záéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+)?)/i

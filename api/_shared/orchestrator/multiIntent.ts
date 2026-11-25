@@ -12,6 +12,7 @@ import {
   type EntityResolutionCatalog,
   type StructuredActionDraft,
 } from './structuredActionDraft.js'
+import { draftActionAssignedMessage, firstName } from './communicationComposer.js'
 
 export type CompoundStepKind = 'create_action' | 'update_status' | 'send_whatsapp' | 'send_email'
 
@@ -171,11 +172,18 @@ export function isCompoundInstruction(
   const clauses = splitCompoundClauses(utterance)
   if (clauses.length < 2) return false
   // Verificar que realmente hay al menos 2 intenciones operativas distintas (no solo atributos de la misma acción)
+  // Si todas las cláusulas son comunicación al mismo destinatario ("Mándale sus pendientes y dile que priorice..."),
+  // es una sola comunicación mixta, no un plan compuesto de múltiples operaciones.
+  const commOnlyRe = /^(?:manda(?:le|les)?|envia(?:le|les)?|avisa(?:le|les)?|dile|diles|preguntale|recuerdale|pidele|notifica(?:le|les)?|comparte|pasale)\b/
+  const nonCommActionRe = /\b(ponle|dejale|encargale|crea|crear|creame|registra|agrega|marca|asigna(?:le|sela|selo)?|eso ya quedo|ya quedo)\b/
+  if (clauses.every((c) => commOnlyRe.test(norm(c))) && !clauses.some((c) => nonCommActionRe.test(norm(c)))) {
+    return false
+  }
   let opCount = 0
   for (const c of clauses) {
     const cn = norm(c)
     if (
-      /\b(ponle|dejale|encargale|crea|crear|creame|registra|agrega|marca|eso ya quedo|ya quedo|manda|mandale|envia|enviale|avisa|avisale|dile|preguntale|recuerdale|pidele|notifica|comparte)\b/.test(
+      /\b(ponle|dejale|encargale|crea|crear|creame|registra|agrega|marca|asigna(?:le|sela|selo)?|eso ya quedo|ya quedo|manda|mandale|envia|enviale|avisa|avisale|dile|preguntale|recuerdale|pidele|notifica|comparte)\b/.test(
         cn
       )
     ) {
@@ -221,9 +229,12 @@ export function buildCompoundOperationPlan(input: {
     if (rec.clarification) clarifications.push(rec.clarification)
     if (rec.forbidden) forbiddenReasons.push(rec.forbidden)
 
-    const body = existingDraft.titulo
-      ? `Hola ${rec.name ?? ''}, te asigné la acción "${existingDraft.titulo}"${existingDraft.fecha ? ` para el ${existingDraft.fecha}` : ''}. ¿Me confirmas?`.replace(/\s+,/, ',')
-      : 'Hola, te comparto seguimiento de la acción asignada.'
+    const drafted = draftActionAssignedMessage({
+      recipientName: rec.name,
+      titulo: existingDraft.titulo,
+      fecha: existingDraft.fecha,
+      channel,
+    })
     steps.push({
       stepId: 'step_2',
       kind: channel === 'email' ? 'send_email' : 'send_whatsapp',
@@ -233,8 +244,8 @@ export function buildCompoundOperationPlan(input: {
       recipientName: rec.name,
       recipientHint: recHint ?? existingDraft.responsableNombre,
       channel,
-      subject: channel === 'email' ? `Nueva acción asignada: ${existingDraft.titulo ?? 'Seguimiento'}` : null,
-      messageBody: body,
+      subject: drafted.subject,
+      messageBody: drafted.body,
       clarification: rec.clarification,
       forbiddenReason: rec.forbidden,
     })
@@ -338,9 +349,17 @@ export function buildCompoundOperationPlan(input: {
           ? lastActionStepId
           : null
 
-      const msgBody = lastActionDraft?.titulo && dependsOn
-        ? `Hola ${rec.name ?? ''}, seguimiento sobre "${lastActionDraft.titulo}"${lastActionDraft.fecha ? ` (${lastActionDraft.fecha})` : ''}.`.replace(/\s+,/, ',')
-        : sentenceCase(clause)
+      const drafted = lastActionDraft?.titulo && dependsOn
+        ? draftActionAssignedMessage({
+            recipientName: rec.name,
+            titulo: lastActionDraft.titulo,
+            fecha: lastActionDraft.fecha,
+            channel,
+          })
+        : {
+            subject: channel === 'email' ? `Seguimiento operativo` : null,
+            body: `Hola ${firstName(rec.name) || 'equipo'}, ¿me compartes una actualización breve de tus pendientes?`,
+          }
 
       steps.push({
         stepId,
@@ -351,8 +370,8 @@ export function buildCompoundOperationPlan(input: {
         recipientName: rec.name,
         recipientHint: recHint ?? lastActionDraft?.responsableNombre ?? null,
         channel,
-        subject: channel === 'email' ? `Seguimiento: ${lastActionDraft?.titulo ?? 'Pendiente operativo'}` : null,
-        messageBody: msgBody,
+        subject: drafted.subject,
+        messageBody: drafted.body,
         clarification: rec.clarification,
         forbiddenReason: rec.forbidden,
       })

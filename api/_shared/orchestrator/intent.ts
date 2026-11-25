@@ -81,9 +81,11 @@ export type AgentIntent =
       canal?: 'email' | 'whatsapp'
       recipientHint?: string
       draftOnly?: boolean
+      contextualComm?: boolean
       contenido?: string
       batch?: 'commitments' | 'decisions'
     }
+  | { kind: 'communication_action'; action: 'edit' | 'confirm' | 'cancel'; utterance: string }
   | { kind: 'cancel_write_draft' }
   | { kind: 'unsupported_write'; operation: 'tag_okr_action' | 'sql' | 'generic' }
   | { kind: 'clarify'; question: string }
@@ -106,6 +108,7 @@ export type IntentSessionHints = {
   lastActionCount?: number
   lastEntityKind?: 'action' | 'person' | null
   pendingWrite?: { operation: string; request: string } | null
+  hasPendingCommunication?: boolean
 }
 
 function priorityIndexFromText(text: string): number | undefined {
@@ -157,6 +160,28 @@ export function classifyAgentIntent(
   const cleanedUtterance = normalizeColloquialTypos(utterance)
   const text = normalize(cleanedUtterance)
   if (!text) return { kind: 'unknown' }
+
+  if (session?.hasPendingCommunication) {
+    if (/^(?:cancelar?|no lo envies|descarta(?:r)?|olvida(?:lo)?)\b/.test(text)) {
+      return { kind: 'communication_action', action: 'cancel', utterance: cleanedUtterance }
+    }
+    if (/^(?:confirma(?:r)?(?:\s+envio(?:\s+grupal)?)?|confirmo|envialo|mandalo)$/.test(text)) {
+      return { kind: 'communication_action', action: 'confirm', utterance: cleanedUtterance }
+    }
+    if (/^(?:si|ok|dale|va)$/.test(text)) {
+      if (session.pendingWrite) {
+        return {
+          kind: 'clarify',
+          question:
+            'Tienes más de una operación pendiente. Especifica si deseas «Confirmar envío» o confirmar la acción del tablero.',
+        }
+      }
+      return { kind: 'communication_action', action: 'confirm', utterance: cleanedUtterance }
+    }
+    if (/^(?:edita(?:r)?|cambia(?:r)?|ajusta(?:r)?|agregale|anadele|sumale|ponle que)\b/.test(text)) {
+      return { kind: 'communication_action', action: 'edit', utterance: cleanedUtterance }
+    }
+  }
 
   if (FINANCE.test(text) && /\b(cuant[oa]s?|monto|calcula|estima|impacto)\b|\$/.test(text)) {
     return { kind: 'unsupported_metric', domain: 'finance' }
@@ -457,28 +482,40 @@ export function classifyAgentIntent(
       utterance.match(/\bbloquead[oa]s?\s+(por\s+.+)$/i)?.[1]?.trim().slice(0, 500)
     return { kind: 'write_request', operation: 'register_blocker', request, ...(motivo ? { motivo } : {}) }
   }
-  if (
-    /\b(avisa|avisale|notifica|notificale|recuerdale|manda|mandale|envia|enviale|preguntale|pidele|dile|redacta|comparte)\b/.test(text) &&
-    (/\b(responsables?|whatsapp|correo|mail|email|direccion|resumen semanal|compromisos de la reunion|fecha de compromiso|como va|lo que tiene (?:pendiente|vencido)|necesito el reporte|ya quedo)\b/.test(text) ||
-      /\b(manda(?:le)?|envia(?:le)?)\s+(?:un\s+)?(?:whatsapp|correo|mail)\b/.test(text))
-  ) {
-    const isEmail = /\b(correo|mail|email)\b/.test(text)
+  const isFlexibleCommIntent =
+    /\b(pon(?:er)?\s+a\s+[a-z]{2,}\s+al\s+tanto)\b/.test(text) ||
+    /\b(mandales|enviales|avisales|recuerdales|notificales)\b/.test(text) ||
+    (/\b(avisa|avisale|notifica|notificale|recuerdale|manda|mandale|envia|enviale|preguntale|pidele|dile|redacta|comparte|pasale)\b/.test(text) &&
+      (/\b(responsables?|whatsapp|correo|mail|email|direccion|resumen semanal|compromisos?|fecha de compromiso|como va|lo que tiene|lo que vence|pendientes?|vencimientos?|vencid[oa]s?|bloqueos?|atrasad[oa]s?|prioridades?|indicadores?|su dia|dia de hoy|jornada|necesito el reporte|ya quedo|ya le asigne|de los cambios|acabamos de revisar|necesita resolver|ponga al corriente|avance de su equipo|reunion empieza)\b/.test(text) ||
+        /\b(manda(?:le)?|envia(?:le)?)\s+(?:un\s+)?(?:whatsapp|correo|mail)\b/.test(text) ||
+        /\b(?:dile|avisale|comentale|pidele)\s+(?:a\s+[a-z]{2,}\s+)?que\s+\S+/.test(text)))
+
+  if (isFlexibleCommIntent) {
+    const isEmail = /\b(correo|mail|email|resumen semanal)\b/.test(text)
     const isWhatsApp = /\bwhatsapp\b/.test(text)
-    const draftOnly = /\b(redacta|redactar|prepara|preparar)\b/.test(text) && !/\b(envia|enviale|manda|mandale)\b/.test(text)
+    const draftOnly =
+      /\b(redacta|redactar|prepara|preparar)\b/.test(text) &&
+      !/\b(envia|enviale|enviales|manda|mandale|mandales|comparte|dile|avisale|recuerdale|preguntale|pasale|pon\s+a)\b/.test(text)
+    const isLegacyActionNotify =
+      /\b(avisa|notifica)\b/.test(text) &&
+      /\b(al responsable|responsable)\b/.test(text) &&
+      !/\b(responsables|todos|cada responsable|su dia|pendientes|vencimientos|bloqueos)\b/.test(text)
     const recMatch =
+      cleanedUtterance.match(/\b(?:pon|poner)\s+a\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ]+)?)\s+al\s+tanto\b/i) ??
       cleanedUtterance.match(/\b(?:a|con)\s+(Direcci[oó]n|[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ]+)?)\b/) ??
-      cleanedUtterance.match(/\b(?:dile|av[ií]sale|preg[uú]ntale|recu[eé]rdale|p[ií]dele)\s+a\s+([A-Za-zÁÉÍÓÚÑáéíóúñ]+)\b/i)
+      cleanedUtterance.match(/\b(?:dile|av[ií]sale|preg[uú]ntale|recu[eé]rdale|p[ií]dele|p[aá]sale|env[ií]ale|m[aá]ndale)\s+a\s+([A-Za-zÁÉÍÓÚÑáéíóúñ]+)\b/i)
     const recipientHint =
-      recMatch?.[1] && !/^(los|las|el|la|un|una|mi|mis|este|esta)$/i.test(normalize(recMatch[1]))
+      recMatch?.[1] && !/^(los|las|el|la|un|una|mi|mis|este|esta|todos|todas|responsables)$/i.test(normalize(recMatch[1]))
         ? recMatch[1].trim()
         : undefined
     return {
       kind: 'write_request',
       operation: 'notify_responsable',
       request,
-      canal: isWhatsApp ? 'whatsapp' : isEmail ? 'email' : /\b(preguntale|recuerdale|avisale|dile|pidele)\b/.test(text) ? 'whatsapp' : 'email',
+      canal: isWhatsApp ? 'whatsapp' : isEmail ? 'email' : /\b(preguntale|recuerdale|avisale|dile|pidele|pasale|mandale|enviale|mandales|enviales|pon\s+a)\b/.test(text) ? 'whatsapp' : 'email',
       ...(recipientHint ? { recipientHint } : {}),
       ...(draftOnly ? { draftOnly: true } : {}),
+      ...(!isLegacyActionNotify ? { contextualComm: true } : {}),
     }
   }
   if (

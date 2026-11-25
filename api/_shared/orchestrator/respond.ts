@@ -24,6 +24,8 @@ export type AgentResponse = {
    * (ok/partial); el resto de estados se presenta igual en todos los formatos.
    */
   facts?: AnswerFacts
+  /** Presentación orientada a la operación: omite encabezados genéricos Datos / Limitaciones. */
+  presentation?: 'standard' | 'operation'
 }
 
 export function emptyBlocks(): AgentResponseBlocks {
@@ -58,6 +60,7 @@ export const EMPTY_MODEL_TURN_MESSAGE =
 
 export function composeText(response: AgentResponse, options: { headings: boolean }): string {
   const { blocks } = response
+  const useHeadings = options.headings && response.presentation !== 'operation'
   const sections: Array<[string, string[]]> = [
     ['Datos', blocks.data],
     ['Interpretación', blocks.interpretation],
@@ -67,9 +70,9 @@ export function composeText(response: AgentResponse, options: { headings: boolea
   const asOf = formatAsOf(response.asOf)
   const parts = sections
     .filter(([, lines]) => lines.length > 0)
-    .map(([title, lines]) => (options.headings ? `${title}:\n${lines.join('\n')}` : lines.join('\n')))
+    .map(([title, lines]) => (useHeadings ? `${title}:\n${lines.join('\n')}` : lines.join('\n')))
   if (asOf && response.status !== 'clarification' && response.status !== 'proposal') {
-    parts.push(options.headings ? `Corte: ${asOf} (CDMX).` : `Corte ${asOf}.`)
+    parts.push(useHeadings ? `Corte: ${asOf} (CDMX).` : `Corte ${asOf}.`)
   }
   return parts.join('\n\n').trim()
 }

@@ -90,14 +90,14 @@ const NATURAL_LANGUAGE_MATRIX: MatrixCase[] = [
   // 3. Errores ortográficos, sin acentos y muletillas
   { id: '14', category: 'typos', utterance: 'Oye porfa crea una acion para revisar compras el vierns', expectedIntent: 'write_request', mustContain: ['Nueva acción'], mustNotContain: ['Oye'] },
   { id: '15', category: 'typos', utterance: 'Fijate que necesito mandale un watsap a Carlos', expectedIntent: 'write_request', mustContain: ['WhatsApp', 'Carlos Mendoza'] },
-  { id: '16', category: 'typos', utterance: 'Porfa enviale un coreo a Jorge sobre el cierre', expectedIntent: 'write_request', mustContain: ['Correo electrónico', 'Jorge González'] },
+  { id: '16', category: 'typos', utterance: 'Porfa enviale un coreo a Jorge sobre el cierre', expectedIntent: 'write_request', mustContain: ['Mensaje preparado para Jorge González', 'Asunto:', 'Copiar mensaje'] },
   { id: '17', category: 'typos', utterance: 'Que pendintes tengo vencidos hoy', expectedIntent: 'query_actions' },
   { id: '18', category: 'typos', utterance: 'Donde tenemos blokeos en el equipo', expectedIntent: 'query_actions' },
 
   // 4. Notas de voz (canal voice)
   { id: '19', category: 'voz', channel: 'voice', utterance: 'Crea una acción para auditar embarques para Carlos el viernes en Kanban corporativo', expectedIntent: 'write_request', mustContain: ['Carlos Mendoza', 'Kanban corporativo'] },
   { id: '20', category: 'voz', channel: 'voice', utterance: 'Oye cómo está mi empresa hoy', expectedIntent: 'executive_brief' },
-  { id: '21', category: 'voz', channel: 'voice', utterance: 'Mándale un WhatsApp a Jorge para pedirle estatus', expectedIntent: 'write_request', mustContain: ['WhatsApp', 'Jorge González'] },
+  { id: '21', category: 'voz', channel: 'voice', utterance: 'Mándale un WhatsApp a Jorge para pedirle estatus', expectedIntent: 'write_request', mustContain: ['Jorge'], mustNotContain: ['Mándale un WhatsApp'] },
   { id: '22', category: 'voz', channel: 'voice', utterance: '¿Qué objetivos corporativos tenemos activos?', expectedIntent: 'query_okrs' },
 
   // 5. Instrucciones múltiples (compound)
@@ -123,20 +123,20 @@ const NATURAL_LANGUAGE_MATRIX: MatrixCase[] = [
   { id: '36', category: 'ambiguo', utterance: 'Mándale un WhatsApp a Ana', expectedIntent: 'write_request', expectedStatus: 'clarification', mustContain: ['Ana Torres', 'Ana Ramírez'] },
 
   // 9. Comunicaciones WhatsApp
-  { id: '37', category: 'whatsapp', utterance: 'Mándale un WhatsApp a Carlos', expectedIntent: 'write_request', mustContain: ['WhatsApp', 'Carlos Mendoza'] },
-  { id: '38', category: 'whatsapp', utterance: 'Pregúntale a Carlos cómo va', expectedIntent: 'write_request', mustContain: ['WhatsApp', 'Carlos Mendoza'] },
-  { id: '39', category: 'whatsapp', utterance: 'Recuérdale a Jorge lo que tiene pendiente', expectedIntent: 'write_request', mustContain: ['WhatsApp', 'Jorge González'] },
+  { id: '37', category: 'whatsapp', utterance: 'Mándale un WhatsApp a Carlos', expectedIntent: 'write_request', mustContain: ['WhatsApp para Carlos Mendoza', 'Confirmar envío'] },
+  { id: '38', category: 'whatsapp', utterance: 'Pregúntale a Carlos cómo va', expectedIntent: 'write_request', mustContain: ['Carlos'], mustNotContain: ['Pregúntale a Carlos'] },
+  { id: '39', category: 'whatsapp', utterance: 'Recuérdale a Jorge lo que tiene pendiente', expectedIntent: 'write_request', mustContain: ['Jorge'], mustNotContain: ['Recuérdale a Jorge'] },
   { id: '40', category: 'whatsapp', utterance: 'Avísale a Dirección que ya quedó', expectedIntent: 'write_request', mustContain: ['Dirección'] },
-  { id: '41', category: 'whatsapp', utterance: 'Dile a Jorge que necesito el reporte hoy', expectedIntent: 'write_request', mustContain: ['Jorge González'] },
-  { id: '42', category: 'whatsapp', utterance: 'Pídele a Carlos una fecha de compromiso', expectedIntent: 'write_request', mustContain: ['Carlos Mendoza'] },
+  { id: '41', category: 'whatsapp', utterance: 'Dile a Jorge que necesito el reporte hoy', expectedIntent: 'write_request', mustContain: ['Jorge González', 'necesito el reporte hoy'], mustNotContain: ['Dile a Jorge'] },
+  { id: '42', category: 'whatsapp', utterance: 'Pídele a Carlos una fecha de compromiso', expectedIntent: 'write_request', mustContain: ['Carlos'], mustNotContain: ['Pídele a Carlos'] },
   { id: '43', category: 'whatsapp', utterance: 'Notifica a los responsables de las vencidas', expectedIntent: 'write_request' },
 
   // 10. Comunicaciones Correo electrónico
-  { id: '44', category: 'correo', utterance: 'Mándale un correo a Carlos', expectedIntent: 'write_request', mustContain: ['Correo electrónico', 'Carlos Mendoza', 'Asunto:'] },
-  { id: '45', category: 'correo', utterance: 'Envíale a Dirección el resumen semanal por correo', expectedIntent: 'write_request', mustContain: ['Correo electrónico', 'Dirección'] },
-  { id: '46', category: 'correo', utterance: 'Redacta un correo para escalar este bloqueo a Dirección', expectedIntent: 'write_request', mustContain: ['Borrador de Correo electrónico', 'Dirección'] },
-  { id: '47', category: 'correo', utterance: 'Envíale por correo a Jorge lo que tiene vencido', expectedIntent: 'write_request', mustContain: ['Correo electrónico', 'Jorge González'] },
-  { id: '48', category: 'correo', utterance: 'Comparte los compromisos de la reunión por correo con Dirección', expectedIntent: 'write_request', mustContain: ['Correo electrónico', 'Dirección'] },
+  { id: '44', category: 'correo', utterance: 'Mándale un correo a Carlos', expectedIntent: 'write_request', mustContain: ['Mensaje preparado para Carlos Mendoza', 'Asunto:', 'Copiar mensaje'] },
+  { id: '45', category: 'correo', utterance: 'Envíale a Dirección el resumen semanal por correo', expectedIntent: 'write_request', mustContain: ['Mensaje preparado para Dirección', 'Asunto:', 'Copiar mensaje'] },
+  { id: '46', category: 'correo', utterance: 'Redacta un correo para escalar este bloqueo a Dirección', expectedIntent: 'write_request', mustContain: ['Mensaje preparado para Dirección', 'Modo borrador', 'Copiar mensaje'] },
+  { id: '47', category: 'correo', utterance: 'Envíale por correo a Jorge lo que tiene vencido', expectedIntent: 'write_request', mustContain: ['Jorge'], mustNotContain: ['Envíale por correo'] },
+  { id: '48', category: 'correo', utterance: 'Comparte los compromisos de la reunión por correo con Dirección', expectedIntent: 'write_request', mustContain: ['Mensaje preparado para Dirección', 'Asunto:', 'Copiar mensaje'] },
 
   // 11. Instrucciones orientadas a resultados
   { id: '49', category: 'resultados', utterance: 'Necesito que esto avance', expectedIntent: 'recommend_next' },
