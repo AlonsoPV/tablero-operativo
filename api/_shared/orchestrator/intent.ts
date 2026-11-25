@@ -90,6 +90,7 @@ export type IntentSessionHints = {
   hasExecutiveSession?: boolean
   lastActionCount?: number
   lastEntityKind?: 'action' | 'person' | null
+  pendingWrite?: { operation: string; request: string } | null
 }
 
 function priorityIndexFromText(text: string): number | undefined {
@@ -475,6 +476,23 @@ export function classifyAgentIntent(
   }
 
   const boardActionsCount = interpreted.module === 'org' && /\b(accion(es)?|tareas?)\b/.test(text)
+  const hasExplicitQuerySignal =
+    /[?¿]/.test(utterance) ||
+    /^(que|cual|cuales|cuantas|cuantos|quien|quienes|como|donde|cuando|muestrame|muestra|dame|lista|listar|ver|revisa|revisar|revisemos|resumen|resume|explica|explicame|profundiza|abre|hola|buenos|buenas|gracias|ayuda|cancela|cancelar|olvida|olvidalo|ya no|mejor)\b/.test(
+      text
+    ) ||
+    /\b(okrs?|iniciativas?|objetivos?|resultados? clave|pendientes?|vencid[ao]s?|bloquead[ao]s?|bloqueos?|acciones abiertas|resumen ejecutivo|prioridades)\b/.test(
+      text
+    )
+  if (session?.pendingWrite && !hasExplicitQuerySignal && text.length >= 2 && text.length <= 240) {
+    const merged = `${session.pendingWrite.request} (${utterance.trim()})`.slice(0, 500)
+    const op = session.pendingWrite.operation as Extract<AgentIntent, { kind: 'write_request' }>['operation']
+    return {
+      kind: 'write_request',
+      operation: op || 'create_action',
+      request: merged,
+    }
+  }
   if (interpreted.intent !== 'query' || (interpreted.module !== 'kanban' && !boardActionsCount)) {
     return { kind: 'unknown' }
   }

@@ -154,6 +154,63 @@ describe('WhatsApp 1.0 Owner Acceptance Scenarios (A, B, C)', () => {
     expect(reply).not.toContain('quien sera el responsable')
     expect(reply).not.toContain('preparare la propuesta')
     expect(waText).toMatch(/solo lectura|no est[aá] habilitada|deshabilitada|bloquead|confirmaci[oó]n|tablero/i)
+
+    // Turno 2 — información complementaria (responsable + tablero): NO debe listar 55 acciones
+    const followUp = await runAgentTurn(
+      {
+        actor: PILOT_ACTOR,
+        utterance: 'Alonso PV y en kanban corporativo',
+        session: null,
+        channel: 'whatsapp',
+        r2Mode: 'off',
+      },
+      {
+        store,
+        dispatch: async () => ({ ok: true, items: SAMPLE_ACTIONS, total: 55 }),
+      }
+    )
+    expect(followUp.handled).toBe(true)
+    expect(followUp.intent).toBe('write_request')
+    const followUpText = formatForChannel(followUp, 'whatsapp')
+    expect(followUpText).not.toContain('55 abiertas')
+    expect(followUpText).toMatch(/deshabilitad|no se aplic|solo propuesta|borrador|no est[aá] habilitada|no se cre[oó]/i)
+
+    // Turno 3 — información complementaria de fecha y prioridad sin mencionar "kanban"
+    const followUp2 = await runAgentTurn(
+      {
+        actor: PILOT_ACTOR,
+        utterance: 'para el viernes, prioridad alta en operaciones',
+        session: null,
+        channel: 'whatsapp',
+        r2Mode: 'off',
+      },
+      {
+        store,
+        dispatch: async () => ({ ok: true, items: SAMPLE_ACTIONS, total: 55 }),
+      }
+    )
+    expect(followUp2.handled).toBe(true)
+    expect(followUp2.intent).toBe('write_request')
+
+    // Turno 4 — nueva consulta explícita sale limpiamente de pendingWrite
+    const newQuery = await runAgentTurn(
+      {
+        actor: PILOT_ACTOR,
+        utterance: 'Muéstrame mis iniciativas activas',
+        session: null,
+        channel: 'whatsapp',
+        r2Mode: 'off',
+      },
+      {
+        store,
+        dispatch: async (_actor, tool) => {
+          if (tool === 'get_okr_progress') return SAMPLE_OKRS
+          return { ok: true, items: SAMPLE_ACTIONS, total: 55 }
+        },
+      }
+    )
+    expect(newQuery.handled).toBe(true)
+    expect(newQuery.intent).toBe('query_okrs')
   })
 
   it('Escenario C — Iniciativas y OKRs diferenciados de acciones y proyectos sin colisión', () => {

@@ -33,6 +33,11 @@ export type CachedAnswer = {
   auto: FormatResolution
 }
 
+export type PendingWriteContext = {
+  operation: string
+  request: string
+}
+
 export type SessionContext = {
   activeQuery: ActionActiveQuery | null
   lastActions: ReferencedAction[]
@@ -42,6 +47,8 @@ export type SessionContext = {
   lastAnswer?: CachedAnswer | null
   /** Sesión ejecutiva guiada (~15 min) en curso; sólo memoria de sesión, nunca persiste compromisos. */
   executiveSession?: ExecutiveSessionState | null
+  /** Última solicitud de escritura para mantener continuidad conversacional en turnos complementarios. */
+  pendingWrite?: PendingWriteContext | null
   /** Totales vivos de la última consulta autorizada; sirven para explicar cambios reales, no para congelar cifras. */
   lastTotals?: { open: number; overdue: number; blocked: number } | null
   /** Huella de capacidades con la que se construyó; si cambia, el contexto se descarta. */
@@ -203,6 +210,7 @@ type PersistedPayload = {
   responseFormat?: ResponseFormat
   lastTotals?: { open: number; overdue: number; blocked: number } | null
   executiveSession?: ExecutiveSessionState | null
+  pendingWrite?: PendingWriteContext | null
 }
 
 /** Sólo IDs y campos de orden; títulos y nombres se releen con permisos vigentes. */
@@ -244,6 +252,10 @@ export function toPersistedPayload(value: Omit<SessionContext, 'updatedAt'>): Pe
     responseFormat: coerceResponseFormat(value.responseFormat),
     lastTotals: value.lastTotals ?? null,
     executiveSession: value.executiveSession ?? null,
+    pendingWrite:
+      value.pendingWrite && typeof value.pendingWrite.operation === 'string' && typeof value.pendingWrite.request === 'string'
+        ? { operation: value.pendingWrite.operation.slice(0, 48), request: value.pendingWrite.request.slice(0, 280) }
+        : null,
   }
 }
 
@@ -282,6 +294,13 @@ function fromPersistedPayload(payload: unknown, fingerprint: string, updatedAt: 
     responseFormat: coerceResponseFormat(p.responseFormat),
     lastTotals: totals,
     executiveSession: coerceExecutiveSession(p.executiveSession),
+    pendingWrite:
+      p.pendingWrite &&
+      typeof p.pendingWrite === 'object' &&
+      typeof p.pendingWrite.operation === 'string' &&
+      typeof p.pendingWrite.request === 'string'
+        ? { operation: p.pendingWrite.operation.slice(0, 48), request: p.pendingWrite.request.slice(0, 280) }
+        : null,
     fingerprint,
     updatedAt,
   }
