@@ -9,7 +9,6 @@ import type {
   CopilotProposal,
   CopilotToolResult,
 } from '../../../src/features/ai-support/copilot/types.js'
-import { draftFromRequest } from '../../../src/features/ai-support/creationDraft.js'
 import { parseDueDateHint } from '../../../src/features/ai-support/parseWorkFacts.js'
 import { todayWallClockCDMX } from '../../../src/lib/dateUtils.js'
 import { buildActiveQueryEntry, isPersonalActionScope } from '../actionQueryContract.js'
@@ -50,6 +49,15 @@ import {
   type ResponseFormat,
 } from './answerContract.js'
 import { classifyAgentIntent, type AgentIntent } from './intent.js'
+import {
+  applyDraftPatch,
+  emptyStructuredDraft,
+  extractActionPatch,
+  formatStructuredActionDraft,
+  loadEntityCatalogFromActor,
+  resolveDraftEntities,
+  type EntityResolutionCatalog,
+} from './structuredActionDraft.js'
 import {
   buildExecutiveDiagnosis,
   DISCIPLINE_THRESHOLDS,
@@ -99,6 +107,8 @@ export type AgentTurnDeps = {
   today?: () => string
   /** POC R3: almacén de memoria/documentos (harness local). Ausente = sin recall. */
   memoryStore?: MemoryStore
+  /** Catálogo opcional de entidades (usuarios/tableros) para resolución determinista en pruebas. */
+  entityCatalog?: EntityResolutionCatalog
 }
 
 function looksLikeMemoryAsk(text: string) {
@@ -209,6 +219,7 @@ type TurnState = {
   today: string
   tools: string[]
   dispatch: ToolDispatcher
+  entityCatalog?: EntityResolutionCatalog
 }
 
 const LIST_LIMIT = 5
@@ -2027,7 +2038,37 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
     return handleBatchCommitments(state, intent, response)
   }
   if (intent.operation === 'create_action') {
-    const draft = draftFromRequest(intent.request)
+    const baseDraft =
+      intent.isFollowUp && state.ctx.pendingWrite?.operation === 'create_action' && state.ctx.pendingWrite.draft
+        ? state.ctx.pendingWrite.draft
+        : emptyStructuredDraft()
+    const patch = extractActionPatch(intent.request, state.today, Boolean(intent.isFollowUp && state.ctx.pendingWrite?.draft))
+    const mergedDraft = applyDraftPatch(baseDraft, patch)
+    const catalog = state.entityCatalog ?? (await loadEntityCatalogFromActor(state.actor))
+    const resolved = resolveDraftEntities(mergedDraft, state.actor, catalog)
+    const draft = resolved.draft
+
+    if (resolved.forbiddenReason) {
+      return { response: forbidden(resolved.forbiddenReason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
+    }
+
+    state.ctx.pendingWrite = {
+      operation: 'create_action',
+      request: (draft.titulo ?? intent.request).slice(0, 280),
+      draft,
+    }
+
+    if (resolved.clarification) {
+      const clarifyResp = baseResponse('clarification')
+      clarifyResp.blocks.data.push(resolved.clarification)
+      withFacts(clarifyResp, { primary: { text: resolved.clarification } })
+      return {
+        response: clarifyResp,
+        clarification: { question: resolved.clarification, options: [] },
+        audit: { status: 'clarification' as const, entity: 'actions' },
+      }
+    }
+
     const blockedRefs = state.ctx.lastActions.filter((a) => a.estado === 'Bloqueado')
     const mentionsBlocker = /bloque/i.test(intent.request)
     const origen = mentionsBlocker && blockedRefs.length === 1 ? blockedRefs[0]! : null
@@ -2035,19 +2076,35 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
       state.ctx.lastEntity?.kind === 'action'
         ? state.ctx.lastActions.find((item) => item.id === state.ctx.lastEntity!.id) ?? null
         : state.ctx.lastActions[0] ?? null
-    const due = parseDueDateHint(intent.request, state.today)
     const persistMode = resolveR2ExecutionMode(process.env, state.actor.usuarioId)
+
     if (persistMode === 'qa' || persistMode === 'simulated' || persistMode === 'pilot') {
+      if (persistMode === 'pilot' && resolved.missingRequired.length > 0) {
+        const formatted = formatStructuredActionDraft(draft, {
+          mode: persistMode,
+          missingRequired: resolved.missingRequired,
+        })
+        const clarifyResp = baseResponse('clarification')
+        clarifyResp.blocks.data.push(formatted)
+        withFacts(clarifyResp, { primary: { text: formatted } })
+        return {
+          response: clarifyResp,
+          clarification: { question: `Para completarla, indícame: ${resolved.missingRequired.join(' y ')}.`, options: [] },
+          audit: { status: 'clarification' as const, entity: 'actions' },
+        }
+      }
       const persisted = await proposeR2Operation(state.actor, 'create_action', {
-        titulo: draft.title || intent.request.slice(0, 70),
-        responsableId: contextAction?.responsableId ?? state.actor.usuarioId,
-        fecha: due.dateYmd ?? (contextAction ? state.today : null),
+        titulo: draft.titulo || intent.request.slice(0, 70),
+        responsableId: draft.responsableId ?? contextAction?.responsableId ?? state.actor.usuarioId,
+        fecha: draft.fecha ?? (contextAction ? state.today : null),
         origenAccionId: origen?.id ?? contextAction?.id ?? null,
       })
       if (persisted.ok) {
         const proposal = markSimulated(persisted.proposal, persistMode)
-        response.blocks.data.push(persisted.proposal.summary)
+        const formatted = formatStructuredActionDraft(draft, { mode: persistMode })
+        response.blocks.data.push(formatted)
         response.blocks.limitations.push(r2Limitation(persistMode, 'escribió'))
+        withFacts(response, { primary: { text: formatted } })
         return { response, proposal, proposals: [proposal], audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
       }
       if (persistMode === 'qa' || persistMode === 'pilot') {
@@ -2055,20 +2112,27 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
       }
       // simulated con datos incompletos: cae al borrador tipado sin fila pending.
     }
+
     const proposed = proposeAction(state.actor, 'create_action', {
-      titulo: draft.title || intent.request.slice(0, 70),
-      responsableId: null,
-      fecha: due.dateYmd,
+      titulo: draft.titulo || intent.request.slice(0, 70),
+      responsableId: draft.responsableId,
+      fecha: draft.fecha,
       origenAccionId: origen?.id ?? null,
     })
     if (!proposed.ok) return { response: forbidden(proposed.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
-    response.blocks.data.push(`Propuesta identificada: crear la acción «${proposed.proposal.payload.titulo}».`)
+    const formatted = formatStructuredActionDraft(draft, {
+      mode: 'disabled',
+      missingRequired: resolved.missingRequired,
+    })
+    response.blocks.data.push(formatted)
     if (origen) response.blocks.data.push(`Relacionada con la acción bloqueada «${origen.title}».`)
-    else if (mentionsBlocker && blockedRefs.length > 1) response.blocks.data.push('Hay varias acciones bloqueadas en la consulta; falta indicar cuál.')
-    if (proposed.proposal.missing.length) {
-      response.blocks.data.push(`Faltaría: ${proposed.proposal.missing.join(', ')}.`)
+    else if (mentionsBlocker && blockedRefs.length > 1) {
+      response.blocks.data.push('Hay varias acciones bloqueadas en la consulta; falta indicar cuál.')
     }
-    response.blocks.limitations.push('La ejecución todavía no está habilitada en R1: no se creó ninguna acción.')
+    response.blocks.limitations.push(
+      'La creación automática de acciones aún no está habilitada; este borrador es solo para revisión y no se guardó en Scrumban.'
+    )
+    withFacts(response, { primary: { text: formatted } })
     return { response, proposal: proposed.proposal as ActionProposal, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
   }
   const target = state.ctx.lastEntity?.kind === 'action'
@@ -2612,6 +2676,7 @@ export async function runAgentTurn(
     ctx,
     today: (deps.today ?? todayWallClockCDMX)(),
     tools,
+    entityCatalog: deps.entityCatalog,
     dispatch: async (a, name, args) => {
       tools.push(name)
       return deps.dispatch(a, name, args) as Promise<CopilotToolResult>
@@ -2677,6 +2742,15 @@ export async function runAgentTurn(
     case 'write_request':
       outcome = await handleWriteRequest(state, intent)
       break
+    case 'cancel_write_draft': {
+      state.ctx.pendingWrite = null
+      const response = baseResponse('ok')
+      const msg = 'Cancelé el borrador en curso. Cuando quieras, indícame la nueva acción.'
+      response.blocks.data.push(msg)
+      withFacts(response, { primary: { text: msg } })
+      outcome = { response, audit: { status: 'ok' as const, entity: 'actions' } }
+      break
+    }
     case 'unsupported_write': {
       const response = baseResponse('forbidden')
       response.blocks.data.push(
@@ -2726,9 +2800,11 @@ export async function runAgentTurn(
       lastEntity: state.ctx.lastEntity,
       executiveSession: state.ctx.executiveSession ?? null,
       pendingWrite:
-        intent.kind === 'write_request'
-          ? { operation: intent.operation, request: intent.request.slice(0, 280) }
-          : null,
+        intent.kind === 'cancel_write_draft'
+          ? null
+          : intent.kind === 'write_request'
+            ? state.ctx.pendingWrite ?? { operation: intent.operation, request: intent.request.slice(0, 280) }
+            : state.ctx.pendingWrite ?? null,
       fingerprint,
       responseFormat: selected,
       lastAnswer: cacheable ? { intent: intent.kind, response: outcome.response, auto: autoResolution } : null,

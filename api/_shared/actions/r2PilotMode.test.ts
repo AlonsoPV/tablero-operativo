@@ -168,7 +168,7 @@ describe('R2_EXECUTION_MODE=pilot — aislamiento por usuario (API + BD), doble 
 
     // Usuario no piloto (disabled): sin botones ejecutables y sin pedir confirmación
     const disabledPrompt = formatWhatsAppProposalPrompt(binding, { executionMode: 'disabled' })
-    expect(disabledPrompt).toContain('R2 deshabilitado')
+    expect(disabledPrompt).toContain('no se guardó en Scrumban')
     expect(disabledPrompt).not.toContain('confirmar A1B2C3')
     expect(buildWhatsAppInteractiveProposalButtons(binding, 'disabled')).toEqual([])
 

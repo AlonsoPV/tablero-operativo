@@ -537,7 +537,7 @@ describe('confirmación y propuestas (R2 intacto)', () => {
       const r = await turn(h, R1_USERS.lead, 'Crea una acción para resolver el bloqueo.', { responseFormat: format })
       expect(r.response.status).toBe('proposal')
       expect(r.proposal).toMatchObject({ operation: 'create_action', executionEnabled: false })
-      expect(r.text).toContain('no está habilitada en R1')
+      expect(r.text).toContain('no está habilitada')
       expect(h.db.inserts.filter((i) => i.table !== 'agent_session_context')).toEqual([])
       expect(r.toolsUsed).toEqual([])
     }

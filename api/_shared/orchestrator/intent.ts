@@ -3,6 +3,7 @@
  * una consulta operativa reconocible devuelve 'unknown' y el canal usa su LLM.
  */
 import { interpretOperationalMessage } from '../operationalInterpret.js'
+import { isStructuredFollowUpUtterance } from './structuredActionDraft.js'
 import type {
   ActionActiveQuery,
   ActionQueryScope,
@@ -72,12 +73,14 @@ export type AgentIntent =
         | 'add_comment'
         | 'verify_action'
       request: string
+      isFollowUp?: boolean
       estado?: 'Pendiente' | 'En_Ejecucion' | 'Hecho' | 'Verificado'
       motivo?: string
       canal?: 'email' | 'whatsapp'
       contenido?: string
       batch?: 'commitments' | 'decisions'
     }
+  | { kind: 'cancel_write_draft' }
   | { kind: 'unsupported_write'; operation: 'tag_okr_action' | 'sql' | 'generic' }
   | { kind: 'clarify'; question: string }
   | { kind: 'unknown' }
@@ -475,6 +478,24 @@ export function classifyAgentIntent(
     return { kind: 'write_request', operation: 'create_action', request }
   }
   if (
+    session?.pendingWrite &&
+    /^(cancela|cancelar|olvida|olvidalo|ya no|descarta|descartar|dejalo|dejalo asi|no la crees|no crees nada)\b/.test(text)
+  ) {
+    return { kind: 'cancel_write_draft' }
+  }
+  if (
+    session?.pendingWrite?.operation === 'create_action' &&
+    !/[?¿]/.test(utterance) &&
+    isStructuredFollowUpUtterance(utterance)
+  ) {
+    return {
+      kind: 'write_request',
+      operation: 'create_action',
+      request: utterance.trim().slice(0, 500),
+      isFollowUp: true,
+    }
+  }
+  if (
     /\b(asigna(?:sela|selo|la|lo|r)?|reasigna(?:sela|selo|r)?|prioridad|fecha|reprograma(?:r|la)?|responsable)\b/.test(text) &&
     (/\b(accion|tarea|esa|esta)\b/.test(text) ||
       /\b(asignasela|asignaselo|mejor cambia la fecha|cambia la fecha al|reprograma(?:la)? al|responsable correspondiente)\b/.test(text))
@@ -537,13 +558,25 @@ export function classifyAgentIntent(
     /\b(okrs?|iniciativas?|objetivos?|resultados? clave|pendientes?|vencid[ao]s?|bloquead[ao]s?|bloqueos?|acciones abiertas|resumen ejecutivo|prioridades)\b/.test(
       text
     )
-  if (session?.pendingWrite && !hasExplicitQuerySignal && text.length >= 2 && text.length <= 240) {
-    const merged = `${session.pendingWrite.request} (${utterance.trim()})`.slice(0, 500)
-    const op = session.pendingWrite.operation as Extract<AgentIntent, { kind: 'write_request' }>['operation']
+  if (
+    session?.pendingWrite &&
+    /^(cancela|cancelar|olvida|olvidalo|ya no|descarta|descartar|dejalo|dejalo asi|no la crees|no crees nada)\b/.test(text)
+  ) {
+    return { kind: 'cancel_write_draft' }
+  }
+
+  if (
+    session?.pendingWrite?.operation === 'create_action' &&
+    !hasExplicitQuerySignal &&
+    !/^(crea|crear|creame|genera|generar|nueva accion|otra accion)\b/.test(text) &&
+    text.length >= 2 &&
+    text.length <= 240
+  ) {
     return {
       kind: 'write_request',
-      operation: op || 'create_action',
-      request: merged,
+      operation: 'create_action',
+      request: utterance.trim().slice(0, 500),
+      isFollowUp: true,
     }
   }
   if (interpreted.intent !== 'query' || (interpreted.module !== 'kanban' && !boardActionsCount)) {

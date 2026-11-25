@@ -13,6 +13,7 @@ import { coerceResponseFormat, type FormatResolution, type ResponseFormat } from
 import type { AgentIntent } from './intent.js'
 import { isExecutiveReviewStage, type ExecutiveSessionState } from './executiveSession.js'
 import type { AgentResponse } from './respond.js'
+import type { StructuredActionDraft } from './structuredActionDraft.js'
 
 export const SESSION_CONTEXT_TTL_MS = 30 * 60 * 1000
 const MAX_REFERENCED_ITEMS = 12
@@ -36,6 +37,7 @@ export type CachedAnswer = {
 export type PendingWriteContext = {
   operation: string
   request: string
+  draft?: StructuredActionDraft | null
 }
 
 export type SessionContext = {
@@ -254,7 +256,11 @@ export function toPersistedPayload(value: Omit<SessionContext, 'updatedAt'>): Pe
     executiveSession: value.executiveSession ?? null,
     pendingWrite:
       value.pendingWrite && typeof value.pendingWrite.operation === 'string' && typeof value.pendingWrite.request === 'string'
-        ? { operation: value.pendingWrite.operation.slice(0, 48), request: value.pendingWrite.request.slice(0, 280) }
+        ? {
+            operation: value.pendingWrite.operation.slice(0, 48),
+            request: value.pendingWrite.request.slice(0, 280),
+            ...(value.pendingWrite.draft ? { draft: value.pendingWrite.draft } : {}),
+          }
         : null,
   }
 }
@@ -299,7 +305,13 @@ function fromPersistedPayload(payload: unknown, fingerprint: string, updatedAt: 
       typeof p.pendingWrite === 'object' &&
       typeof p.pendingWrite.operation === 'string' &&
       typeof p.pendingWrite.request === 'string'
-        ? { operation: p.pendingWrite.operation.slice(0, 48), request: p.pendingWrite.request.slice(0, 280) }
+        ? {
+            operation: p.pendingWrite.operation.slice(0, 48),
+            request: p.pendingWrite.request.slice(0, 280),
+            ...(p.pendingWrite.draft && typeof p.pendingWrite.draft === 'object'
+              ? { draft: p.pendingWrite.draft as StructuredActionDraft }
+              : {}),
+          }
         : null,
     fingerprint,
     updatedAt,

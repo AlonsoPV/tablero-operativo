@@ -787,16 +787,19 @@ export function formatWhatsAppProposalPrompt(
         .slice(0, 6)
         .map((f) => `${f.label}: ${f.from ? `${f.from} -> ${f.to}` : f.to}`)
     : []
-  const lines = [
+  const lines =
     mode === 'disabled'
-      ? 'Borrador preparado (solo propuesta, R2 deshabilitado; no se aplicó ningún cambio).'
-      : 'Preparé la siguiente propuesta (pendiente de aprobación; no se aplicó ningún cambio):',
-    ...(fieldLines.length > 0 ? fieldLines : [binding.summary]),
-    `Alcance: ${binding.scope} | Código: ${binding.version}`,
-    mode === 'disabled'
-      ? 'Mientras la ejecución automática esté desactivada, este borrador queda sólo para revisión en Scrumban.'
-      : `¿Confirmas la operación? Responde "confirmar ${binding.version}" o usa el botón Confirmar. Para cancelar responde "cancelar ${binding.version}".${editHint} Un "sí" suelto no ejecuta cambios.`,
-  ]
+      ? [
+          ...(fieldLines.length > 0 ? ['Nueva acción', '', ...fieldLines] : [binding.summary]),
+          '',
+          'Este borrador es solo para revisión; la creación automática de acciones aún no está habilitada y no se guardó en Scrumban.',
+        ]
+      : [
+          'Propuesta pendiente de aprobación (no se aplicó ningún cambio todavía):',
+          ...(fieldLines.length > 0 ? fieldLines : [binding.summary]),
+          `Código: ${binding.version}`,
+          `¿Confirmas la operación? Responde "confirmar ${binding.version}" o usa el botón Confirmar. Para cancelar responde "cancelar ${binding.version}".${editHint} Un "sí" suelto no ejecuta cambios.`,
+        ]
   return lines.join('\n')
 }
 
