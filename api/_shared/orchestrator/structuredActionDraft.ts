@@ -147,7 +147,7 @@ function extractExplicitTitleChange(utterance: string): string | null {
   return t.length >= 2 ? t.slice(0, 70) : null
 }
 
-function extractResponsablePatch(utterance: string): { self: boolean; hint: string | null } {
+export function extractResponsablePatch(utterance: string): { self: boolean; hint: string | null } {
   const n = norm(utterance)
   if (
     /\b(asignamela|asignamelo|asigname|para mi\b|a mi\b|a mi mismo|ponmela|ponmelo|quedamela|yo me encargo|responsable\s*[:=]?\s*yo)\b/.test(
@@ -168,6 +168,9 @@ function extractResponsablePatch(utterance: string): { self: boolean; hint: stri
     ) ??
     cleanSpaces(utterance).match(
       /\bpara\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)\b/
+    ) ??
+    cleanSpaces(utterance).match(
+      /^(?:(?:mejor|[A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:la|lo))\s+)?para\s+([a-záéíóúñ]{3,})\b/i
     )
   if (named?.[1]) {
     const candidate = cleanSpaces(named[1])

@@ -110,6 +110,7 @@ export async function runChannelTurn(
     responseFormat?: unknown
     /** Consulta activa persistida por el canal (p. ej. consult_log de voz) para rehidratar tras cold start. */
     seedActiveQuery?: ActionActiveQuery | null
+    focusedActionIds?: unknown[]
   },
   overrides: Partial<AgentTurnDeps> & { capabilities?: AccessCapabilities } = {}
 ): Promise<ChannelTurn> {
@@ -145,12 +146,30 @@ export async function runChannelTurn(
       )
     }
   }
+  const dispatch = overrides.dispatch ?? ((a, name, args) => dispatchCopilotTool(a, name, args))
+  const focused = [...new Set((input.focusedActionIds ?? []).filter((id): id is string =>
+    typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))].slice(0, 12)
+  if (focused.length) {
+    const details = await Promise.all(focused.map(accionId => dispatch(actor.copilot, 'get_action_details', { accionId })))
+    const references = details.flatMap(result => {
+      if (!result.ok) return []
+      const data = result.data as { action?: { id?: string; title?: string; estado?: string; fecha?: string; prioridad?: string; responsable?: string; href?: string } } | undefined
+      const action = data?.action
+      if (!action?.id || !action.title) return []
+      return [{ id: action.id, title: action.title, estado: action.estado ?? null, fecha: action.fecha ?? null,
+        prioridad: action.prioridad ?? null, responsableId: action.responsable ?? null, href: action.href ?? '/kanban' }]
+    })
+    const stored = await store.get(key, now)
+    const current = stored?.fingerprint === actorFingerprint ? stored : emptySessionContext(now)
+    await store.set(key, { ...current, fingerprint: actorFingerprint, lastActions: references,
+      lastEntity: references.length === 1 ? { kind: 'action', id: references[0]!.id, label: references[0]!.title } : null }, now)
+  }
   const memoryStore =
     overrides.memoryStore ?? (isAgentMemoryEnabled() ? await loadSupabaseMemoryStore(input.identity.supabase) : undefined)
   const result = await runAgentTurn(
     { actor, utterance: input.utterance, responseFormat: input.responseFormat },
     {
-      dispatch: overrides.dispatch ?? ((a, name, args) => dispatchCopilotTool(a, name, args)),
+      dispatch,
       store,
       audit: overrides.audit ?? supabaseQueryAuditSink(actor),
       now: overrides.now,

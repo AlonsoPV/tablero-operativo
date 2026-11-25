@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto'
 import type { ActionItem, ActionsQueryRequest, OkrItem, OkrsQueryRequest, QueryResult } from '../query/contracts.js'
 import { authorizeQuery } from '../query/authorizeQuery.js'
 import type { AgentActor } from '../query/resolveActor.js'
-import type { EntityCatalogUser, EntityResolutionCatalog } from './structuredActionDraft.js'
+import { extractResponsablePatch, type EntityCatalogUser, type EntityResolutionCatalog } from './structuredActionDraft.js'
 import type { ReferencedAction, SessionContext } from './sessionContext.js'
 import { normalizeColloquialTypos } from './multiIntent.js'
 
@@ -89,6 +89,8 @@ export type PendingCommunicationProposal = {
   channelLimitation: string | null
   createdAt: string
   confirmedAt?: string | null
+  /** Structured purpose survives recipient/channel edits; never store raw instructions as a body. */
+  spec?: CommunicationIntentSpec
 }
 
 export type CommunicationDispatchFns = {
@@ -262,7 +264,7 @@ function extractRecipientHint(cleanedUtterance: string): string | null {
       return cleaned
     }
   }
-  return null
+  return extractResponsablePatch(cleanedUtterance).hint
 }
 
 /**
@@ -448,6 +450,11 @@ function resolveSingleRecipient(
   | { ok: false; kind: 'clarification'; question: string }
   | { ok: false; kind: 'forbidden'; reason: string } {
   if (!hint) {
+    const previous = session?.pendingCommunication?.recipients
+    if (previous?.length === 1 && previous[0]?.recipientId) {
+      const found = catalog.users.find(u => u.id === previous[0]!.recipientId && u.activo !== false)
+      if (found) return { ok: true, user: found, displayName: found.nombre }
+    }
     if (session?.lastEntity?.kind === 'person') {
       const found = catalog.users.find((u) => u.id === session.lastEntity?.id && u.activo !== false)
       if (found) return { ok: true, user: found, displayName: found.nombre }
@@ -949,6 +956,7 @@ export async function composeContextualCommunication(input: {
   today: string
   session?: SessionContext | null
   dispatch?: CommunicationDispatchFns
+  specOverride?: CommunicationIntentSpec
 }): Promise<ComposeCommunicationOutcome> {
   const { utterance, actor, catalog, today, session } = input
   const runActionsQuery = input.dispatch?.queryActions
@@ -961,7 +969,7 @@ export async function composeContextualCommunication(input: {
     }
   }
 
-  const spec = parseCommunicationIntent(utterance, session)
+  const spec = input.specOverride ?? parseCommunicationIntent(utterance, session)
   const nowIso = new Date().toISOString()
 
   // 1. Caso grupal: "Mándales a todos los responsables sus pendientes de hoy"
@@ -1045,6 +1053,7 @@ export async function composeContextualCommunication(input: {
     const anyDirect = recipientDrafts.some((r) => r.canSendDirect)
     const idempotencyKey = `comm:${actor.usuarioId}:group:${spec.channel}:${today}:${spec.purpose}`
     const proposal: PendingCommunicationProposal = {
+    spec,
       proposalId: makeProposalId(`${idempotencyKey}:${nowIso}`),
       idempotencyKey,
       version: 1,
@@ -1122,6 +1131,7 @@ export async function composeContextualCommunication(input: {
 
     const idempotencyKey = `comm:${actor.usuarioId}:${targetUser?.id ?? 'direction'}:${spec.channel}:${today}:${spec.purpose}`
     const proposal: PendingCommunicationProposal = {
+    spec,
       proposalId: makeProposalId(`${idempotencyKey}:${nowIso}`),
       idempotencyKey,
       version: 1,
@@ -1260,6 +1270,7 @@ export async function composeContextualCommunication(input: {
 
   const idempotencyKey = `comm:${actor.usuarioId}:${targetUser?.id ?? norm(recipientName)}:${spec.channel}:${today}:${spec.purpose}`
   const proposal: PendingCommunicationProposal = {
+    spec,
     proposalId: makeProposalId(`${idempotencyKey}:${nowIso}`),
     idempotencyKey,
     version: 1,

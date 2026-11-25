@@ -1,3 +1,4 @@
+import { extractResponsablePatch } from './structuredActionDraft.js'
 /**
  * Orquestador compartido del agente (CV-05):
  * identidad → intención → contexto → autorización → consulta → interpretación → respuesta.
@@ -56,6 +57,7 @@ import {
 } from './multiIntent.js'
 import {
   applyCommunicationEdit,
+  formatCommunicationProposalText,
   composeContextualCommunication,
   type PendingCommunicationProposal,
 } from './communicationComposer.js'
@@ -2704,6 +2706,8 @@ export async function runAgentTurn(
     stored = null
   }
   const ctx = stored ?? emptySessionContext(now())
+  // A communication has its own versioned context; a legacy marker is not a second board operation.
+  if (ctx.pendingCommunication && ctx.pendingWrite?.operation === 'notify_responsable') ctx.pendingWrite = null
 
   // Formato: directiva del usuario > preferencia del canal > selección guardada en la sesión.
   // Sólo elige presentación; el texto restante se clasifica y autoriza como cualquier otro mensaje.
@@ -2901,6 +2905,49 @@ export async function runAgentTurn(
         break
       }
       if (intent.action === 'edit') {
+        const recipientHint = extractResponsablePatch(intent.utterance).hint
+        const channel = /\b(correo|email|mail)\b/i.test(intent.utterance) ? 'email'
+          : /\bwhatsapp\b/i.test(intent.utterance) ? 'whatsapp' : null
+        if (recipientHint || channel) {
+          const previousSpec = pending.spec
+          if (!previousSpec) {
+            const resp = baseResponse('clarification')
+            const question = '¿Qué información debe incluir la propuesta actualizada?'
+            resp.blocks.data.push(question)
+            outcome = { response: resp, clarification: { question, options: [] }, audit: { status: 'clarification' as const } }
+            break
+          }
+          const composed = await composeContextualCommunication({
+            utterance: intent.utterance, actor: state.actor,
+            catalog: state.entityCatalog ?? await loadEntityCatalogFromActor(state.actor),
+            today: state.today, session: state.ctx,
+            specOverride: {
+              ...previousSpec,
+              channel: channel ?? pending.channel,
+              recipientHint: recipientHint ?? pending.recipients[0]?.recipientName ?? previousSpec.recipientHint,
+              recipientMode: recipientHint ? 'single' : previousSpec.recipientMode,
+            },
+            dispatch: {
+              queryActions: (copilot, req) => queryActions(copilot, req, state.dispatch),
+              queryOkrs: (copilot, req) => queryOkrs(copilot, req, state.dispatch),
+            },
+          })
+          const resp = baseResponse(composed.kind === 'proposal' ? 'proposal' : composed.kind === 'clarification' ? 'clarification' : composed.kind === 'forbidden' ? 'forbidden' : composed.kind === 'empty' ? 'empty' : 'error')
+          resp.presentation = 'operation'
+          if (composed.kind === 'proposal') {
+            const updated = { ...composed.proposal, proposalId: pending.proposalId, version: pending.version + 1 }
+            state.ctx.pendingCommunication = updated
+            const text = formatCommunicationProposalText(updated)
+            resp.blocks.data.push(text)
+            withFacts(resp, { primary: { text } })
+            outcome = { response: resp, communicationProposal: updated, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
+          } else {
+            const text = composed.kind === 'clarification' ? composed.question : composed.kind === 'forbidden' ? composed.reason : composed.message
+            resp.blocks.data.push(text)
+            outcome = { response: resp, ...(composed.kind === 'clarification' ? { clarification: { question: text, options: [] } } : {}), audit: { status: composed.kind === 'forbidden' ? 'denied_precheck' as const : 'clarification' as const } }
+          }
+          break
+        }
         const edited = applyCommunicationEdit(pending, intent.utterance)
         state.ctx.pendingCommunication = edited.updated
         const resp = baseResponse('proposal')
@@ -2918,7 +2965,7 @@ export async function runAgentTurn(
       if (pending.status === 'confirmed') {
         const resp = baseResponse('ok')
         resp.presentation = 'operation'
-        const msg = `Esta propuesta (${pending.proposalId}, v${pending.version}) ya fue confirmada previamente. No se duplicó ningún envío.`
+        const msg = `Esta propuesta (${pending.proposalId}, v${pending.version}) ya fue confirmada previamente. No se ejecutó ningún envío desde esta confirmación.`
         resp.blocks.data.push(msg)
         withFacts(resp, { primary: { text: msg } })
         outcome = {
@@ -2950,7 +2997,7 @@ export async function runAgentTurn(
       const resp = baseResponse('ok')
       resp.presentation = 'operation'
       const recNames = confirmed.recipients.map((r) => r.recipientName).join(', ')
-      const msg = `Envío autorizado (${confirmed.proposalId}, v${confirmed.version}) para ${recNames}. Queda registrado para despacho verificado sin duplicados.`
+      const msg = `Autorización registrada (${confirmed.proposalId}, v${confirmed.version}) para ${recNames}. El mensaje sigue preparado: esta confirmación no lo encoló ni lo envió. El despacho debe realizarse mediante el flujo de envío verificado.`
       resp.blocks.data.push(msg)
       withFacts(resp, { primary: { text: msg } })
       outcome = {
@@ -3020,7 +3067,7 @@ export async function runAgentTurn(
       pendingWrite:
         intent.kind === 'cancel_write_draft'
           ? null
-          : intent.kind === 'write_request'
+          : intent.kind === 'write_request' && intent.operation !== 'notify_responsable'
             ? state.ctx.pendingWrite ?? { operation: intent.operation, request: intent.request.slice(0, 280) }
             : state.ctx.pendingWrite ?? null,
       pendingCommunication: state.ctx.pendingCommunication ?? null,
