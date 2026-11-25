@@ -94,3 +94,67 @@ La prueba acredita preparación contextual en el asistente principal, no entrega
 - Timeout: no se incorpora el parche local que cierra habla activa tras 45s, ni expiración server-side basada solo en updated_at. Faltan señal fiable de intervención activa, preservación de contexto al reanudar, liberación de recursos y aceptación real a 150/180s sin cortar operaciones. R4 continúa congelado salvo esta seguridad.
 - R1 activo; R2 solo piloto; WhatsApp global OFF; R3 OFF. Dispatcher recurrente OFF es restricción vigente, no se ha acreditado por lectura en esta sesión. No hay cambios de flags ni nuevas integraciones pagadas.
 - Estado comercial: **NO-GO para OWNER ACCEPTED** mientras falte evidencia real de los casos anteriores. No se inicia R3/R4 ni se amplía piloto.
+
+
+## Cierre de PR #15 y ejecución controlada (25/11/2026)
+
+### Publicación observable
+
+- HEAD autorizado y fusionado: `ae5fc06fae082e7f71281b1434fd2328620fc34c`.
+- SHA publicado: `c23364f9780bf728677c38699912ef51fc3befb0`; árbol `ea83df0a9e08630a89f9d5e42ed8edec43b47ffd`, idéntico al HEAD autorizado.
+- Protección main: enforce_admins, PR obligatorio, rama actualizada y check Vercel obligatorio. Cero aprobaciones exigidas por configuración; no había revisiones ni hilos pendientes. CI de harness/typecheck y comentarios Vercel exitosos; estado Vercel «Canceled by Ignored Build Step» no se usó como prueba de deployment.
+- Se retiró draft y se fusionó mediante squash con expected_head_sha. No se alteró el contenido del PR.
+- Production READY `dpl_B3toL8hkVPtgwEgwm44G6nqy8Ezs`; alias `scrumbanemx.vercel.app` verificado a las 20:18:32Z.
+- Rollback inmediato disponible: `17eb574fc57789d052b37244a19644069d3f08ba`, deployment READY `dpl_7XfPZiPsKU7MqAy9sMzdjm5wdd5y`. No se cambió ninguna política SQL, secreto, flag, proveedor, GEMINI_MODEL ni usuario del piloto.
+
+### Conversaciones autenticadas observadas en Production
+
+Principal y flotante:
+
+1. Crear revisar inventario → título «Revisar inventario», responsable por definir, sin concatenar instrucciones.
+2. «Prepárala para Gerardo» → resuelve identidad; pide fecha, no interpreta toda la oración como nombre.
+3. «Mejor para Carlos» → informa que no encontró un usuario activo autorizado con ese nombre; no inventa identidad ni modifica al responsable válido.
+4. «Para el viernes» → propuesta para Gerardo Puga, 27/11/2026 17:00, Kanban corporativo, título preservado. No se pulsó Aprobar y ejecutar.
+5. Preparar pendientes de hoy para Gerardo → consulta datos y redacta mensaje con 11 abiertas, tres puntos priorizados y vencimientos. No se envía externamente.
+6. «Mejor por correo» → mantiene persona/datos y muestra asunto y borrador, indicando expresamente que el envío directo no está habilitado.
+7. «¿Qué acciones tengo abiertas?» → consulta personal independiente, sin bloquearse por las propuestas; resultado vacío en ese momento.
+
+No se acredita la secuencia completa: «¿Cómo quedó?» no tiene ruta determinista en el SHA publicado y podría activar el fallback LLM; no se ejecutó por no tener costo adicional cero verificado. «Regresa al borrador anterior» sí se probó en el flotante: incorrectamente abre revisión ejecutiva. Esa regresión bloquea aceptación completa, aunque los pasos previos funcionen. La misma clasificación es compartida con el principal; allí no se repitió este último paso tras abandonar su sesión de UI.
+
+### Primera creación real R2
+
+- El usuario envió el comando desde el teléfono del piloto. Primera propuesta `9073247A` presentaba título contaminado con «para mí, ,».
+- El usuario editó el título por el flujo vigente; el bot invalidó el código previo y emitió `76307206`, con título «QA R2: revisar inventario de prueba», Alonso Perez y 27/11/2026 17:00.
+- El usuario confirmó desde el teléfono y reportó creación. Se verificó independientemente en Kanban autenticado mediante lectura de la tarjeta y su diálogo, sin guardar cambios.
+- Registro: `emx_52276`, UUID `dc561a62-0a6f-56cb-a25f-07c369dc2534`, estado Pendiente, prioridad P2_Media, responsable Alonso Perez, fecha 27/11/2026 17:00.
+- Incidencia residual: la descripción persiste «QA R2: revisar inventario de prueba, para mí, ,». No se corrigió el registro productivo ni se eliminó. Creación/persistencia acreditadas; calidad integral del contenido todavía no.
+- Capturas locales en checkout principal: `.tmp/pr15-principal-action.jpg`, `.tmp/pr15-principal-context.jpg`, `.tmp/pr15-floating-action.jpg`, `.tmp/pr15-floating-context.jpg`, `.tmp/pr15-floating-return-failure.jpg`, `.tmp/r2-first-created-kanban.jpg`. No se publican imágenes operativas en Git.
+
+### Siguiente P0: candidato separado, sin publicar
+
+- El compositor reutiliza whatsapp_prepare_send → assistant_pending_ops → tarjeta de aprobación HTTP → confirmPendingOp → executeWhatsappWrite. No agrega tablas, transporte ni otro sistema WhatsApp.
+- Vinculación por propuesta/versión y requestKey estable; destinatario por ID revalidado con RLS; comparación exacta entre cuerpo y vista previa; revocación de aprobación anterior antes de editar/cancelar/reemplazar; estado de proveedor consultado en el intento existente, distinguiendo accepted de delivered/read.
+- Una confirmación por texto solo presenta la tarjeta verificada. No se invoca confirm_pending_op desde el motor para enviar. La aprobación HTTP existente conserva reserva atómica, content hash, verificación de contacto/ventana y registro de proveedor.
+- Se conserva el bloqueo vigente de envíos externos en piloto/QA/simulado. En correo continúa ofreciendo borrador, sin prometer integración no disponible.
+- Recuperar/revisar propuestas usa pendingWrite/pendingCommunication y formateadores existentes; si hay acción y mensaje, pide distinguirlos en vez de navegar una revisión ejecutiva.
+- Se reproduce el comando real del piloto y se corrige el límite de palabra Unicode de «mí», separadores residuales y descripción procesada antes de eliminar atributos. Sin backfill.
+- Candidato: 1180 pruebas locales aprobadas y build:vercel aprobado. No hay prueba real de envío, entrega ni aceptación posterior de estas correcciones; requieren revisión/publicación separada.
+
+### Voz y presupuesto
+
+La corrección de seguridad del checkout local principal elimina el corte forzado de actividad tras 45s, protege reproducción/habla/transcripción/procesamiento, suprime avisos durante actividad y reinicia silencio al terminarla. Sus 13 pruebas focalizadas pasan; no se publica ni incorpora al PR #15. Sigue pendiente conectar una señal fiable de habla real del usuario: el SDK instalado expone agent_start/stop_talking y transcript, no user_start_talking; turntaking=user_turn no prueba que exista habla. No se usó como sustituto ni se abrió una llamada Retell de costo no verificado. No habilitar expiración server-side solo por updated_at ni declarar listo el timeout/reanudación/liberación sin QA real.
+
+No se iniciaron llamadas nuevas a Gemini/Retell ni envíos externos en estas pruebas de web; se usaron rutas deterministas. No se acredita una auditoría de facturación de los proveedores. La conversación real de WhatsApp y su confirmación las ejecutó el propietario desde su teléfono; no se activó automatización recurrente ni se amplió piloto.
+
+La comprobación TypeScript del checkout principal con trabajo previo no pasa por cuatro símbolos sin uso en AiAssistPage.tsx (ChevronDown, LayoutGrid, FilterMultiSelect y switchFocusKind). No pertenecen a los cambios de voz y no se modificaron. El candidato aislado de ejecución sí compila; no se declara liberable el conjunto del checkout principal.
+
+
+### Revisión adicional de PR #16 antes de solicitar merge
+
+El HEAD f25afbc se conserva como referencia de la revisión inicial; no se fusionó. Se reprodujeron cinco fallos locales: comunicación perdida al cambiar de instancia, «Muéstrame la acción que preparamos» convertido en consulta, «Regresa al mensaje para Gerardo» interpretado como edición de destinatario, «Ahora volvamos a la acción» interpretado como escritura y una consulta ordinaria a emx_52276 interceptada como borrador. Checks verdes no acreditaban estos casos.
+
+Las correcciones mantienen el alcance: persistencia acotada de pendingCommunication en el JSON de agent_session_context existente (RLS dueño y TTL actuales); solo referencia de operación y versión para aprobación, vista previa canónica releída mediante consulta RLS; se excluyen campos ajenos y credenciales. La navegación explícita de borradores precede a edición/navegación ejecutiva, conserva un foco tipado de acción/mensaje y excluye referencias explícitas a registros o URLs. Una fecha sin valor pide aclaración; modificarla afecta solo ese campo. No se cambia esquema ni se añade un motor.
+
+La secuencia nueva pasa con los mismos fixtures para web/WhatsApp/voz, incluyendo conservación del mensaje mientras se cambia únicamente la fecha. Falta aceptación real desplegada: no hay autorización de merge ni de despliegue nuevo. emx_52276 permanece intacto.
+
+El checkout principal vuelve a compilar con TypeScript tras retirar únicamente cuatro símbolos sin uso; esa corrección no se mezcló con PR #16. Las pruebas locales de voz no acreditan actividad real del SDK, liberación real ni reanudación en producción. No abrir llamadas de costo no verificado.

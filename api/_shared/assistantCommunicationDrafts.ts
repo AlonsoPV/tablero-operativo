@@ -347,9 +347,11 @@ function whatsappPreview(payload: Record<string, unknown>) {
 
 export async function prepareWhatsappDraft(
   actor: CopilotActor,
-  input: { recipient: string; body?: string; includeOverdue?: boolean }
+  input: { recipient: string; recipientId?: string; body?: string; includeOverdue?: boolean }
 ) {
-  const resolved = await resolveDraftRecipient(actor, input.recipient)
+  const resolved = input.recipientId
+    ? await resolveLinkedWhatsappPerson(actor.supabase, createServiceRoleClient, input.recipientId)
+    : await resolveDraftRecipient(actor, input.recipient)
   let body = sanitizeRecipientFacingText(input.body, WHATSAPP_BODY_MAX)
   const generatedAt = new Date()
   const actionIds: string[] = []
@@ -416,7 +418,7 @@ export async function readWhatsappStatus(actor: CopilotActor, operationId: strin
   if (!operationId) throw new Error('VALIDATION_FAILED: Indica cuál borrador quieres consultar.')
   const { data: operation, error } = await actor.supabase
     .from('assistant_pending_ops')
-    .select('id,status,expires_at')
+    .select('id,tool,status,expires_at,preview')
     .eq('id', operationId)
     .eq('usuario_id', actor.usuarioId)
     .eq('tool', 'whatsapp_prepare_send')
@@ -431,6 +433,7 @@ export async function readWhatsappStatus(actor: CopilotActor, operationId: strin
     .maybeSingle()
   if (attemptError) throw new Error('DATABASE_ERROR: No se pudo consultar el estado de Meta.')
   return {
+    proposal: proposalFromPendingRow(operation),
     operation_status: operation.status === 'pending' && Date.parse(operation.expires_at) <= Date.now()
       ? 'expired'
       : operation.status,

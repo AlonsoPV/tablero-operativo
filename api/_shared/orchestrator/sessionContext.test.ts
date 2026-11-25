@@ -46,3 +46,23 @@ describe('store de sesión', () => {
     error.mockRestore()
   })
 })
+
+
+it('conserva comunicación y aprobación vinculada tras cambiar de instancia, sin credenciales', async () => {
+  const db: FakeDb={tables:{agent_session_context:[]},inserts:[],queries:[]}
+  const client=createFakeSupabase(db)
+  const first=createSupabaseSessionContextStore(client,createMemorySessionContextStore())
+  const fingerprint=capabilityFingerprint(resolveAccessCapabilities({rol:'super_admin'}))
+  const communication={proposalId:'communication-qa',idempotencyKey:'qa-idem',version:2,status:'pending',channel:'whatsapp',
+    recipientMode:'single',purpose:'pending_actions',canSendDirect:true,channelLimitation:null,createdAt:'2026-11-25T20:00:00Z',
+    recipients:[{recipientId:'qa-recipient',recipientName:'Persona QA',channel:'whatsapp',canSendDirect:true,channelLimitation:null,subject:null,messageBody:'Contenido aprobado',itemCount:1}],
+    spec:{intent:'send_communication',channel:'whatsapp',recipientMode:'single',recipientHint:'Persona QA',purpose:'pending_actions',requiredQueries:['recipient_open_actions'],scope:'recipient_personal',period:'today',explicitContent:null,contentMode:'contextual',tone:'direct',finalOperation:'propose_send'},
+    execution:{version:2,proposal:{id:'qa-op',tool:'whatsapp_prepare_send',title:'Enviar',summary:'Revisar',fields:[],expiresAt:'2099-01-01T00:00:00Z'}},
+    accessToken:'must-not-persist'}
+  await first.set('qa-user:web:cold-start',{activeQuery:null,lastActions:[],lastEntity:null,fingerprint,
+    pendingCommunication:communication as never})
+  const second=createSupabaseSessionContextStore(client,createMemorySessionContextStore())
+  const restored=await second.get('qa-user:web:cold-start')
+  expect(restored?.pendingCommunication).toMatchObject({proposalId:'communication-qa',version:2,recipients:[{messageBody:'Contenido aprobado'}],execution:{version:2,proposal:{id:'qa-op'}}})
+  expect(JSON.stringify(db.tables.agent_session_context)).not.toContain('must-not-persist')
+})

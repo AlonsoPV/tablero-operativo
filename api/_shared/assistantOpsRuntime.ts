@@ -1087,6 +1087,7 @@ export async function dispatchCopilotTool(
         if (!recipient) return denied(name, 'Indica a quién quieres enviar el WhatsApp.')
         const proposal = await prepareWhatsappDraft(actor, {
           recipient,
+          recipientId: asString(args.recipient_id, 80) || undefined,
           body: asString(args.body, 1400),
           includeOverdue: args.include_overdue === true,
         })

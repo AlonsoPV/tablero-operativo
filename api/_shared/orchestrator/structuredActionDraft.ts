@@ -232,11 +232,12 @@ function cleanTitleFromStructuredClauses(rawTitle: string): string {
   const stripped = cleanSpaces(rawTitle)
     .replace(/\b(?:en\s+el\s+|al\s+|en\s+)?(?:kanban\s+corporativo|tablero\s+corporativo|tablero\s+de\s+equipo|tablero\s+de\s+[A-Za-zÁÉÍÓÚÑáéíóúñ\s-]+|kanban)\b/gi, '')
     .replace(/\b(?:con\s+|como\s+|en\s+)?prioridad\s+(?:alta|media|baja|p1|p2|p3)\b/gi, '')
-    .replace(/\b(?:as[ií]gna(?:da|do|mela|melo|la|lo|sela|selo|r)?(?:\s+a\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+)?)?|para\s+m[ií]|a\s+m[ií])\b/gi, '')
+    .replace(/\b(?:as[ií]gna(?:da|do|mela|melo|la|lo|sela|selo|r)?(?:\s+a\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+)?)?|para\s+m[ií]|a\s+m[ií])(?=\s|[,.;:]|$)/gi, '')
     .replace(/\b(?:[áa]rea|departamento)\s+(?:de\s+)?[A-Za-zÁÉÍÓÚÑáéíóúñ]+\b/gi, '')
     .replace(/\b(?:para\s+el|el|para)\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|hoy|ma[ñn]ana)\b/gi, '')
     .replace(/[()]/g, ' ')
-    .replace(/\s+[.,;:]+$/g, '')
+    .replace(/(?:\s*[,;]\s*)+$/g, '')
+    .replace(/\s+[.:]+$/g, '')
     .replace(/^[.,;:\s-]+/g, '')
   return sentenceCase(stripped).slice(0, 70)
 }
@@ -306,8 +307,9 @@ export function extractActionPatch(utterance: string, today: string, isFollowUp:
     if (candidateTitle.length >= 2) {
       patch.titulo = candidateTitle
     }
-    if (base.description && base.description.length >= 3) {
-      const cleanedDesc = cleanTitleFromStructuredClauses(base.description)
+    const descriptionSource = directLead !== cleanSpaces(strippedFiller) ? draftFromRequest(cleanTitleFromStructuredClauses(directLead)).description : base.description
+    if (descriptionSource && descriptionSource.length >= 3) {
+      const cleanedDesc = cleanTitleFromStructuredClauses(descriptionSource)
       patch.descripcion = cleanedDesc.length >= 3 ? cleanedDesc : candidateTitle
     }
     if (base.checkpoints.length > 0) {
