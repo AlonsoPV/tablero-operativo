@@ -2,10 +2,10 @@ import { createHmac } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 const rpc = vi.hoisted(() => vi.fn())
-vi.mock('./_shared/assistantAuth.js', () => ({
+vi.mock('./assistantAuth.js', () => ({
   createServiceRoleClient: () => ({ rpc }),
 }))
-vi.mock('./_shared/http.js', () => ({
+vi.mock('./http.js', () => ({
   readStringEnv: (key: string) =>
     ({
       WHATSAPP_APP_SECRET: 'secret',
@@ -14,7 +14,7 @@ vi.mock('./_shared/http.js', () => ({
       WHATSAPP_BUSINESS_ACCOUNT_ID: 'waba',
     })[key] || '',
 }))
-import handler from './whatsapp-webhook'
+import handler from '../whatsapp-webhook'
 const body = JSON.stringify(
   {
     object: 'whatsapp_business_account',
