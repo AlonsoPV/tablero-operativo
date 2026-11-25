@@ -508,7 +508,7 @@ export default defineApiHandler(async (req, res) => {
               utterance: transcript.slice(0, 2000),
             })
             if (turn.handled) {
-              const mode = resolveR2ExecutionMode()
+              const mode = resolveR2ExecutionMode(process.env, usuarioId)
               const proposalList = turn.proposals?.length
                 ? turn.proposals
                 : turn.proposal
@@ -574,7 +574,7 @@ export default defineApiHandler(async (req, res) => {
       actorActive: usuario.activo !== false,
       pending: bindings,
       decision: r2Decision,
-      executionMode: resolveR2ExecutionMode(),
+      executionMode: resolveR2ExecutionMode(process.env, usuarioId),
     })
     if (resolution.status === 'ready_to_execute') {
       action = 'confirm'
@@ -586,7 +586,7 @@ export default defineApiHandler(async (req, res) => {
       opId = resolution.binding.proposalId
       resolvedBinding = resolution.binding
     } else if (resolution.status === 'ready_to_edit') {
-      const executionMode = resolveR2ExecutionMode()
+      const executionMode = resolveR2ExecutionMode(process.env, usuarioId)
       if (executionMode === 'disabled') {
         return res.status(200).json({
           text: clipReply(R2_EXECUTION_DISABLED_MESSAGE),
@@ -685,7 +685,7 @@ export default defineApiHandler(async (req, res) => {
         })
       }
       // Compuerta dura R2 OFF: ninguna escritura al tablero puede evadir R2_EXECUTION_MODE === 'disabled'.
-      const executionMode = resolveR2ExecutionMode()
+      const executionMode = resolveR2ExecutionMode(process.env, usuarioId)
       if (isBoardWriteToolGatedByR2(pendingRow.tool) && executionMode === 'disabled') {
         return res.status(200).json({
           text: clipReply(R2_EXECUTION_DISABLED_MESSAGE),
@@ -694,7 +694,9 @@ export default defineApiHandler(async (req, res) => {
         })
       }
 
-      const result = await confirmPendingOp(actor, pendingRow.id, { r2: r2OptionsFromServerEnv() })
+      const result = await confirmPendingOp(actor, pendingRow.id, {
+        r2: r2OptionsFromServerEnv(process.env, usuarioId, 'whatsapp'),
+      })
       const created = result.result as {
         title?: string
         fecha?: string
@@ -759,7 +761,7 @@ export default defineApiHandler(async (req, res) => {
         utterance: text.slice(0, 2000),
       })
       if (turn.handled) {
-        const mode = resolveR2ExecutionMode()
+        const mode = resolveR2ExecutionMode(process.env, usuarioId)
         const proposalList = turn.proposals?.length
           ? turn.proposals
           : turn.proposal

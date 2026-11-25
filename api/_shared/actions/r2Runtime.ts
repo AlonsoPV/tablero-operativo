@@ -439,10 +439,13 @@ export async function gateR2Confirmation(
   return executor
 }
 
-/** El ejecutor debe corresponder al modo: simulated↔simulated, qa↔qa. Cualquier otro caso queda deshabilitado. */
+/** El ejecutor debe corresponder al modo: simulated↔simulated, qa↔qa, pilot↔pilot. Cualquier otro caso queda deshabilitado. */
 function executorForMode(options: R2ConfirmOptions): ActionExecutor {
   const executor = options.executor
-  const matches = executor && (options.mode === 'simulated' || options.mode === 'qa') && executor.kind === options.mode
+  const matches =
+    executor &&
+    (options.mode === 'simulated' || options.mode === 'qa' || options.mode === 'pilot') &&
+    executor.kind === options.mode
   if (!matches) throw new Error(R2_EXECUTION_DISABLED_MESSAGE)
   return executor
 }
@@ -521,9 +524,9 @@ export type ExecutionContext = { opId: string; expectedUpdatedAt: string | null 
 
 export type ExecutorTool = R2AgentTool | 'mark_action_done'
 
-/** Puerto de ejecución: simulated (pruebas/local) o qa (JWT reales en el proyecto QA, avisos en qa_outbox). */
+/** Puerto de ejecución: simulated (pruebas/local), qa (proyecto QA autorizado) o pilot (piloto controlado con doble factor BD). */
 export type ActionExecutor = {
-  kind: 'simulated' | 'qa'
+  kind: 'simulated' | 'qa' | 'pilot'
   /** Verificación previa del entorno (qa: la BD debe declarar el mismo proyecto QA). */
   prepare?(actor: CopilotActor): Promise<void>
   /** pending→executing vía agent_claim_pending_op; false si la operación ya no está vigente o cambió. */
@@ -749,6 +752,33 @@ export function createQaActionExecutor(deps: { boardWrite: BoardWrite; projectRe
       const { data, error } = await actor.supabase.rpc('agent_execution_environment')
       if (error || data !== deps.projectRef) {
         throw new Error('CONFIGURATION_ERROR: La base de datos no corresponde al proyecto QA autorizado.')
+      }
+    },
+  })
+}
+
+/**
+ * Ejecutor Piloto: escrituras reales en tablero con JWT/RLS del usuario piloto autorizado.
+ * Exige segundo factor activo en BD: agent_execution_allowed() = true y agent_execution_environment() = projectRef.
+ * Bloquea envíos externos (correo / WhatsApp saliente) para mantener aislamiento total del piloto.
+ */
+export function createPilotActionExecutor(deps: { boardWrite: BoardWrite; projectRef: string }): ActionExecutor {
+  const denyNotify: NotifyAdapter = async () => {
+    throw new Error('EXECUTION_DISABLED: En modo piloto R2 no se envían notificaciones externas.')
+  }
+  return buildExecutor('pilot', {
+    client: (actor) => actor.supabase,
+    boardWrite: deps.boardWrite,
+    notify: { email: denyNotify, whatsapp: denyNotify },
+    delivered: async () => false,
+    prepare: async (actor) => {
+      const { data: allowed, error: allowErr } = await actor.supabase.rpc('agent_execution_allowed')
+      if (allowErr || allowed !== true) {
+        throw new Error(R2_EXECUTION_DISABLED_MESSAGE)
+      }
+      const { data: envRef, error: envErr } = await actor.supabase.rpc('agent_execution_environment')
+      if (envErr || envRef !== deps.projectRef) {
+        throw new Error('CONFIGURATION_ERROR: La base de datos no corresponde al proyecto piloto autorizado.')
       }
     },
   })

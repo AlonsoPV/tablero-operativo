@@ -144,7 +144,7 @@ describe('R1 · escenarios conversacionales', () => {
     expect(r.proposal && 'missing' in r.proposal ? r.proposal.missing : undefined).toEqual(
       expect.arrayContaining(['responsable', 'fecha'])
     )
-    expect(r.response.blocks.limitations[0]).toContain('no está habilitada en R1')
+    expect(r.response.blocks.limitations[0]).toContain('no está habilitada')
     expect(h.db.inserts.filter((i) => i.table === 'acciones_diarias' || i.table === 'assistant_pending_ops')).toEqual([])
     expect(r.toolsUsed).toEqual([])
 

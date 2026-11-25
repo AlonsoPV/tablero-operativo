@@ -56,6 +56,7 @@ import {
 
 import {
   actionIdForOp,
+  createPilotActionExecutor,
   createQaActionExecutor,
   gateCopilotConfirmation,
   gateR2Confirmation,
@@ -69,6 +70,7 @@ import {
 } from './actions/r2Runtime.js'
 import {
   isCopilotR2GateEnabled,
+  pilotProjectRef,
   qaProjectRef,
   resolveR2ExecutionMode,
   type R2ExecutionMode,
@@ -1388,14 +1390,27 @@ async function executePayload(
 export const executeBoardWrite: BoardWrite = executePayload
 
 /**
- * Opciones R2 para la confirmación HTTP. Sólo en modo qa (variables del servidor, proyecto QA
- * autorizado) se inyecta un ejecutor; en cualquier otro caso la puerta responde "no habilitada".
+ * Opciones R2 para la confirmación HTTP. Sólo en modo qa (proyecto QA autorizado) o
+ * pilot (usuario explícitamente en R2_PILOT_USERS + segundo factor en BD agent_execution_gate)
+ * se inyecta un ejecutor; en cualquier otro caso la puerta responde "no habilitada".
  */
-export function r2OptionsFromServerEnv(env: Record<string, string | undefined> = process.env) {
-  const mode = resolveR2ExecutionMode(env)
-  const projectRef = mode === 'qa' ? qaProjectRef(env) : null
-  if (!projectRef) return undefined
-  return { mode, executor: createQaActionExecutor({ boardWrite: executeBoardWrite, projectRef }), channel: 'web' as const }
+export function r2OptionsFromServerEnv(
+  env: Record<string, string | undefined> = process.env,
+  userId?: string | null,
+  channel: AgentChannel = 'web'
+) {
+  const mode = resolveR2ExecutionMode(env, userId)
+  if (mode === 'qa') {
+    const projectRef = qaProjectRef(env)
+    if (!projectRef) return undefined
+    return { mode, executor: createQaActionExecutor({ boardWrite: executeBoardWrite, projectRef }), channel }
+  }
+  if (mode === 'pilot') {
+    const projectRef = pilotProjectRef(env)
+    if (!projectRef) return undefined
+    return { mode, executor: createPilotActionExecutor({ boardWrite: executeBoardWrite, projectRef }), channel }
+  }
+  return undefined
 }
 
 export async function confirmPendingOp(
@@ -1417,9 +1432,13 @@ export async function confirmPendingOp(
 
   const sendsCommunication =
     isCommunicationWriteTool(row.tool) || row.tool.startsWith('gmail_') || (row.tool === 'notify_action_email' || row.tool === 'notify_user_email')
-  const r2Mode = options?.r2?.mode ?? resolveR2ExecutionMode()
-  if (r2Mode === 'qa' && (sendsCommunication || isGoogleWriteTool(row.tool))) {
-    throw new Error('EXECUTION_DISABLED: En QA los proveedores reales están deshabilitados; los avisos sólo se registran en el buzón QA.')
+  const r2Mode = options?.r2?.mode ?? resolveR2ExecutionMode(process.env, actor.usuarioId)
+  if ((r2Mode === 'qa' || r2Mode === 'pilot') && (sendsCommunication || isGoogleWriteTool(row.tool))) {
+    throw new Error(
+      r2Mode === 'pilot'
+        ? 'EXECUTION_DISABLED: En modo piloto R2 los envíos externos están deshabilitados.'
+        : 'EXECUTION_DISABLED: En QA los proveedores reales están deshabilitados; los avisos sólo se registran en el buzón QA.'
+    )
   }
   if ((sendsCommunication || row.tool === 'update_daily_action_summary') && (options?.fromTool || !actor.accessToken)) {
     throw new Error('PERMISSION_DENIED: Aprueba el envío desde una sesión web autenticada.')
