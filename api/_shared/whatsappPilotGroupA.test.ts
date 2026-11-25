@@ -2,80 +2,31 @@ import { describe, expect, it } from 'vitest'
 import { classifyAgentIntent } from './orchestrator/intent.js'
 import { formatForChannel } from './orchestrator/channelAdapters.js'
 import type { AgentTurnResult } from './orchestrator/runAgentTurn.js'
-import {
-  parseWhatsAppPilotAllowlist,
-  resolveWhatsAppConversationalAccess,
-  WHATSAPP_GROUP_A_READ_ONLY_MESSAGE,
-} from './whatsappPilotGate.js'
+import { resolveWhatsAppFlowAccess } from './whatsappPilotGate.js'
 
-describe('WhatsApp Production Upgrade — Group A (Read-Only, Per-User Pilot Gate)', () => {
-  it('stays 100% legacy by default when R1=0 and pilot flag is OFF', () => {
-    const access = resolveWhatsAppConversationalAccess({
-      usuarioId: 'usr-owner-1',
-      waId: '5215512345678',
-      env: { AGENT_ORCHESTRATOR_R1: '0' },
-    })
-    expect(access).toEqual({ enabled: false, mode: 'legacy', readOnlyEnforced: true })
-  })
+const OWNER_UUID = '11111111-1111-4111-8111-111111111111'
+const OTHER_UUID = '22222222-2222-4222-8222-222222222222'
 
-  it('activates ONLY the explicitly allowlisted pilot user while keeping all other users legacy', () => {
+describe('WhatsApp Production Upgrade — Group A (Read-Only + Fail-Closed Pilot)', () => {
+  it('isolates pilot strictly to allowlisted UUID even when AGENT_ORCHESTRATOR_R1=1 (web)', () => {
     const env = {
-      AGENT_ORCHESTRATOR_R1: '0',
-      WHATSAPP_CONVERSATIONAL_PILOT_ENABLED: '1',
-      WHATSAPP_CONVERSATIONAL_PILOT_USERS: 'usr-owner-1, 5215599990000',
+      AGENT_ORCHESTRATOR_R1: '1',
+      WHATSAPP_PILOT_ENABLED: '1',
+      WHATSAPP_ORCHESTRATOR_PILOT_USERS: OWNER_UUID,
     }
+    expect(
+      resolveWhatsAppFlowAccess(
+        { usuarioId: OWNER_UUID, waId: '5215512345678', active: true, aiAuthorized: true },
+        env
+      )
+    ).toMatchObject({ allowed: true, mode: 'pilot' })
 
-    const pilotByUuid = resolveWhatsAppConversationalAccess({
-      usuarioId: 'usr-owner-1',
-      waId: '5215500001111',
-      env,
-    })
-    expect(pilotByUuid).toEqual({
-      enabled: true,
-      mode: 'pilot_user_allowlist',
-      readOnlyEnforced: true,
-    })
-
-    const pilotByWaId = resolveWhatsAppConversationalAccess({
-      usuarioId: 'usr-other',
-      waId: '+52 1 55 9999 0000',
-      env,
-    })
-    expect(pilotByWaId.enabled).toBe(true)
-    expect(pilotByWaId.mode).toBe('pilot_user_allowlist')
-
-    const nonPilot = resolveWhatsAppConversationalAccess({
-      usuarioId: 'usr-regular-2',
-      waId: '5215511112222',
-      env,
-    })
-    expect(nonPilot).toEqual({ enabled: false, mode: 'legacy', readOnlyEnforced: true })
-  })
-
-  it('rejects wildcard allowlist entries (fail-closed)', () => {
-    const allow = parseWhatsAppPilotAllowlist('*, all, todos')
-    expect(allow.size).toBe(0)
-    const access = resolveWhatsAppConversationalAccess({
-      usuarioId: 'usr-owner-1',
-      waId: '5215512345678',
-      env: {
-        AGENT_ORCHESTRATOR_R1: '0',
-        WHATSAPP_CONVERSATIONAL_PILOT_ENABLED: '1',
-        WHATSAPP_CONVERSATIONAL_PILOT_USERS: '*',
-      },
-    })
-    expect(access.enabled).toBe(false)
-    expect(access.mode).toBe('legacy')
-  })
-
-  it('enables global_r1 cleanly once AGENT_ORCHESTRATOR_R1=1', () => {
-    const access = resolveWhatsAppConversationalAccess({
-      usuarioId: 'usr-any',
-      waId: '5215511112222',
-      env: { AGENT_ORCHESTRATOR_R1: '1' },
-    })
-    expect(access).toEqual({ enabled: true, mode: 'global_r1', readOnlyEnforced: true })
-    expect(WHATSAPP_GROUP_A_READ_ONLY_MESSAGE).toMatch(/solo lectura/i)
+    expect(
+      resolveWhatsAppFlowAccess(
+        { usuarioId: OTHER_UUID, waId: '5215599990000', active: true, aiAuthorized: true },
+        env
+      )
+    ).toMatchObject({ allowed: false, mode: 'legacy' })
   })
 
   it('routes all 8 natural WhatsApp read-only questions cleanly without fallback', () => {

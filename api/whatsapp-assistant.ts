@@ -27,10 +27,10 @@ import { COPILOT_FUNCTION_DECLARATIONS, isCopilotReadTool } from '../src/feature
 import { proposalFromPendingRow } from './_shared/assistantGoogleTools.js'
 import { guideAppBaseUrl } from './_shared/guideUserLinks.js'
 import { runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
-import {
-  resolveWhatsAppConversationalAccess,
-  WHATSAPP_GROUP_A_READ_ONLY_MESSAGE,
-} from './_shared/whatsappPilotGate.js'
+import { resolveWhatsAppFlowAccess } from './_shared/whatsappPilotGate.js'
+
+const WHATSAPP_GROUP_A_READ_ONLY_MESSAGE =
+  'En esta etapa WhatsApp opera en modo solo lectura para consultas ejecutivas y operativas. Puedes registrar o actualizar esta acción directamente en Scrumban.'
 
 const WHATSAPP_READ_ONLY_DECLARATIONS = COPILOT_FUNCTION_DECLARATIONS.filter((d) =>
   isCopilotReadTool(d.name)
@@ -418,8 +418,13 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Falta el mensaje.' })
     }
 
-    const waAccess = resolveWhatsAppConversationalAccess({ usuarioId, waId })
-    if (waAccess.enabled) {
+    const waAccess = resolveWhatsAppFlowAccess({
+      usuarioId,
+      waId,
+      active: usuario.activo === true,
+      aiAuthorized: allowed === true,
+    })
+    if (waAccess.allowed) {
       const turn = await runChannelTurn({
         identity: {
           supabase,
