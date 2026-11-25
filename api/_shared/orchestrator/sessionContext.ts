@@ -14,6 +14,7 @@ import type { AgentIntent } from './intent.js'
 import { isExecutiveReviewStage, type ExecutiveSessionState } from './executiveSession.js'
 import type { AgentResponse } from './respond.js'
 import type { StructuredActionDraft } from './structuredActionDraft.js'
+import type { PendingCommunicationProposal } from './communicationComposer.js'
 
 export const SESSION_CONTEXT_TTL_MS = 30 * 60 * 1000
 const MAX_REFERENCED_ITEMS = 12
@@ -51,6 +52,8 @@ export type SessionContext = {
   executiveSession?: ExecutiveSessionState | null
   /** Última solicitud de escritura para mantener continuidad conversacional en turnos complementarios. */
   pendingWrite?: PendingWriteContext | null
+  /** Propuesta de comunicación contextualizada pendiente de confirmación, edición o cancelación. */
+  pendingCommunication?: PendingCommunicationProposal | null
   /** Totales vivos de la última consulta autorizada; sirven para explicar cambios reales, no para congelar cifras. */
   lastTotals?: { open: number; overdue: number; blocked: number } | null
   /** Huella de capacidades con la que se construyó; si cambia, el contexto se descarta. */

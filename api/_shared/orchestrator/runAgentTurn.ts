@@ -54,6 +54,11 @@ import {
   formatCompoundOperationPlan,
   type CompoundOperationPlan,
 } from './multiIntent.js'
+import {
+  applyCommunicationEdit,
+  composeContextualCommunication,
+  type PendingCommunicationProposal,
+} from './communicationComposer.js'
 import { TurnTimer, type TurnTelemetry } from './turnTelemetry.js'
 import {
   applyDraftPatch,
@@ -206,6 +211,7 @@ export type AgentTurnResult = {
   proposal?: ActionProposal | CopilotProposal
   proposals?: CopilotProposal[]
   multiIntentPlan?: CompoundOperationPlan
+  communicationProposal?: PendingCommunicationProposal
   batchId?: string
   /** Servidor: simulated|qa. Nunca lo decide el cliente. */
   executionEnabled?: boolean
@@ -2207,56 +2213,66 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
     : state.ctx.lastActions.length === 1
       ? { id: state.ctx.lastActions[0]!.id, label: state.ctx.lastActions[0]!.title }
       : null
-  if (intent.operation === 'notify_responsable' && (intent.recipientHint || intent.draftOnly)) {
+  if (intent.operation === 'notify_responsable' && (intent.contextualComm || intent.recipientHint || intent.draftOnly)) {
     const catalog = state.entityCatalog ?? (await loadEntityCatalogFromActor(state.actor))
-    const canal = intent.canal ?? 'email'
-    const hint = intent.recipientHint ?? null
-    const normStr = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
-    let recipientName = hint ?? (target ? 'Responsable de la acción' : null)
-    if (hint && !/^(direccion|directivos?)$/i.test(normStr(hint))) {
-      const needle = normStr(hint)
-      const active = catalog.users.filter((u) => u.activo !== false)
-      const exact = active.filter((u) => normStr(u.nombre) === needle)
-      const matches = exact.length ? exact : active.filter((u) => normStr(u.nombre).includes(needle))
-      if (matches.length === 1) {
-        recipientName = matches[0]!.nombre
-      } else if (matches.length > 1) {
-        const question = `¿A quién te refieres: ${matches.slice(0, 4).map((u) => u.nombre).join(' o ')}?`
-        const clarifyResp = baseResponse('clarification')
-        clarifyResp.blocks.data.push(question)
-        withFacts(clarifyResp, { primary: { text: question } })
-        return {
-          response: clarifyResp,
-          clarification: { question, options: [] },
-          audit: { status: 'clarification' as const, entity: 'actions' },
-        }
-      } else {
-        return {
-          response: forbidden(`No encontré un destinatario activo y autorizado llamado «${hint}». No se inventan teléfonos ni correos.`),
-          audit: { status: 'denied_precheck' as const, entity: 'actions' },
-        }
+    const composed = await composeContextualCommunication({
+      utterance: intent.request,
+      actor: state.actor,
+      catalog,
+      today: state.today,
+      session: state.ctx,
+      dispatch: {
+        queryActions: (copilot, req) => queryActions(copilot, req, state.dispatch),
+        queryOkrs: (copilot, req) => queryOkrs(copilot, req, state.dispatch),
+      },
+    })
+
+    if (composed.kind === 'clarification') {
+      const clarifyResp = baseResponse('clarification')
+      clarifyResp.blocks.data.push(composed.question)
+      withFacts(clarifyResp, { primary: { text: composed.question } })
+      return {
+        response: clarifyResp,
+        clarification: { question: composed.question, options: [] },
+        audit: { status: 'clarification' as const, entity: 'actions' },
       }
     }
-    const channelLabel = canal === 'whatsapp' ? 'WhatsApp' : 'Correo electrónico'
-    const subject = canal === 'email' ? `Seguimiento operativo${target ? `: ${target.label}` : ''}` : null
-    const body = target
-      ? `Hola ${recipientName ?? ''}, te escribo para dar seguimiento a "${target.label}". ¿Me compartes estatus o fecha compromiso?`.replace(/\s+,/, ',')
-      : `Hola ${recipientName ?? ''}, ${intent.request.replace(/^(?:m[aá]nda(?:le)?|env[ií]a(?:le)?|redacta)\s+(?:un\s+)?(?:whatsapp|correo|mail)\s+(?:a\s+\S+\s+)?/i, '').trim() || '¿me compartes actualización de tus pendientes?'}`.replace(/\s+,/, ',')
-    const lines = [
-      `${intent.draftOnly ? 'Borrador' : 'Propuesta'} de ${channelLabel}`,
-      `Destinatario: ${recipientName ?? 'Por confirmar'}`,
-      ...(subject ? [`Asunto: ${subject}`] : []),
-      `Mensaje: ${body}`,
-    ]
-    const formatted = lines.join('\n')
-    response.blocks.data.push(formatted)
-    response.blocks.limitations.push(
-      intent.draftOnly
-        ? 'Borrador listo para copiar o revisar. No se envió ningún mensaje externo.'
-        : 'No se envía ningún mensaje externo sin tu confirmación explícita de destinatario y contenido (si el canal no permite envío directo, puedes copiar este texto).'
-    )
-    withFacts(response, { primary: { text: formatted } })
-    return { response, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
+    if (composed.kind === 'forbidden') {
+      return {
+        response: forbidden(composed.reason),
+        audit: { status: 'denied_precheck' as const, entity: 'actions' },
+      }
+    }
+    if (composed.kind === 'error') {
+      const errResp = baseResponse('error')
+      errResp.presentation = 'operation'
+      errResp.blocks.data.push(composed.message)
+      withFacts(errResp, { primary: { text: composed.message } })
+      return {
+        response: errResp,
+        audit: { status: 'error' as const, entity: 'actions' },
+      }
+    }
+    if (composed.kind === 'empty') {
+      const emptyResp = baseResponse('empty')
+      emptyResp.presentation = 'operation'
+      emptyResp.blocks.data.push(composed.message)
+      withFacts(emptyResp, { primary: { text: composed.message } })
+      return {
+        response: emptyResp,
+        audit: { status: 'empty' as const, entity: 'actions', total: 0 },
+      }
+    }
+
+    state.ctx.pendingCommunication = composed.proposal
+    response.presentation = 'operation'
+    response.blocks.data.push(composed.formattedText)
+    withFacts(response, { primary: { text: composed.formattedText } })
+    return {
+      response,
+      communicationProposal: composed.proposal,
+      audit: { status: 'proposal_blocked' as const, entity: 'actions' },
+    }
   }
   if (intent.operation === 'update_action' || intent.operation === 'add_comment' || intent.operation === 'verify_action') {
     return handleTypedBoardWrite(state, intent, target, response)
@@ -2752,6 +2768,7 @@ export async function runAgentTurn(
     lastActionCount: ctx.lastActions.length,
     lastEntityKind: ctx.lastEntity?.kind ?? null,
     pendingWrite: ctx.pendingWrite ?? null,
+    hasPendingCommunication: Boolean(ctx.pendingCommunication),
   })
   stage('intent')
 
@@ -2809,6 +2826,7 @@ export async function runAgentTurn(
     clarification?: CopilotClarification
     proposal?: ActionProposal | CopilotProposal
     proposals?: CopilotProposal[]
+    communicationProposal?: PendingCommunicationProposal
     batchId?: string
     audit: Partial<QueryAuditEntry>
   }
@@ -2861,6 +2879,87 @@ export async function runAgentTurn(
     case 'write_request':
       outcome = await handleWriteRequest(state, intent)
       break
+    case 'communication_action': {
+      const pending = state.ctx.pendingCommunication
+      if (!pending) {
+        const resp = baseResponse('empty')
+        resp.presentation = 'operation'
+        const msg = 'No hay una propuesta de comunicación pendiente en esta sesión.'
+        resp.blocks.data.push(msg)
+        withFacts(resp, { primary: { text: msg } })
+        outcome = { response: resp, audit: { status: 'empty' as const, entity: 'actions' } }
+        break
+      }
+      if (intent.action === 'cancel') {
+        state.ctx.pendingCommunication = null
+        const resp = baseResponse('ok')
+        resp.presentation = 'operation'
+        const msg = 'Cancelé la propuesta de comunicación. No se envió ningún mensaje.'
+        resp.blocks.data.push(msg)
+        withFacts(resp, { primary: { text: msg } })
+        outcome = { response: resp, audit: { status: 'ok' as const, entity: 'actions' } }
+        break
+      }
+      if (intent.action === 'edit') {
+        const edited = applyCommunicationEdit(pending, intent.utterance)
+        state.ctx.pendingCommunication = edited.updated
+        const resp = baseResponse('proposal')
+        resp.presentation = 'operation'
+        resp.blocks.data.push(edited.formattedText)
+        withFacts(resp, { primary: { text: edited.formattedText } })
+        outcome = {
+          response: resp,
+          communicationProposal: edited.updated,
+          audit: { status: 'proposal_blocked' as const, entity: 'actions' },
+        }
+        break
+      }
+      // intent.action === 'confirm' (idempotente)
+      if (pending.status === 'confirmed') {
+        const resp = baseResponse('ok')
+        resp.presentation = 'operation'
+        const msg = `Esta propuesta (${pending.proposalId}, v${pending.version}) ya fue confirmada previamente. No se duplicó ningún envío.`
+        resp.blocks.data.push(msg)
+        withFacts(resp, { primary: { text: msg } })
+        outcome = {
+          response: resp,
+          communicationProposal: pending,
+          audit: { status: 'ok' as const, entity: 'actions' },
+        }
+        break
+      }
+      if (!pending.canSendDirect) {
+        const resp = baseResponse('proposal')
+        resp.presentation = 'operation'
+        const msg = `${pending.channelLimitation ?? 'El envío directo no está habilitado para este canal.'} Puedes copiar el mensaje preparado sin duplicar envíos.`
+        resp.blocks.data.push(msg)
+        withFacts(resp, { primary: { text: msg } })
+        outcome = {
+          response: resp,
+          communicationProposal: pending,
+          audit: { status: 'proposal_blocked' as const, entity: 'actions' },
+        }
+        break
+      }
+      const confirmed: PendingCommunicationProposal = {
+        ...pending,
+        status: 'confirmed',
+        confirmedAt: new Date(now()).toISOString(),
+      }
+      state.ctx.pendingCommunication = confirmed
+      const resp = baseResponse('ok')
+      resp.presentation = 'operation'
+      const recNames = confirmed.recipients.map((r) => r.recipientName).join(', ')
+      const msg = `Envío autorizado (${confirmed.proposalId}, v${confirmed.version}) para ${recNames}. Queda registrado para despacho verificado sin duplicados.`
+      resp.blocks.data.push(msg)
+      withFacts(resp, { primary: { text: msg } })
+      outcome = {
+        response: resp,
+        communicationProposal: confirmed,
+        audit: { status: 'ok' as const, entity: 'actions' },
+      }
+      break
+    }
     case 'cancel_write_draft': {
       state.ctx.pendingWrite = null
       const response = baseResponse('ok')
@@ -2924,6 +3023,7 @@ export async function runAgentTurn(
           : intent.kind === 'write_request'
             ? state.ctx.pendingWrite ?? { operation: intent.operation, request: intent.request.slice(0, 280) }
             : state.ctx.pendingWrite ?? null,
+      pendingCommunication: state.ctx.pendingCommunication ?? null,
       fingerprint,
       responseFormat: selected,
       lastAnswer: cacheable ? { intent: intent.kind, response: outcome.response, auto: autoResolution } : null,
@@ -2982,6 +3082,7 @@ export async function runAgentTurn(
     proposal: outcome.proposal,
     proposals,
     multiIntentPlan,
+    communicationProposal: outcome.communicationProposal,
     batchId: outcome.batchId,
     executionEnabled,
     format: resolution.format,
