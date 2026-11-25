@@ -20,7 +20,7 @@ import { queryAggregate } from './aggregateQuery.js'
 export * from './contracts.js'
 export { normalizeAggregateToolResult } from './aggregateQuery.js'
 export { normalizeActionsToolResult, type ToolDispatcher } from './kanbanQuery.js'
-export { normalizeOkrToolResult, okrBehindPace, resolveOkrPace } from './okrQuery.js'
+export { normalizeInitiativesToolResult, normalizeOkrToolResult, okrBehindPace, queryInitiatives, resolveOkrPace } from './okrQuery.js'
 export { AGENT_SOURCES, UNAVAILABLE_DOMAINS, sourcesFor } from './sourceCatalog.js'
 
 export async function queryCombined(

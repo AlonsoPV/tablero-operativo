@@ -21,11 +21,19 @@ import type {
   ActionItem,
   ActionsQueryRequest,
   AggregateQueryRequest,
+  InitiativeItem,
   OkrItem,
   QueryResult,
   QueryStatus,
 } from '../query/contracts.js'
-import { okrBehindPace, queryActions, queryAggregate, queryOkrs, type ToolDispatcher } from '../query/index.js'
+import {
+  okrBehindPace,
+  queryActions,
+  queryAggregate,
+  queryInitiatives,
+  queryOkrs,
+  type ToolDispatcher,
+} from '../query/index.js'
 import type { QueryAuditEntry, QueryAuditSink } from '../query/queryAudit.js'
 import type { AgentActor } from '../query/resolveActor.js'
 import { UNAVAILABLE_DOMAINS } from '../query/sourceCatalog.js'
@@ -469,7 +477,14 @@ async function handleQueryActions(
   }
 
   if (result.status === 'empty' && !focusedItem) {
-    response.blocks.data.push(statusMessage('empty', subject))
+    if (intent.entityHint === 'proyectos') {
+      const msg =
+        'SCRUMBAN no cuenta con una entidad separada de proyectos (el trabajo se gestiona en acciones, iniciativas y objetivos) y actualmente no tienes acciones abiertas asignadas. Si lo deseas, puedo mostrarte las acciones del equipo o los objetivos corporativos.'
+      response.blocks.data.push(msg)
+      withFacts(response, { primary: { text: msg, value: 0 }, metrics: [{ id: 'total', label: 'Asignadas', value: 0 }] })
+    } else {
+      response.blocks.data.push(statusMessage('empty', subject))
+    }
     rememberActions(state, request, result)
     return { response, audit: { status: 'empty', entity: 'actions', scope: request.scope, total: 0 } }
   }
@@ -511,6 +526,11 @@ async function handleQueryActions(
     response.blocks.recommendation.push(`Empieza por «${shown[0].title}».`)
   }
   response.blocks.limitations.push(...result.limitations)
+  if (intent.entityHint === 'proyectos') {
+    response.blocks.limitations.push(
+      'SCRUMBAN organiza el trabajo en acciones, iniciativas y objetivos (sin catálogo separado de proyectos); se muestran tus acciones abiertas asignadas.'
+    )
+  }
 
   const reviewed = `de ${result.items.length} revisadas`
   const metrics: AnswerMetric[] = [{ id: 'total', label: `Acciones ${verb}`, value: result.totals.total, scope: subject }]
@@ -667,6 +687,147 @@ async function handleRecommendNext(state: TurnState) {
   return { response, audit: { status: 'ok' as const, entity: 'actions', total: 1 } }
 }
 
+function initiativeAnswerItem(item: InitiativeItem): AnswerItem {
+  return {
+    kind: 'action',
+    id: item.id,
+    title: item.title,
+    status: item.estado ?? null,
+    date: item.fecha ?? null,
+    owner: item.responsableNombre ?? null,
+    priority: null,
+    flags: item.okrNombre ? [`OKR: ${item.okrNombre}`] : [],
+    href: item.href ?? '/okrs',
+  }
+}
+
+function initiativeLine(item: InitiativeItem): string {
+  const meta = [
+    item.estado,
+    item.fecha,
+    item.responsableNombre ? `resp. ${item.responsableNombre}` : null,
+    item.okrNombre ? `OKR: ${item.okrNombre}` : null,
+  ].filter(Boolean)
+  return `- ${item.title}${meta.length ? ` (${meta.join(' · ')})` : ''}`
+}
+
+async function handleInitiatives(state: TurnState, intent: Extract<AgentIntent, { kind: 'query_initiatives' }>) {
+  const authz = authorizeQuery(state.actor, { entity: 'okrs', period: 'all_active' })
+  if (!authz.allowed) {
+    return { response: forbidden(authz.reason), audit: { status: 'denied_precheck' as const, entity: 'okrs' } }
+  }
+  const result = await queryInitiatives(state.actor.copilot, state.dispatch)
+  if (result.status === 'forbidden' || result.status === 'error') {
+    const response = baseResponse(result.status, result.asOf)
+    response.blocks.data.push(statusMessage(result.status, 'las iniciativas', result.error?.message))
+    return { response, audit: { status: result.status, entity: 'okrs' } }
+  }
+
+  const allItems = result.items
+
+  if (intent.askOwner) {
+    const lastId = state.ctx.lastEntity?.id
+    const lastLabel = state.ctx.lastEntity?.label?.toLowerCase()
+    const matched =
+      (lastId ? allItems.find((i) => i.id === lastId || i.actionId === lastId) : undefined) ??
+      (lastLabel ? allItems.find((i) => i.title.toLowerCase() === lastLabel) : undefined) ??
+      (allItems.length === 1 ? allItems[0] : undefined)
+
+    if (!matched) {
+      const response = baseResponse('clarification', result.asOf)
+      const msg =
+        allItems.length === 0
+          ? 'No encontré iniciativas registradas en el alcance actual para identificar un responsable.'
+          : 'No tengo identificada una iniciativa específica en este hilo. Indica el nombre de la iniciativa para consultar su responsable real.'
+      response.blocks.data.push(msg)
+      withFacts(response, { primary: { text: msg }, items: [] })
+      return { response, audit: { status: 'clarification' as const, entity: 'okrs', total: allItems.length } }
+    }
+
+    const response = baseResponse('ok', result.asOf)
+    const msg = matched.responsableNombre
+      ? `El responsable de la iniciativa «${matched.title}» es ${matched.responsableNombre}.`
+      : `La iniciativa «${matched.title}» no tiene un responsable asignado actualmente.`
+    response.blocks.data.push(msg)
+    withFacts(response, {
+      primary: { text: msg },
+      items: [initiativeAnswerItem(matched)],
+    })
+    response.references = [{ id: matched.id, title: matched.title, href: matched.href ?? '/okrs' }]
+    state.ctx = { ...state.ctx, lastEntity: { kind: 'action', id: matched.actionId ?? matched.id, label: matched.title } }
+    return { response, audit: { status: 'ok' as const, entity: 'okrs', total: 1 } }
+  }
+
+  // Separación estricta de alcance solicitado vs permisos:
+  // super_admin / Dirección pueden ver la organización, pero si piden alcance personal
+  // ("mis iniciativas", "tengo asignadas") JAMÁS se amplía automáticamente a la empresa.
+  const userId = state.actor.copilot.usuarioId
+  const canSeeTeam =
+    state.actor.capabilities.readCrossAreaExecution ||
+    state.actor.rol === 'Líder' ||
+    state.actor.rol === 'Dirección' ||
+    state.actor.rol === 'Super Admin'
+  const scoped =
+    intent.scope === 'personal'
+      ? allItems.filter((i) => Boolean(i.responsableId) && i.responsableId === userId)
+      : intent.scope === 'team'
+        ? canSeeTeam
+          ? allItems.filter((i) => i.responsableId === userId || Boolean(i.teamActionId))
+          : allItems.filter((i) => Boolean(i.responsableId) && i.responsableId === userId)
+        : allItems
+
+  const filtered = intent.activeOnly ? scoped.filter((i) => i.active) : scoped
+
+  if (filtered.length === 0) {
+    const response = baseResponse('empty', result.asOf)
+    const emptyMsg =
+      intent.scope === 'personal'
+        ? intent.activeOnly
+          ? 'No tienes iniciativas activas asignadas actualmente. Si lo deseas, puedo mostrarte las iniciativas de la organización o los objetivos estratégicos corporativos.'
+          : 'No tienes iniciativas asignadas actualmente. Si lo deseas, puedo mostrarte las iniciativas de la organización o los objetivos estratégicos corporativos.'
+        : intent.scope === 'team'
+          ? 'No hay iniciativas activas asignadas a tu equipo actualmente. Si lo deseas, puedo mostrarte las iniciativas de la organización o los objetivos estratégicos corporativos.'
+          : 'No hay iniciativas activas registradas en la organización actualmente. Si lo deseas, puedo mostrarte los objetivos estratégicos corporativos.'
+    response.blocks.data.push(emptyMsg)
+    withFacts(response, {
+      primary: { text: emptyMsg, value: 0 },
+      metrics: [{ id: 'total', label: 'Iniciativas', value: 0 }],
+      items: [],
+    })
+    return { response, audit: { status: 'empty' as const, entity: 'okrs', total: 0 } }
+  }
+
+  const response = baseResponse('ok', result.asOf)
+  const scopeLabel =
+    intent.scope === 'personal'
+      ? 'asignadas a ti'
+      : intent.scope === 'team'
+        ? 'de tu equipo'
+        : 'de la organización'
+  const qualifier = intent.activeOnly ? 'activas ' : ''
+  const headline = `${filtered.length} iniciativa(s) ${qualifier}${scopeLabel}.`
+  const shown = filtered.slice(0, LIST_LIMIT)
+  response.blocks.data.push(headline)
+  response.blocks.data.push(...shown.map(initiativeLine))
+  if (filtered.length > shown.length) {
+    response.blocks.limitations.push(`Se muestran ${shown.length} de ${filtered.length} iniciativas.`)
+  }
+  response.references = shown.map((item) => ({ id: item.id, title: item.title, href: item.href ?? '/okrs' }))
+  if (filtered.length === 1) {
+    state.ctx = {
+      ...state.ctx,
+      lastEntity: { kind: 'action', id: filtered[0].actionId ?? filtered[0].id, label: filtered[0].title },
+    }
+  }
+  withFacts(response, {
+    primary: { text: headline, value: filtered.length },
+    metrics: [{ id: 'total', label: 'Iniciativas', value: filtered.length, scope: scopeLabel }],
+    items: shown.map(initiativeAnswerItem),
+    limitations: [...response.blocks.limitations],
+  })
+  return { response, audit: { status: 'ok' as const, entity: 'okrs', total: filtered.length } }
+}
+
 async function handleOkrs(state: TurnState, intent: Extract<AgentIntent, { kind: 'query_okrs' }>) {
   const authz = authorizeQuery(state.actor, { entity: 'okrs', period: intent.period })
   if (!authz.allowed) return { response: forbidden(authz.reason), audit: { status: 'denied_precheck' as const, entity: 'okrs' } }
@@ -676,15 +837,36 @@ async function handleOkrs(state: TurnState, intent: Extract<AgentIntent, { kind:
     response.blocks.data.push(statusMessage(result.status, 'objetivos OKR', result.error?.message))
     return { response, audit: { status: result.status, entity: 'okrs' } }
   }
-  response.blocks.data.push(`${result.totals.total} objetivo(s) activo(s).`)
-  for (const okr of result.items.slice(0, LIST_LIMIT)) {
+
+  const personalScope = intent.scope === 'personal'
+  const scopedItems = personalScope
+    ? result.items.filter((o) => Boolean(o.ownerUserId) && o.ownerUserId === state.actor.copilot.usuarioId)
+    : result.items
+  const scopedTotal = personalScope ? scopedItems.length : result.totals.total
+
+  if (personalScope && scopedItems.length === 0) {
+    const emptyResponse = baseResponse('empty', result.asOf)
+    const msg =
+      'No tienes objetivos asignados directamente actualmente. Si lo deseas, puedo mostrarte los objetivos estratégicos corporativos.'
+    emptyResponse.blocks.data.push(msg)
+    withFacts(emptyResponse, {
+      primary: { text: msg, value: 0 },
+      metrics: [{ id: 'total', label: 'Objetivos asignados', value: 0 }],
+      items: [],
+    })
+    return { response: emptyResponse, audit: { status: 'empty' as const, entity: 'okrs', total: 0 } }
+  }
+
+  const scopeSuffix = personalScope ? ' asignado(s) a ti' : ''
+  response.blocks.data.push(`${scopedTotal} objetivo(s) activo(s)${scopeSuffix}.`)
+  for (const okr of scopedItems.slice(0, LIST_LIMIT)) {
     response.blocks.data.push(
       `- ${okr.name}: ${okr.progress == null ? 'sin datos suficientes' : `${Math.round(okr.progress)}% de avance`}` +
         (okr.withoutInitiatives ? ' · sin iniciativas' : '')
     )
   }
-  const lagging = result.items.filter((o) => okrBehindPace(o, state.today))
-  const withoutPace = result.items.filter((o) => o.progress == null || (!o.pace && !o.startDate && !o.endDate))
+  const lagging = scopedItems.filter((o) => okrBehindPace(o, state.today))
+  const withoutPace = scopedItems.filter((o) => o.progress == null || (!o.pace && !o.startDate && !o.endDate))
   if (lagging.length) {
     response.blocks.interpretation.push(
       `${lagging.length} objetivo(s) bajo el ritmo esperado del periodo (avance vs tiempo transcurrido): ${lagging.map((o) => o.name).join(', ')}.`
@@ -700,14 +882,14 @@ async function handleOkrs(state: TurnState, intent: Extract<AgentIntent, { kind:
     response.blocks.limitations.push('Se usan los objetivos activos; el periodo exacto de cada uno está en el módulo OKRs.')
   }
   response.blocks.limitations.push(...result.limitations)
-  const unmeasuredKrs = result.items.reduce((sum, o) => sum + o.insufficientKrs, 0)
-  const okrMetrics: AnswerMetric[] = [{ id: 'total', label: 'Objetivos activos', value: result.totals.total }]
+  const unmeasuredKrs = scopedItems.reduce((sum, o) => sum + o.insufficientKrs, 0)
+  const okrMetrics: AnswerMetric[] = [{ id: 'total', label: 'Objetivos activos', value: scopedTotal }]
   okrMetrics.push({ id: 'lagging', label: 'Bajo ritmo del periodo', value: lagging.length, tone: lagging.length ? 'warning' : 'ok' })
   if (unmeasuredKrs) okrMetrics.push({ id: 'unmeasured_krs', label: 'KR sin datos', value: unmeasuredKrs, tone: 'warning' })
   withFacts(response, {
-    primary: { text: `${result.totals.total} objetivo(s) activo(s).`, value: result.totals.total },
+    primary: { text: `${scopedTotal} objetivo(s) activo(s)${scopeSuffix}.`, value: scopedTotal },
     metrics: okrMetrics,
-    items: result.items.slice(0, LIST_LIMIT).map(okrItem),
+    items: scopedItems.slice(0, LIST_LIMIT).map(okrItem),
     findings: lagging.length
       ? [{
           text: `${lagging.length} objetivo(s) bajo el ritmo esperado del periodo: ${lagging.map((o) => o.name).join(', ')}.`,
@@ -718,7 +900,7 @@ async function handleOkrs(state: TurnState, intent: Extract<AgentIntent, { kind:
     warnings: [...result.limitations],
     limitations: [...response.blocks.limitations],
   })
-  return { response, audit: { status: result.status, entity: 'okrs', total: result.totals.total } }
+  return { response, audit: { status: result.status, entity: 'okrs', total: scopedTotal } }
 }
 
 const GROUP_LABEL = { area: 'área', responsable: 'responsable', estado: 'estado' } as const
@@ -1095,9 +1277,12 @@ async function handleExecutiveCommitments(
     visual: 'none',
     limit: 50,
   }
+  const personalRequested = intent.scope === 'personal'
   const canSeeBoard =
-    state.actor.capabilities.readCrossAreaExecution && authorizeQuery(state.actor, boardReq).allowed
-  const scope = canSeeBoard ? 'board_authorized' : 'assigned_to_me'
+    !personalRequested &&
+    state.actor.capabilities.readCrossAreaExecution &&
+    authorizeQuery(state.actor, boardReq).allowed
+  const scope = personalRequested ? 'assigned_to_me' : canSeeBoard ? 'board_authorized' : 'assigned_to_me'
   const openReq: ActionsQueryRequest = {
     entity: 'actions',
     scope,
@@ -1153,8 +1338,11 @@ async function handleExecutiveCommitments(
   const sLabel = scopeLabel(scope)
   if (diagnosis.counts.open === 0 && diagnosis.counts.pendingVerification === 0) {
     const empty = baseResponse('empty', openRes.asOf)
-    empty.blocks.data.push(`No hay compromisos abiertos ni acciones pendientes de verificación en ${sLabel}.`)
-    empty.blocks.limitations.push('No se inventan acuerdos ni compromisos fuera de los registros vigentes.')
+    const emptyMsg = personalRequested
+      ? 'No tienes compromisos pendientes asignados actualmente. Si lo deseas, puedo mostrarte los compromisos del equipo o del tablero completo.'
+      : `No hay compromisos abiertos ni acciones pendientes de verificación en ${sLabel}.`
+    empty.blocks.data.push(emptyMsg)
+    withFacts(empty, { primary: { text: emptyMsg, value: 0 }, metrics: [{ id: 'total', label: 'Compromisos', value: 0 }] })
     return { response: empty, audit: { status: 'empty' as const, entity: 'actions', scope, total: 0 } }
   }
 
@@ -2451,6 +2639,9 @@ export async function runAgentTurn(
       break
     case 'query_okrs':
       outcome = await handleOkrs(state, intent)
+      break
+    case 'query_initiatives':
+      outcome = await handleInitiatives(state, intent)
       break
     case 'aggregate_execution':
       outcome = await handleAggregate(state, intent)

@@ -21,8 +21,15 @@ export type AgentIntent =
       personHint?: string
       /** El usuario pidió explícitamente datos fuera de su ámbito (otro equipo, privadas). */
       restrictedRequest: boolean
+      entityHint?: 'acciones' | 'proyectos'
     }
-  | { kind: 'query_okrs'; period: 'current_quarter' | 'all_active' }
+  | { kind: 'query_okrs'; period: 'current_quarter' | 'all_active'; scope?: 'personal' | 'organization' }
+  | {
+      kind: 'query_initiatives'
+      scope: 'personal' | 'team' | 'organization'
+      activeOnly: boolean
+      askOwner?: boolean
+    }
   | { kind: 'query_knowledge'; focus: 'documents' | 'memory' | 'either' }
   | {
       kind: 'aggregate_execution'
@@ -37,6 +44,7 @@ export type AgentIntent =
   | {
       kind: 'executive_commitments'
       filter: 'all' | 'verification' | 'by_owner' | 'overdue'
+      scope?: 'personal' | 'team' | 'organization'
     }
   | {
       kind: 'executive_discipline'
@@ -192,7 +200,7 @@ export function classifyAgentIntent(
   }
 
   if (
-    /\b(compromisos pendientes|acuerdos pendientes|compromisos por responsable|pendientes de verificacion|pendientes de verificado|en hecho pendientes|situaciones sin actualizacion|compromisos? (?:que )?no se estan cumpliendo|compromisos? incumplidos?|compromisos? de (?:nuestra|la) ultima reunion|acuerdos? de (?:nuestra|la) ultima reunion|que acordamos en (?:la|nuestra) ultima reunion)\b/.test(
+    /\b(compromisos pendientes|acuerdos pendientes|compromisos por responsable|pendientes de verificacion|pendientes de verificado|en hecho pendientes|situaciones sin actualizacion|compromisos? (?:que )?no se estan cumpliendo|compromisos? incumplidos?|compromisos? de (?:nuestra|la) ultima reunion|acuerdos? de (?:nuestra|la) ultima reunion|que acordamos en (?:la|nuestra) ultima reunion|mis compromisos?|que compromisos? tengo)\b/.test(
       text
     )
   ) {
@@ -203,20 +211,47 @@ export function classifyAgentIntent(
         : /\b(no se estan cumpliendo|incumplidos?)\b/.test(text)
           ? 'overdue'
           : 'all'
-    return { kind: 'executive_commitments', filter }
+    const personalCommitments = /\b(mis compromisos?|que compromisos? tengo|compromisos? (?:que )?tengo|tengo pendientes)\b/.test(text)
+    const teamCommitments = /\b(equipo|empresa|organizacion|corporativ[ao]s?|por responsable)\b/.test(text)
+    return {
+      kind: 'executive_commitments',
+      filter,
+      ...(personalCommitments && !teamCommitments ? { scope: 'personal' as const } : {}),
+    }
   }
 
   const looksLikeWriteVerb =
     /\b(crea|crear|creame|registra|registrar|agrega|agregar|anota|anotar|actualiza|actualizar|cambia|cambiar|elimina|eliminar|borra|borrar|edita|editar|convierte|convertir|prepara|preparar)\b/.test(
       text
     )
+  if (!looksLikeWriteVerb && /\biniciativas?\b/.test(text)) {
+    const askOwner = /\b(quien es (?:el )?responsable|responsable de esta iniciativa|de quien es esta iniciativa)\b/.test(text)
+    const personalInit = /\b(mis|tengo|asignad[ao]s? a mi|a mi cargo|mias?)\b/.test(text)
+    const orgInit = /\b(empresa|organizacion|corporativ[ao]s?|compania|todas? las iniciativas|generales)\b/.test(text)
+    const teamInit = /\b(equipo|mi equipo|area|departamento)\b/.test(text)
+    const scope: 'personal' | 'team' | 'organization' = orgInit
+      ? 'organization'
+      : teamInit && !personalInit
+        ? 'team'
+        : personalInit
+          ? 'personal'
+          : 'organization'
+    const activeOnly = !/\b(todas?|cerrad[ao]s?|completad[ao]s?|historicas?)\b/.test(text) && !askOwner
+    return { kind: 'query_initiatives', scope, activeOnly, ...(askOwner ? { askOwner: true } : {}) }
+  }
   if (
     !looksLikeWriteVerb &&
-    /\b(avances estrategicos|avance estrategico|revisar avances estrategicos|resultados de los okrs?|objetivos estrategicos requieren atencion|objetivos estrategicos|que objetivos requieren atencion|iniciativas? activas?|iniciativas? en curso|iniciativas? estrategicas?|mis iniciativas?|nuestras iniciativas?|que iniciativas?|cuales son (?:mis |las )?iniciativas?|como van las iniciativas?|como vamos con las iniciativas?)\b/.test(
+    /\b(avances estrategicos|avance estrategico|revisar avances estrategicos|resultados de los okrs?|objetivos estrategicos requieren atencion|objetivos estrategicos|que objetivos requieren atencion|objetivos corporativos|mis objetivos?|cuales son mis objetivos?|que objetivos? tengo|mis okrs?)\b/.test(
       text
     )
   ) {
-    return { kind: 'query_okrs', period: /\b(trimestre|trimestral|q[1-4])\b/.test(text) ? 'current_quarter' : 'all_active' }
+    const personalOkr = /\b(mis objetivos?|que objetivos? tengo|mis okrs?|objetivos? asignados? a mi)\b/.test(text)
+    const orgOkr = /\b(corporativ[ao]s?|empresa|organizacion|estrategicos?)\b/.test(text)
+    return {
+      kind: 'query_okrs',
+      period: /\b(trimestre|trimestral|q[1-4])\b/.test(text) ? 'current_quarter' : 'all_active',
+      scope: personalOkr && !orgOkr ? 'personal' : 'organization',
+    }
   }
 
   if (/\b(prepara|preparar|genera|generar|arma|armar)\b/.test(text) && /\bborrador\b/.test(text) && /\b(accion|tarea)\b/.test(text)) {
@@ -468,10 +503,28 @@ export function classifyAgentIntent(
     }
   }
 
+  if (
+    !looksLikeWriteVerb &&
+    /\b(que proyectos? tengo|mis proyectos?|proyectos? (?:que )?tengo asignados?|proyectos? asignados? a mi)\b/.test(text)
+  ) {
+    return {
+      kind: 'query_actions',
+      scope: 'assigned_to_me',
+      statusGroup: 'open',
+      visual: 'none',
+      focusToday: false,
+      restrictedRequest: false,
+      entityHint: 'proyectos',
+    }
+  }
+
   if (interpreted.intent === 'query' && interpreted.module === 'okrs') {
+    const personalOkr = /\b(mis objetivos?|que objetivos? tengo|mis okrs?|objetivos? asignados? a mi|cuantos objetivos? tengo)\b/.test(text)
+    const orgOkr = /\b(corporativ[ao]s?|empresa|organizacion|estrategicos?)\b/.test(text)
     return {
       kind: 'query_okrs',
       period: /\b(trimestre|trimestral|q[1-4])\b/.test(text) ? 'current_quarter' : 'all_active',
+      scope: personalOkr && !orgOkr ? 'personal' : 'organization',
     }
   }
 

@@ -4,7 +4,7 @@
  */
 import type { CopilotActor } from '../assistantPending.js'
 import type { CopilotToolResult } from '../../../src/features/ai-support/copilot/types.js'
-import { failedResult, type OkrItem, type OkrPace, type OkrsQueryRequest, type QueryResult } from './contracts.js'
+import { failedResult, type InitiativeItem, type OkrItem, type OkrPace, type OkrsQueryRequest, type QueryResult } from './contracts.js'
 import { objectivePaceStatus } from '../../../src/features/okrs/model.js'
 import type { ToolDispatcher } from './kanbanQuery.js'
 import { sourcesFor } from './sourceCatalog.js'
@@ -50,6 +50,8 @@ function toOkrItem(raw: unknown): OkrItem | null {
     progress: num(row.progress),
     withoutInitiatives: row.without_initiatives === true,
     insufficientKrs: num(row.insufficient_krs) ?? 0,
+    ownerUserId: str(row.owner_user_id) ?? str(row.ownerUserId) ?? str(row.owner_usuario),
+    scope: str(row.scope),
     startDate: str(row.start_date) ?? str(row.startDate),
     endDate: str(row.end_date) ?? str(row.endDate),
     pace: toPace(row.pace),
@@ -129,6 +131,91 @@ export function normalizeOkrToolResult(result: CopilotToolResult): QueryResult<O
     sources,
     asOf: new Date().toISOString(),
     limitations,
+  }
+}
+
+function toInitiativeItem(raw: unknown): InitiativeItem | null {
+  if (!raw || typeof raw !== 'object') return null
+  const row = raw as Record<string, unknown>
+  const id = str(row.id)
+  if (!id) return null
+  const actionId = str(row.action_id) ?? str(row.actionId)
+  const estado = str(row.estado)
+  const closed = estado === 'Verificado' || estado === 'Hecho'
+  return {
+    id,
+    keyResultId: str(row.key_result_id) ?? str(row.keyResultId) ?? '',
+    actionId,
+    teamActionId: str(row.team_action_id) ?? str(row.teamActionId),
+    title: str(row.title) ?? str(row.nombre) ?? 'Iniciativa',
+    estado,
+    fecha: str(row.fecha),
+    responsableId: str(row.responsable_id) ?? str(row.responsableId) ?? str(row.responsable),
+    responsableNombre: str(row.responsable_nombre) ?? str(row.responsableNombre),
+    okrId: str(row.okr_id) ?? str(row.okrId),
+    okrNombre: str(row.okr_nombre) ?? str(row.okrNombre),
+    krTitle: str(row.kr_title) ?? str(row.krTitle),
+    active: typeof row.active === 'boolean' ? row.active : !closed,
+    href: actionId ? `/kanban?accion=${encodeURIComponent(actionId)}` : null,
+  }
+}
+
+export function normalizeInitiativesToolResult(result: CopilotToolResult): QueryResult<InitiativeItem> {
+  const sources = sourcesFor('okrs')
+  if (result.kind === 'denied') {
+    return failedResult({
+      entity: 'okrs',
+      status: 'forbidden',
+      scopeApplied: 'iniciativas_autorizadas',
+      sources,
+      message: result.error || 'No tienes acceso a las iniciativas.',
+    })
+  }
+  if (!result.ok || result.kind === 'error') {
+    return failedResult({
+      entity: 'okrs',
+      status: 'error',
+      scopeApplied: 'iniciativas_autorizadas',
+      sources,
+      message: result.error || 'La consulta de iniciativas falló.',
+    })
+  }
+  const data = unwrap(result.data)
+  const rawList = Array.isArray(data.initiative_items)
+    ? data.initiative_items
+    : Array.isArray(data.initiatives)
+      ? data.initiatives
+      : []
+  const items = rawList.flatMap((raw) => {
+    const item = toInitiativeItem(raw)
+    return item ? [item] : []
+  })
+  return {
+    status: items.length === 0 ? 'empty' : 'ok',
+    entity: 'okrs',
+    items,
+    totals: { total: items.length, returned: items.length },
+    scopeApplied: 'iniciativas_autorizadas',
+    sources,
+    asOf: new Date().toISOString(),
+    limitations: [],
+  }
+}
+
+export async function queryInitiatives(
+  actor: CopilotActor,
+  dispatch: ToolDispatcher
+): Promise<QueryResult<InitiativeItem>> {
+  try {
+    return normalizeInitiativesToolResult(await dispatch(actor, 'get_okr_progress', {}))
+  } catch {
+    return failedResult({
+      entity: 'okrs',
+      status: 'error',
+      scopeApplied: 'iniciativas_autorizadas',
+      sources: sourcesFor('okrs'),
+      message: 'La consulta de iniciativas falló.',
+    })
   }
 }
 
