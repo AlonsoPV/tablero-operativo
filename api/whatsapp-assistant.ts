@@ -26,11 +26,7 @@ import { isGoogleWriteTool } from '../src/features/ai-support/copilot/googleWork
 import { COPILOT_FUNCTION_DECLARATIONS, isCopilotReadTool } from '../src/features/ai-support/copilot/catalog.js'
 import { proposalFromPendingRow } from './_shared/assistantGoogleTools.js'
 import { guideAppBaseUrl } from './_shared/guideUserLinks.js'
-import { runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
-import { resolveWhatsAppFlowAccess } from './_shared/whatsappPilotGate.js'
-
-const WHATSAPP_GROUP_A_READ_ONLY_MESSAGE =
-  'En esta etapa WhatsApp opera en modo solo lectura para consultas ejecutivas y operativas. Puedes registrar o actualizar esta acción directamente en Scrumban.'
+import { isAgentOrchestratorEnabled, runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
 
 const WHATSAPP_READ_ONLY_DECLARATIONS = COPILOT_FUNCTION_DECLARATIONS.filter((d) =>
   isCopilotReadTool(d.name)
@@ -418,13 +414,7 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Falta el mensaje.' })
     }
 
-    const waAccess = resolveWhatsAppFlowAccess({
-      usuarioId,
-      waId,
-      active: usuario.activo === true,
-      aiAuthorized: allowed === true,
-    })
-    if (waAccess.allowed) {
+    if (isAgentOrchestratorEnabled()) {
       const turn = await runChannelTurn({
         identity: {
           supabase,
@@ -437,26 +427,14 @@ export default defineApiHandler(async (req, res) => {
         sessionId: waId,
         utterance: text.slice(0, 2000),
       })
-      // Grupo A (estrictamente solo lectura): jamás ejecuta ni persiste escrituras R2 desde WhatsApp.
-      if (turn.handled && turn.intent === 'write_request') {
-        return res.status(200).json({
-          text: clipReply(WHATSAPP_GROUP_A_READ_ONLY_MESSAGE),
-          proposals: [],
-          clarification: null,
-          handoff: 'task_update',
-          pilotMode: waAccess.mode,
-          executionEnabled: false,
-        })
-      }
-      if (turn.handled) {
+      // Canal de sólo lectura: una intención de escritura no crea propuestas aquí.
+      if (turn.handled && turn.intent !== 'write_request') {
         const options = turn.clarification?.options.map((opt) => `- ${opt.label}`).join('\n')
         return res.status(200).json({
           text: clipReply(options ? `${turn.text}\n${options}` : turn.text),
           proposals: [],
           clarification: turn.clarification ?? null,
           handoff: null,
-          pilotMode: waAccess.mode,
-          executionEnabled: false,
         })
       }
     }

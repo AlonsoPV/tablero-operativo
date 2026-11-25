@@ -14,29 +14,14 @@ import { fileURLToPath } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const apiDir = path.join(root, 'api')
 const overwrite = process.env.VERCEL === '1'
-const BUNDLE_MARKER = '// @ts-nocheck — bundled by scripts/bundle-api.mjs'
 
-const allEntries = (await readdir(apiDir)).filter(
+const entries = (await readdir(apiDir)).filter(
   (name) => name.endsWith('.ts') && !name.endsWith('.test.ts'),
 )
 
-if (allEntries.length === 0) {
+if (entries.length === 0) {
   console.error('bundle-api: no se encontraron api/*.ts')
   process.exit(1)
-}
-
-const entries = []
-for (const name of allEntries) {
-  const head = (await readFile(path.join(apiDir, name), 'utf8')).slice(0, BUNDLE_MARKER.length + 4)
-  if (head.startsWith(BUNDLE_MARKER)) {
-    console.log(`bundle-api: ${name} [ya empaquetado, omitido]`)
-    continue
-  }
-  entries.push(name)
-}
-
-if (entries.length === 0) {
-  process.exit(0)
 }
 
 const outdir = await mkdtemp(path.join(os.tmpdir(), 'tablero-api-'))
@@ -68,7 +53,7 @@ try {
       throw new Error(`bundle-api: ${name} sigue importando rutas locales`)
     }
     if (overwrite) {
-      await writeFile(path.join(apiDir, name), `${BUNDLE_MARKER}\n${bundled}`)
+      await writeFile(path.join(apiDir, name), `// @ts-nocheck\n${bundled}`)
     }
     console.log(`bundle-api: ${name} (${bundled.length} bytes)${overwrite ? ' [escrito]' : ''}`)
   }

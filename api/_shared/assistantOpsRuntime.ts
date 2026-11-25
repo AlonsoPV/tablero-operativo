@@ -168,9 +168,6 @@ function summarizeAction(row: ActionRow) {
     hora: row.hora_limite,
     prioridad: row.prioridad,
     responsable: row.responsable ?? null,
-    area: row.area ?? null,
-    updated_at: row.updated_at ?? null,
-    evidencia_cargada: row.evidencia_cargada ?? null,
     href: actionHref(row.id),
   }
 }
