@@ -36,14 +36,11 @@ import {
   buildOkrAssistantContext,
   buildOkrAssistantContexts,
 } from '@/features/ai-support/buildOkrAssistantContext'
-import { serializeAssistantKanbanContext } from '@/features/ai-support/assistantKanbanContext'
 import {
   buildOperationalSnapshot,
   detectAssistantIntent,
   sliceContextForIntent,
 } from '@/features/ai-support/operationalContext'
-import { resolveAssistantTurn } from '@/features/ai-support/consultation/answerConsultation'
-import { type ConversationQueryState } from '@/features/ai-support/conversation'
 import type { NamedPerson } from '@/features/ai-support/copilot/matching'
 import { assistantOperationalContextService } from '@/features/ai-support/services/assistantOperationalContext.service'
 import {
@@ -70,17 +67,12 @@ import {
 import { GuidePanel } from '@/features/guide/components/GuidePanel'
 import { useSpeechRecognition } from '@/features/ai-support/useSpeechRecognition'
 import { getAssistantAuthHeaders } from '@/lib/assistantApiAuth'
-import { requestAssistantTextAnalysis } from '@/lib/assistantAudioClient'
 import {
   looksLikeCommsPrepare,
-  looksLikeCreateWork,
-  looksLikeDraftCorrection,
   resolveWriteIntent,
   type AssistantLane,
   type WriteIntent,
 } from '@/features/ai-support/writeIntent'
-import { buildCreateApprovalMessage } from '@/features/ai-support/createWorkReply'
-import { groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
 import { useAppRole } from '@/features/auth/hooks/useAppRole'
 import {
   canViewAllBoardData,
@@ -174,12 +166,14 @@ async function readChatResponse(response: Response): Promise<GeminiChatResponse>
 }
 
 async function sendMessage({
+  conversationId,
   mode,
   messages,
   actionContext,
   okrContext,
   boardContext,
 }: {
+  conversationId: string
   mode: typeof UNIFIED_ASSISTANT_MODE
   messages: AiChatMessage[]
   actionContext?: ActionContext | ActionContext[]
@@ -195,6 +189,7 @@ async function sendMessage({
     body: JSON.stringify({
       mode,
       requestId: messages.at(-1)?.requestId,
+      conversationId,
       messages: messages
         .filter((message) => !message.failed)
         .map(({ role, content }) => ({ role, content })),
@@ -329,7 +324,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
   const [okrContextEnabled, setOkrContextEnabled] = useState(true)
   const [focusKind, setFocusKind] = useState<FocusKind>('portfolio')
   const [messages, setMessages] = useState<AiChatMessage[]>([])
-  const [conversationState, setConversationState] = useState<ConversationQueryState | null>(null)
+  const [conversationId, setConversationId] = useState(() => crypto.randomUUID())
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -484,19 +479,11 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     const map = operationalLoad.data?.usuarioNombreById ?? {}
     return Object.entries(map).map(([id, nombre]) => ({ id, nombre }))
   }, [operationalLoad.data?.usuarioNombreById])
-  const voiceContext = useMemo(
-    () =>
-      serializeAssistantKanbanContext(
-        operationalLoad.data?.openActions ?? userOpenActions,
-        boardContext
-      ),
-    [boardContext, operationalLoad.data?.openActions, userOpenActions]
-  )
   const suggestionChips = activeOkrContext
     ? [...OKR_PROMPTS, PORTFOLIO_PROMPTS[0]]
     : activeActionContext
       ? [...ACTION_PROMPTS, PORTFOLIO_PROMPTS[0]]
-      : conversationState?.entity === 'kanban_action'
+      : messages.length > 0
         ? CONVERSATION_FILTER_CHIPS
         : PORTFOLIO_PROMPTS
 
@@ -555,7 +542,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
 
   const clearChat = () => {
     setMessages([])
-    setConversationState(null)
+    setConversationId(crypto.randomUUID())
     setInput('')
   }
 
@@ -660,144 +647,37 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
       setMentionQuery(null)
     }
     setLoading(true)
-    const previousAnalysis = [...history]
-      .reverse()
-      .find((message) => message.role === 'assistant' && (message.analysis?.actionDrafts.length ?? 0) > 0)
-      ?.analysis
-    const isCorrection = Boolean(
-      !options.forceIntent &&
-        previousAnalysis &&
-        !looksLikeCreateWork(trimmed) &&
-        !looksLikeCommsPrepare(trimmed) &&
-        looksLikeDraftCorrection(trimmed)
-    )
-    const turnIntent: WriteIntent =
-      options.forceIntent ?? (isCorrection ? 'create' : resolveWriteIntent(trimmed, 'consult'))
+    const turnIntent: WriteIntent = options.forceIntent ?? resolveWriteIntent(trimmed, 'consult')
     setActivityStage(turnIntent === 'create' ? 'preparing' : 'querying')
-
     try {
-      if (turnIntent === 'create') {
-        const today = todayWallClockCDMX()
-        const sourceText = isCorrection ? previousAnalysis!.transcript || trimmed : trimmed
-        const correctionText = isCorrection ? trimmed : ''
-        const previousHint = previousAnalysis?.actionDrafts[0]?.dueDateHint ?? null
-        let result = isCorrection
-          ? groundActionDrafts(previousAnalysis!, sourceText, correctionText, today)
-          : null
-        const dateCorrected =
-          Boolean(result) && result!.actionDrafts[0]?.dueDateHint !== previousHint
-
-        if (!dateCorrected) {
-          const linkedContext = activeLinkedReply
-            ? `Información reciente devuelta por el chat (úsalas para redactar y ligar la tarea):\n${activeLinkedReply.slice(0, 1500)}\n\n${voiceContext}`
-            : voiceContext
-          const raw = await requestAssistantTextAnalysis({
-            text: sourceText,
-            context: linkedContext,
-            clarifications: correctionText || undefined,
-            intent: 'plan_actions',
-          })
-          result = groundActionDrafts(raw, sourceText, correctionText, today)
-        }
-
-        const analysis = {
-          ...result!,
-          transcript: sourceText,
-        }
-        const content = buildCreateApprovalMessage(analysis)
-        setMessages(
-          [...nextMessages, { role: 'assistant' as const, content, analysis, intent: turnIntent }].slice(
-            -MAX_MESSAGES
-          )
-        )
-      } else {
-        const priorUserMessages = nextMessages
-          .filter((row) => row.role === 'user')
-          .map((row) => row.content)
-          .slice(0, -1)
-        const resolved = resolveAssistantTurn({
-          message: trimmed,
-          snapshot: operationalSnapshot,
-          priorUserMessages,
-          previousConversation: conversationState,
-          people: conversationPeople,
-        })
-        setConversationState(resolved.conversationState)
-        if (resolved.handled && resolved.content) {
-          setMessages(
-            [
-              ...nextMessages,
-              {
-                role: 'assistant' as const,
-                content: resolved.content,
-                ui: resolved.ui,
-                clarification: resolved.clarification,
-                intent: turnIntent,
-              },
-            ].slice(-MAX_MESSAGES)
-          )
-          return
-        }
-
-        const intent = detectAssistantIntent(trimmed, {
-          hasSelectedAction: activeActionContext,
-          hasSelectedOkr: activeOkrContext,
-          priorUserMessages,
-        })
-        const hasExplicitFocus = activeActionContext || activeOkrContext
-        if (intent === 'concept') {
-          setMessages(
-            [
-              ...nextMessages,
-              {
-                role: 'assistant' as const,
-                content: resolved.content ?? 'Puedo explicarlo sin consultar tus datos. Dime el término.',
-                ui: resolved.ui ?? { views: [] },
-                intent: turnIntent,
-              },
-            ].slice(-MAX_MESSAGES)
-          )
-          return
-        }
-
-        const sliced = operationalSnapshot
-          ? sliceContextForIntent(operationalSnapshot, intent, { hasExplicitFocus })
-          : null
-        const reply = await sendMessage({
-          mode: UNIFIED_ASSISTANT_MODE,
-          messages: nextMessages,
-          actionContext:
-            activeActionContext || intent === 'selected_action'
-              ? selectedActions.length === 1
-                ? toActionContext(
-                    selectedActions[0]!,
-                    selectedCheckpoints,
-                    selectedComments
-                  )
-                : selectedActions.length > 1
-                  ? selectedActions.map((action) => toActionContext(action, [], []))
-                  : undefined
-              : undefined,
-          okrContext:
-            activeOkrContext || intent === 'selected_okr' || (intent === 'okrs' && sliced?.includeOkrs)
-              ? activeOkrContextPayload ?? undefined
-              : undefined,
-          boardContext: sliced?.boardContext ?? boardContext ?? undefined,
-        })
-        setMessages(
-          [
-            ...nextMessages,
-            {
-              role: 'assistant' as const,
-              content: reply.answer,
-              proposals: reply.proposals,
-              clarification: reply.clarification,
-              ui: reply.ui,
-              intent: turnIntent,
-            },
-          ].slice(-MAX_MESSAGES)
-        )
-      }
+      // All entry points use the authenticated server turn. No client-side person
+      // clarification or audio-plan path may intercept and rewrite this utterance.
+      const priorUserMessages = nextMessages.filter(row => row.role === 'user').map(row => row.content).slice(0, -1)
+      const intent = detectAssistantIntent(trimmed, {
+        hasSelectedAction: activeActionContext, hasSelectedOkr: activeOkrContext, priorUserMessages,
+      })
+      const sliced = operationalSnapshot
+        ? sliceContextForIntent(operationalSnapshot, intent, { hasExplicitFocus: activeActionContext || activeOkrContext })
+        : null
+      const requestMessages = options.forceIntent === 'create' && resolveWriteIntent(trimmed, 'consult') !== 'create'
+        ? nextMessages.map((row, index) => index === nextMessages.length - 1
+          ? { ...row, content: `Crea una acción a partir de esta consulta: ${effectivePrompt}` } : row)
+        : nextMessages
+      const reply = await sendMessage({
+        conversationId,
+        mode: UNIFIED_ASSISTANT_MODE,
+        messages: requestMessages,
+        actionContext: activeActionContext
+          ? selectedActions.map(action => toActionContext(action,
+            selectedActions.length === 1 ? selectedCheckpoints : [], selectedActions.length === 1 ? selectedComments : []))
+          : undefined,
+        okrContext: activeOkrContext || (intent === 'okrs' && sliced?.includeOkrs) ? activeOkrContextPayload ?? undefined : undefined,
+        boardContext: sliced?.boardContext ?? boardContext ?? undefined,
+      })
+      setMessages([...nextMessages, {
+        role: 'assistant' as const, content: reply.answer, proposals: reply.proposals,
+        clarification: reply.clarification, ui: reply.ui, intent: turnIntent,
+      }].slice(-MAX_MESSAGES))
     } catch (error) {
       setMessages(
         [
@@ -1169,7 +1049,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         {!isPopup && (!showBriefing || activeOkrContext || activeActionContext) ? (
           <div className="min-w-0 overflow-x-auto [scrollbar-width:none]">
             <div className="flex w-max gap-1.5 px-0.5">
-              {suggestionChips.slice(0, conversationState ? 5 : 3).map((suggestion, index) => (
+              {suggestionChips.slice(0, messages.length > 0 ? 5 : 3).map((suggestion, index) => (
                 <button
                   key={`${suggestion}-${index}`}
                   type="button"

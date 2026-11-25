@@ -447,12 +447,13 @@ describe('SCRUMBAN — Contextual Intelligence & Tool Composition (20 escenarios
 
     const confirm1 = await ask('Confirmar envío', { store })
     expect(confirm1.res.communicationProposal?.status).toBe('confirmed')
-    expect(confirm1.text).toContain('Envío autorizado')
+    expect(confirm1.text).toContain('Autorización registrada')
+    expect(confirm1.text).toContain('no lo encoló ni lo envió')
 
     const confirm2 = await ask('Confirmar envío', { store })
     expect(confirm2.res.communicationProposal?.status).toBe('confirmed')
     expect(confirm2.text).toContain('ya fue confirmada previamente')
-    expect(confirm2.text).toContain('No se duplicó')
+    expect(confirm2.text).toContain('No se ejecutó ningún envío')
   })
 
   it('Variantes coloquiales, errores ortográficos y notas de voz', async () => {
@@ -467,5 +468,66 @@ describe('SCRUMBAN — Contextual Intelligence & Tool Composition (20 escenarios
     const voice = await ask('Recuérdale a Gerardo lo que vence hoy', { channel: 'voice' })
     expect(voice.res.communicationProposal?.recipients[0]?.messageBody).toContain('Hola Gerardo,')
     expect(voice.res.communicationProposal?.recipients[0]?.messageBody).not.toMatch(/Recuérdale a Gerardo/i)
+  })
+})
+
+
+describe('aceptación transversal de referencias y cambios de atributos', () => {
+  it.each(['web', 'whatsapp', 'voice'] as const)('%s: una referencia cambia responsable sin reescribir el título', async (channel) => {
+    const store = createMemorySessionContextStore()
+    await ask('Crea una acción para revisar inventario', { channel, store })
+    const key = `${R1_USERS.superAdmin.id}:${channel}:comm-accept-session`
+    const before = store.get(key)!.pendingWrite!.draft!
+    const next = await ask('prepárala para gerardo', { channel, store })
+    expect(next.res.handled).toBe(true)
+    const after = store.get(key)!.pendingWrite!.draft!
+    expect(after.responsableId).toBe(GERARDO_ID)
+    expect(after.titulo).toBe(before.titulo)
+    expect(after.descripcion).toBe(before.descripcion)
+    expect(after.fecha).toBe(before.fecha)
+  })
+
+  it.each(['web', 'whatsapp', 'voice'] as const)('%s: destinatario y canal se editan con datos propios, sin contaminación', async (channel) => {
+    const store = createMemorySessionContextStore()
+    await ask('Envíale a Gerardo un WhatsApp con la información de su día de hoy', { channel, store })
+    const revised = await ask('Mejor para Carlos', { channel, store })
+    expect(revised.res.handled).toBe(true)
+    expect(revised.text, 'recipient revision should be a proposal').not.toMatch(/No encontré|Qué información|No pude/)
+    const key = `${R1_USERS.superAdmin.id}:${channel}:comm-accept-session`
+    const after = store.get(key)!.pendingCommunication!
+    expect(after.recipients[0]!.recipientId).toBe(CARLOS_ID)
+    expect(after.recipients[0]!.messageBody).toContain('Auditar rutas')
+    expect(after.recipients[0]!.messageBody).not.toContain('Cerrar conciliación')
+    await ask('Mejor por correo', { channel, store })
+    const email = store.get(key)!.pendingCommunication!
+    expect(email.channel).toBe('email')
+    expect(email.recipients[0]!.recipientId).toBe(CARLOS_ID)
+    expect(email.purpose).toBe(after.purpose)
+    expect(email.version).toBeGreaterThan(after.version)
+  })
+
+  it('una consulta intermedia conserva la propuesta y no reemplaza su cuerpo', async () => {
+    const store = createMemorySessionContextStore()
+    await ask('Envíale a Gerardo un WhatsApp con la información de su día de hoy', { store })
+    const key = `${R1_USERS.superAdmin.id}:web:comm-accept-session`
+    const before = store.get(key)!.pendingCommunication!
+    await ask('¿Qué acciones tengo abiertas?', { store })
+    expect(store.get(key)!.pendingCommunication).toEqual(before)
+  })
+})
+
+
+describe('atributos de Kanban sin contaminación del título', () => {
+  it.each(['web', 'whatsapp', 'voice'] as const)('%s: asígnamela conserva el contenido generado', async (channel) => {
+    const store = createMemorySessionContextStore()
+    await ask('Crea una acción para revisar inventario', {channel, store})
+    const key = `${R1_USERS.superAdmin.id}:${channel}:comm-accept-session`
+    const before = store.get(key)!.pendingWrite!.draft!
+    await ask('asígnamela en Kanban corporativo', {channel, store})
+    const after = store.get(key)!.pendingWrite!.draft!
+    expect(after.titulo).toBe(before.titulo)
+    expect(after.descripcion).toBe(before.descripcion)
+    expect(after.responsableId).toBe(R1_USERS.superAdmin.id)
+    expect(JSON.stringify(after)).not.toContain('asígnamela')
   })
 })

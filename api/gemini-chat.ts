@@ -165,7 +165,7 @@ export default defineApiHandler(async (req, res) => {
       hasBoardContext,
     })
 
-    if (isAgentOrchestratorEnabled() && !hasActionContext && !hasOkrContext && lastUserMessage) {
+    if (isAgentOrchestratorEnabled() && lastUserMessage) {
       try {
         const turn = await runChannelTurn({
           identity: {
@@ -177,6 +177,7 @@ export default defineApiHandler(async (req, res) => {
             accessToken: auth.token,
           },
           channel: 'web',
+          focusedActionIds: (Array.isArray(actionContext) ? actionContext : actionContext ? [actionContext] : []).map(item => (item as { id?: unknown }).id),
           sessionId: webSessionId(conversationId, requestId),
           utterance: lastUserMessage,
           responseFormat,

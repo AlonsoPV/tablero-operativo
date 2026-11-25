@@ -4,7 +4,7 @@
  */
 import { interpretOperationalMessage } from '../operationalInterpret.js'
 import { isCompoundInstruction, normalizeColloquialTypos } from './multiIntent.js'
-import { isStructuredFollowUpUtterance } from './structuredActionDraft.js'
+import { extractResponsablePatch, isStructuredFollowUpUtterance } from './structuredActionDraft.js'
 import type {
   ActionActiveQuery,
   ActionQueryScope,
@@ -178,7 +178,14 @@ export function classifyAgentIntent(
       }
       return { kind: 'communication_action', action: 'confirm', utterance: cleanedUtterance }
     }
-    if (/^(?:edita(?:r)?|cambia(?:r)?|ajusta(?:r)?|agregale|anadele|sumale|ponle que)\b/.test(text)) {
+    const personEdit = extractResponsablePatch(cleanedUtterance).hint
+    const channelEdit = /^(?:mejor\s+)?(?:por\s+)?(?:correo|mail|email|whatsapp)\b/.test(text)
+    const explicitEdit = /^(?:edita(?:r)?|cambia(?:r)?|ajusta(?:r)?|agregale|anadele|sumale|ponle que)\b/.test(text)
+    const independentRequest = /[?¿]/.test(utterance) || /^(?:crea|crear|registra|genera|consulta|muestra|lista|busca|revisa|que|como|cuant[oa]s?|cual|quien|donde|cuando)\b/.test(text)
+    if (!independentRequest && (personEdit || channelEdit || explicitEdit)) {
+      if (session.pendingWrite && personEdit && !/\b(mensaje|correo|whatsapp|destinatario)\b/.test(text)) {
+        return { kind: 'clarify', question: '¿Quieres cambiar el responsable de la acción o el destinatario del mensaje?' }
+      }
       return { kind: 'communication_action', action: 'edit', utterance: cleanedUtterance }
     }
   }

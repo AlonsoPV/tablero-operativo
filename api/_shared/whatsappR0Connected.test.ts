@@ -497,7 +497,8 @@ describe('R0 WhatsApp Connected — 12 escenarios locales', () => {
       nowMs,
     })
     expect(r2Off.status).toBe('draft_only_r2_off')
-    expect(formatWhatsAppProposalPrompt(p1, { executionMode: 'disabled' })).toContain('R2 deshabilitado')
+    expect(formatWhatsAppProposalPrompt(p1, { executionMode: 'disabled' })).toContain('solo para revisión')
+    expect(formatWhatsAppProposalPrompt(p1, { executionMode: 'disabled' })).toContain('no se guardó en Scrumban')
   })
 
   it('10. fallos del proveedor: resultados inciertos van a review sin reenvío; 429 pre-efecto reintenta acotadamente', () => {

@@ -39,3 +39,18 @@ it('voz rehidrata la consulta activa persistida (consult_log) tras un cold start
   expect(turn.text).not.toContain('\n')
   expect(audit[0]).toMatchObject({ channel: 'voice', scope: 'created_by_me' })
 })
+
+
+it('el foco del cliente se reconsulta con el actor autenticado y no concede acceso por ID', async () => {
+  const user = R1_USERS.lead
+  const dispatch = vi.fn<typeof dispatchCopilotTool>(async () => ({ok: false as const, error: 'FORBIDDEN'}))
+  await runChannelTurn({
+    identity: {supabase: createFakeSupabase(createR1Db()), authUserId: user.user_id, usuarioId: user.id, rol: user.rol, active: true},
+    channel: 'web', sessionId: 'focused-denied', utterance: 'Hola',
+    focusedActionIds: ['22222222-2222-4222-8222-222222222299', 'not-a-uuid'],
+  }, {dispatch, store: r1Store(), audit: memoryQueryAuditSink([]), today: () => R1_TODAY})
+  const detailCalls = dispatch.mock.calls.filter(call => call[1] === 'get_action_details')
+  expect(detailCalls).toHaveLength(1)
+  expect(detailCalls[0]![0]).toMatchObject({usuarioId: user.id})
+  expect(detailCalls[0]![2]).toEqual({accionId: '22222222-2222-4222-8222-222222222299'})
+})

@@ -56,3 +56,41 @@ npm run qa:text:rollback -- --apply
 - **Ejecución incierta (503/504/timeout):** `reconcileUncertainOp` consulta `assistant_pending_ops`, `agent_action_receipts` y `acciones_diarias` antes de reintentar; nunca repite escrituras ciegamente.
 - **Limpieza:** el bloque final de `textCompleteSuite.mjs` elimina únicamente IDs rastreados (`tc-qa-<runId>-`) incluso ante fallo crítico y exige `remainingTotal === 0`.
 - **Rollback DB QA:** `DELETE FROM public.agent_execution_gate;` cierra inmediatamente la puerta R2; opcionalmente `supabase/scripts/rollback_agent_apply_action_status.sql` revierte RPCs, trigger guard, `claimed_at`, gate y recibos.
+
+
+## Aceptación controlada del 25 de noviembre de 2026
+
+### Publicación autorizada y reversibilidad
+
+- PR #14 publicado mediante squash en `17eb574fc57789d052b37244a19644069d3f08ba`.
+- Fuente: `6cc47da3a3b06b39fe036d090aace342472edc5d`. Árbol fuente/publicado idéntico: `a16658f907f9d15d342d7be3b2ba3af50fe82053`.
+- Main conserva protección y revisiones mediante PR. No se cambiaron secretos, migraciones ni GEMINI_MODEL.
+- Production READY: `dpl_7XfPZiPsKU7MqAy9sMzdjm5wdd5y`. Lectura del alias `scrumbanemx.vercel.app` a las 19:10:05Z confirma ese despliegue.
+- Rollback disponible: main anterior `475cc8de961ea2da146778b5a8851750e9f1a1c4`, despliegue READY `dpl_F63SvmnJano84z3rxYUe2totjgvW`. Reasignar únicamente el alias al despliegue previo mediante el procedimiento autorizado; no restaurar permisos SQL ni flags globales. No se ejecutó rollback.
+
+### Evidencia real y límites
+
+Sesión autenticada en el asistente principal: «Envíale a Gerardo un WhatsApp con la información de su día de hoy». El resultado contiene compromisos reales, vencimientos y un borrador dirigido a Gerardo; no copia la instrucción. No se pulsó confirmar, no hubo envío externo ni modificación de acciones. Captura local: `.tmp/production-contextual-whatsapp-20261125.jpg` en el checkout principal (no se publica para evitar divulgar datos operativos).
+
+La prueba acredita preparación contextual en el asistente principal, no entrega, exactitud exhaustiva del tablero, paridad real de canales ni aceptación comercial completa. No se ejecutaron llamadas Retell, notas de voz, primera creación R2 desde un teléfono, actualizaciones reales ni resumen ejecutivo con proveedor. La sesión autenticada por sí sola no acredita esos casos.
+
+### Corrección dirigida adicional (sin publicar en Production)
+
+- El cliente generaba requestId nuevo en cada turno y no enviaba conversationId: el backend abría otro contexto. Ahora conserva conversationId hasta limpiar chat.
+- Las rutas locales de consulta/aclaración y creación podían interceptar el mensaje antes del motor compartido. El chat principal y su variante flotante usan el mismo endpoint existente. No se añaden motores ni permisos.
+- Referencias a personas en borradores reutilizan el resolvedor existente; los cambios de destinatario/canal recomponen datos autorizados y conservan propósito, versión e identidad de propuesta. Se elimina la duplicación de pendingWrite para comunicaciones.
+- Las acciones seleccionadas se reconsultan mediante get_action_details del actor autenticado. Solo se aceptan UUID y se limita el lote; no se confía en contenido enviado por el navegador. El contexto de distinto fingerprint no se conserva.
+- La confirmación del compositor solo persistía autorización en contexto, sin despacho. La respuesta ahora lo dice expresamente; no se afirma encolado, envío ni entrega. Vincular ese compositor con el flujo de envío existente sigue pendiente; no se crea una segunda integración.
+- Regresiones A y C y cambios de destinatario/canal verificadas con fixtures en web, WhatsApp y voz. No equivalen a pruebas reales de teléfono/Retell.
+- La suite inicial completa tenía una expectativa preexistente del literal «R2 deshabilitado» frente al mensaje actual «solo para revisión». Se comprobó en HEAD antes de modificarla. Se actualizó el contrato de texto, conservando la aserción draft_only_r2_off y agregando que no se guardó en Scrumban; no se habilitaron escrituras.
+
+### Condiciones pendientes de aceptación
+
+- Publicación de la corrección adicional mediante revisión y controles vigentes: PR separado, sin merge automático.
+- Repetir A/C y cambios de canal/destinatario en chat principal y flotante desplegados; confirmar que no se solicita resolver toda la oración como nombre.
+- Primera creación y actualización R2: ejecutar desde el teléfono del piloto, confirmar propuesta vinculada, verificar ID persistido en Kanban y registro de idempotencia. No simular un mensaje entrante para afirmar que fue un usuario real.
+- Comunicaciones: autorización específica de destinatario y contenido antes de enviar; verificar outbox/proveedor y entrega, no solo confirmación en contexto.
+- Retell/voz: verificar costo real compatible con presupuesto adicional cero antes de abrir una llamada.
+- Timeout: no se incorpora el parche local que cierra habla activa tras 45s, ni expiración server-side basada solo en updated_at. Faltan señal fiable de intervención activa, preservación de contexto al reanudar, liberación de recursos y aceptación real a 150/180s sin cortar operaciones. R4 continúa congelado salvo esta seguridad.
+- R1 activo; R2 solo piloto; WhatsApp global OFF; R3 OFF. Dispatcher recurrente OFF es restricción vigente, no se ha acreditado por lectura en esta sesión. No hay cambios de flags ni nuevas integraciones pagadas.
+- Estado comercial: **NO-GO para OWNER ACCEPTED** mientras falte evidencia real de los casos anteriores. No se inicia R3/R4 ni se amplía piloto.
