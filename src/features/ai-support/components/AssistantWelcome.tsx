@@ -46,9 +46,15 @@ const ACTION_VISUALS: Record<AssistantQuickActionId, { icon: LucideIcon; tone: A
   decisions: { icon: Scale, tone: 'info' },
 }
 
+export const WELCOME_STAT_PROMPTS = {
+  open: 'Cuales acciones tengo abiertas?',
+  overdue: 'Cuales tengo vencidas?',
+  dueThisWeek: 'Cuales tengo por vencer?',
+} as const
+
 type AssistantWelcomeProps = {
   briefing: AssistantBriefingModel
-  counts?: OperationalSnapshot['counts'] | null
+  counts: OperationalSnapshot['counts'] | null
   actions: AssistantQuickAction[]
   loading?: boolean
   compact?: boolean
@@ -58,20 +64,33 @@ type AssistantWelcomeProps = {
 
 export function AssistantWelcome({
   briefing,
+  counts,
   actions,
   loading = false,
   compact = false,
   onAsk,
   onAction,
 }: AssistantWelcomeProps) {
-  const quickActions = actions.slice(0, 4)
+  const stats = counts
+    ? [
+        { key: 'open', value: counts.open, label: 'Abiertas', icon: Inbox, tone: 'primary' as const },
+        { key: 'overdue', value: counts.overdue, label: 'Atrasadas', icon: AlarmClock, tone: 'danger' as const },
+        {
+          key: 'dueThisWeek',
+          value: counts.dueThisWeek,
+          label: 'Por vencer',
+          icon: ListChecks,
+          tone: 'warning' as const,
+        },
+      ].filter((stat) => stat.value > 0)
+    : []
   const urgency = briefing.priorityUrgency ?? 'info'
 
   return (
     <section
       className={cn(
         'animate-in fade-in-0 slide-in-from-bottom-1 duration-200',
-        compact ? 'space-y-3' : 'space-y-5'
+        compact ? 'space-y-3' : 'space-y-4 sm:space-y-5'
       )}
       aria-label="Resumen operativo del asistente"
     >
@@ -83,40 +102,48 @@ export function AssistantWelcome({
             compact ? 'text-base' : 'text-xl sm:text-2xl'
           )}
         >
-          {briefing.scopeKind === 'organization' ? 'Operación de la empresa' : 'Mis acciones'}
+          Tu operación, en claro.
         </h2>
-        <p className={cn('text-muted-foreground', compact ? 'text-xs' : 'text-sm')}>
-          {loading ? (
-            <span className="inline-flex items-center gap-1.5">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-              {briefing.summary}
-            </span>
-          ) : (
-            briefing.summary
-          )}
-        </p>
+        {loading || stats.length === 0 ? (
+          <p className={cn('text-muted-foreground', compact ? 'text-xs' : 'text-sm')}>
+            {loading ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                {briefing.summary}
+              </span>
+            ) : (
+              briefing.summary
+            )}
+          </p>
+        ) : null}
       </header>
 
-      {briefing.indicators.length > 0 ? (
+      {stats.length > 0 ? (
         <div
           className={cn(
             'grid gap-2',
-            briefing.indicators.length === 1 ? 'grid-cols-1' : briefing.indicators.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
+            stats.length === 1
+              ? 'grid-cols-1'
+              : stats.length === 2
+                ? 'grid-cols-2'
+                : compact
+                  ? 'grid-cols-3'
+                  : 'grid-cols-1 sm:grid-cols-3'
           )}
           role="group"
-          aria-label={briefing.scopeLabel}
+          aria-label="Indicadores de tus acciones"
         >
-          {briefing.indicators.map((stat) => (
+          {stats.map((stat) => (
             <StatTile
-              key={stat.id}
+              key={stat.key}
               value={stat.value}
               label={stat.label}
-              icon={compact ? undefined : stat.id === 'open' ? Inbox : stat.id === 'overdue' ? AlarmClock : ListChecks}
+              icon={compact ? undefined : stat.icon}
               tone={stat.tone}
               compact={compact}
               disabled={loading}
-              hint={`${briefing.scopeLabel}: ${stat.label}`}
-              onClick={() => onAsk(stat.prompt)}
+              hint={`Ver ${stat.label.toLowerCase()} en el chat`}
+              onClick={() => onAsk(WELCOME_STAT_PROMPTS[stat.key as keyof typeof WELCOME_STAT_PROMPTS])}
             />
           ))}
         </div>
@@ -159,18 +186,15 @@ export function AssistantWelcome({
         </article>
       ) : null}
 
-      {quickActions.length > 0 ? (
+      {actions.length > 0 ? (
         <div className="space-y-2">
           <SectionEyebrow tone="muted">Accesos rápidos</SectionEyebrow>
           <div
-            className={cn(
-              'grid gap-2',
-              compact ? 'grid-cols-2' : quickActions.length === 4 ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3'
-            )}
+            className={cn('grid gap-2 sm:gap-2.5', compact ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-4')}
             role="group"
             aria-label="Accesos rapidos del asistente"
           >
-            {quickActions.map((action) => {
+            {actions.map((action) => {
               const visual = ACTION_VISUALS[action.id]
               const Icon = visual.icon
               return (
@@ -184,7 +208,7 @@ export function AssistantWelcome({
                     'hover:-translate-y-0.5 hover:ring-primary/35 hover:shadow-[0_12px_26px_-22px_hsl(var(--primary)/0.6)]',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:translate-y-0',
                     'disabled:pointer-events-none disabled:opacity-50',
-                    compact ? 'px-2 py-1.5' : 'px-2.5 py-2 sm:flex-col sm:items-start sm:gap-2.5 sm:p-3'
+                    compact ? 'px-2 py-1.5' : 'px-3 py-2.5 md:flex-col md:items-start md:gap-2.5 md:p-3.5'
                   )}
                 >
                   <span

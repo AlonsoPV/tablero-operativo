@@ -1,31 +1,34 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import {
+  AtSign,
   Bot,
-  Check,
   ChevronDown,
   LayoutGrid,
+  Link2,
   ListChecks,
   Loader2,
+  Mail,
+  MessageCircle,
+  MessageSquareText,
   Mic,
   MicOff,
+  PenLine,
+  Plus,
+  RotateCcw,
   Send,
   Target,
   Trash2,
+  X,
 } from 'lucide-react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
+import { CompactToggle, FilterMultiSelect } from '@/features/ai-support/components/FilterMultiSelect'
+import { AssistantMessageBody, NumberedSteps } from '@/features/ai-support/components/AssistantMessageBody'
+import { OkrScopeSelectors } from '@/features/ai-support/components/OkrScopeSelectors'
+import { AssistantSurface, SectionEyebrow } from '@/features/ai-support/components/ui'
 import { UNIFIED_ASSISTANT_MODE } from '@/lib/assistantModes'
 import type { AiChatMessage } from '@/features/ai-support/types'
 import type { BoardAssistantContextPayload } from '@/features/ai-support/buildBoardAssistantContext'
@@ -38,12 +41,9 @@ import {
   buildOperationalSnapshot,
   detectAssistantIntent,
   sliceContextForIntent,
-  tryFactualAssistantReply,
 } from '@/features/ai-support/operationalContext'
-import {
-  runConversationTurn,
-  type ConversationQueryState,
-} from '@/features/ai-support/conversation'
+import { resolveAssistantTurn } from '@/features/ai-support/consultation/answerConsultation'
+import { type ConversationQueryState } from '@/features/ai-support/conversation'
 import type { NamedPerson } from '@/features/ai-support/copilot/matching'
 import { assistantOperationalContextService } from '@/features/ai-support/services/assistantOperationalContext.service'
 import {
@@ -53,22 +53,16 @@ import {
   type AssistantQuickAction,
 } from '@/features/ai-support/assistantBriefing'
 import { AssistantWelcome } from '@/features/ai-support/components/AssistantWelcome'
-import { AssistantActivity } from '@/features/ai-support/components/AssistantActivity'
+import {
+  AssistantActivity,
+  type AssistantActivityStage,
+} from '@/features/ai-support/components/AssistantActivity'
+import { friendlyAssistantError } from '@/features/ai-support/assistantErrors'
 import { StructuredAssistantReply } from '@/features/ai-support/components/StructuredAssistantReply'
 import { AssistantReplyViews } from '@/features/ai-support/chatViews'
 import { AssistantProposalCard } from '@/features/ai-support/components/AssistantProposalCard'
-import { isR2BoardProposalTool } from '@/features/ai-support/copilot/actionLifecycle'
-import { confirmAssistantOp } from '@/features/ai-support/services/assistantOpsClient'
-import type { CopilotProposal } from '@/features/ai-support/copilot/types'
 import { AssistantClarificationChips } from '@/features/ai-support/components/AssistantClarificationChips'
 import { ActionDraftList } from '@/features/ai-support/components/ActionDraftList'
-import { WorkIntentToggle } from '@/features/ai-support/components/WorkIntentToggle'
-import {
-  coerceResponseFormat,
-  FORMAT_LABEL,
-  RESPONSE_FORMATS,
-  type ResponseFormat,
-} from '@/features/ai-support/responseFormat'
 import {
   AssistantLaneChooser,
   AssistantLaneSwitch,
@@ -86,15 +80,13 @@ import {
   type WriteIntent,
 } from '@/features/ai-support/writeIntent'
 import { buildCreateApprovalMessage } from '@/features/ai-support/createWorkReply'
-import {
-  AssistantRequestError,
-  friendlyAssistantError,
-  isRetryableAssistantError,
-} from '@/features/ai-support/assistantErrors'
-import { looksLikeDocumentaryAsk, tryKnowledgeReply } from '@/features/ai-support/knowledge/tryKnowledgeReply'
 import { groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
 import { useAppRole } from '@/features/auth/hooks/useAppRole'
-import { canViewAllBoardData, isDirectionByRole, isLeaderByRole } from '@/features/auth/lib/permissions'
+import {
+  canViewAllBoardData,
+  isDirectionByRole,
+  isLeaderByRole,
+} from '@/features/auth/lib/permissions'
 import { useCurrentUser } from '@/features/users/hooks/useCurrentUser'
 import { useAcciones } from '@/features/operations/hooks/useAcciones'
 import { useAccionCheckpoints } from '@/features/operations/hooks/useAccionCheckpoints'
@@ -112,11 +104,9 @@ import type { AccionComentario } from '@/types/accionComentario'
 const MAX_MESSAGES = 24
 const OPEN_ACTION_STATES = ['Pendiente', 'Hoy', 'En_Ejecucion', 'Bloqueado', 'Retraso'] as const
 const PORTFOLIO_PROMPTS = [
-  'Que acciones tengo abiertas?',
   'Cuales he asignado yo?',
   'Cuantas hay en el tablero?',
-  'Que deberia priorizar hoy?',
-  'Como van mis OKRs?',
+  'Que acciones llevan dias sin actualizar?',
 ]
 const CONVERSATION_FILTER_CHIPS = [
   'Asignadas a mi',
@@ -164,87 +154,10 @@ type ActionContext = {
   notasEscalamiento?: string | null
 }
 
-const FORMAT_STORAGE_KEY = 'assistant.responseFormat'
-const CONVERSATION_STORAGE_KEY = 'assistant.conversationId'
-const TRANSCRIPT_STORAGE_KEY = 'assistant.transcript'
-
-const FORMAT_OPTIONS = RESPONSE_FORMATS.map((id) => ({
-  id,
-  label: id === 'auto' ? 'Auto' : FORMAT_LABEL[id],
-}))
-
-/** La selección dura la sesión del navegador; sin almacenamiento disponible vuelve a Automático. */
-function readStoredFormat(): ResponseFormat {
-  try {
-    return coerceResponseFormat(window.sessionStorage.getItem(FORMAT_STORAGE_KEY))
-  } catch {
-    return 'auto'
-  }
-}
-
-function storeFormat(format: ResponseFormat) {
-  try {
-    window.sessionStorage.setItem(FORMAT_STORAGE_KEY, format)
-  } catch {
-    /* sin almacenamiento: la selección sólo vive en memoria */
-  }
-}
-
-/** Identificador estable de la conversación para que el servidor conserve contexto y formato. */
-function readConversationId(): string {
-  try {
-    const stored = window.sessionStorage.getItem(CONVERSATION_STORAGE_KEY)
-    if (stored) return stored
-    const created = crypto.randomUUID()
-    window.sessionStorage.setItem(CONVERSATION_STORAGE_KEY, created)
-    return created
-  } catch {
-    return crypto.randomUUID()
-  }
-}
-
-function readStoredTranscript(conversationId: string): AiChatMessage[] {
-  try {
-    const raw = window.sessionStorage.getItem(TRANSCRIPT_STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as { conversationId?: string; messages?: AiChatMessage[] }
-    if (parsed.conversationId !== conversationId || !Array.isArray(parsed.messages)) return []
-    return parsed.messages.filter(
-      (row) =>
-        row &&
-        (row.role === 'user' || row.role === 'assistant') &&
-        typeof row.content === 'string'
-    )
-  } catch {
-    return []
-  }
-}
-
-function storeTranscript(conversationId: string, messages: AiChatMessage[]) {
-  try {
-    window.sessionStorage.setItem(
-      TRANSCRIPT_STORAGE_KEY,
-      JSON.stringify({ conversationId, messages })
-    )
-  } catch {
-    /* sin almacenamiento: la conversación sólo vive en memoria */
-  }
-}
-
 type GeminiChatResponse = {
   answer?: string
-  agent?: {
-    formatSelected?: string
-    status?: string
-    asOf?: string | null
-    executionEnabled?: boolean
-    blocks?: { data?: string[]; interpretation?: string[]; recommendation?: string[]; limitations?: string[] }
-    references?: Array<{ id: string; title: string; href: string }>
-  }
   error?: string
-  retryable?: boolean
   proposals?: AiChatMessage['proposals']
-  batchId?: string | null
   clarification?: AiChatMessage['clarification']
   ui?: AiChatMessage['ui']
 }
@@ -266,11 +179,7 @@ async function sendMessage({
   actionContext,
   okrContext,
   boardContext,
-  responseFormat,
-  conversationId,
 }: {
-  responseFormat: ResponseFormat
-  conversationId: string
   mode: typeof UNIFIED_ASSISTANT_MODE
   messages: AiChatMessage[]
   actionContext?: ActionContext | ActionContext[]
@@ -286,9 +195,9 @@ async function sendMessage({
     body: JSON.stringify({
       mode,
       requestId: messages.at(-1)?.requestId,
-      conversationId,
-      responseFormat,
-      messages: messages.map(({ role, content }) => ({ role, content })),
+      messages: messages
+        .filter((message) => !message.failed)
+        .map(({ role, content }) => ({ role, content })),
       actionContext,
       okrContext,
       boardContext,
@@ -299,58 +208,44 @@ async function sendMessage({
 
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      throw new AssistantRequestError(data?.error || 'No autorizado para usar el Asistente IA.')
+      throw new Error(data?.error || 'No autorizado para usar el Asistente IA.')
     }
     if (response.status === 429) {
-      throw new AssistantRequestError(
-        data?.error || 'Demasiadas consultas. Espera un momento e intenta de nuevo.',
-        true
-      )
-    }
-    if (response.status === 503 || data?.retryable) {
-      throw new AssistantRequestError(
-        data?.error ||
-          'El proveedor de IA está saturado. Tu pregunta se conservó; puedes reintentar sin perder la conversación.',
-        true
-      )
+      throw new Error(data?.error || 'Demasiadas consultas. Espera un momento e intenta de nuevo.')
     }
     if (response.status === 404) {
-      throw new AssistantRequestError(
+      throw new Error(
         'No se encontro el endpoint /api/gemini-chat. En local usa Vercel dev o prueba desde el despliegue de Vercel.'
       )
     }
 
-    throw new AssistantRequestError(data?.error || 'No se pudo generar una respuesta.')
+    throw new Error(data?.error || 'No se pudo generar una respuesta.')
   }
-
-  const agentUi =
-    data.agent?.status && !data.ui
-      ? {
-          views: [],
-          asOf: data.agent.asOf ?? undefined,
-          sources: ['orchestrator_r1'],
-        }
-      : data.ui
-        ? {
-            ...data.ui,
-            asOf: data.ui.asOf ?? data.agent?.asOf ?? undefined,
-            sources: data.ui.sources?.length
-              ? data.ui.sources
-              : data.agent?.status
-                ? ['orchestrator_r1']
-                : data.ui.sources,
-          }
-        : undefined
 
   return {
     answer: data.answer || 'No pude generar una respuesta en este momento.',
     proposals: data.proposals,
     clarification: data.clarification,
-    ui: agentUi,
-    formatSelected: data.agent?.formatSelected,
-    executionEnabled: data.agent?.executionEnabled === true,
-    batchId: data.batchId ?? undefined,
+    ui: data.ui ?? undefined,
   }
+}
+
+type SendOptions = {
+  /** Corrige la intencion detectada (chip «Tratar como accion/consulta»). */
+  forceIntent?: WriteIntent
+  /** Reemplaza el ultimo turno en lugar de agregar uno nuevo (reintento o correccion). */
+  replay?: boolean
+}
+
+function isFlatAssistantMessage(message: AiChatMessage) {
+  return Boolean(message.ui?.views?.length || message.analysis || message.proposals?.length)
+}
+
+function messagesBeforeLastUser(messages: AiChatMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]!.role === 'user') return messages.slice(0, index)
+  }
+  return messages
 }
 
 function formatActionOption(action: AccionDiaria) {
@@ -390,358 +285,6 @@ function toActionContext(
   }
 }
 
-function CompactToggle({
-  active,
-  onToggle,
-}: {
-  active: boolean
-  onToggle: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className={cn(
-        'shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        active
-          ? 'bg-primary/10 text-primary hover:bg-primary/15'
-          : 'bg-muted text-muted-foreground hover:text-foreground'
-      )}
-    >
-      {active ? 'Usando' : 'Pausado'}
-    </button>
-  )
-}
-
-function toggleId(list: string[], id: string) {
-  return list.includes(id) ? list.filter((item) => item !== id) : [...list, id]
-}
-
-function FilterMultiSelect({
-  label,
-  emptyLabel,
-  icon,
-  options,
-  values,
-  onChange,
-  disabled,
-  className,
-  tone = 'default',
-}: {
-  label: string
-  emptyLabel: string
-  icon?: ReactNode
-  options: Array<{ value: string; label: string }>
-  values: string[]
-  onChange: (next: string[]) => void
-  disabled?: boolean
-  className?: string
-  /** `focus` = dropdown de contexto (distinto al switch Hablar/Escribir). */
-  tone?: 'default' | 'focus'
-}) {
-  const hasSelection = values.length > 0
-  const isFocus = tone === 'focus'
-  const summary =
-    values.length === 0
-      ? emptyLabel
-      : values.length === 1
-        ? options.find((item) => item.value === values[0])?.label || label
-        : `${values.length} ${label.toLowerCase()}`
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild disabled={disabled || options.length === 0}>
-        <Button
-          type="button"
-          variant="ghost"
-          disabled={disabled || options.length === 0}
-          className={cn(
-            'group h-9 w-full justify-between gap-2 px-2.5 text-[12px] font-medium transition duration-200',
-            'focus-visible:ring-2 focus-visible:ring-ring',
-            'disabled:translate-y-0 disabled:opacity-50',
-            isFocus
-              ? [
-                  'rounded-lg border border-dashed border-border/70 bg-background text-muted-foreground shadow-none',
-                  'hover:border-border hover:bg-muted/40 hover:text-foreground',
-                  hasSelection &&
-                    'border-solid border-border bg-muted/50 text-foreground hover:bg-muted/70',
-                ]
-              : [
-                  'rounded-2xl border border-border/50 bg-background/70 shadow-[0_10px_24px_-22px_rgba(15,23,42,0.45)] backdrop-blur-sm',
-                  'hover:-translate-y-px hover:border-primary/35 hover:bg-background hover:shadow-[0_14px_28px_-22px_rgba(15,23,42,0.4)]',
-                  hasSelection &&
-                    'border-primary/30 bg-primary/[0.08] text-foreground shadow-[0_12px_28px_-22px_hsl(var(--primary)/0.45)] hover:bg-primary/[0.12]',
-                ],
-            className
-          )}
-        >
-          <span className="flex min-w-0 items-center gap-2">
-            {icon ? (
-              <span
-                className={cn(
-                  'inline-flex shrink-0 items-center justify-center transition',
-                  isFocus
-                    ? cn(
-                        'h-5 w-5 rounded-md',
-                        hasSelection ? 'text-foreground' : 'text-muted-foreground'
-                      )
-                    : cn(
-                        'h-6 w-6 rounded-xl',
-                        hasSelection
-                          ? 'bg-primary/15 text-primary'
-                          : 'bg-muted/80 text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary'
-                      )
-                )}
-              >
-                {icon}
-              </span>
-            ) : null}
-            <span className="truncate tracking-tight">{summary}</span>
-          </span>
-          <span className="flex shrink-0 items-center gap-1.5">
-            {values.length > 1 ? (
-              <span
-                className={cn(
-                  'inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
-                  isFocus
-                    ? 'bg-foreground/10 text-foreground'
-                    : hasSelection
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground'
-                )}
-              >
-                {values.length}
-              </span>
-            ) : null}
-            <ChevronDown
-              className={cn(
-                'h-3.5 w-3.5 shrink-0 transition duration-200',
-                isFocus
-                  ? 'text-muted-foreground/80'
-                  : hasSelection
-                    ? 'text-primary/80'
-                    : 'text-muted-foreground/70',
-                'group-data-[state=open]:rotate-180'
-              )}
-              aria-hidden
-            />
-          </span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="max-h-64 w-[min(20rem,var(--radix-dropdown-menu-trigger-width))] overflow-y-auto rounded-2xl border-border/60 p-1.5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.55)]"
-      >
-        <DropdownMenuLabel className="px-2 py-1.5 text-[11px] font-semibold tracking-tight text-muted-foreground">
-          {label}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator className="mx-1" />
-        {options.length === 0 ? (
-          <p className="px-2 py-2 text-[11px] text-muted-foreground">Sin opciones</p>
-        ) : (
-          options.map((option) => {
-            const checked = values.includes(option.value)
-            return (
-              <DropdownMenuCheckboxItem
-                key={option.value}
-                checked={checked}
-                onSelect={(event) => event.preventDefault()}
-                onCheckedChange={() => onChange(toggleId(values, option.value))}
-                className="rounded-xl text-[12px]"
-              >
-                <span className="flex items-center gap-1.5">
-                  {checked ? <Check className="h-3 w-3 shrink-0 text-primary" aria-hidden /> : null}
-                  <span className="truncate">{option.label}</span>
-                </span>
-              </DropdownMenuCheckboxItem>
-            )
-          })
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-type AssistantContentBlock =
-  | { type: 'heading'; text: string }
-  | { type: 'paragraph'; text: string }
-  | { type: 'list'; items: string[] }
-
-function normalizeAssistantLine(line: string) {
-  return line
-    .replace(/^\*\*(.+)\*\*:?\s*$/, '$1')
-    .replace(/^#+\s+/, '')
-    .replace(/\*\*/g, '')
-    .trim()
-}
-
-/** Inline markdown seguro: negritas y enlaces http(s)/rutas internas. Sin HTML arbitrario. */
-function renderInlineSafe(text: string): ReactNode {
-  const parts: ReactNode[] = []
-  const pattern = /(\*\*([^*]+)\*\*|\[([^\]]+)\]\((\/[^)\s]*|https?:\/\/[^)\s]+)\))/g
-  let last = 0
-  let match: RegExpExecArray | null
-  let key = 0
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > last) {
-      parts.push(text.slice(last, match.index))
-    }
-    if (match[2]) {
-      parts.push(
-        <strong key={`b-${key++}`} className="font-semibold text-foreground">
-          {match[2]}
-        </strong>
-      )
-    } else if (match[3] && match[4]) {
-      const href = match[4]
-      const isInternal = href.startsWith('/')
-      parts.push(
-        isInternal ? (
-          <Link
-            key={`a-${key++}`}
-            to={href}
-            className="font-medium text-primary underline-offset-2 hover:underline"
-          >
-            {match[3]}
-          </Link>
-        ) : (
-          <a
-            key={`a-${key++}`}
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-medium text-primary underline-offset-2 hover:underline"
-          >
-            {match[3]}
-          </a>
-        )
-      )
-    }
-    last = match.index + match[0].length
-  }
-  if (last < text.length) parts.push(text.slice(last))
-  return parts.length ? parts : text
-}
-
-function isAssistantHeading(line: string) {
-  const clean = normalizeAssistantLine(line)
-  if (!clean || clean.length > 56) return false
-  if (/^(diagn[oó]stico|situaci[oó]n|resumen|recomendaci[oó]nes?|pr[oó]ximos pasos|acciones?|riesgos?|prioridades?|hallazgos?|hallazgo|evidencia|hecho|siguiente accion|conclusi[oó]n|qu[eé] hacer|siguiente|okr|tablero)\b/i.test(clean)) {
-    return true
-  }
-  return /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ][\wÁÉÍÓÚÜÑáéíóúüñ /-]{1,40}:$/.test(clean)
-}
-
-function parseAssistantContent(raw: string): AssistantContentBlock[] {
-  const lines = raw.replace(/\r\n/g, '\n').split('\n')
-  const blocks: AssistantContentBlock[] = []
-  let paragraph: string[] = []
-  let listItems: string[] = []
-
-  const flushParagraph = () => {
-    const text = paragraph.join(' ').replace(/\s+/g, ' ').trim()
-    paragraph = []
-    if (text) blocks.push({ type: 'paragraph', text })
-  }
-  const flushList = () => {
-    if (listItems.length === 0) return
-    blocks.push({ type: 'list', items: listItems })
-    listItems = []
-  }
-
-  for (const original of lines) {
-    const line = original.trim()
-    if (!line) {
-      flushList()
-      flushParagraph()
-      continue
-    }
-
-    const listMatch = line.match(/^(?:[-•*]|\d+[.)])\s+(.+)$/)
-    if (listMatch?.[1]) {
-      flushParagraph()
-      listItems.push(normalizeAssistantLine(listMatch[1]))
-      continue
-    }
-
-    if (isAssistantHeading(line)) {
-      flushList()
-      flushParagraph()
-      blocks.push({
-        type: 'heading',
-        text: normalizeAssistantLine(line).replace(/:$/, ''),
-      })
-      continue
-    }
-
-    const inlineHeading = line.match(
-      /^((?:Diagn[oó]stico|Situaci[oó]n|Resumen|Recomendaci[oó]nes?|Pr[oó]ximos pasos|Acciones?|Riesgos?|Prioridades?|Hallazgos?|Hallazgo|Evidencia|Siguiente accion|Hecho|Conclusi[oó]n|Qu[eé] hacer))\s*:\s*(.+)$/i
-    )
-    if (inlineHeading?.[1] && inlineHeading[2]) {
-      flushList()
-      flushParagraph()
-      blocks.push({ type: 'heading', text: inlineHeading[1] })
-      paragraph.push(inlineHeading[2])
-      continue
-    }
-
-    flushList()
-    paragraph.push(normalizeAssistantLine(line))
-  }
-
-  flushList()
-  flushParagraph()
-  return blocks.length > 0 ? blocks : [{ type: 'paragraph', text: raw.trim() }]
-}
-
-function AssistantMessageBody({
-  content,
-  compact,
-}: {
-  content: string
-  compact?: boolean
-}) {
-  const blocks = parseAssistantContent(content)
-  return (
-    <div className={cn('space-y-2.5', compact ? 'text-[13px] leading-5' : 'text-sm leading-6')}>
-      {blocks.map((block, index) => {
-        if (block.type === 'heading') {
-          return (
-            <p
-              key={`h-${index}`}
-              className="text-[11px] font-semibold uppercase tracking-[0.06em] text-primary"
-            >
-              {block.text}
-            </p>
-          )
-        }
-        if (block.type === 'list') {
-          return (
-            <ul key={`l-${index}`} className="space-y-1.5 pl-0">
-              {block.items.map((item, itemIndex) => (
-                <li
-                  key={`${item}-${itemIndex}`}
-                  className="flex gap-2 rounded-xl bg-muted/35 px-2.5 py-1.5 text-[12px] leading-5 text-foreground/90"
-                >
-                  <span className="mt-0.5 inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
-                    {itemIndex + 1}
-                  </span>
-                  <span className="min-w-0">{renderInlineSafe(item)}</span>
-                </li>
-              ))}
-            </ul>
-          )
-        }
-        return (
-          <p key={`p-${index}`} className="text-foreground/90">
-            {renderInlineSafe(block.text)}
-          </p>
-        )
-      })}
-    </div>
-  )
-}
-
 type AiAssistPageProps = {
   /** `popup` = panel flotante compacto; `page` = pantalla completa. */
   variant?: 'page' | 'popup'
@@ -759,17 +302,25 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [lane, setLane] = useState<AssistantLane | null>(() => laneFromSearch(searchParams.get('lane')))
 
+  const [pendingVoiceStart, setPendingVoiceStart] = useState(false)
+
   useEffect(() => {
+    if (isPopup) return
     const fromUrl = laneFromSearch(searchParams.get('lane'))
     if (fromUrl) setLane(fromUrl)
-  }, [searchParams])
-  const [writeIntent, setWriteIntent] = useState<WriteIntent>('consult')
-  const [responseFormat, setResponseFormatState] = useState<ResponseFormat>(readStoredFormat)
-  const conversationId = useMemo(readConversationId, [])
-  const setResponseFormat = (format: ResponseFormat) => {
-    setResponseFormatState(format)
-    storeFormat(format)
+  }, [isPopup, searchParams])
+
+  const chooseLane = (next: AssistantLane, options?: { voice?: boolean }) => {
+    setLane(next)
+    if (options?.voice) setPendingVoiceStart(true)
+    // El popup vive sobre otras rutas: no reescribe la URL de la pagina anfitriona.
+    if (isPopup) return
+    const params = new URLSearchParams(searchParams)
+    params.set('lane', next)
+    if (options?.voice) params.set('channel', 'voice')
+    setSearchParams(params, { replace: true })
   }
+  const [activityStage, setActivityStage] = useState<AssistantActivityStage | null>(null)
   const [selectedActionIds, setSelectedActionIds] = useState<string[]>([])
   const [actionContextEnabled, setActionContextEnabled] = useState(true)
   const [selectedObjectiveIds, setSelectedObjectiveIds] = useState<string[]>([])
@@ -777,17 +328,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
   const [selectedInitiativeIds, setSelectedInitiativeIds] = useState<string[]>([])
   const [okrContextEnabled, setOkrContextEnabled] = useState(true)
   const [focusKind, setFocusKind] = useState<FocusKind>('portfolio')
-  const [messages, setMessages] = useState<AiChatMessage[]>(() =>
-    readStoredTranscript(
-      (() => {
-        try {
-          return window.sessionStorage.getItem(CONVERSATION_STORAGE_KEY) ?? ''
-        } catch {
-          return ''
-        }
-      })()
-    )
-  )
+  const [messages, setMessages] = useState<AiChatMessage[]>([])
   const [conversationState, setConversationState] = useState<ConversationQueryState | null>(null)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -959,32 +500,26 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         ? CONVERSATION_FILTER_CHIPS
         : PORTFOLIO_PROMPTS
 
-  const assistantAudience = useMemo(
-    () =>
-      resolveAssistantAudience({
-        isDirection: isDirectionByRole(currentUser?.rol),
-        isLeader: isLeaderByRole(currentUser?.rol),
-        canSeeTeam: seesAllBoard,
-      }),
-    [currentUser?.rol, seesAllBoard]
-  )
   const briefing = useMemo(
     () =>
       buildAssistantBriefing({
         userName: currentUser?.nombre,
         snapshot: operationalSnapshot,
         loading: operationalLoad.isLoading || actionsLoading,
-        audience: assistantAudience,
       }),
-    [actionsLoading, assistantAudience, currentUser?.nombre, operationalLoad.isLoading, operationalSnapshot]
+    [actionsLoading, currentUser?.nombre, operationalLoad.isLoading, operationalSnapshot]
   )
   const quickActions = useMemo(
     () =>
       buildAssistantQuickActions({
-        audience: assistantAudience,
+        audience: resolveAssistantAudience({
+          isDirection: isDirectionByRole(currentUser?.rol),
+          isLeader: isLeaderByRole(currentUser?.rol),
+          canSeeTeam: seesAllBoard,
+        }),
         canSeeOkrs,
       }),
-    [assistantAudience, canSeeOkrs]
+    [canSeeOkrs, currentUser?.rol, seesAllBoard]
   )
 
   const focusWelcome = useMemo(() => {
@@ -1022,7 +557,6 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     setMessages([])
     setConversationState(null)
     setInput('')
-    storeTranscript(conversationId, [])
   }
 
   const clearFilters = () => {
@@ -1103,41 +637,46 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, loading, showBriefing])
 
-  useEffect(() => {
-    storeTranscript(conversationId, messages)
-  }, [conversationId, messages])
-
-  const handleSend = async (prompt = input, options?: { retry?: boolean }) => {
+  const handleSend = async (prompt = input, options: SendOptions = {}) => {
     const trimmed = prompt.trim()
     if (!trimmed || loading) return
 
-    const baseMessages = options?.retry
-      ? messages.filter((row) => !row.retryable)
-      : messages
-    const last = baseMessages.at(-1)
-    const nextMessages = (
-      options?.retry && last?.role === 'user' && last.content === trimmed
-        ? baseMessages
-        : [...baseMessages, { role: 'user' as const, content: trimmed, requestId: crypto.randomUUID() }]
-    ).slice(-MAX_MESSAGES)
+    const activeLinkedReply = !options.replay ? linkedChatReply : null
+    const effectivePrompt =
+      activeLinkedReply && looksLikeCommsPrepare(trimmed)
+        ? `${trimmed}\n\nUsa como base esta información del chat:\n${activeLinkedReply.slice(0, 1200)}`
+        : trimmed
+
+    const history = options.replay ? messagesBeforeLastUser(messages) : messages
+    const nextMessages = [
+      ...history,
+      { role: 'user' as const, content: effectivePrompt, requestId: crypto.randomUUID() },
+    ].slice(-MAX_MESSAGES)
 
     setMessages(nextMessages)
-    setInput('')
+    if (!options.replay) {
+      setInput('')
+      setLinkedChatReply(null)
+      setMentionQuery(null)
+    }
     setLoading(true)
-    const previousAnalysis = [...messages]
+    const previousAnalysis = [...history]
       .reverse()
       .find((message) => message.role === 'assistant' && (message.analysis?.actionDrafts.length ?? 0) > 0)
       ?.analysis
     const isCorrection = Boolean(
-      previousAnalysis &&
+      !options.forceIntent &&
+        previousAnalysis &&
         !looksLikeCreateWork(trimmed) &&
         !looksLikeCommsPrepare(trimmed) &&
-        (looksLikeDraftCorrection(trimmed) || writeIntent === 'create')
+        looksLikeDraftCorrection(trimmed)
     )
-    const intent = isCorrection ? 'create' : resolveWriteIntent(trimmed, writeIntent)
+    const turnIntent: WriteIntent =
+      options.forceIntent ?? (isCorrection ? 'create' : resolveWriteIntent(trimmed, 'consult'))
+    setActivityStage(turnIntent === 'create' ? 'preparing' : 'querying')
 
     try {
-      if (intent === 'create') {
+      if (turnIntent === 'create') {
         const today = todayWallClockCDMX()
         const sourceText = isCorrection ? previousAnalysis!.transcript || trimmed : trimmed
         const correctionText = isCorrection ? trimmed : ''
@@ -1149,9 +688,12 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
           Boolean(result) && result!.actionDrafts[0]?.dueDateHint !== previousHint
 
         if (!dateCorrected) {
+          const linkedContext = activeLinkedReply
+            ? `Información reciente devuelta por el chat (úsalas para redactar y ligar la tarea):\n${activeLinkedReply.slice(0, 1500)}\n\n${voiceContext}`
+            : voiceContext
           const raw = await requestAssistantTextAnalysis({
             text: sourceText,
-            context: voiceContext,
+            context: linkedContext,
             clarifications: correctionText || undefined,
             intent: 'plan_actions',
           })
@@ -1164,84 +706,58 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         }
         const content = buildCreateApprovalMessage(analysis)
         setMessages(
-          [...nextMessages, { role: 'assistant' as const, content, analysis }].slice(-MAX_MESSAGES)
+          [...nextMessages, { role: 'assistant' as const, content, analysis, intent: turnIntent }].slice(
+            -MAX_MESSAGES
+          )
         )
       } else {
-        const intent = detectAssistantIntent(trimmed, {
-          hasSelectedAction: activeActionContext,
-          hasSelectedOkr: activeOkrContext,
+        const priorUserMessages = nextMessages
+          .filter((row) => row.role === 'user')
+          .map((row) => row.content)
+          .slice(0, -1)
+        const resolved = resolveAssistantTurn({
+          message: trimmed,
+          snapshot: operationalSnapshot,
+          priorUserMessages,
+          previousConversation: conversationState,
+          people: conversationPeople,
         })
-        const hasExplicitFocus = activeActionContext || activeOkrContext
-        const orchestratorEnabled = __AGENT_ORCHESTRATOR_R1__ === true
-
-        const knowledge =
-          looksLikeDocumentaryAsk(trimmed) ? null : tryKnowledgeReply(trimmed)
-        if (knowledge) {
+        setConversationState(resolved.conversationState)
+        if (resolved.handled && resolved.content) {
           setMessages(
             [
               ...nextMessages,
               {
                 role: 'assistant' as const,
-                content: knowledge.content,
+                content: resolved.content,
+                ui: resolved.ui,
+                clarification: resolved.clarification,
+                intent: turnIntent,
               },
             ].slice(-MAX_MESSAGES)
           )
           return
         }
 
-        if (operationalSnapshot) {
-          const turn = runConversationTurn({
-            message: trimmed,
-            previous: conversationState,
-            snapshot: operationalSnapshot,
-            people: conversationPeople,
-            responseFormat,
-            orchestratorEnabled,
-          })
-          if (turn.handled) {
-            setConversationState(turn.reply.state)
-            setMessages(
-              [
-                ...nextMessages,
-                {
-                  role: 'assistant' as const,
-                  content: turn.reply.content,
-                  ui: turn.reply.ui,
-                  clarification: turn.reply.clarification,
-                },
-              ].slice(-MAX_MESSAGES)
-            )
-            return
-          }
-          // handoff: limpiar pending clarify y seguir a Gemini/tools
-          setConversationState(turn.state.entity === 'none' ? null : turn.state)
-        }
-
-        if (
-          !orchestratorEnabled &&
-          operationalSnapshot &&
-          (intent === 'okrs' || intent === 'team_delay') &&
-          responseFormat === 'auto'
-        ) {
-          const priorUserMessages = nextMessages
-            .filter((row) => row.role === 'user')
-            .map((row) => row.content)
-          const factual = tryFactualAssistantReply(trimmed, operationalSnapshot, intent, {
-            priorUserMessages,
-          })
-          if (factual) {
-            setMessages(
-              [
-                ...nextMessages,
-                {
-                  role: 'assistant' as const,
-                  content: factual.content,
-                  ui: factual.ui,
-                },
-              ].slice(-MAX_MESSAGES)
-            )
-            return
-          }
+        const intent = detectAssistantIntent(trimmed, {
+          hasSelectedAction: activeActionContext,
+          hasSelectedOkr: activeOkrContext,
+          priorUserMessages,
+        })
+        const hasExplicitFocus = activeActionContext || activeOkrContext
+        if (intent === 'concept') {
+          setMessages(
+            [
+              ...nextMessages,
+              {
+                role: 'assistant' as const,
+                content: resolved.content ?? 'Puedo explicarlo sin consultar tus datos. Dime el término.',
+                ui: resolved.ui ?? { views: [] },
+                intent: turnIntent,
+              },
+            ].slice(-MAX_MESSAGES)
+          )
+          return
         }
 
         const sliced = operationalSnapshot
@@ -1267,11 +783,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               ? activeOkrContextPayload ?? undefined
               : undefined,
           boardContext: sliced?.boardContext ?? boardContext ?? undefined,
-          responseFormat,
-          conversationId,
         })
-        // Una directiva en el mensaje («modo reporte») cambia el formato de la sesión: el selector la refleja.
-        if (reply.formatSelected) setResponseFormat(coerceResponseFormat(reply.formatSelected))
         setMessages(
           [
             ...nextMessages,
@@ -1281,27 +793,27 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               proposals: reply.proposals,
               clarification: reply.clarification,
               ui: reply.ui,
-              executionEnabled: reply.executionEnabled,
-              batchId: reply.batchId,
+              intent: turnIntent,
             },
           ].slice(-MAX_MESSAGES)
         )
       }
     } catch (error) {
-      const message = friendlyAssistantError(error)
-      const retryable = isRetryableAssistantError(error)
-      toast.error(message)
-      setMessages([
-        ...nextMessages,
-        {
-          role: 'assistant' as const,
-          content: message,
-          retryable,
-        },
-      ])
+      setMessages(
+        [
+          ...nextMessages,
+          { role: 'assistant' as const, content: friendlyAssistantError(error), failed: true },
+        ].slice(-MAX_MESSAGES)
+      )
     } finally {
       setLoading(false)
+      setActivityStage(null)
     }
+  }
+
+  const replayLastTurn = (forceIntent?: WriteIntent) => {
+    const lastUser = [...messages].reverse().find((message) => message.role === 'user')
+    if (lastUser) void handleSend(lastUser.content, { replay: true, forceIntent })
   }
 
   const dictationPrefixRef = useRef('')
@@ -1321,16 +833,114 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
   const checklistDone = selectedCheckpoints.filter((item) => item.completado).length
   const inputId = isPopup ? 'ai-assistant-popup-input' : 'ai-assistant-input'
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [createMenuOpen, setCreateMenuOpen] = useState(false)
+  const [linkedChatReply, setLinkedChatReply] = useState<string | null>(null)
+  const [mentionQuery, setMentionQuery] = useState<{ start: number; end: number; query: string } | null>(null)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const createMenuRef = useRef<HTMLDivElement>(null)
 
-  const handleQuickAction = (action: AssistantQuickAction) => {
-    if (action.mode === 'create') {
-      setWriteIntent('create')
-      setInput('')
-      window.setTimeout(() => inputRef.current?.focus(), 0)
+  useEffect(() => {
+    if (!createMenuOpen) return
+    const handlePointerDown = (event: MouseEvent) => {
+      if (createMenuRef.current && !createMenuRef.current.contains(event.target as Node)) {
+        setCreateMenuOpen(false)
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCreateMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [createMenuOpen])
+
+  const sortedPeople = useMemo(
+    () => [...conversationPeople].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+    [conversationPeople]
+  )
+
+  const filteredMentionPeople = useMemo(() => {
+    if (!mentionQuery) return []
+    const q = mentionQuery.query
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+    const matches = q
+      ? sortedPeople.filter((person) =>
+          person.nombre
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .includes(q)
+        )
+      : sortedPeople
+    return matches.slice(0, 6)
+  }, [mentionQuery, sortedPeople])
+
+  const updateMentionFromCursor = (value: string, cursorPos: number | null) => {
+    const pos = cursorPos ?? value.length
+    const before = value.slice(0, pos)
+    const match = before.match(/(?:^|\s)@([^\s@]*)$/)
+    if (!match) {
+      setMentionQuery(null)
       return
     }
-    setWriteIntent('consult')
-    if (action.prompt) void handleSend(action.prompt)
+    const atIndex = before.lastIndexOf('@')
+    setMentionQuery({ start: atIndex, end: pos, query: match[1] ?? '' })
+    setMentionIndex(0)
+  }
+
+  const handleSelectMention = (person: NamedPerson) => {
+    if (!mentionQuery) return
+    const before = input.slice(0, mentionQuery.start)
+    const after = input.slice(mentionQuery.end)
+    const inserted = `@${person.nombre} `
+    const nextValue = `${before}${inserted}${after}`
+    const nextCursor = before.length + inserted.length
+    setInput(nextValue)
+    setMentionQuery(null)
+    requestAnimationFrame(() => {
+      const el = inputRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(nextCursor, nextCursor)
+    })
+  }
+
+  const lastAssistantReply = useMemo(() => {
+    const last = [...messages]
+      .reverse()
+      .find((message) => message.role === 'assistant' && !message.failed && message.content.trim())
+    return last?.content.trim() ?? null
+  }, [messages])
+
+  const CREATE_QUICK_OPTIONS = [
+    { id: 'tarea', label: 'Tarea', prefix: 'Crea una tarea para @', icon: ListChecks },
+    { id: 'whatsapp', label: 'WhatsApp', prefix: 'Envía un WhatsApp a @', icon: MessageCircle },
+    { id: 'correo', label: 'Correo', prefix: 'Envía un correo a @', icon: Mail },
+  ] as const
+
+  const handleSelectCreateOption = (prefix: string) => {
+    setCreateMenuOpen(false)
+    setInput(prefix)
+    if (lastAssistantReply) {
+      setLinkedChatReply(lastAssistantReply)
+    }
+    updateMentionFromCursor(prefix, prefix.length)
+    requestAnimationFrame(() => {
+      const el = inputRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(prefix.length, prefix.length)
+    })
+  }
+
+  const handleQuickAction = (action: AssistantQuickAction) => {
+    void handleSend(action.prompt)
   }
 
   const guidePanel = (
@@ -1338,9 +948,10 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
       usuarioId={currentUser?.id ?? null}
       compact={isPopup}
       className="min-h-0 flex-1"
-      autoStartVoice={!isPopup && searchParams.get('channel') === 'voice'}
+      autoStartVoice={pendingVoiceStart || (!isPopup && searchParams.get('channel') === 'voice')}
       onAutoStartVoice={() => {
-        if (searchParams.get('channel') !== 'voice') return
+        setPendingVoiceStart(false)
+        if (isPopup || searchParams.get('channel') !== 'voice') return
         const next = new URLSearchParams(searchParams)
         next.delete('channel')
         setSearchParams(next, { replace: true })
@@ -1348,58 +959,52 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     />
   )
 
+  const okrScopeSelectors = (
+    <OkrScopeSelectors
+      keyResults={objectiveKeyResults.map((kr) => ({ value: kr.id, label: kr.title }))}
+      initiatives={objectiveInitiatives.map((initiative) => {
+        const actionId = initiative.action_id ?? initiative.team_action_id
+        const option = (okrActions.data ?? []).find((action) => action.id === actionId)
+        return {
+          id: initiative.id,
+          key_result_id: initiative.key_result_id,
+          value: initiative.id,
+          label: option?.title || 'Iniciativa sin titulo',
+        }
+      })}
+      selectedKrIds={selectedKrIds}
+      selectedInitiativeIds={selectedInitiativeIds}
+      onKrChange={setSelectedKrIds}
+      onInitiativeChange={setSelectedInitiativeIds}
+    />
+  )
+
   const chatThread = (
     <div
       className={cn(
-        'min-h-0 flex-1 space-y-3 overflow-y-auto',
+        'min-h-0 flex-1 overflow-y-auto overscroll-contain',
         isPopup
-          ? 'bg-[linear-gradient(180deg,hsl(var(--muted)/0.35)_0%,hsl(var(--background))_48%)] px-3 py-3'
-          : 'relative px-4 py-4 sm:px-5'
+          ? 'space-y-3 bg-[linear-gradient(180deg,hsl(var(--muted)/0.35)_0%,hsl(var(--background))_48%)] px-3 py-3'
+          : 'relative px-3 py-3 sm:px-6 sm:py-5'
       )}
       aria-live="polite"
     >
-      {showBriefing ? (
-        <div
-          className={cn(
-            isPopup
-              ? 'rounded-2xl bg-card/90 px-3 py-3 ring-1 ring-border/45'
-              : 'rounded-2xl bg-background/85 px-3.5 py-3.5 ring-1 ring-border/40 sm:px-4'
-          )}
-        >
-          <AssistantWelcome
-            briefing={briefing}
-            counts={operationalSnapshot?.counts ?? null}
-            actions={quickActions}
-            loading={operationalLoad.isLoading || actionsLoading}
-            compact={isPopup}
-            onAsk={(prompt) => {
-              setWriteIntent('consult')
-              void handleSend(prompt)
-            }}
-            onAction={handleQuickAction}
-          />
-          {operationalSnapshot?.fetchedAt ? (
-            <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
-              Corte:{' '}
-              {new Date(operationalSnapshot.fetchedAt).toLocaleString('es-MX', {
-                timeZone: 'America/Mexico_City',
-              })}{' '}
-              · Fuentes: kanban_acciones
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+      <div className={cn('mx-auto w-full space-y-3', !isPopup && 'max-w-3xl')}>
+        {showBriefing ? (
+          <div className={cn('w-full', isPopup ? 'px-0.5' : 'pt-1 sm:pt-2')}>
+            <AssistantWelcome
+              briefing={briefing}
+              counts={operationalSnapshot?.counts ?? null}
+              actions={quickActions}
+              loading={operationalLoad.isLoading || actionsLoading}
+              compact={isPopup}
+              onAsk={(prompt) => void handleSend(prompt)}
+              onAction={handleQuickAction}
+            />
+          </div>
+        ) : null}
 
-      {loading ? (
-        <div className={cn(isPopup ? 'px-0.5' : 'px-1')}>
-          <AssistantActivity
-            stage={writeIntent === 'create' ? 'preparing' : 'querying'}
-            compact={isPopup}
-          />
-        </div>
-      ) : null}
-
-      {visibleMessages.map((message, index) => (
+        {visibleMessages.map((message, index) => (
         <div key={`${message.role}-${index}`} className="space-y-2">
           <div
             className={cn(
@@ -1418,42 +1023,57 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                   ? isPopup
                     ? 'max-w-[92%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-primary px-3 py-2 text-[13px] leading-5 text-primary-foreground shadow-sm'
                     : 'max-w-[88%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-primary px-3.5 py-2.5 text-sm leading-5 text-primary-foreground shadow-[0_10px_24px_-14px_hsl(var(--primary)/0.65)] sm:max-w-[80%]'
-                  : isPopup
-                    ? 'w-full max-w-[95%] rounded-2xl rounded-bl-md bg-card px-3 py-2.5 text-foreground shadow-sm ring-1 ring-border/45'
-                    : 'w-full max-w-[90%] rounded-2xl rounded-bl-md bg-background/90 px-3.5 py-3 text-foreground shadow-sm ring-1 ring-border/40 sm:max-w-[82%]'
+                  : message.failed
+                    ? cn(
+                        'w-full rounded-2xl rounded-bl-md bg-destructive/[0.06] text-foreground ring-1 ring-destructive/25',
+                        isPopup ? 'max-w-[95%] px-3 py-2.5' : 'max-w-[90%] px-3.5 py-3 sm:max-w-[82%]'
+                      )
+                    : isFlatAssistantMessage(message)
+                      ? cn('w-full text-foreground', isPopup ? 'max-w-full' : 'max-w-[90%] sm:max-w-[82%]')
+                      : isPopup
+                        ? 'w-full max-w-[95%] rounded-2xl rounded-bl-md bg-card px-3 py-2.5 text-foreground shadow-sm ring-1 ring-border/45'
+                        : 'w-full max-w-[90%] rounded-2xl rounded-bl-md bg-card px-3.5 py-3 text-foreground shadow-sm ring-1 ring-border/50 sm:max-w-[82%]'
               )}
             >
-              {message.role === 'assistant' ? (
+              {message.role === 'assistant' && message.failed ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className={cn('leading-5', isPopup ? 'text-[13px]' : 'text-sm')}>{message.content}</p>
+                  {index === visibleMessages.length - 1 ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 rounded-full"
+                      disabled={loading}
+                      onClick={() => replayLastTurn()}
+                    >
+                      <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                      Reintentar
+                    </Button>
+                  ) : null}
+                </div>
+              ) : message.role === 'assistant' ? (
                 message.ui?.views?.length ? (
                   <AssistantReplyViews
                     ui={message.ui}
                     narrative={message.structured ? undefined : message.content}
                     compact={isPopup}
-                    onFollowUp={(prompt) => void handleSend(prompt)}
+                    onFollowUp={
+                      index === visibleMessages.length - 1
+                        ? (followUp) => void handleSend(followUp)
+                        : undefined
+                    }
                   />
                 ) : message.structured ? (
                   <StructuredAssistantReply reply={message.structured} compact={isPopup} />
-                ) : (
+                ) : message.proposals?.some(
+                    (proposal) => proposal.summary.trim() === message.content.trim()
+                  ) ? null : (
                   <AssistantMessageBody content={message.content} compact={isPopup} />
                 )
               ) : (
                 message.content
               )}
-              {message.role === 'assistant' && message.retryable ? (
-                <button
-                  type="button"
-                  className="mt-2 inline-flex min-h-9 items-center rounded-full bg-primary/10 px-3 py-1 text-[12px] font-medium text-primary hover:bg-primary/15"
-                  onClick={() => {
-                    const previousUser = [...visibleMessages]
-                      .slice(0, index)
-                      .reverse()
-                      .find((row) => row.role === 'user')
-                    if (previousUser) void handleSend(previousUser.content, { retry: true })
-                  }}
-                >
-                  Reintentar esta consulta
-                </button>
-              ) : null}
               {message.role === 'assistant' && message.clarification ? (
                 <AssistantClarificationChips
                   clarification={message.clarification}
@@ -1461,39 +1081,29 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                   onSelect={(label) => void handleSend(label)}
                 />
               ) : null}
-              {message.role === 'assistant' && message.proposals?.length ? (
-                <AssistantProposalGroup
-                  proposals={message.proposals}
-                  compact={isPopup}
-                  executionEnabled={message.executionEnabled === true}
-                  onBoardConfirmed={() => {
-                    void queryClient.invalidateQueries({ queryKey: ['acciones'] })
-                    void queryClient.invalidateQueries({
-                      queryKey: ['assistant-operational-context'],
-                    })
-                  }}
-                />
-              ) : null}
+              {message.role === 'assistant' && message.proposals?.length
+                ? message.proposals.map((proposal) => (
+                    <AssistantProposalCard
+                      key={proposal.id}
+                      proposal={proposal}
+                      compact={isPopup}
+                      onResolved={(status) => {
+                        if (status === 'confirmed') {
+                          void queryClient.invalidateQueries({ queryKey: ['acciones'] })
+                          void queryClient.invalidateQueries({
+                            queryKey: ['assistant-operational-context'],
+                          })
+                        }
+                      }}
+                    />
+                  ))
+                : null}
               {message.role === 'assistant' && message.analysis ? (
-                <div className="mt-3 space-y-2 border-t border-border/50 pt-2.5">
+                <div className="mt-3 space-y-2">
                   {message.analysis.nextSteps.length > 0 && message.analysis.actionDrafts.length === 0 ? (
                     <div className="space-y-1.5">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-primary">
-                        Proximos pasos
-                      </p>
-                      <ul className="space-y-1.5">
-                        {message.analysis.nextSteps.slice(0, 3).map((step, stepIndex) => (
-                          <li
-                            key={step}
-                            className="flex gap-2 rounded-xl bg-muted/35 px-2.5 py-1.5 text-[12px] leading-5 text-foreground/90"
-                          >
-                            <span className="mt-0.5 inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
-                              {stepIndex + 1}
-                            </span>
-                            <span className="min-w-0">{step}</span>
-                          </li>
-                        ))}
-                      </ul>
+                      <SectionEyebrow>Proximos pasos</SectionEyebrow>
+                      <NumberedSteps items={message.analysis.nextSteps.slice(0, 3)} />
                     </div>
                   ) : null}
                   <ActionDraftList
@@ -1505,20 +1115,38 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               ) : null}
             </div>
           </div>
+          {message.role === 'assistant' &&
+          message.intent &&
+          !message.clarification &&
+          !loading &&
+          index === visibleMessages.length - 1 ? (
+            <div className={cn('flex', !isPopup && 'pl-9')}>
+              <button
+                type="button"
+                onClick={() => replayLastTurn(message.intent === 'create' ? 'consult' : 'create')}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition duration-150',
+                  'hover:bg-foreground/[0.05] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                )}
+              >
+                {message.intent === 'create' ? (
+                  <MessageSquareText className="h-3 w-3" aria-hidden />
+                ) : (
+                  <PenLine className="h-3 w-3" aria-hidden />
+                )}
+                {message.intent === 'create' ? 'Tratar como consulta' : 'Tratar como acción'}
+              </button>
+            </div>
+          ) : null}
         </div>
       ))}
       {loading ? (
-        <div
-          className={cn(
-            'flex items-center gap-2 text-sm text-muted-foreground',
-            !isPopup && 'pl-9'
-          )}
-        >
-          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-          Pensando…
+        <div className={cn(!isPopup && 'pl-9')}>
+          <AssistantActivity stage={activityStage ?? 'querying'} compact={isPopup} />
         </div>
       ) : null}
       <div ref={chatEndRef} />
+      </div>
     </div>
   )
 
@@ -1528,64 +1156,47 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         'shrink-0',
         isPopup
           ? 'space-y-2 border-t border-border/50 bg-card/90 p-2.5 backdrop-blur-sm'
-          : 'bg-gradient-to-t from-background via-background/95 to-transparent px-3 pb-3 pt-1.5 sm:px-4'
+          : 'bg-gradient-to-t from-background via-background/95 to-transparent px-3 pb-3 pt-1.5 sm:px-6 sm:pb-4'
       )}
     >
       <div
         className={cn(
           'space-y-1.5',
           !isPopup &&
-            'rounded-2xl bg-background/90 p-2 shadow-[0_14px_30px_-22px_rgba(15,23,42,0.4)] ring-1 ring-border/50 backdrop-blur-sm'
+            'mx-auto w-full max-w-3xl rounded-2xl bg-background/90 p-2 shadow-[0_14px_30px_-22px_hsl(var(--foreground)/0.4)] ring-1 ring-border/50 backdrop-blur-sm'
         )}
       >
-        {!isPopup ? (
-          <div className="flex flex-col gap-1.5">
-            <div className="flex min-w-0 items-center gap-1.5">
-              <WorkIntentToggle value={writeIntent} onChange={setWriteIntent} className="shrink-0" />
-              <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
-                <div className="flex w-max gap-1">
-                  {suggestionChips.slice(0, conversationState ? 5 : 3).map((suggestion, index) => (
-                    <button
-                      key={`${suggestion}-${index}`}
-                      type="button"
-                      onClick={() => void handleSend(suggestion)}
-                      className={cn(
-                        'max-w-[11rem] shrink-0 truncate rounded-full px-2 py-1 text-[10px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                        activeOkrContext
-                          ? 'bg-primary/10 text-primary hover:bg-primary/15'
-                          : activeActionContext
-                            ? 'bg-red-500/10 text-red-800 hover:bg-red-500/15 dark:text-red-200'
-                            : 'bg-muted/55 text-muted-foreground hover:bg-muted hover:text-foreground'
-                      )}
-                      disabled={loading}
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              </div>
+        {!isPopup && (!showBriefing || activeOkrContext || activeActionContext) ? (
+          <div className="min-w-0 overflow-x-auto [scrollbar-width:none]">
+            <div className="flex w-max gap-1.5 px-0.5">
+              {suggestionChips.slice(0, conversationState ? 5 : 3).map((suggestion, index) => (
+                <button
+                  key={`${suggestion}-${index}`}
+                  type="button"
+                  onClick={() => void handleSend(suggestion)}
+                  className={cn(
+                    'max-w-[14rem] shrink-0 truncate rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 transition duration-150',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
+                    activeOkrContext
+                      ? 'bg-primary/10 text-primary ring-primary/20 hover:bg-primary/15'
+                      : activeActionContext
+                        ? 'bg-destructive/10 text-destructive ring-destructive/20 hover:bg-destructive/15'
+                        : 'bg-card text-foreground/80 ring-border/70 hover:text-foreground hover:ring-primary/35'
+                  )}
+                  disabled={loading}
+                >
+                  {suggestion}
+                </button>
+              ))}
             </div>
-            <WorkIntentToggle<ResponseFormat>
-              value={responseFormat}
-              onChange={setResponseFormat}
-              options={FORMAT_OPTIONS}
-              aria-label="Formato de respuesta"
-            />
           </div>
-        ) : (
-          <WorkIntentToggle<ResponseFormat>
-            value={responseFormat}
-            onChange={setResponseFormat}
-            options={FORMAT_OPTIONS}
-            aria-label="Formato de respuesta"
-          />
-        )}
+        ) : null}
         <Label htmlFor={inputId} className="sr-only">
           {activeOkrContext
             ? 'Pregunta sobre el OKR seleccionado'
             : activeActionContext
               ? 'Pregunta sobre la accion seleccionada'
-              : 'Analiza acciones y OKRs'}
+              : 'Pregunta o dime qué necesitas hacer'}
         </Label>
         {speech.listening ? (
           <p className="text-[11px] text-primary">
@@ -1599,14 +1210,110 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         {speech.error ? (
           <p className="text-[11px] text-amber-800 dark:text-amber-200">{speech.error}</p>
         ) : null}
+        {linkedChatReply ? (
+          <div className="flex items-center justify-between gap-2 rounded-xl bg-primary/[0.06] px-2.5 py-1.5 text-[11px] text-primary ring-1 ring-primary/20">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <Link2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="truncate font-medium">
+                Ligado a la respuesta del chat: {linkedChatReply.replace(/\s+/g, ' ').slice(0, 90)}
+                {linkedChatReply.length > 90 ? '…' : ''}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLinkedChatReply(null)}
+              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="Desvincular respuesta del chat"
+            >
+              <X className="h-3 w-3" aria-hidden />
+            </button>
+          </div>
+        ) : null}
         <div
           className={cn(
-            'flex items-end gap-1.5',
+            'relative flex items-end gap-1.5',
             isPopup
               ? 'rounded-2xl border border-border/60 bg-background p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]'
-              : 'rounded-xl bg-muted/35 p-0.5'
+              : 'rounded-xl bg-card p-0.5 ring-1 ring-border/60 transition focus-within:ring-primary/45'
           )}
         >
+          {mentionQuery && filteredMentionPeople.length > 0 ? (
+            <div
+              role="listbox"
+              aria-label="Seleccionar usuario"
+              className="absolute bottom-full left-0 right-0 z-30 mb-2 max-h-52 overflow-y-auto rounded-xl border border-border/70 bg-popover p-1 shadow-lg animate-in fade-in-0 zoom-in-95 duration-150"
+            >
+              <p className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <AtSign className="h-3 w-3" aria-hidden />
+                Seleccionar usuario
+              </p>
+              {filteredMentionPeople.map((person, idx) => (
+                <button
+                  key={person.id}
+                  type="button"
+                  role="option"
+                  aria-selected={idx === mentionIndex}
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    handleSelectMention(person)
+                  }}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition',
+                    idx === mentionIndex
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-foreground hover:bg-muted'
+                  )}
+                >
+                  <span className="truncate">{person.nombre}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <div ref={createMenuRef} className="relative shrink-0">
+            <Button
+              type="button"
+              variant={createMenuOpen ? 'secondary' : 'ghost'}
+              className={cn(
+                'h-9 shrink-0 gap-1 rounded-full px-2.5 text-xs font-semibold',
+                createMenuOpen ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
+              )}
+              onClick={() => setCreateMenuOpen((open) => !open)}
+              disabled={loading || speech.listening || speech.transcribing}
+              aria-haspopup="menu"
+              aria-expanded={createMenuOpen}
+              aria-label="Crear"
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              <span className={isPopup ? 'hidden sm:inline' : 'inline'}>Crear</span>
+              <ChevronDown
+                className={cn('h-3 w-3 transition-transform', createMenuOpen && 'rotate-180')}
+                aria-hidden
+              />
+            </Button>
+            {createMenuOpen ? (
+              <div
+                role="menu"
+                aria-label="Opciones para crear"
+                className="absolute bottom-full left-0 z-30 mb-2 w-44 rounded-xl border border-border/70 bg-popover p-1 shadow-lg animate-in fade-in-0 zoom-in-95 duration-150"
+              >
+                {CREATE_QUICK_OPTIONS.map((option) => {
+                  const Icon = option.icon
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => handleSelectCreateOption(option.prefix)}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-foreground transition hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+                      <span>{option.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
+          </div>
           {speech.supported ? (
             <Button
               type="button"
@@ -1630,15 +1337,20 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
             ref={inputRef}
             id={inputId}
             value={input}
-            onChange={(event) => setInput(event.target.value)}
+            onChange={(event) => {
+              const nextValue = event.target.value
+              setInput(nextValue)
+              updateMentionFromCursor(nextValue, event.target.selectionStart)
+            }}
+            onClick={(event) => {
+              updateMentionFromCursor(event.currentTarget.value, event.currentTarget.selectionStart)
+            }}
             placeholder={
-              writeIntent === 'create'
-                ? 'Dicta o escribe el pendiente a crear…'
-                : activeOkrContext
-                  ? 'Este KR mide resultado o actividad?'
-                  : activeActionContext
-                    ? 'Que falta para cerrar?'
-                    : 'Pregunta por prioridades, bloqueos o tu daily…'
+              activeOkrContext
+                ? 'Este KR mide resultado o actividad?'
+                : activeActionContext
+                  ? 'Que falta para cerrar?'
+                  : 'Pregunta o dime qué necesitas hacer...'
             }
             rows={1}
             className={cn(
@@ -1650,6 +1362,31 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
             readOnly={speech.listening || speech.transcribing}
             disabled={loading}
             onKeyDown={(event) => {
+              if (mentionQuery && filteredMentionPeople.length > 0) {
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault()
+                  setMentionIndex((idx) => (idx + 1) % filteredMentionPeople.length)
+                  return
+                }
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  setMentionIndex(
+                    (idx) => (idx - 1 + filteredMentionPeople.length) % filteredMentionPeople.length
+                  )
+                  return
+                }
+                if (event.key === 'Enter' || event.key === 'Tab') {
+                  event.preventDefault()
+                  const picked = filteredMentionPeople[mentionIndex] ?? filteredMentionPeople[0]
+                  if (picked) handleSelectMention(picked)
+                  return
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setMentionQuery(null)
+                  return
+                }
+              }
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
                 void handleSend()
@@ -1699,7 +1436,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     if (!lane) {
       return (
         <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
-          <AssistantLaneChooser compact onChoose={setLane} />
+          <AssistantLaneChooser compact onChoose={chooseLane} />
         </div>
       )
     }
@@ -1707,7 +1444,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     return (
       <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[radial-gradient(120%_70%_at_50%_-20%,hsl(var(--primary)/0.1),transparent_55%),hsl(var(--background))]">
         <div className="shrink-0 px-2.5 pb-1.5 pt-2">
-          <AssistantLaneSwitch lane={lane} compact onChange={setLane} />
+          <AssistantLaneSwitch lane={lane} compact onChange={(next) => chooseLane(next)} />
         </div>
         {lane === 'talk' ? guidePanel : (
         <>
@@ -1812,50 +1549,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                 }))}
               />
               {selectedObjectives.length > 0 ? (
-                <div className="grid grid-cols-2 gap-2">
-                  <FilterMultiSelect
-                    label="KRs"
-                    emptyLabel="Todos los KR"
-                    className="h-8 rounded-xl"
-                    values={selectedKrIds}
-                    onChange={(ids) => {
-                      setSelectedKrIds(ids)
-                      setSelectedInitiativeIds((prev) =>
-                        prev.filter((id) => {
-                          const initiative = objectiveInitiatives.find((item) => item.id === id)
-                          return Boolean(
-                            initiative &&
-                              (ids.length === 0 || ids.includes(initiative.key_result_id))
-                          )
-                        })
-                      )
-                    }}
-                    options={objectiveKeyResults.map((kr) => ({
-                      value: kr.id,
-                      label: kr.title,
-                    }))}
-                  />
-                  <FilterMultiSelect
-                    label="Iniciativas"
-                    emptyLabel={
-                      objectiveInitiatives.length > 0 ? 'Iniciativas' : 'Sin iniciativas'
-                    }
-                    className="h-8 rounded-xl"
-                    values={selectedInitiativeIds}
-                    onChange={setSelectedInitiativeIds}
-                    disabled={objectiveInitiatives.length === 0}
-                    options={objectiveInitiatives.map((initiative) => {
-                      const actionId = initiative.action_id ?? initiative.team_action_id
-                      const option = (okrActions.data ?? []).find(
-                        (action) => action.id === actionId
-                      )
-                      return {
-                        value: initiative.id,
-                        label: option?.title || 'Iniciativa sin titulo',
-                      }
-                    })}
-                  />
-                </div>
+                okrScopeSelectors
               ) : (
                 <p className="px-0.5 text-[10px] text-muted-foreground">
                   Elige uno o varios OKRs para diagnosticarlos.
@@ -1877,50 +1571,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     lane === 'write' &&
     (selectedObjectives.length > 0 || selectedActions.length > 0) ? (
       <div className="relative shrink-0 space-y-1.5 border-b border-border/40 px-3 py-2 sm:px-4">
-        {selectedObjectives.length > 0 ? (
-          <div className="grid grid-cols-2 gap-2">
-            <FilterMultiSelect
-              label="KRs"
-              emptyLabel="Todos los KR"
-              className="h-8 rounded-xl"
-              values={selectedKrIds}
-              onChange={(ids) => {
-                setSelectedKrIds(ids)
-                setSelectedInitiativeIds((prev) =>
-                  prev.filter((id) => {
-                    const initiative = objectiveInitiatives.find((item) => item.id === id)
-                    return Boolean(
-                      initiative &&
-                        (ids.length === 0 || ids.includes(initiative.key_result_id))
-                    )
-                  })
-                )
-              }}
-              options={objectiveKeyResults.map((kr) => ({
-                value: kr.id,
-                label: kr.title,
-              }))}
-            />
-            <FilterMultiSelect
-              label="Iniciativas"
-              emptyLabel={
-                objectiveInitiatives.length > 0 ? 'Iniciativa' : 'Sin iniciativas'
-              }
-              className="h-8 rounded-xl"
-              values={selectedInitiativeIds}
-              onChange={setSelectedInitiativeIds}
-              disabled={objectiveInitiatives.length === 0}
-              options={objectiveInitiatives.map((initiative) => {
-                const actionId = initiative.action_id ?? initiative.team_action_id
-                const option = (okrActions.data ?? []).find((action) => action.id === actionId)
-                return {
-                  value: initiative.id,
-                  label: option?.title || 'Iniciativa sin titulo',
-                }
-              })}
-            />
-          </div>
-        ) : null}
+        {selectedObjectives.length > 0 ? okrScopeSelectors : null}
 
         {selectedActions.length === 1 ? (
           <div className="flex min-w-0 items-center gap-1.5 truncate rounded-lg bg-background/60 px-2 py-1 text-[11px]">
@@ -1945,25 +1596,27 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     ) : null
 
   return (
-    <div className="-m-4 flex h-[calc(100%+2rem)] min-h-0 w-[calc(100%+2rem)] max-w-none flex-col gap-2 overflow-hidden p-3 sm:p-4">
-      <header className="flex shrink-0 items-center gap-2 sm:gap-2.5">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-          <Bot className="h-3.5 w-3.5" aria-hidden />
-        </span>
-        <h2 className="min-w-0 shrink truncate text-base font-semibold tracking-tight">
-          Asistente
-        </h2>
+    <div className="-m-4 flex h-[calc(100%+2rem)] min-h-0 w-[calc(100%+2rem)] max-w-none flex-col gap-2.5 overflow-hidden p-2.5 sm:gap-3 sm:p-4">
+      <header className="flex shrink-0 flex-wrap items-center gap-2 lg:flex-nowrap lg:gap-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+            <Bot className="h-3.5 w-3.5" aria-hidden />
+          </span>
+          <h2 className="min-w-0 truncate text-base font-semibold tracking-tight">
+            Asistente
+          </h2>
+        </div>
 
         {lane ? (
           <>
             <div className="hidden h-5 w-px shrink-0 bg-border/70 sm:block" aria-hidden />
             <div
               className={cn(
-                'w-[10.75rem] shrink-0 sm:w-[11.5rem]',
+                'min-w-0 shrink-0 sm:w-[11.5rem]',
                 lane !== 'write' && 'ml-auto'
               )}
             >
-              <AssistantLaneSwitch lane={lane} compact onChange={setLane} />
+              <AssistantLaneSwitch lane={lane} compact onChange={(next) => chooseLane(next)} />
             </div>
           </>
         ) : null}
@@ -1972,8 +1625,8 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
           <>
             <div
               className={cn(
-                'ml-auto flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2',
-                'max-w-xl'
+                'order-last flex w-full min-w-0 items-center gap-1.5 lg:order-none lg:ml-auto lg:w-auto lg:flex-1 lg:gap-2',
+                'lg:max-w-md xl:max-w-lg'
               )}
               role="group"
               aria-label="Foco del copiloto"
@@ -2053,7 +1706,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               size="icon"
               onClick={clearFiltersOrChat}
               disabled={loading || (!hasActiveFilters && messages.length === 0)}
-              className="h-8 w-8 shrink-0 rounded-full"
+              className="ml-auto h-8 w-8 shrink-0 rounded-full lg:ml-0"
               aria-label={hasActiveFilters ? 'Limpiar filtros' : 'Limpiar chat'}
               title={hasActiveFilters ? 'Limpiar filtros' : 'Limpiar chat'}
             >
@@ -2064,116 +1717,18 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
       </header>
 
       {!lane ? (
-        <div className="min-h-0 flex-1 overflow-hidden rounded-[1.75rem] shadow-[0_28px_70px_-40px_rgba(15,23,42,0.45)] ring-1 ring-border/40">
-          <AssistantLaneChooser onChoose={setLane} />
-        </div>
+        <AssistantSurface className="min-h-0 flex-1 overflow-hidden">
+          <AssistantLaneChooser onChoose={chooseLane} />
+        </AssistantSurface>
       ) : lane === 'talk' ? (
-        <div className="min-h-0 flex-1 overflow-hidden rounded-[1.75rem] shadow-[0_28px_70px_-40px_rgba(15,23,42,0.45)] ring-1 ring-border/40">
-          {guidePanel}
-        </div>
+        <AssistantSurface className="min-h-0 flex-1 overflow-hidden">{guidePanel}</AssistantSurface>
       ) : (
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] shadow-[0_28px_70px_-40px_rgba(15,23,42,0.45)] ring-1 ring-border/40 bg-[radial-gradient(120%_80%_at_50%_-10%,hsl(var(--primary)/0.12),transparent_55%),linear-gradient(180deg,hsl(var(--muted)/0.35)_0%,hsl(var(--background))_46%)]">
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-[radial-gradient(ellipse_at_top,hsl(var(--primary)/0.1),transparent_70%)]" aria-hidden />
+        <AssistantSurface glow className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {writeContextExtras}
           {chatThread}
           {composer}
-        </div>
+        </AssistantSurface>
       )}
-    </div>
-  )
-}
-
-function AssistantProposalGroup({
-  proposals,
-  compact,
-  executionEnabled,
-  onBoardConfirmed,
-}: {
-  proposals: CopilotProposal[]
-  compact: boolean
-  executionEnabled: boolean
-  onBoardConfirmed: () => void
-}) {
-  const [statusById, setStatusById] = useState<Record<string, 'pending' | 'confirmed' | 'cancelled' | 'error'>>({})
-  const [batchBusy, setBatchBusy] = useState(false)
-  const groups = new Map<string, CopilotProposal[]>()
-  for (const proposal of proposals) {
-    const key = proposal.batchId ?? proposal.id
-    const list = groups.get(key) ?? []
-    list.push(proposal)
-    groups.set(key, list)
-  }
-
-  const lockFor = (proposal: CopilotProposal) =>
-    isR2BoardProposalTool(proposal.tool) && !executionEnabled && proposal.simulated !== true
-
-  return (
-    <div className="space-y-2">
-      {[...groups.entries()].map(([key, items]) => {
-        const pending = items.filter((item) => (statusById[item.id] ?? 'pending') === 'pending')
-        const confirmed = items.filter((item) => statusById[item.id] === 'confirmed')
-        const failed = items.filter((item) => statusById[item.id] === 'error')
-        const showBatch = items.length > 1 && items[0]?.batchId
-        const batchLocked = items.some(lockFor)
-        const batchLabel =
-          failed.length > 0 && confirmed.length > 0
-            ? 'Parcial'
-            : failed.length > 0
-              ? 'Fallida'
-              : confirmed.length === items.length
-                ? 'Ejecutada'
-                : 'Pendiente'
-        return (
-          <div key={key} className="space-y-2">
-            {showBatch ? (
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 bg-muted/30 px-3 py-2">
-                <p className="text-[12px] text-foreground/80">
-                  Lote de {items.length} propuestas · {batchLabel}
-                </p>
-                {!batchLocked && pending.length > 0 ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="h-8 rounded-full px-3"
-                    disabled={batchBusy}
-                    onClick={() => {
-                      void (async () => {
-                        setBatchBusy(true)
-                        for (const item of pending) {
-                          try {
-                            await confirmAssistantOp(item.id)
-                            setStatusById((current) => ({ ...current, [item.id]: 'confirmed' }))
-                            onBoardConfirmed()
-                          } catch {
-                            setStatusById((current) => ({ ...current, [item.id]: 'error' }))
-                          }
-                        }
-                        setBatchBusy(false)
-                      })()
-                    }}
-                  >
-                    {batchBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-                    Aprobar {pending.length} de este lote
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
-            {items.map((proposal) => (
-              <AssistantProposalCard
-                key={proposal.id}
-                proposal={proposal}
-                compact={compact}
-                status={statusById[proposal.id]}
-                executionLocked={lockFor(proposal)}
-                onResolved={(status) => {
-                  setStatusById((current) => ({ ...current, [proposal.id]: status === 'confirmed' ? 'confirmed' : 'cancelled' }))
-                  if (status === 'confirmed') onBoardConfirmed()
-                }}
-              />
-            ))}
-          </div>
-        )
-      })}
     </div>
   )
 }

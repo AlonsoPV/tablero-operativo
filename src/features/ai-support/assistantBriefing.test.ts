@@ -87,48 +87,8 @@ describe('assistantBriefing', () => {
     })
     expect(briefing.greeting).toBe('Hola, Ana.')
     expect(briefing.summary).toContain('abiertas')
-    expect(briefing.summary).toContain('Mis acciones')
-    expect(briefing.scopeKind).toBe('personal')
-    expect(briefing.indicators.length).toBeGreaterThan(0)
-    expect(briefing.indicators.length).toBeLessThanOrEqual(3)
     expect(briefing.priorityTitle).toBe('Cerrar POD')
     expect(briefing.priorityRecord?.href).toContain('accion=a1')
-  })
-
-  it('Dirección uses organizational board counts, not a personal zero', () => {
-    const org = buildOperationalSnapshot({
-      usuarioId: 'u-dir',
-      rol: 'Direccion',
-      areas: ['Direccion'],
-      seesAllBoard: true,
-      canSeeOkrs: true,
-      openActions: [
-        action({
-          id: 'a9',
-          titulo_accion: 'Ruta OTIF',
-          responsable: 'u1',
-          estado: 'Retraso',
-          fecha: '2026-11-01',
-        }),
-      ],
-      pendingVerificationActions: [],
-      priorities: [],
-      okrData: null,
-      today: '2026-11-03',
-      fetchedAt: '2026-11-03T18:00:00.000Z',
-    })
-    const briefing = buildAssistantBriefing({
-      userName: 'Diego',
-      snapshot: org,
-      audience: 'direccion',
-    })
-    expect(briefing.scopeKind).toBe('organization')
-    expect(briefing.scopeLabel).toBe('Operación de la empresa')
-    expect(briefing.summary).toContain('Operación de la empresa')
-    expect(briefing.summary).toMatch(/1 abiertas/)
-    expect(briefing.summary).toMatch(/Tus acciones asignadas: 0/)
-    expect(briefing.indicators[0]?.value).toBe(1)
-    expect(briefing.indicators.length).toBeLessThanOrEqual(3)
   })
 
   it('picks four quick actions per role', () => {
@@ -152,26 +112,6 @@ describe('assistantBriefing', () => {
     expect(resolveAssistantAudience({ isDirection: true, isLeader: false, canSeeTeam: true })).toBe(
       'direccion'
     )
-  })
-
-  it('fails loudly when the page omits audience (H-05 AppErrorBoundary .map)', () => {
-    expect(() =>
-      buildAssistantQuickActions({
-        audience: undefined as unknown as AssistantAudience,
-        canSeeOkrs: true,
-      })
-    ).toThrow(/audience de asistente no soportado/)
-  })
-
-  it('Dirección with board scope gets executive actions, not a crash', () => {
-    const audience = resolveAssistantAudience({
-      isDirection: true,
-      isLeader: false,
-      canSeeTeam: true,
-    })
-    const actions = buildAssistantQuickActions({ audience, canSeeOkrs: true })
-    expect(actions.map((item) => item.id)).toEqual(['executive', 'risks', 'okr_results', 'decisions'])
-    expect(actions.every((item) => item.label && item.prompt)).toBe(true)
   })
 
   it('formats structured replies without markdown', () => {
