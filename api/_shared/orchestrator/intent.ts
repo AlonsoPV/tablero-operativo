@@ -88,11 +88,44 @@ export function classifyAgentIntent(
   }
 
   if (
-    /\b(que deberia hacer|que hago( ahora)?|siguiente paso|por donde empiezo|que me recomiendas|que recomiendas)\b/.test(
+    /\b(que deberia hacer|que hago( ahora)?|siguiente paso|por donde empiezo|que me recomiendas|que recomiendas|que necesita mi atencion|que requiere mi atencion|que deberia priorizar|que priorizar)\b/.test(
       text
     )
   ) {
     return { kind: 'recommend_next' }
+  }
+
+  if (
+    /\b(quien(?:es)? tienen? acciones vencidas|quien(?:es)? tienen? (?:tareas|compromisos) vencid[oa]s|quien(?:es)? van? atrasad[oa]s)\b/.test(
+      text
+    )
+  ) {
+    return { kind: 'aggregate_execution', groupBy: 'responsable', statusGroup: 'overdue' }
+  }
+
+  if (/\b(que esta bloqueando|que bloquea a mi equipo|bloqueos? de mi equipo|bloqueando al equipo)\b/.test(text)) {
+    return {
+      kind: 'query_actions',
+      scope: 'team_authorized',
+      statusGroup: 'blocked',
+      visual: 'none',
+      focusToday: false,
+      restrictedRequest: false,
+    }
+  }
+
+  if (
+    /\bcomo vamos con\b/.test(text) &&
+    !/\b(okrs?|objetivos?|resultados? clave|krs?|metas?)\b/.test(text)
+  ) {
+    return {
+      kind: 'query_actions',
+      scope: 'team_authorized',
+      statusGroup: 'open',
+      visual: 'none',
+      focusToday: false,
+      restrictedRequest: false,
+    }
   }
 
   const request = utterance.slice(0, 500)
