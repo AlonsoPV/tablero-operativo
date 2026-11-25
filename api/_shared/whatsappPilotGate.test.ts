@@ -136,7 +136,8 @@ describe('WhatsApp Selective Single-User Pilot Gate — Fail-Closed Closure Suit
       kind: 'recommend_next',
     })
     expect(classifyAgentIntent('¿Qué debería priorizar hoy?', null)).toEqual({
-      kind: 'recommend_next',
+      kind: 'executive_brief',
+      focus: 'priorities',
     })
     expect(classifyAgentIntent('¿Quién tiene acciones vencidas?', null)).toEqual({
       kind: 'aggregate_execution',
