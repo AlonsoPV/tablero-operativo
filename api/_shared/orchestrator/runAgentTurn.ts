@@ -2379,6 +2379,7 @@ export async function runAgentTurn(
     hasExecutiveSession: Boolean(ctx.executiveSession?.active),
     lastActionCount: ctx.lastActions.length,
     lastEntityKind: ctx.lastEntity?.kind ?? null,
+    pendingWrite: ctx.pendingWrite ?? null,
   })
   stage('intent')
 
@@ -2532,6 +2533,10 @@ export async function runAgentTurn(
       lastActions: state.ctx.lastActions,
       lastEntity: state.ctx.lastEntity,
       executiveSession: state.ctx.executiveSession ?? null,
+      pendingWrite:
+        intent.kind === 'write_request'
+          ? { operation: intent.operation, request: intent.request.slice(0, 280) }
+          : null,
       fingerprint,
       responseFormat: selected,
       lastAnswer: cacheable ? { intent: intent.kind, response: outcome.response, auto: autoResolution } : null,
