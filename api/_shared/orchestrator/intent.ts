@@ -160,18 +160,18 @@ export function classifyAgentIntent(
 
   // Inteligencia ejecutiva: diagnóstico operativo, prioridades, patrones repetidos y compromisos
   if (
-    /\b(como esta mi empresa|como va mi empresa|como estamos hoy|estado general de la operacion|panorama ejecutivo|diagnostico operativo|analizar ejecucion de la empresa|analiza la ejecucion de la empresa|donde tenemos problemas de ejecucion)\b/.test(
+    /\b(como esta mi empresa|como va mi empresa|como estamos hoy|estado general de la operacion|panorama ejecutivo|diagnostico operativo|analizar ejecucion de la empresa|analiza la ejecucion de la empresa|donde tenemos problemas de ejecucion|que esta frenando|frenando a mi equipo|frenando al equipo|cuellos de botella)\b/.test(
       text
     )
   ) {
-    const focus = /\b(problemas de ejecucion|analizar ejecucion|analiza la ejecucion)\b/.test(text)
+    const focus = /\b(problemas de ejecucion|analizar ejecucion|analiza la ejecucion|que esta frenando|frenando a mi equipo|frenando al equipo|cuellos de botella)\b/.test(text)
       ? 'execution'
       : 'overview'
     return { kind: 'executive_brief', focus }
   }
 
   if (
-    /\b(que requiere mi atencion|principales problemas|3 principales|tres principales|top 3|prioridades ejecutivas|que deberia priorizar hoy|que priorizar hoy)\b/.test(
+    /\b(que requiere mi atencion|que necesita mi atencion|principales problemas|3 principales|tres principales|top 3|prioridades ejecutivas|que deberia priorizar hoy|que priorizar hoy|(?:que )?(?:acciones )?deberia priorizar(?: esta semana| hoy)?|que priorizar esta semana)\b/.test(
       text
     )
   ) {
@@ -191,7 +191,7 @@ export function classifyAgentIntent(
   }
 
   if (
-    /\b(compromisos pendientes|acuerdos pendientes|compromisos por responsable|pendientes de verificacion|pendientes de verificado|en hecho pendientes|situaciones sin actualizacion)\b/.test(
+    /\b(compromisos pendientes|acuerdos pendientes|compromisos por responsable|pendientes de verificacion|pendientes de verificado|en hecho pendientes|situaciones sin actualizacion|compromisos? (?:que )?no se estan cumpliendo|compromisos? incumplidos?|compromisos? de (?:nuestra|la) ultima reunion|acuerdos? de (?:nuestra|la) ultima reunion|que acordamos en (?:la|nuestra) ultima reunion)\b/.test(
       text
     )
   ) {
@@ -199,7 +199,9 @@ export function classifyAgentIntent(
       ? 'verification'
       : /\bpor responsable\b/.test(text)
         ? 'by_owner'
-        : 'all'
+        : /\b(no se estan cumpliendo|incumplidos?)\b/.test(text)
+          ? 'overdue'
+          : 'all'
     return { kind: 'executive_commitments', filter }
   }
 
@@ -217,7 +219,7 @@ export function classifyAgentIntent(
 
   // Fase 2 — Revisión ejecutiva guiada (~15 min), disciplina operativa, inteligencia preventiva y trazabilidad
   if (
-    /\b(revision ejecutiva|sesion ejecutiva|revisemos la operacion en 15|hagamos una revision|revision de 15 minutos)\b/.test(
+    /\b(revision ejecutiva|sesion ejecutiva|revisemos la operacion en 15|hagamos una revision|revision de 15 minutos|preparar (?:mi |la )?reunion de seguimiento|reunion de seguimiento)\b/.test(
       text
     )
   ) {
@@ -225,7 +227,7 @@ export function classifyAgentIntent(
   }
 
   if (
-    /\b(resume nuestras decisiones|resumen de decisiones|resumen ejecutivo final|prepara los compromisos|cerrar revision ejecutiva|cierra la revision)\b/.test(
+    /\b(resume nuestras decisiones|resumen de decisiones|resumen ejecutivo final|resumen final|resumen de la sesion|prepara los compromisos|cerrar revision ejecutiva|cierra la revision)\b/.test(
       text
     )
   ) {
@@ -237,15 +239,24 @@ export function classifyAgentIntent(
     return { kind: 'executive_review', action: 'record_decision', ...(note ? { note: note.slice(0, 300) } : {}) }
   }
 
-  if (/\b(siguiente etapa|siguiente punto|avanza(?:r)? (?:a la )?siguiente|continuar revision)\b/.test(text)) {
+  if (
+    /\b(siguiente etapa|siguiente punto|avanza(?:r)? (?:a la )?siguiente|continuar revision)\b/.test(text) ||
+    (session?.hasExecutiveSession && /^(siguiente|avanza(?:r)?|continuar)$/.test(text))
+  ) {
     return { kind: 'executive_review', action: 'next' }
   }
 
-  if (/\b(etapa anterior|regresa(?:r)?(?: a la etapa)?|volver(?: a)?(?: la)? etapa|atras en la revision)\b/.test(text)) {
+  if (
+    /\b(etapa anterior|regresa(?:r)?(?: a la etapa)?|volver(?: a)?(?: la)? etapa|atras en la revision)\b/.test(text) ||
+    (session?.hasExecutiveSession && /^(volver|regresar|atras|anterior)$/.test(text))
+  ) {
     return { kind: 'executive_review', action: 'previous' }
   }
 
-  if (/\b(omitir etapa|saltar etapa|saltar (?:riesgos|prioridades|decisiones|bloqueos)|omitir este punto)\b/.test(text)) {
+  if (
+    /\b(omitir etapa|saltar etapa|saltar (?:riesgos|prioridades|decisiones|bloqueos)|omitir este punto)\b/.test(text) ||
+    (session?.hasExecutiveSession && /^(omitir|saltar)$/.test(text))
+  ) {
     return { kind: 'executive_review', action: 'skip' }
   }
 
@@ -273,7 +284,7 @@ export function classifyAgentIntent(
 
   if (
     !looksLikeWriteFollowUp &&
-    (/\b(sustentan esta recomendacion|acciones que sustentan|respaldan esta recomendacion|ver evidencia|muestrame la evidencia|profundiza(?:r)? en la (prioridad|accion|primera)|detalle de la prioridad|cual era la prioridad|abre (?:esa|la) accion)\b/.test(
+    (/\b(sustentan esta recomendacion|acciones que sustentan|respaldan esta recomendacion|ver evidencia|muestrame la evidencia|profundiza(?:r)? en la (prioridad|accion|primera)|detalle de la prioridad|cual era la prioridad|abre (?:esa|la) accion|explicame por que|explica por que)\b/.test(
       text
     ) ||
       isFollowUpReference(text, session))
@@ -289,37 +300,11 @@ export function classifyAgentIntent(
   }
 
   if (
-    /\b(mas urgente|mas critica|mas atrasada|mas vencida)\b/.test(text) &&
-    /\b(quien|cual|cuales|el mas|la mas)\b/.test(text)
-  ) {
-    return { kind: 'who_most_urgent' }
-  }
-
-  if (
-    /\b(que deberia hacer|que hago( ahora)?|siguiente paso|por donde empiezo|que me recomiendas|que recomiendas|que necesita mi atencion|que requiere mi atencion|que deberia priorizar|que priorizar)\b/.test(
-      text
-    )
-  ) {
-    return { kind: 'recommend_next' }
-  }
-
-  if (
     /\b(quien(?:es)? tienen? acciones vencidas|quien(?:es)? tienen? (?:tareas|compromisos) vencid[oa]s|quien(?:es)? van? atrasad[oa]s)\b/.test(
       text
     )
   ) {
     return { kind: 'aggregate_execution', groupBy: 'responsable', statusGroup: 'overdue' }
-  }
-
-  if (/\b(que esta bloqueando|que bloquea a mi equipo|bloqueos? de mi equipo|bloqueando al equipo)\b/.test(text)) {
-    return {
-      kind: 'query_actions',
-      scope: 'team_authorized',
-      statusGroup: 'blocked',
-      visual: 'none',
-      focusToday: false,
-      restrictedRequest: false,
-    }
   }
 
   if (
@@ -336,6 +321,21 @@ export function classifyAgentIntent(
     }
   }
 
+  if (
+    /\b(mas urgente|mas critica|mas atrasada|mas vencida)\b/.test(text) &&
+    /\b(quien|cual|cuales|el mas|la mas)\b/.test(text)
+  ) {
+    return { kind: 'who_most_urgent' }
+  }
+
+  if (
+    /\b(que deberia hacer|que hago( ahora)?|siguiente paso|por donde empiezo|que me recomiendas|que recomiendas|que decisiones deberia tomar|que decisiones tomar|que decision deberia tomar|cual de esos problemas deberia resolver primero|resolver primero|atender primero)\b/.test(
+      text
+    )
+  ) {
+    return { kind: 'recommend_next' }
+  }
+
   const request = utterance.slice(0, 500)
   if (
     /\b(ejecuta(?:r)? sql|corre esta consulta|insert into|update acciones_diarias|delete from)\b/.test(text) ||
@@ -348,15 +348,18 @@ export function classifyAgentIntent(
   }
   if (
     /\bconvierte\b/.test(text) &&
-    /\b(compromisos|decisiones)\b/.test(text) &&
+    /\b(compromisos|decisiones|acuerdos)\b/.test(text) &&
     /\b(acciones|propuestas|accion)\b/.test(text)
   ) {
     return {
       kind: 'write_request',
       operation: 'create_action',
       request,
-      batch: /\bdecisiones\b/.test(text) && !/\bcompromisos\b/.test(text) ? 'decisions' : 'commitments',
+      batch: /\bdecisiones\b/.test(text) && !/\b(compromisos|acuerdos)\b/.test(text) ? 'decisions' : 'commitments',
     }
+  }
+  if (/\b(convierte(?:lo|la)?|transforma(?:lo|la)?)\b/.test(text) && /\b(accion|tarea)\b/.test(text)) {
+    return { kind: 'write_request', operation: 'create_action', request }
   }
   if (/\b(prepara|preparar|arma|armar)\b/.test(text) && /\b(seguimiento|aviso|recordatorio)\b/.test(text)) {
     return {
@@ -373,8 +376,17 @@ export function classifyAgentIntent(
     return { kind: 'clarify', question: interpreted.ambiguity.question }
   }
   const target = /\b(accion|tarea|esa|esta|la)\b/.test(text)
-  if (target && /\b(bloquea|bloquear|bloqueala|(registra|registrar|reporta|reportar)\s+(un\s+)?bloqueo)\b/.test(text)) {
-    const motivo = utterance.match(/\b(?:porque|por que|debido a|motivo:?)\s+(.+)$/i)?.[1]?.trim().slice(0, 500)
+  const naturalBlockerReport =
+    /\b(registra(?:r)?|reporta(?:r)?|anota(?:r)?)\s+(?:que\s+)?(?:seguimos|estamos|sigue|esta)\s+bloquead[oa]s?\b/.test(
+      text
+    )
+  if (
+    naturalBlockerReport ||
+    (target && /\b(bloquea|bloquear|bloqueala|(registra|registrar|reporta|reportar)\s+(un\s+)?bloqueo)\b/.test(text))
+  ) {
+    const motivo =
+      utterance.match(/\b(?:porque|por que|debido a|motivo:?)\s+(.+)$/i)?.[1]?.trim().slice(0, 500) ||
+      utterance.match(/\bbloquead[oa]s?\s+(por\s+.+)$/i)?.[1]?.trim().slice(0, 500)
     return { kind: 'write_request', operation: 'register_blocker', request, ...(motivo ? { motivo } : {}) }
   }
   if (
@@ -418,8 +430,9 @@ export function classifyAgentIntent(
     return { kind: 'write_request', operation: 'create_action', request }
   }
   if (
-    /\b(asigna|asignar|reasigna|reasignar|prioridad|fecha|reprograma|responsable)\b/.test(text) &&
-    /\b(accion|tarea|esa|esta)\b/.test(text)
+    /\b(asigna(?:sela|selo|la|lo|r)?|reasigna(?:sela|selo|r)?|prioridad|fecha|reprograma(?:r|la)?|responsable)\b/.test(text) &&
+    (/\b(accion|tarea|esa|esta)\b/.test(text) ||
+      /\b(asignasela|asignaselo|mejor cambia la fecha|cambia la fecha al|reprograma(?:la)? al|responsable correspondiente)\b/.test(text))
   ) {
     return { kind: 'write_request', operation: 'update_action', request }
   }
