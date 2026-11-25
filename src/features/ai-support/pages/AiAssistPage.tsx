@@ -83,12 +83,8 @@ import {
   type WriteIntent,
 } from '@/features/ai-support/writeIntent'
 import { buildCreateApprovalMessage } from '@/features/ai-support/createWorkReply'
-import {
-  AssistantRequestError,
-  friendlyAssistantError,
-  isRetryableAssistantError,
-} from '@/features/ai-support/assistantErrors'
-import { looksLikeDocumentaryAsk, tryKnowledgeReply } from '@/features/ai-support/knowledge/tryKnowledgeReply'
+import { friendlyAssistantError } from '@/features/ai-support/assistantErrors'
+import { tryKnowledgeReply } from '@/features/ai-support/knowledge/tryKnowledgeReply'
 import { groundActionDrafts } from '@/features/ai-support/groundActionDrafts'
 import { useAppRole } from '@/features/auth/hooks/useAppRole'
 import { canViewAllBoardData, isDirectionByRole, isLeaderByRole } from '@/features/auth/lib/permissions'
@@ -163,7 +159,6 @@ type ActionContext = {
 
 const FORMAT_STORAGE_KEY = 'assistant.responseFormat'
 const CONVERSATION_STORAGE_KEY = 'assistant.conversationId'
-const TRANSCRIPT_STORAGE_KEY = 'assistant.transcript'
 
 const FORMAT_OPTIONS = RESPONSE_FORMATS.map((id) => ({
   id,
@@ -200,34 +195,6 @@ function readConversationId(): string {
   }
 }
 
-function readStoredTranscript(conversationId: string): AiChatMessage[] {
-  try {
-    const raw = window.sessionStorage.getItem(TRANSCRIPT_STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as { conversationId?: string; messages?: AiChatMessage[] }
-    if (parsed.conversationId !== conversationId || !Array.isArray(parsed.messages)) return []
-    return parsed.messages.filter(
-      (row) =>
-        row &&
-        (row.role === 'user' || row.role === 'assistant') &&
-        typeof row.content === 'string'
-    )
-  } catch {
-    return []
-  }
-}
-
-function storeTranscript(conversationId: string, messages: AiChatMessage[]) {
-  try {
-    window.sessionStorage.setItem(
-      TRANSCRIPT_STORAGE_KEY,
-      JSON.stringify({ conversationId, messages })
-    )
-  } catch {
-    /* sin almacenamiento: la conversación sólo vive en memoria */
-  }
-}
-
 type GeminiChatResponse = {
   answer?: string
   agent?: {
@@ -238,7 +205,6 @@ type GeminiChatResponse = {
     references?: Array<{ id: string; title: string; href: string }>
   }
   error?: string
-  retryable?: boolean
   proposals?: AiChatMessage['proposals']
   clarification?: AiChatMessage['clarification']
   ui?: AiChatMessage['ui']
@@ -294,28 +260,18 @@ async function sendMessage({
 
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      throw new AssistantRequestError(data?.error || 'No autorizado para usar el Asistente IA.')
+      throw new Error(data?.error || 'No autorizado para usar el Asistente IA.')
     }
     if (response.status === 429) {
-      throw new AssistantRequestError(
-        data?.error || 'Demasiadas consultas. Espera un momento e intenta de nuevo.',
-        true
-      )
-    }
-    if (response.status === 503 || data?.retryable) {
-      throw new AssistantRequestError(
-        data?.error ||
-          'El proveedor de IA está saturado. Tu pregunta se conservó; puedes reintentar sin perder la conversación.',
-        true
-      )
+      throw new Error(data?.error || 'Demasiadas consultas. Espera un momento e intenta de nuevo.')
     }
     if (response.status === 404) {
-      throw new AssistantRequestError(
+      throw new Error(
         'No se encontro el endpoint /api/gemini-chat. En local usa Vercel dev o prueba desde el despliegue de Vercel.'
       )
     }
 
-    throw new AssistantRequestError(data?.error || 'No se pudo generar una respuesta.')
+    throw new Error(data?.error || 'No se pudo generar una respuesta.')
   }
 
   const agentUi =
@@ -770,17 +726,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
   const [selectedInitiativeIds, setSelectedInitiativeIds] = useState<string[]>([])
   const [okrContextEnabled, setOkrContextEnabled] = useState(true)
   const [focusKind, setFocusKind] = useState<FocusKind>('portfolio')
-  const [messages, setMessages] = useState<AiChatMessage[]>(() =>
-    readStoredTranscript(
-      (() => {
-        try {
-          return window.sessionStorage.getItem(CONVERSATION_STORAGE_KEY) ?? ''
-        } catch {
-          return ''
-        }
-      })()
-    )
-  )
+  const [messages, setMessages] = useState<AiChatMessage[]>([])
   const [conversationState, setConversationState] = useState<ConversationQueryState | null>(null)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -952,6 +898,15 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         ? CONVERSATION_FILTER_CHIPS
         : PORTFOLIO_PROMPTS
 
+  const briefing = useMemo(
+    () =>
+      buildAssistantBriefing({
+        userName: currentUser?.nombre,
+        snapshot: operationalSnapshot,
+        loading: operationalLoad.isLoading || actionsLoading,
+      }),
+    [actionsLoading, currentUser?.nombre, operationalLoad.isLoading, operationalSnapshot]
+  )
   const assistantAudience = useMemo(
     () =>
       resolveAssistantAudience({
@@ -960,16 +915,6 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         canSeeTeam: seesAllBoard,
       }),
     [currentUser?.rol, seesAllBoard]
-  )
-  const briefing = useMemo(
-    () =>
-      buildAssistantBriefing({
-        userName: currentUser?.nombre,
-        snapshot: operationalSnapshot,
-        loading: operationalLoad.isLoading || actionsLoading,
-        audience: assistantAudience,
-      }),
-    [actionsLoading, assistantAudience, currentUser?.nombre, operationalLoad.isLoading, operationalSnapshot]
   )
   const quickActions = useMemo(
     () =>
@@ -1015,7 +960,6 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     setMessages([])
     setConversationState(null)
     setInput('')
-    storeTranscript(conversationId, [])
   }
 
   const clearFilters = () => {
@@ -1096,23 +1040,13 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, loading, showBriefing])
 
-  useEffect(() => {
-    storeTranscript(conversationId, messages)
-  }, [conversationId, messages])
-
-  const handleSend = async (prompt = input, options?: { retry?: boolean }) => {
+  const handleSend = async (prompt = input) => {
     const trimmed = prompt.trim()
     if (!trimmed || loading) return
 
-    const baseMessages = options?.retry
-      ? messages.filter((row) => !row.retryable)
-      : messages
-    const last = baseMessages.at(-1)
-    const nextMessages = (
-      options?.retry && last?.role === 'user' && last.content === trimmed
-        ? baseMessages
-        : [...baseMessages, { role: 'user' as const, content: trimmed, requestId: crypto.randomUUID() }]
-    ).slice(-MAX_MESSAGES)
+    const nextMessages = [...messages, { role: 'user' as const, content: trimmed, requestId: crypto.randomUUID() }].slice(
+      -MAX_MESSAGES
+    )
 
     setMessages(nextMessages)
     setInput('')
@@ -1167,8 +1101,7 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
         const hasExplicitFocus = activeActionContext || activeOkrContext
         const orchestratorEnabled = __AGENT_ORCHESTRATOR_R1__ === true
 
-        const knowledge =
-          looksLikeDocumentaryAsk(trimmed) ? null : tryKnowledgeReply(trimmed)
+        const knowledge = tryKnowledgeReply(trimmed)
         if (knowledge) {
           setMessages(
             [
@@ -1280,14 +1213,12 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
       }
     } catch (error) {
       const message = friendlyAssistantError(error)
-      const retryable = isRetryableAssistantError(error)
       toast.error(message)
       setMessages([
         ...nextMessages,
         {
           role: 'assistant' as const,
           content: message,
-          retryable,
         },
       ])
     } finally {
@@ -1420,7 +1351,6 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                     ui={message.ui}
                     narrative={message.structured ? undefined : message.content}
                     compact={isPopup}
-                    onFollowUp={(prompt) => void handleSend(prompt)}
                   />
                 ) : message.structured ? (
                   <StructuredAssistantReply reply={message.structured} compact={isPopup} />
@@ -1430,21 +1360,6 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
               ) : (
                 message.content
               )}
-              {message.role === 'assistant' && message.retryable ? (
-                <button
-                  type="button"
-                  className="mt-2 inline-flex min-h-9 items-center rounded-full bg-primary/10 px-3 py-1 text-[12px] font-medium text-primary hover:bg-primary/15"
-                  onClick={() => {
-                    const previousUser = [...visibleMessages]
-                      .slice(0, index)
-                      .reverse()
-                      .find((row) => row.role === 'user')
-                    if (previousUser) void handleSend(previousUser.content, { retry: true })
-                  }}
-                >
-                  Reintentar esta consulta
-                </button>
-              ) : null}
               {message.role === 'assistant' && message.clarification ? (
                 <AssistantClarificationChips
                   clarification={message.clarification}
@@ -1458,14 +1373,6 @@ export function AiAssistPage({ variant = 'page' }: AiAssistPageProps = {}) {
                       key={proposal.id}
                       proposal={proposal}
                       compact={isPopup}
-                      executionLocked={proposal.simulated !== true && (
-                        proposal.tool === 'create_action' ||
-                        proposal.tool === 'update_action' ||
-                        proposal.tool === 'mark_action_done' ||
-                        proposal.tool === 'verify_action' ||
-                        proposal.tool === 'add_action_comment' ||
-                        proposal.tool === 'update_checklist_item'
-                      )}
                       onResolved={(status) => {
                         if (status === 'confirmed') {
                           void queryClient.invalidateQueries({ queryKey: ['acciones'] })

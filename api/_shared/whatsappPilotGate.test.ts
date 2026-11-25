@@ -7,6 +7,7 @@ import {
   shouldUseWhatsAppOrchestrator,
   type WhatsAppPilotIdentity,
 } from './whatsappPilotGate.js'
+import { classifyAgentIntent } from './orchestrator/intent.js'
 
 describe('WhatsApp Selective Single-User Pilot Gate — Fail-Closed Closure Suite', () => {
   const pilotUser: WhatsAppPilotIdentity = {
@@ -128,5 +129,32 @@ describe('WhatsApp Selective Single-User Pilot Gate — Fail-Closed Closure Suit
       WHATSAPP_VOICE_NOTES_ENABLED: '1',
     }
     expect(isWhatsAppVoiceNotesAllowedForUser(otherUser, explicitGlobalWithVoice)).toBe(true)
+  })
+
+  it('classifies the Phase A pilot natural Spanish queries without breaking OKR queries', () => {
+    expect(classifyAgentIntent('¿Qué necesita mi atención hoy?', null)).toEqual({
+      kind: 'recommend_next',
+    })
+    expect(classifyAgentIntent('¿Qué debería priorizar hoy?', null)).toEqual({
+      kind: 'recommend_next',
+    })
+    expect(classifyAgentIntent('¿Quién tiene acciones vencidas?', null)).toEqual({
+      kind: 'aggregate_execution',
+      groupBy: 'responsable',
+      statusGroup: 'overdue',
+    })
+    expect(classifyAgentIntent('¿Qué está bloqueando a mi equipo?', null)).toMatchObject({
+      kind: 'query_actions',
+      scope: 'team_authorized',
+      statusGroup: 'blocked',
+    })
+    expect(classifyAgentIntent('¿Cómo vamos con los OKRs?', null)).toMatchObject({
+      kind: 'query_okrs',
+    })
+    expect(classifyAgentIntent('¿Cómo vamos con el proyecto de logística?', null)).toMatchObject({
+      kind: 'query_actions',
+      scope: 'team_authorized',
+      statusGroup: 'open',
+    })
   })
 })

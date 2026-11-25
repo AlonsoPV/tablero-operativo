@@ -9,7 +9,6 @@ import type { AssistantUiPayload } from '../../../src/features/ai-support/chatVi
 import { buildReportUi, composeRendered, composeVoice, composeWhatsApp, hasFormattableFacts, renderAnswer } from './renderFormat.js'
 import { composeText } from './respond.js'
 import { runAgentTurn, type AgentTurnDeps, type AgentTurnResult } from './runAgentTurn.js'
-import { formatWhatsAppTurn } from '../whatsappFormat.js'
 import {
   createSupabaseSessionContextStore,
   defaultSessionContextStore,
@@ -57,8 +56,6 @@ export function formatForChannel(result: AgentTurnResult, channel: AgentChannel)
   }
 
   if (channel === 'whatsapp' && rendered) {
-    const formatted = formatWhatsAppTurn(result, { maxChars: WHATSAPP_MAX })
-    if (formatted) return formatted
     const body = composeWhatsApp(rendered, WHATSAPP_MAX - (notice ? notice.length + 2 : 0))
     return notice ? `${notice}\n\n${body}` : body
   }

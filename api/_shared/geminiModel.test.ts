@@ -4,7 +4,6 @@ import {
   geminiModelCandidates,
   isGeminiCapacityStatus,
   normalizeGeminiModel,
-  withGeminiCapacityRetry,
 } from './geminiModel'
 
 describe('normalizeGeminiModel', () => {
@@ -37,29 +36,5 @@ describe('isGeminiCapacityStatus', () => {
     expect(isGeminiCapacityStatus(503)).toBe(true)
     expect(isGeminiCapacityStatus(429)).toBe(true)
     expect(isGeminiCapacityStatus(400)).toBe(false)
-  })
-})
-
-describe('withGeminiCapacityRetry', () => {
-  it('retries a 503 once and does not retry other errors', async () => {
-    const sleeps: number[] = []
-    let calls = 0
-    const result = await withGeminiCapacityRetry(
-      async () => {
-        calls += 1
-        if (calls === 1) throw Object.assign(new Error('busy'), { status: 503 })
-        return 'ok'
-      },
-      { retryMs: 1, sleep: async (ms) => { sleeps.push(ms) } }
-    )
-    expect(result).toBe('ok')
-    expect(calls).toBe(2)
-    expect(sleeps).toEqual([1])
-
-    await expect(
-      withGeminiCapacityRetry(async () => {
-        throw Object.assign(new Error('bad'), { status: 400 })
-      })
-    ).rejects.toThrow('bad')
   })
 })

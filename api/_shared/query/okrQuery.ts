@@ -4,8 +4,7 @@
  */
 import type { CopilotActor } from '../assistantPending.js'
 import type { CopilotToolResult } from '../../../src/features/ai-support/copilot/types.js'
-import { failedResult, type OkrItem, type OkrPace, type OkrsQueryRequest, type QueryResult } from './contracts.js'
-import { objectivePaceStatus } from '../../../src/features/okrs/model.js'
+import { failedResult, type OkrItem, type OkrsQueryRequest, type QueryResult } from './contracts.js'
 import type { ToolDispatcher } from './kanbanQuery.js'
 import { sourcesFor } from './sourceCatalog.js'
 
@@ -24,20 +23,6 @@ function str(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
-const PACE_VALUES = new Set<OkrPace>([
-  'sin_datos',
-  'programado',
-  'archivado',
-  'finalizado',
-  'en_ritmo',
-  'bajo_ritmo',
-  'sin_periodo',
-])
-
-function toPace(value: unknown): OkrPace | null {
-  return typeof value === 'string' && PACE_VALUES.has(value as OkrPace) ? (value as OkrPace) : null
-}
-
 function toOkrItem(raw: unknown): OkrItem | null {
   if (!raw || typeof raw !== 'object') return null
   const row = raw as Record<string, unknown>
@@ -50,9 +35,6 @@ function toOkrItem(raw: unknown): OkrItem | null {
     progress: num(row.progress),
     withoutInitiatives: row.without_initiatives === true,
     insufficientKrs: num(row.insufficient_krs) ?? 0,
-    startDate: str(row.start_date) ?? str(row.startDate),
-    endDate: str(row.end_date) ?? str(row.endDate),
-    pace: toPace(row.pace),
     keyResults: krs.flatMap((kr) => {
       if (!kr || typeof kr !== 'object') return []
       const k = kr as Record<string, unknown>
@@ -70,21 +52,6 @@ function toOkrItem(raw: unknown): OkrItem | null {
       }]
     }),
   }
-}
-
-/** Ritmo vs periodo transcurrido. No usa umbral fijo de 40%. */
-export function resolveOkrPace(item: Pick<OkrItem, 'pace' | 'startDate' | 'endDate' | 'progress'>, today: string): OkrPace | null {
-  if (item.pace) return item.pace
-  if (!item.startDate && !item.endDate) return item.progress == null ? 'sin_datos' : null
-  return objectivePaceStatus(
-    { activo: true, start_date: item.startDate ?? null, end_date: item.endDate ?? null },
-    item.progress,
-    today
-  )
-}
-
-export function okrBehindPace(item: OkrItem, today: string): boolean {
-  return resolveOkrPace(item, today) === 'bajo_ritmo'
 }
 
 export function normalizeOkrToolResult(result: CopilotToolResult): QueryResult<OkrItem> {
