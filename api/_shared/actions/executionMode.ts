@@ -1,10 +1,13 @@
 /**
  * Modo de ejecución de operaciones R2. Sólo se lee de variables del servidor, nunca del cliente.
- * disabled: valor por defecto y único posible en producción.
+ * disabled: valor por defecto.
  * simulated: pruebas y desarrollo local, con adaptadores en memoria (sin BD real ni proveedores).
  * qa: JWT reales contra un proyecto QA autorizado (allowlist hosted o QA_LOCAL=1 en loopback), nunca DEV ni PROD; proveedores simulados.
+ * pilot: ejecución real restringida EXCLUSIVAMENTE a los usuarios listados en R2_PILOT_USERS
+ *        + segundo factor obligatorio en BD (agent_execution_gate.enabled = true y project_ref coincidente).
+ *        Cualquier otro usuario recibe 'disabled'.
  */
-export const R2_EXECUTION_MODES = ['disabled', 'simulated', 'qa'] as const
+export const R2_EXECUTION_MODES = ['disabled', 'simulated', 'qa', 'pilot'] as const
 export type R2ExecutionMode = (typeof R2_EXECUTION_MODES)[number]
 
 /** DEV y PROD de Scrumban: el modo qa nunca se habilita contra ellos aunque estén en la allowlist. */
@@ -68,12 +71,36 @@ export function hostedQaProjectRef(env: Env = process.env): string | null {
   return allowed.includes(ref) ? ref : null
 }
 
+/** Usuarios autorizados para R2_EXECUTION_MODE=pilot (UUIDs separados por coma). Vacío = nadie. */
+export function r2PilotUsers(env: Env = process.env): Set<string> {
+  const raw = env.R2_PILOT_USERS ?? ''
+  return new Set(
+    raw
+      .split(',')
+      .map((id) => id.trim().toLowerCase())
+      .filter((id) => id.length > 0)
+  )
+}
+
+/** Proyecto Supabase del servidor para modo pilot (requiere R2_EXECUTION_MODE=pilot + R2_PILOT_USERS no vacío). */
+export function pilotProjectRef(env: Env = process.env): string | null {
+  if (env.R2_EXECUTION_MODE !== 'pilot') return null
+  if (r2PilotUsers(env).size === 0) return null
+  return supabaseProjectRef(env)
+}
+
 /** Proyecto QA vigente: hosted allowlist o instancia local opt-in. Nunca DEV ni PROD. */
 export function qaProjectRef(env: Env = process.env): string | null {
   return hostedQaProjectRef(env) ?? localQaProjectRef(env)
 }
 
-export function resolveR2ExecutionMode(env: Env = process.env): R2ExecutionMode {
+export function resolveR2ExecutionMode(env: Env = process.env, userId?: string | null): R2ExecutionMode {
+  if (env.R2_EXECUTION_MODE === 'pilot') {
+    if (!pilotProjectRef(env)) return 'disabled'
+    const normalizedUser = typeof userId === 'string' ? userId.trim().toLowerCase() : ''
+    if (!normalizedUser) return 'disabled'
+    return r2PilotUsers(env).has(normalizedUser) ? 'pilot' : 'disabled'
+  }
   if (env.R2_EXECUTION_MODE === 'qa') return qaProjectRef(env) ? 'qa' : 'disabled'
   if (env.VERCEL || env.VERCEL_ENV || isProduction(env)) return 'disabled'
   return env.R2_EXECUTION_MODE === 'simulated' ? 'simulated' : 'disabled'

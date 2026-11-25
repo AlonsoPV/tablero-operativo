@@ -244,7 +244,7 @@ export function authorizeActionPhase<O extends ActionOperation>(
     }
   }
   if (decision === 'disabled_r1') {
-    if (executionMode !== 'simulated' && executionMode !== 'qa') {
+    if (executionMode !== 'simulated' && executionMode !== 'qa' && executionMode !== 'pilot') {
       return { allowed: false, reason: 'La ejecución de operaciones aún no está habilitada en R1.' }
     }
     decision = 'own'

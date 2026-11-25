@@ -1981,8 +1981,8 @@ async function handleExecutiveReview(
   }
 }
 
-function persistWriteMode() {
-  return resolveR2ExecutionMode()
+function persistWriteMode(userId?: string | null) {
+  return resolveR2ExecutionMode(process.env, userId)
 }
 
 function markSimulated(proposal: CopilotProposal, mode: ReturnType<typeof resolveR2ExecutionMode>): CopilotProposal {
@@ -2011,6 +2011,7 @@ function parseResponsableHint(utterance: string): string | null {
 }
 
 function r2Limitation(mode: ReturnType<typeof resolveR2ExecutionMode>, simulatedVerb = 'modificó') {
+  if (mode === 'pilot') return 'Propuesta lista (piloto R2). Confirma explícitamente para aplicar el cambio en Scrumban.'
   if (mode === 'qa') return 'Confirma desde esta sesión para aplicar el cambio en QA. No se envió nada a proveedores.'
   if (mode === 'simulated') return `Propuesta guardada en modo simulado. Confirma en la tarjeta; no se ${simulatedVerb} el tablero aún.`
   return 'R2 desactivado: la ejecución no está habilitada en este canal. Texto de borrador, sin assistant_pending_ops.'
@@ -2035,8 +2036,8 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
         ? state.ctx.lastActions.find((item) => item.id === state.ctx.lastEntity!.id) ?? null
         : state.ctx.lastActions[0] ?? null
     const due = parseDueDateHint(intent.request, state.today)
-    const persistMode = resolveR2ExecutionMode()
-    if (persistMode === 'qa' || persistMode === 'simulated') {
+    const persistMode = resolveR2ExecutionMode(process.env, state.actor.usuarioId)
+    if (persistMode === 'qa' || persistMode === 'simulated' || persistMode === 'pilot') {
       const persisted = await proposeR2Operation(state.actor, 'create_action', {
         titulo: draft.title || intent.request.slice(0, 70),
         responsableId: contextAction?.responsableId ?? state.actor.usuarioId,
@@ -2049,7 +2050,7 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
         response.blocks.limitations.push(r2Limitation(persistMode, 'escribió'))
         return { response, proposal, proposals: [proposal], audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
       }
-      if (persistMode === 'qa') {
+      if (persistMode === 'qa' || persistMode === 'pilot') {
         return { response: forbidden(persisted.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
       }
       // simulated con datos incompletos: cae al borrador tipado sin fila pending.
@@ -2087,11 +2088,11 @@ async function handleTypedBoardWrite(
   target: { id: string; label: string } | null,
   response: ReturnType<typeof baseResponse>
 ) {
-  const persistMode = persistWriteMode()
+  const persistMode = persistWriteMode(state.actor.usuarioId)
   const accionId = target?.id ?? ''
   if (intent.operation === 'add_comment') {
     const contenido = (intent.contenido ?? intent.request).trim().slice(0, 2000)
-    if (persistMode === 'qa' || persistMode === 'simulated') {
+    if (persistMode === 'qa' || persistMode === 'simulated' || persistMode === 'pilot') {
       const persisted = await proposeR2Operation(state.actor, 'add_comment', { accionId, contenido })
       if (persisted.ok) {
         const proposal = markSimulated(persisted.proposal, persistMode)
@@ -2113,7 +2114,7 @@ async function handleTypedBoardWrite(
     return { response, proposal: proposed.proposal as ActionProposal, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
   }
   if (intent.operation === 'verify_action') {
-    if (persistMode === 'qa' || persistMode === 'simulated') {
+    if (persistMode === 'qa' || persistMode === 'simulated' || persistMode === 'pilot') {
       const persisted = await proposeR2Operation(state.actor, 'verify_action', { accionId })
       if (persisted.ok) {
         const proposal = markSimulated(persisted.proposal, persistMode)
@@ -2134,7 +2135,7 @@ async function handleTypedBoardWrite(
   const due = parseDueDateHint(intent.request, state.today)
   const prioridad = parsePriorityHint(intent.request)
   const responsableHint = parseResponsableHint(intent.request)
-  if (persistMode === 'qa' || persistMode === 'simulated') {
+  if (persistMode === 'qa' || persistMode === 'simulated' || persistMode === 'pilot') {
     const persisted = await proposeR2Operation(state.actor, 'update_fields', {
       accionId,
       campos: [],
@@ -2148,7 +2149,7 @@ async function handleTypedBoardWrite(
       response.blocks.limitations.push(r2Limitation(persistMode, 'modificó'))
       return { response, proposal, proposals: [proposal], audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
     }
-    if (persistMode === 'qa' || !accionId) {
+    if (persistMode === 'qa' || persistMode === 'pilot' || !accionId) {
       return { response: forbidden(persisted.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
     }
   }
@@ -2170,7 +2171,7 @@ async function handleBatchCommitments(
   response: ReturnType<typeof baseResponse>
 ) {
   const session = state.ctx.executiveSession
-  const persistMode = persistWriteMode()
+  const persistMode = persistWriteMode(state.actor.usuarioId)
   const drafts = session?.draftCommitments ?? []
   const decisions = session?.decisions ?? []
   const items =
@@ -2305,7 +2306,7 @@ async function handleFollowUpNotify(
       audit: { status: 'clarification' as const, entity: 'actions' },
     }
   }
-  const persistMode = persistWriteMode()
+  const persistMode = persistWriteMode(state.actor.usuarioId)
   const batchId = crypto.randomUUID()
   let firstProposal: CopilotProposal | ActionProposal | undefined
   const proposals: CopilotProposal[] = []
@@ -2385,8 +2386,8 @@ async function handleR2WriteRequest(
     return handleFollowUpNotify(state, intent, response)
   }
   const accionId = target?.id ?? ''
-  const persistMode = resolveR2ExecutionMode()
-  if (persistMode === 'qa' || persistMode === 'simulated') {
+  const persistMode = resolveR2ExecutionMode(process.env, state.actor.usuarioId)
+  if (persistMode === 'qa' || persistMode === 'simulated' || persistMode === 'pilot') {
     const persisted = intent.operation === 'update_status'
       ? await proposeR2Operation(state.actor, 'update_status', {
         accionId,
@@ -2401,7 +2402,7 @@ async function handleR2WriteRequest(
       response.blocks.limitations.push(r2Limitation(persistMode, 'modificó'))
       return { response, proposal, proposals: [proposal], audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
     }
-    if (persistMode === 'qa' || !accionId) {
+    if (persistMode === 'qa' || persistMode === 'pilot' || !accionId) {
       return { response: forbidden(persisted.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
     }
   }
@@ -2754,8 +2755,8 @@ export async function runAgentTurn(
   }
   stage('respond')
 
-  const persistMode = resolveR2ExecutionMode()
-  const executionEnabled = persistMode === 'simulated' || persistMode === 'qa'
+  const persistMode = resolveR2ExecutionMode(process.env, state.actor.usuarioId)
+  const executionEnabled = persistMode === 'simulated' || persistMode === 'qa' || persistMode === 'pilot'
   const proposals = outcome.proposals?.length
     ? outcome.proposals
     : outcome.proposal && 'tool' in outcome.proposal

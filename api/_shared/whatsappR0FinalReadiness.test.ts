@@ -309,7 +309,7 @@ describe('R0 Final Readiness — 2. Compatibilidad con R2 definitivo (345c2b6) y
 
   it('cierra rutas legacy de WhatsApp para que ninguna escritura evada compuertas R2 ni "sí" suelto', () => {
     const src = readFileSync('api/whatsapp-assistant.ts', 'utf8')
-    expect(src).toContain('r2OptionsFromServerEnv()')
+    expect(src).toContain('r2OptionsFromServerEnv(')
     expect(src).toContain('isBoardWriteToolGatedByR2')
     expect(src).toContain('R2_EXECUTION_DISABLED_MESSAGE')
     expect(src).not.toContain('Escribe si para crearla o no para cancelar.')
