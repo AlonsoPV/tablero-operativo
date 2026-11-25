@@ -1,3 +1,4 @@
+import { prepareContextualExecution, revokeContextualExecution } from './communicationExecution.js'
 import { extractResponsablePatch } from './structuredActionDraft.js'
 /**
  * Orquestador compartido del agente (CV-05):
@@ -2266,6 +2267,7 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
       }
     }
 
+    if (state.ctx.pendingCommunication) await revokeContextualExecution(state.actor, state.ctx.pendingCommunication, state.dispatch)
     state.ctx.pendingCommunication = composed.proposal
     response.presentation = 'operation'
     response.blocks.data.push(composed.formattedText)
@@ -2883,6 +2885,29 @@ export async function runAgentTurn(
     case 'write_request':
       outcome = await handleWriteRequest(state, intent)
       break
+    case 'review_pending': {
+      const action = state.ctx.pendingWrite?.draft
+      const communication = state.ctx.pendingCommunication
+      const resp = baseResponse('proposal')
+      resp.presentation = 'operation'
+      if (intent.target === 'unspecified' && action && communication) {
+        const question = '¿Quieres revisar la acción del tablero o el borrador del mensaje?'
+        resp.status = 'clarification'
+        resp.blocks.data.push(question)
+        outcome = {response: resp, clarification: {question, options: []}, audit: {status: 'clarification'}}
+      } else if (communication && intent.target !== 'action') {
+        resp.blocks.data.push(formatCommunicationProposalText(communication))
+        outcome = {response: resp, communicationProposal: communication, audit: {status: 'proposal_blocked'}}
+      } else if (action && intent.target !== 'communication') {
+        resp.blocks.data.push(formatStructuredActionDraft(action, {mode: resolveR2ExecutionMode(process.env, state.actor.usuarioId), missingRequired: [!action.responsableId && 'responsable', !action.fecha && 'fecha'].filter((item): item is string => Boolean(item))}))
+        outcome = {response: resp, audit: {status: 'proposal_blocked'}}
+      } else {
+        resp.status = 'empty'
+        resp.blocks.data.push('No encontré ese borrador vigente en esta conversación. Indica cuál quieres preparar.')
+        outcome = {response: resp, audit: {status: 'empty'}}
+      }
+      break
+    }
     case 'communication_action': {
       const pending = state.ctx.pendingCommunication
       if (!pending) {
@@ -2895,6 +2920,7 @@ export async function runAgentTurn(
         break
       }
       if (intent.action === 'cancel') {
+        await revokeContextualExecution(state.actor, pending, state.dispatch)
         state.ctx.pendingCommunication = null
         const resp = baseResponse('ok')
         resp.presentation = 'operation'
@@ -2905,6 +2931,7 @@ export async function runAgentTurn(
         break
       }
       if (intent.action === 'edit') {
+        await revokeContextualExecution(state.actor, pending, state.dispatch)
         const recipientHint = extractResponsablePatch(intent.utterance).hint
         const channel = /\b(correo|email|mail)\b/i.test(intent.utterance) ? 'email'
           : /\bwhatsapp\b/i.test(intent.utterance) ? 'whatsapp' : null
@@ -2961,49 +2988,19 @@ export async function runAgentTurn(
         }
         break
       }
-      // intent.action === 'confirm' (idempotente)
-      if (pending.status === 'confirmed') {
-        const resp = baseResponse('ok')
-        resp.presentation = 'operation'
-        const msg = `Esta propuesta (${pending.proposalId}, v${pending.version}) ya fue confirmada previamente. No se ejecutó ningún envío desde esta confirmación.`
-        resp.blocks.data.push(msg)
-        withFacts(resp, { primary: { text: msg } })
-        outcome = {
-          response: resp,
-          communicationProposal: pending,
-          audit: { status: 'ok' as const, entity: 'actions' },
-        }
-        break
-      }
-      if (!pending.canSendDirect) {
-        const resp = baseResponse('proposal')
-        resp.presentation = 'operation'
-        const msg = `${pending.channelLimitation ?? 'El envío directo no está habilitado para este canal.'} Puedes copiar el mensaje preparado sin duplicar envíos.`
-        resp.blocks.data.push(msg)
-        withFacts(resp, { primary: { text: msg } })
-        outcome = {
-          response: resp,
-          communicationProposal: pending,
-          audit: { status: 'proposal_blocked' as const, entity: 'actions' },
-        }
-        break
-      }
-      const confirmed: PendingCommunicationProposal = {
-        ...pending,
-        status: 'confirmed',
-        confirmedAt: new Date(now()).toISOString(),
-      }
-      state.ctx.pendingCommunication = confirmed
-      const resp = baseResponse('ok')
+      // A chat confirmation never executes an external send. Existing HTTP approval
+      // owns atomic claim, hash validation, provider recording and idempotency.
+      const delivery = await prepareContextualExecution(state.actor, pending, state.dispatch, now())
+      state.ctx.pendingCommunication = pending
+      const resp = baseResponse(delivery.proposal ? 'proposal' : 'clarification')
       resp.presentation = 'operation'
-      const recNames = confirmed.recipients.map((r) => r.recipientName).join(', ')
-      const msg = `Autorización registrada (${confirmed.proposalId}, v${confirmed.version}) para ${recNames}. El mensaje sigue preparado: esta confirmación no lo encoló ni lo envió. El despacho debe realizarse mediante el flujo de envío verificado.`
-      resp.blocks.data.push(msg)
-      withFacts(resp, { primary: { text: msg } })
+      resp.blocks.data.push(delivery.message)
+      withFacts(resp, {primary: {text: delivery.message}})
       outcome = {
         response: resp,
-        communicationProposal: confirmed,
-        audit: { status: 'ok' as const, entity: 'actions' },
+        communicationProposal: pending,
+        ...(delivery.proposal ? {proposal: delivery.proposal, proposals: [delivery.proposal]} : {}),
+        audit: {status: 'proposal_blocked' as const, entity: 'actions'},
       }
       break
     }

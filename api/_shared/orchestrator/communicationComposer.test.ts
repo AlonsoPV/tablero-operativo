@@ -441,19 +441,19 @@ describe('SCRUMBAN — Contextual Intelligence & Tool Composition (20 escenarios
     expect(edited.text).toContain('Confirmar envío | Editar | Cancelar')
   })
 
-  it('20. Confirmación duplicada es idempotente y no duplica envíos', async () => {
+  it('20. Sin sesión web de aprobación no se simula confirmación ni envío', async () => {
     const store = createMemorySessionContextStore()
     await ask('Envíale a Gerardo un WhatsApp con la información de su día de hoy', { store })
 
     const confirm1 = await ask('Confirmar envío', { store })
-    expect(confirm1.res.communicationProposal?.status).toBe('confirmed')
-    expect(confirm1.text).toContain('Autorización registrada')
-    expect(confirm1.text).toContain('no lo encoló ni lo envió')
+    expect(confirm1.res.communicationProposal?.status).toBe('pending')
+    expect(confirm1.text).toContain('sesión web autenticada')
+    expect(confirm1.res.proposals).toBeUndefined()
 
     const confirm2 = await ask('Confirmar envío', { store })
-    expect(confirm2.res.communicationProposal?.status).toBe('confirmed')
-    expect(confirm2.text).toContain('ya fue confirmada previamente')
-    expect(confirm2.text).toContain('No se ejecutó ningún envío')
+    expect(confirm2.res.communicationProposal?.status).toBe('pending')
+    expect(confirm2.text).toContain('sesión web autenticada')
+    expect(confirm2.res.proposals).toBeUndefined()
   })
 
   it('Variantes coloquiales, errores ortográficos y notas de voz', async () => {
@@ -530,4 +530,42 @@ describe('atributos de Kanban sin contaminación del título', () => {
     expect(after.responsableId).toBe(R1_USERS.superAdmin.id)
     expect(JSON.stringify(after)).not.toContain('asígnamela')
   })
+})
+
+
+describe('revisar y recuperar propuestas sin navegación ejecutiva ni proveedor LLM', () => {
+  it.each(['web', 'whatsapp', 'voice'] as const)('%s: conserva todos los atributos al consultar cómo quedó', async channel => {
+    const store=createMemorySessionContextStore()
+    await ask('Crea una acción para revisar inventario',{store,channel})
+    await ask('Prepárala para Gerardo',{store,channel})
+    await ask('Para el viernes',{store,channel})
+    const key=`${R1_USERS.superAdmin.id}:${channel}:comm-accept-session`
+    const before=structuredClone(store.get(key)!)
+    const review=await ask('¿Cómo quedó?',{store,channel})
+    expect(review.res.handled).toBe(true)
+    expect(review.text).toContain('Revisar inventario')
+    expect(review.text).toContain('Gerardo')
+    expect(store.get(key)!.pendingWrite).toEqual(before.pendingWrite)
+    await ask('Envíale a Gerardo sus pendientes de hoy',{store,channel})
+    await ask('Mejor por correo',{store,channel})
+    await ask('¿Qué acciones tengo abiertas?',{store,channel})
+    const pending=structuredClone(store.get(key)!)
+    const back=await ask('Regresa al borrador anterior',{store,channel})
+    expect(back.res.intent).toBe('review_pending')
+    expect(back.text).toContain('acción del tablero o el borrador del mensaje')
+    expect(store.get(key)!.pendingWrite).toEqual(pending.pendingWrite)
+    expect(store.get(key)!.pendingCommunication).toEqual(pending.pendingCommunication)
+    expect(store.get(key)!.executiveSession).toBeFalsy()
+  })
+})
+
+
+it('el comando real del piloto separa título y descripción de los atributos explícitos', async () => {
+  const store=createMemorySessionContextStore()
+  await ask('Crea una acción QA R2: revisar inventario de prueba, para mí, en Kanban corporativo, para el viernes',{store})
+  const draft=store.get(`${R1_USERS.superAdmin.id}:web:comm-accept-session`)!.pendingWrite!.draft!
+  expect(draft.titulo).toBe('QA R2: revisar inventario de prueba')
+  expect(draft.descripcion).toBe('QA R2: revisar inventario de prueba')
+  expect(draft.responsableId).toBe(R1_USERS.superAdmin.id)
+  expect(draft.fecha).toBe('2026-11-27')
 })

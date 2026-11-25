@@ -8,6 +8,7 @@
  * instrucción original del usuario como cuerpo del mensaje.
  */
 import { createHash } from 'node:crypto'
+import type { CopilotProposal } from '../../../src/features/ai-support/copilot/types.js'
 import type { ActionItem, ActionsQueryRequest, OkrItem, OkrsQueryRequest, QueryResult } from '../query/contracts.js'
 import { authorizeQuery } from '../query/authorizeQuery.js'
 import type { AgentActor } from '../query/resolveActor.js'
@@ -89,6 +90,7 @@ export type PendingCommunicationProposal = {
   channelLimitation: string | null
   createdAt: string
   confirmedAt?: string | null
+  execution?: {version: number; proposal: CopilotProposal}
   /** Structured purpose survives recipient/channel edits; never store raw instructions as a body. */
   spec?: CommunicationIntentSpec
 }

@@ -347,9 +347,11 @@ function whatsappPreview(payload: Record<string, unknown>) {
 
 export async function prepareWhatsappDraft(
   actor: CopilotActor,
-  input: { recipient: string; body?: string; includeOverdue?: boolean }
+  input: { recipient: string; recipientId?: string; body?: string; includeOverdue?: boolean }
 ) {
-  const resolved = await resolveDraftRecipient(actor, input.recipient)
+  const resolved = input.recipientId
+    ? await resolveLinkedWhatsappPerson(actor.supabase, createServiceRoleClient, input.recipientId)
+    : await resolveDraftRecipient(actor, input.recipient)
   let body = sanitizeRecipientFacingText(input.body, WHATSAPP_BODY_MAX)
   const generatedAt = new Date()
   const actionIds: string[] = []

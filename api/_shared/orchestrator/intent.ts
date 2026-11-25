@@ -86,6 +86,7 @@ export type AgentIntent =
       batch?: 'commitments' | 'decisions'
     }
   | { kind: 'communication_action'; action: 'edit' | 'confirm' | 'cancel'; utterance: string }
+  | { kind: 'review_pending'; target: 'action' | 'communication' | 'unspecified' }
   | { kind: 'cancel_write_draft' }
   | { kind: 'unsupported_write'; operation: 'tag_okr_action' | 'sql' | 'generic' }
   | { kind: 'clarify'; question: string }
@@ -188,6 +189,15 @@ export function classifyAgentIntent(
       }
       return { kind: 'communication_action', action: 'edit', utterance: cleanedUtterance }
     }
+  }
+
+  // A draft reference is not an executive-session navigation command.
+  const draftReference = /\b(borrador|propuesta|mensaje|correo|whatsapp|accion)\b/.test(text)
+  const reviewReference = /\b(muestra|revisa|retoma|regresa|regresar|vuelve|volver|recupera)\b/.test(text)
+  const briefStateQuestion = /^¿?como (?:quedo|queda)[?.!]*$/.test(text)
+  if ((draftReference && reviewReference) || (briefStateQuestion && (session?.pendingWrite || session?.hasPendingCommunication))) {
+    return {kind: 'review_pending', target: /\b(mensaje|correo|whatsapp)\b/.test(text) ? 'communication'
+      : /\baccion\b/.test(text) ? 'action' : 'unspecified'}
   }
 
   if (FINANCE.test(text) && /\b(cuant[oa]s?|monto|calcula|estima|impacto)\b|\$/.test(text)) {
