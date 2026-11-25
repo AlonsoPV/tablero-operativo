@@ -17,7 +17,7 @@ function fixture() {
     expiresAt:'2099-01-01T00:00:00Z', workspace:{kind:'whatsapp' as const, toUserId:'recipient-1', body:'Mensaje autorizado'}}
   const dispatch = vi.fn<ToolDispatcher>(async (_actor, name) => name === 'cancel_pending_op'
     ? {ok:true,tool:name,kind:'read',data:{status:'cancelled'}}
-    : name === 'get_whatsapp_operation_status' ? {ok:true,tool:name,kind:'read',data:{operation_status:'pending',attempt:null}}
+    : name === 'get_whatsapp_operation_status' ? {ok:true,tool:name,kind:'read',data:{operation_status:'pending',attempt:null,proposal}}
     : {ok:true,tool:name,kind:'proposal',proposal})
   return {actor,pending,proposal,dispatch}
 }
@@ -39,7 +39,7 @@ describe('puente contextual a pending ops existente', () => {
   it('distingue aceptación y entrega consultando el intento ya registrado', async () => {
     vi.stubEnv('R2_EXECUTION_MODE','disabled')
     const f=fixture(); await prepareContextualExecution(f.actor,f.pending,f.dispatch)
-    f.dispatch.mockResolvedValueOnce({ok:true,tool:'get_whatsapp_operation_status',kind:'read',data:{operation_status:'confirmed',attempt:{delivery_status:'accepted'}}})
+    f.dispatch.mockResolvedValueOnce({ok:true,tool:'get_whatsapp_operation_status',kind:'read',data:{operation_status:'confirmed',attempt:{delivery_status:'accepted'},proposal:f.proposal}})
     const result=await prepareContextualExecution(f.actor,f.pending,f.dispatch)
     expect(result.message).toContain('la entrega todavía no está confirmada')
     expect(result.proposal).toBeUndefined()
@@ -81,4 +81,17 @@ describe('puente contextual a pending ops existente', () => {
     expect(f.pending.execution).toBeUndefined()
     expect(f.dispatch.mock.calls.map(c=>c[1])).toEqual(['whatsapp_prepare_send','cancel_pending_op'])
   })
+})
+
+
+it('la aprobación se relee del servidor, nunca de una vista previa rehidratada o alterada',async()=>{
+  vi.stubEnv('R2_EXECUTION_MODE','disabled')
+  const f=fixture();await prepareContextualExecution(f.actor,f.pending,f.dispatch)
+  f.pending.execution!.proposal={...f.proposal,title:'vista manipulada'}
+  const next=await prepareContextualExecution(f.actor,f.pending,f.dispatch)
+  expect(next.proposal?.title).toBe('Enviar WhatsApp')
+  f.dispatch.mockResolvedValueOnce({ok:true,tool:'get_whatsapp_operation_status',kind:'read',data:{operation_status:'pending',attempt:null,proposal:{...f.proposal,workspace:{...f.proposal.workspace,body:'otro contenido'}}}})
+  const mismatch=await prepareContextualExecution(f.actor,f.pending,f.dispatch)
+  expect(mismatch.proposal).toBeUndefined()
+  expect(mismatch.message).toContain('no coincide')
 })

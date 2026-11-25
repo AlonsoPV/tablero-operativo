@@ -147,3 +147,14 @@ La corrección de seguridad del checkout local principal elimina el corte forzad
 No se iniciaron llamadas nuevas a Gemini/Retell ni envíos externos en estas pruebas de web; se usaron rutas deterministas. No se acredita una auditoría de facturación de los proveedores. La conversación real de WhatsApp y su confirmación las ejecutó el propietario desde su teléfono; no se activó automatización recurrente ni se amplió piloto.
 
 La comprobación TypeScript del checkout principal con trabajo previo no pasa por cuatro símbolos sin uso en AiAssistPage.tsx (ChevronDown, LayoutGrid, FilterMultiSelect y switchFocusKind). No pertenecen a los cambios de voz y no se modificaron. El candidato aislado de ejecución sí compila; no se declara liberable el conjunto del checkout principal.
+
+
+### Revisión adicional de PR #16 antes de solicitar merge
+
+El HEAD f25afbc se conserva como referencia de la revisión inicial; no se fusionó. Se reprodujeron cinco fallos locales: comunicación perdida al cambiar de instancia, «Muéstrame la acción que preparamos» convertido en consulta, «Regresa al mensaje para Gerardo» interpretado como edición de destinatario, «Ahora volvamos a la acción» interpretado como escritura y una consulta ordinaria a emx_52276 interceptada como borrador. Checks verdes no acreditaban estos casos.
+
+Las correcciones mantienen el alcance: persistencia acotada de pendingCommunication en el JSON de agent_session_context existente (RLS dueño y TTL actuales); solo referencia de operación y versión para aprobación, vista previa canónica releída mediante consulta RLS; se excluyen campos ajenos y credenciales. La navegación explícita de borradores precede a edición/navegación ejecutiva, conserva un foco tipado de acción/mensaje y excluye referencias explícitas a registros o URLs. Una fecha sin valor pide aclaración; modificarla afecta solo ese campo. No se cambia esquema ni se añade un motor.
+
+La secuencia nueva pasa con los mismos fixtures para web/WhatsApp/voz, incluyendo conservación del mensaje mientras se cambia únicamente la fecha. Falta aceptación real desplegada: no hay autorización de merge ni de despliegue nuevo. emx_52276 permanece intacto.
+
+El checkout principal vuelve a compilar con TypeScript tras retirar únicamente cuatro símbolos sin uso; esa corrección no se mezcló con PR #16. Las pruebas locales de voz no acreditan actividad real del SDK, liberación real ni reanudación en producción. No abrir llamadas de costo no verificado.

@@ -86,7 +86,8 @@ export type AgentIntent =
       batch?: 'commitments' | 'decisions'
     }
   | { kind: 'communication_action'; action: 'edit' | 'confirm' | 'cancel'; utterance: string }
-  | { kind: 'review_pending'; target: 'action' | 'communication' | 'unspecified' }
+  | { kind: 'review_pending'; target: 'action' | 'communication' | 'unspecified'; recipientHint?: string }
+  | { kind: 'edit_pending_date'; request: string }
   | { kind: 'cancel_write_draft' }
   | { kind: 'unsupported_write'; operation: 'tag_okr_action' | 'sql' | 'generic' }
   | { kind: 'clarify'; question: string }
@@ -110,6 +111,7 @@ export type IntentSessionHints = {
   lastEntityKind?: 'action' | 'person' | null
   pendingWrite?: { operation: string; request: string } | null
   hasPendingCommunication?: boolean
+  pendingFocus?: 'action' | 'communication' | null
 }
 
 function priorityIndexFromText(text: string): number | undefined {
@@ -162,6 +164,24 @@ export function classifyAgentIntent(
   const text = normalize(cleanedUtterance)
   if (!text) return { kind: 'unknown' }
 
+  // Resolve explicit draft navigation before recipient edits or executive navigation.
+  const hasDraft = Boolean(session?.pendingWrite || session?.hasPendingCommunication)
+  const draftReference = /\b(borrador|propuesta|mensaje|correo|whatsapp|accion)\b/.test(text)
+  const reviewReference = /\b(muestra(?:me)?|revisa|retoma|regresa(?:r)?|vuelve|volvamos|volver|recupera)\b/.test(text)
+  const explicitRecord = /\bemx_\d+\b|[0-9a-f]{8}-[0-9a-f]{4}-|https?:\/\//i.test(text)
+  const historicReference = /\b(borrador|propuesta|preparamos|preparado|anterior)\b/.test(text)
+  const briefStateQuestion = /^¿?como (?:quedo|queda)[?.!]*$/.test(text)
+  if (!explicitRecord && ((draftReference && reviewReference && (hasDraft || historicReference)) || (briefStateQuestion && hasDraft))) {
+    const target = /\b(mensaje|correo|whatsapp)\b/.test(text) ? 'communication'
+      : /\baccion\b/.test(text) ? 'action' : 'unspecified'
+    const recipientHint = target === 'communication' ? extractResponsablePatch(cleanedUtterance).hint : null
+    return {kind:'review_pending',target,...(recipientHint ? {recipientHint} : {})}
+  }
+  if (session?.pendingWrite && /\b(cambia(?:r)?|ajusta(?:r)?|modifica(?:r)?|reprograma(?:r)?)\b/.test(text) && /\bfecha\b/.test(text) &&
+    (session.pendingFocus === 'action' || /\baccion\b/.test(text) || !session.hasPendingCommunication)) {
+    return {kind:'edit_pending_date',request:cleanedUtterance}
+  }
+
   if (session?.hasPendingCommunication) {
     if (/^(?:cancelar?|no lo envies|descarta(?:r)?|olvida(?:lo)?)\b/.test(text)) {
       return { kind: 'communication_action', action: 'cancel', utterance: cleanedUtterance }
@@ -189,15 +209,6 @@ export function classifyAgentIntent(
       }
       return { kind: 'communication_action', action: 'edit', utterance: cleanedUtterance }
     }
-  }
-
-  // A draft reference is not an executive-session navigation command.
-  const draftReference = /\b(borrador|propuesta|mensaje|correo|whatsapp|accion)\b/.test(text)
-  const reviewReference = /\b(muestra|revisa|retoma|regresa|regresar|vuelve|volver|recupera)\b/.test(text)
-  const briefStateQuestion = /^¿?como (?:quedo|queda)[?.!]*$/.test(text)
-  if ((draftReference && reviewReference) || (briefStateQuestion && (session?.pendingWrite || session?.hasPendingCommunication))) {
-    return {kind: 'review_pending', target: /\b(mensaje|correo|whatsapp)\b/.test(text) ? 'communication'
-      : /\baccion\b/.test(text) ? 'action' : 'unspecified'}
   }
 
   if (FINANCE.test(text) && /\b(cuant[oa]s?|monto|calcula|estima|impacto)\b|\$/.test(text)) {

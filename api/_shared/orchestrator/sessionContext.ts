@@ -54,6 +54,7 @@ export type SessionContext = {
   pendingWrite?: PendingWriteContext | null
   /** Propuesta de comunicación contextualizada pendiente de confirmación, edición o cancelación. */
   pendingCommunication?: PendingCommunicationProposal | null
+  pendingFocus?: 'action' | 'communication' | null
   /** Totales vivos de la última consulta autorizada; sirven para explicar cambios reales, no para congelar cifras. */
   lastTotals?: { open: number; overdue: number; blocked: number } | null
   /** Huella de capacidades con la que se construyó; si cambia, el contexto se descarta. */
@@ -216,6 +217,8 @@ type PersistedPayload = {
   lastTotals?: { open: number; overdue: number; blocked: number } | null
   executiveSession?: ExecutiveSessionState | null
   pendingWrite?: PendingWriteContext | null
+  pendingCommunication?: PendingCommunicationProposal | null
+  pendingFocus?: 'action' | 'communication' | null
 }
 
 /** Sólo IDs y campos de orden; títulos y nombres se releen con permisos vigentes. */
@@ -243,6 +246,39 @@ function coerceExecutiveSession(raw: unknown): ExecutiveSessionState | null {
   }
 }
 
+/** Generated draft content only, bounded and owner-scoped; never serialize arbitrary actor fields. */
+function coerceCommunication(raw: unknown): PendingCommunicationProposal | null {
+  if (!raw || typeof raw !== 'object') return null
+  const p = raw as PendingCommunicationProposal
+  if (typeof p.proposalId !== 'string' || typeof p.recipientMode !== 'string' || typeof p.purpose !== 'string' || !Number.isSafeInteger(p.version) || p.version < 1 ||
+    !['whatsapp','email'].includes(p.channel) || !Array.isArray(p.recipients) || p.recipients.length > 12) return null
+  const str = (value: unknown, max: number) => typeof value === 'string' ? value.slice(0,max) : ''
+  const recipients = p.recipients.flatMap(r => r && typeof r.recipientName === 'string' && typeof r.messageBody === 'string'
+    ? [{recipientId: str(r.recipientId,80) || null, recipientName: str(r.recipientName,160), channel:p.channel,
+      canSendDirect:r.canSendDirect === true, channelLimitation:str(r.channelLimitation,500) || null,
+      subject:str(r.subject,160) || null, messageBody:str(r.messageBody,4000), itemCount:Number.isFinite(r.itemCount) ? Math.max(0,r.itemCount) : 0}] : [])
+  if (recipients.length !== p.recipients.length) return null
+  const spec = p.spec
+  const safeSpec = spec && typeof spec === 'object' && Array.isArray(spec.requiredQueries) &&
+    ['intent','recipientMode','purpose','scope','period','contentMode','tone','finalOperation'].every(k => typeof (spec as unknown as Record<string,unknown>)[k] === 'string') ? {
+    intent: spec.intent, channel:p.channel, recipientMode:spec.recipientMode, recipientHint:str(spec.recipientHint,160) || null,
+    purpose:spec.purpose, requiredQueries:spec.requiredQueries.filter(q=>typeof q === 'string').slice(0,8),
+    scope:spec.scope, period:spec.period, explicitContent:str(spec.explicitContent,4000) || null,
+    contentMode:spec.contentMode, tone:spec.tone, finalOperation:spec.finalOperation,
+  } : undefined
+  const execution = p.execution
+  // Persist only the approval reference. Rehydration must re-read its canonical preview with RLS.
+  const binding = execution?.version === p.version && typeof execution.proposal?.id === 'string' ? {
+    version:p.version, proposal:{id:str(execution.proposal.id,80), tool:'whatsapp_prepare_send', title:'Enviar WhatsApp',
+      summary:'Requiere verificación de estado', fields:[], expiresAt:str(execution.proposal.expiresAt,40)},
+  } : undefined
+  return {proposalId:str(p.proposalId,100), idempotencyKey:str(p.idempotencyKey,160), version:p.version,
+    status:p.status === 'confirmed' || p.status === 'cancelled' ? p.status : 'pending', channel:p.channel,
+    recipientMode:p.recipientMode, purpose:p.purpose, recipients, canSendDirect:p.canSendDirect === true,
+    channelLimitation:str(p.channelLimitation,500) || null, createdAt:str(p.createdAt,40),
+    confirmedAt:str(p.confirmedAt,40) || null, ...(safeSpec ? {spec:safeSpec} : {}), ...(binding ? {execution:binding} : {})}
+}
+
 export function toPersistedPayload(value: Omit<SessionContext, 'updatedAt'>): PersistedPayload {
   return {
     activeQuery: value.activeQuery,
@@ -257,6 +293,8 @@ export function toPersistedPayload(value: Omit<SessionContext, 'updatedAt'>): Pe
     responseFormat: coerceResponseFormat(value.responseFormat),
     lastTotals: value.lastTotals ?? null,
     executiveSession: value.executiveSession ?? null,
+    pendingCommunication: coerceCommunication(value.pendingCommunication),
+    pendingFocus: value.pendingFocus === 'action' || value.pendingFocus === 'communication' ? value.pendingFocus : null,
     pendingWrite:
       value.pendingWrite && typeof value.pendingWrite.operation === 'string' && typeof value.pendingWrite.request === 'string'
         ? {
@@ -303,6 +341,8 @@ function fromPersistedPayload(payload: unknown, fingerprint: string, updatedAt: 
     responseFormat: coerceResponseFormat(p.responseFormat),
     lastTotals: totals,
     executiveSession: coerceExecutiveSession(p.executiveSession),
+    pendingCommunication: coerceCommunication(p.pendingCommunication),
+    pendingFocus: p.pendingFocus === 'action' || p.pendingFocus === 'communication' ? p.pendingFocus : null,
     pendingWrite:
       p.pendingWrite &&
       typeof p.pendingWrite === 'object' &&

@@ -2268,6 +2268,7 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
     }
 
     if (state.ctx.pendingCommunication) await revokeContextualExecution(state.actor, state.ctx.pendingCommunication, state.dispatch)
+    state.ctx.pendingFocus = 'communication'
     state.ctx.pendingCommunication = composed.proposal
     response.presentation = 'operation'
     response.blocks.data.push(composed.formattedText)
@@ -2775,6 +2776,7 @@ export async function runAgentTurn(
     lastEntityKind: ctx.lastEntity?.kind ?? null,
     pendingWrite: ctx.pendingWrite ?? null,
     hasPendingCommunication: Boolean(ctx.pendingCommunication),
+    pendingFocus: ctx.pendingFocus ?? null,
   })
   stage('intent')
 
@@ -2883,8 +2885,22 @@ export async function runAgentTurn(
       outcome = await handleUnsupportedMetric(state)
       break
     case 'write_request':
+      if (intent.operation !== 'notify_responsable') state.ctx.pendingFocus = 'action'
       outcome = await handleWriteRequest(state, intent)
       break
+    case 'edit_pending_date': {
+      const due = parseDueDateHint(intent.request, state.today)
+      if (!due.dateYmd) {
+        const response = baseResponse('clarification')
+        const question = '¿Qué nueva fecha debe tener la acción?'
+        response.blocks.data.push(question)
+        outcome = {response, clarification:{question,options:[]},audit:{status:'clarification'}}
+      } else {
+        state.ctx.pendingFocus = 'action'
+        outcome = await handleWriteRequest(state,{kind:'write_request',operation:'create_action',isFollowUp:true,request:`Para el ${due.dateYmd}`})
+      }
+      break
+    }
     case 'review_pending': {
       const action = state.ctx.pendingWrite?.draft
       const communication = state.ctx.pendingCommunication
@@ -2896,9 +2912,18 @@ export async function runAgentTurn(
         resp.blocks.data.push(question)
         outcome = {response: resp, clarification: {question, options: []}, audit: {status: 'clarification'}}
       } else if (communication && intent.target !== 'action') {
+        const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+        if (intent.recipientHint && !communication.recipients.some(r=>fold(r.recipientName).includes(fold(intent.recipientHint!)))) {
+          const question = 'No tengo un borrador vigente para esa persona en esta conversación. ¿Quieres revisar el mensaje actual o preparar otro?'
+          resp.status = 'clarification';resp.blocks.data.push(question)
+          outcome = {response:resp,clarification:{question,options:[]},audit:{status:'clarification'}}
+          break
+        }
+        state.ctx.pendingFocus = 'communication'
         resp.blocks.data.push(formatCommunicationProposalText(communication))
         outcome = {response: resp, communicationProposal: communication, audit: {status: 'proposal_blocked'}}
       } else if (action && intent.target !== 'communication') {
+        state.ctx.pendingFocus = 'action'
         resp.blocks.data.push(formatStructuredActionDraft(action, {mode: resolveR2ExecutionMode(process.env, state.actor.usuarioId), missingRequired: [!action.responsableId && 'responsable', !action.fecha && 'fecha'].filter((item): item is string => Boolean(item))}))
         outcome = {response: resp, audit: {status: 'proposal_blocked'}}
       } else {
@@ -3068,6 +3093,7 @@ export async function runAgentTurn(
             ? state.ctx.pendingWrite ?? { operation: intent.operation, request: intent.request.slice(0, 280) }
             : state.ctx.pendingWrite ?? null,
       pendingCommunication: state.ctx.pendingCommunication ?? null,
+      pendingFocus: state.ctx.pendingFocus ?? null,
       fingerprint,
       responseFormat: selected,
       lastAnswer: cacheable ? { intent: intent.kind, response: outcome.response, auto: autoResolution } : null,

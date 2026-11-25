@@ -569,3 +569,28 @@ it('el comando real del piloto separa título y descripción de los atributos ex
   expect(draft.responsableId).toBe(R1_USERS.superAdmin.id)
   expect(draft.fecha).toBe('2026-11-27')
 })
+
+
+it.each(['web','whatsapp','voice'] as const)('%s: el foco de propuesta permite volver a acción y cambiar únicamente fecha',async channel=>{
+  const store=createMemorySessionContextStore()
+  await ask('Crea una acción para revisar inventario, para mí, en Kanban corporativo, para el viernes',{store,channel})
+  const key=`${R1_USERS.superAdmin.id}:${channel}:comm-accept-session`
+  const action=structuredClone(store.get(key)!.pendingWrite!.draft!)
+  await ask('Envíale a Gerardo sus pendientes de hoy',{store,channel})
+  const message=structuredClone(store.get(key)!.pendingCommunication!)
+  const show=await ask('Muéstrame la acción que preparamos',{store,channel})
+  expect(show.text).toContain('Revisar inventario')
+  const back=await ask('Regresa al mensaje para Gerardo',{store,channel})
+  expect(back.text).toContain('Gerardo')
+  expect(store.get(key)!.pendingCommunication).toEqual(message)
+  await ask('Mejor por correo',{store,channel})
+  const email=structuredClone(store.get(key)!.pendingCommunication!)
+  await ask('Ahora volvamos a la acción',{store,channel})
+  expect(store.get(key)!.pendingFocus).toBe('action')
+  const missing=await ask('Cambia únicamente la fecha',{store,channel})
+  expect(missing.text).toContain('Qué nueva fecha')
+  expect(store.get(key)!.pendingWrite!.draft).toEqual(action)
+  await ask('Cambia únicamente la fecha al lunes',{store,channel})
+  expect(store.get(key)!.pendingWrite!.draft).toEqual({...action,fecha:'2026-11-30',fechaSource:'explicit'})
+  expect(store.get(key)!.pendingCommunication).toEqual(email)
+})

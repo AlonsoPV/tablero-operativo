@@ -418,7 +418,7 @@ export async function readWhatsappStatus(actor: CopilotActor, operationId: strin
   if (!operationId) throw new Error('VALIDATION_FAILED: Indica cuál borrador quieres consultar.')
   const { data: operation, error } = await actor.supabase
     .from('assistant_pending_ops')
-    .select('id,status,expires_at')
+    .select('id,tool,status,expires_at,preview')
     .eq('id', operationId)
     .eq('usuario_id', actor.usuarioId)
     .eq('tool', 'whatsapp_prepare_send')
@@ -433,6 +433,7 @@ export async function readWhatsappStatus(actor: CopilotActor, operationId: strin
     .maybeSingle()
   if (attemptError) throw new Error('DATABASE_ERROR: No se pudo consultar el estado de Meta.')
   return {
+    proposal: proposalFromPendingRow(operation),
     operation_status: operation.status === 'pending' && Date.parse(operation.expires_at) <= Date.now()
       ? 'expired'
       : operation.status,

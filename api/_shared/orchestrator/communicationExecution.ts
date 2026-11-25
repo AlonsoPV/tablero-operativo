@@ -29,7 +29,12 @@ export async function prepareContextualExecution(
   if (bound && bound.version === pending.version) {
     const status = await dispatch(actor.copilot, 'get_whatsapp_operation_status', {pending_op_id: bound.proposal.id})
     if (!status.ok || !status.data) return {message: 'No pude verificar el estado del intento anterior. No se preparó otro envío.'}
-    const data = status.data as {operation_status?: string; attempt?: {delivery_status?: string} | null}
+    const data = status.data as {proposal?: CopilotProposal; operation_status?: string; attempt?: {delivery_status?: string} | null}
+    const canonical = data.proposal
+    if (!canonical || canonical.id !== bound.proposal.id || canonical.workspace?.toUserId !== recipient.recipientId ||
+      canonical.workspace.body !== recipient.messageBody || canonical.workspace.needsInfo || canonical.workspace.incomplete) {
+      return {message: 'La aprobación registrada no coincide con este destinatario o contenido. Revisa la operación existente antes de enviar.'}
+    }
     const delivery = data.attempt?.delivery_status
     if (delivery) {
       return {message: delivery === 'read' ? 'Meta registra el mensaje como leído.'
@@ -37,10 +42,10 @@ export async function prepareContextualExecution(
         : delivery === 'accepted' ? 'Meta aceptó el mensaje; la entrega todavía no está confirmada.'
         : `El intento existente figura como «${delivery}». Consulta su resultado antes de reenviar.`}
     }
-    if (data.operation_status !== 'pending' || !(Date.parse(bound.proposal.expiresAt) > now)) {
+    if (data.operation_status !== 'pending' || !(Date.parse(canonical.expiresAt) > now)) {
       return {message: `La operación existente figura como «${data.operation_status ?? 'desconocida'}». No se preparó otro envío.`}
     }
-    return {proposal: bound.proposal, message: 'Revisa la propuesta de envío vigente. Todavía no se registró un intento de envío.'}
+    return {proposal: canonical, message: 'Revisa la propuesta de envío vigente. Todavía no se registró un intento de envío.'}
   }
   const result = await dispatch({...actor.copilot, requestId: `contextual:${pending.proposalId}:v${pending.version}`},
     'whatsapp_prepare_send', {recipient: recipient.recipientName, recipient_id: recipient.recipientId, body: recipient.messageBody})
