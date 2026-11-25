@@ -156,14 +156,19 @@ function extractResponsablePatch(utterance: string): { self: boolean; hint: stri
   }
   const named =
     cleanSpaces(utterance).match(
-      /\b(?:as[ií]gna(?:la|lo|sela|selo|r)?|reas[ií]gna(?:la|lo|r)?|responsable(?:\s+sea|\s+a|\s*[:=])?)\s+(?:a\s+)?([A-ZÁÉÍÓÚÑa-záéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+)?)/i
+      /\b(?:as[ií]gna(?:da|do|la|lo|sela|selo|r)?|reas[ií]gna(?:da|do|la|lo|r)?|responsable(?:\s+sea|\s+a|\s*[:=])?|mejor\s+a|ponle\s+(?:una\s+(?:tarea|acci[oó]n)\s+)?a|d[eé]jale\s+(?:un\s+pendiente\s+)?a|enc[aá]rgale\s+(?:esto\s+)?a|dile\s+a)\s+(?:a\s+)?([A-ZÁÉÍÓÚÑa-záéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+)?)/i
+    ) ??
+    cleanSpaces(utterance).match(
+      /\bque\s+se\s+encargue\s+([A-ZÁÉÍÓÚÑa-záéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ.'-]+)?)/i
     ) ??
     cleanSpaces(utterance).match(
       /\bpara\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)\b/
     )
   if (named?.[1]) {
-    const candidate = cleanSpaces(named[1]).replace(/\b(en|con|para|el|la|los|las|de|del)\b.*$/i, '').trim()
-    const bad = /^(el|la|los|las|mi|mis|kanban|tablero|equipo|viernes|lunes|martes|miercoles|jueves|sabado|domingo|hoy|manana|prioridad|alta|media|baja|esta|esa)$/i
+    const candidate = cleanSpaces(named[1])
+      .replace(/\b(en|con|para|el|la|los|las|lo|de|del|que|una|un)\b.*$/i, '')
+      .trim()
+    const bad = /^(el|la|los|las|lo|mi|mis|kanban|tablero|equipo|viernes|lunes|martes|miercoles|jueves|sabado|domingo|hoy|manana|prioridad|alta|media|baja|esta|esa|esto|una|un)$/i
     if (candidate.length >= 2 && !bad.test(norm(candidate))) {
       return { self: false, hint: candidate }
     }
@@ -219,7 +224,7 @@ function cleanTitleFromStructuredClauses(rawTitle: string): string {
   const stripped = cleanSpaces(rawTitle)
     .replace(/\b(?:en\s+el\s+|al\s+|en\s+)?(?:kanban\s+corporativo|tablero\s+corporativo|tablero\s+de\s+equipo|tablero\s+de\s+[A-Za-zÁÉÍÓÚÑáéíóúñ\s-]+|kanban)\b/gi, '')
     .replace(/\b(?:con\s+|como\s+|en\s+)?prioridad\s+(?:alta|media|baja|p1|p2|p3)\b/gi, '')
-    .replace(/\b(?:as[ií]gna(?:mela|melo|la|lo|sela|selo|r)?|para\s+m[ií]|a\s+m[ií])\b/gi, '')
+    .replace(/\b(?:as[ií]gna(?:da|do|mela|melo|la|lo|sela|selo|r)?(?:\s+a\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+)?)?|para\s+m[ií]|a\s+m[ií])\b/gi, '')
     .replace(/\b(?:[áa]rea|departamento)\s+(?:de\s+)?[A-Za-zÁÉÍÓÚÑáéíóúñ]+\b/gi, '')
     .replace(/\b(?:para\s+el|el|para)\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|hoy|ma[ñn]ana)\b/gi, '')
     .replace(/[()]/g, ' ')
@@ -265,16 +270,29 @@ export function extractActionPatch(utterance: string, today: string, isFollowUp:
   if (objetivo) patch.objetivoNombre = objetivo
 
   if (!isFollowUp) {
-    const base = draftFromRequest(utterance)
-    const directLead = cleanSpaces(utterance)
+    const strippedFiller = cleanSpaces(utterance)
+      .replace(/^(?:oye|porfa|por\s+favor|f[ií]jate\s+que|a\s+ver|me\s+urge\s+que|necesito\s+que)\s+/i, '')
+      .replace(/\bporfa(?:vor)?\b/gi, '')
+      .trim()
+    const base = draftFromRequest(strippedFiller)
+    const directLead = cleanSpaces(strippedFiller)
       .replace(
-        /^(?:crea|crear|creame|genera|generar|agrega|agregar|registra|registrar|nueva|necesito)\s+(?:una\s+)?(?:acci[oó]n|tarea|actividad|iniciativa)\s+(?:para\s+que|para|de|sobre)\s+/i,
+        /^(?:crea|crear|creame|genera|generar|agrega|agregar|registra|registrar|nueva|necesito)\s+(?:una\s+)?(?:acci[oó]n|acion|tarea|actividad|iniciativa|pendiente)\s+(?:para\s+que|para|de|sobre)\s+/i,
         ''
       )
-      .replace(/^(?:crea|crear|creame|genera|generar|agrega|agregar|registra|registrar)\s+(?:una\s+)?(?:acci[oó]n|tarea|actividad|iniciativa)\s+/i, '')
+      .replace(/^(?:crea|crear|creame|genera|generar|agrega|agregar|registra|registrar)\s+(?:una\s+)?(?:acci[oó]n|acion|tarea|actividad|iniciativa|pendiente)\s+/i, '')
+      .replace(
+        /^(?:ponle|d[eé]jale|enc[aá]rgale)\s+(?:una\s+(?:tarea|acci[oó]n)\s+|un\s+pendiente\s+)?(?:a\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+)?\s+)?(?:de\s+|sobre\s+|lo\s+de(?:l)?\s+)?/i,
+        ''
+      )
+      .replace(
+        /^(?:que\s+se\s+encargue\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+)?\s+de\s+|dile\s+a\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+)?\s+que\s+(?:me\s+)?)/i,
+        ''
+      )
+      .replace(/^(?:hay\s+que|que\s+no\s+se\s+nos\s+olvide|ap[uú]ntalo\s+para|agr[eé]galo\s+al\s+kanban(?:\s*:|\s+para)?)\s+/i, '')
     const candidateTitle =
       explicitTitle ??
-      (directLead !== cleanSpaces(utterance)
+      (directLead !== cleanSpaces(strippedFiller)
         ? cleanTitleFromStructuredClauses(directLead)
         : cleanTitleFromStructuredClauses(base.title))
     if (candidateTitle.length >= 2) {
@@ -363,7 +381,7 @@ export function isStructuredFollowUpUtterance(utterance: string): boolean {
       extractResponsablePatch(utterance).hint ||
       extractBoardPatch(utterance).kind ||
       extractAreaPatch(utterance) ||
-      /\b(mejor\s+para|para\s+(?:hoy|manana|el\s+(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|\d{4}-\d{2}-\d{2})|cambia(?:r)?\s+(?:la\s+)?fecha|reprograma|en\s+el\s+kanban|en\s+el\s+tablero|ponla|ponlo|asignamela|asignala|asignalo)\b/.test(
+      /\b(mejor\s+para|mejor\s+a\b|para\s+(?:hoy|manana|el\s+(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|\d{4}-\d{2}-\d{2})|cambia(?:r)?\s+(?:la\s+)?fecha|reprograma|en\s+el\s+kanban|en\s+el\s+tablero|ponla|ponlo|asignamela|asignala|asignalo|asignasela|asignaselo|pasalo|pasala)\b/.test(
         n
       )
   )
