@@ -205,8 +205,13 @@ export function classifyAgentIntent(
     return { kind: 'executive_commitments', filter }
   }
 
+  const looksLikeWriteVerb =
+    /\b(crea|crear|creame|registra|registrar|agrega|agregar|anota|anotar|actualiza|actualizar|cambia|cambiar|elimina|eliminar|borra|borrar|edita|editar|convierte|convertir|prepara|preparar)\b/.test(
+      text
+    )
   if (
-    /\b(avances estrategicos|avance estrategico|revisar avances estrategicos|resultados de los okrs?|objetivos estrategicos requieren atencion|objetivos estrategicos|que objetivos requieren atencion)\b/.test(
+    !looksLikeWriteVerb &&
+    /\b(avances estrategicos|avance estrategico|revisar avances estrategicos|resultados de los okrs?|objetivos estrategicos requieren atencion|objetivos estrategicos|que objetivos requieren atencion|iniciativas? activas?|iniciativas? en curso|iniciativas? estrategicas?|mis iniciativas?|nuestras iniciativas?|que iniciativas?|cuales son (?:mis |las )?iniciativas?|como van las iniciativas?|como vamos con las iniciativas?)\b/.test(
       text
     )
   ) {
@@ -284,7 +289,7 @@ export function classifyAgentIntent(
 
   if (
     !looksLikeWriteFollowUp &&
-    (/\b(sustentan esta recomendacion|acciones que sustentan|respaldan esta recomendacion|ver evidencia|muestrame la evidencia|profundiza(?:r)? en la (prioridad|accion|primera)|detalle de la prioridad|cual era la prioridad|abre (?:esa|la) accion|explicame por que|explica por que)\b/.test(
+    (/\b(sustentan esta recomendacion|acciones que sustentan|respaldan esta recomendacion|ver evidencia|muestrame la evidencia|profundiza(?:r)? en la (prioridad|accion|primera|segunda|tercera)|detalle de (?:la )?(prioridad|primera|segunda|tercera|accion)|detalle de esa (accion|tarea)|cual era la prioridad|abre (?:esa|la) accion|explicame por que|explica por que)\b/.test(
       text
     ) ||
       isFollowUpReference(text, session))
@@ -309,7 +314,7 @@ export function classifyAgentIntent(
 
   if (
     /\bcomo vamos con\b/.test(text) &&
-    !/\b(okrs?|objetivos?|resultados? clave|krs?|metas?)\b/.test(text)
+    !/\b(okrs?|objetivos?|resultados? clave|krs?|metas?|iniciativas?)\b/.test(text)
   ) {
     return {
       kind: 'query_actions',
@@ -426,7 +431,11 @@ export function classifyAgentIntent(
     if (estado) return { kind: 'write_request', operation: 'update_status', request, estado }
   }
 
-  if (interpreted.intent === 'propose_create_kanban') {
+  if (
+    interpreted.intent === 'propose_create_kanban' ||
+    (/\b(crea|crear|creame|registra|registrar|agrega|agregar|propon|proponer)\b/.test(text) &&
+      /\b(iniciativa|iniciativas)\b/.test(text))
+  ) {
     return { kind: 'write_request', operation: 'create_action', request }
   }
   if (
