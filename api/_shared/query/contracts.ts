@@ -99,10 +99,29 @@ export type OkrItem = {
   withoutInitiatives: boolean
   insufficientKrs: number
   keyResults: KeyResultItem[]
+  ownerUserId?: string | null
+  scope?: string | null
   startDate?: string | null
   endDate?: string | null
   /** Ritmo vs periodo transcurrido; null si la fuente no lo resolvió. */
   pace?: OkrPace | null
+}
+
+export type InitiativeItem = {
+  id: string
+  keyResultId: string
+  actionId: string | null
+  teamActionId: string | null
+  title: string
+  estado: string | null
+  fecha: string | null
+  responsableId: string | null
+  responsableNombre: string | null
+  okrId: string | null
+  okrNombre: string | null
+  krTitle: string | null
+  active: boolean
+  href: string | null
 }
 
 export type QueryError = {

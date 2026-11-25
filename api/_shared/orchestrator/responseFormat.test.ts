@@ -150,7 +150,7 @@ describe('los cuatro formatos', () => {
   })
 
   it('Directo no omite advertencias importantes (KR sin datos, fuente incompleta)', async () => {
-    const r = await turn(harness(), R1_USERS.lead, '¿Cuántos objetivos tengo?', { responseFormat: 'direct' })
+    const r = await turn(harness(), R1_USERS.lead, '¿Cuántos objetivos corporativos hay?', { responseFormat: 'direct' })
     expect(r.text).toContain('2 objetivo(s) activo(s).')
     expect(r.text).toMatch(/1 KR sin datos suficientes/)
     expect(r.text).not.toContain('Indicadores:')
@@ -633,7 +633,7 @@ describe('adaptación por canal', () => {
 
   it('voz: una sola línea, cifra principal y advertencia en los tres formatos', async () => {
     for (const format of FORMATS) {
-      const r = await turn(harness(), R1_USERS.lead, '¿Cuántos objetivos tengo?', { channel: 'voice', responseFormat: format })
+      const r = await turn(harness(), R1_USERS.lead, '¿Cuántos objetivos corporativos hay?', { channel: 'voice', responseFormat: format })
       expect(r.text, format).not.toContain('\n')
       expect(r.text, format).toContain('2 objetivo(s) activo(s)')
       expect(r.text, format).toMatch(/KR sin datos/)

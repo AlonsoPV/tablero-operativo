@@ -210,22 +210,38 @@ describe('WhatsApp 1.0 Owner Acceptance Scenarios (A, B, C)', () => {
       }
     )
     expect(newQuery.handled).toBe(true)
-    expect(newQuery.intent).toBe('query_okrs')
+    expect(newQuery.intent).toBe('query_initiatives')
   })
 
   it('Escenario C — Iniciativas y OKRs diferenciados de acciones y proyectos sin colisión', () => {
-    const initiativeQueries = [
+    const personalInitiatives = [
       'Muéstrame mis iniciativas activas',
       '¿Qué iniciativas tengo activas?',
       'Mis iniciativas',
+    ]
+    for (const q of personalInitiatives) {
+      expect(classifyAgentIntent(q, null), q).toMatchObject({
+        kind: 'query_initiatives',
+        scope: 'personal',
+        activeOnly: true,
+      })
+    }
+    const orgInitiatives = [
       'Iniciativas en curso',
       '¿Cómo van las iniciativas?',
       '¿Cómo vamos con las iniciativas?',
-      '¿Cómo vamos con los OKRs?',
     ]
-    for (const q of initiativeQueries) {
-      expect(classifyAgentIntent(q, null), q).toMatchObject({ kind: 'query_okrs' })
+    for (const q of orgInitiatives) {
+      expect(classifyAgentIntent(q, null), q).toMatchObject({
+        kind: 'query_initiatives',
+        scope: 'organization',
+        activeOnly: true,
+      })
     }
+    expect(classifyAgentIntent('¿Cómo vamos con los OKRs?', null)).toMatchObject({
+      kind: 'query_okrs',
+      scope: 'organization',
+    })
 
     // Sin colisión con proyectos, acciones abiertas ni creación de iniciativas
     expect(classifyAgentIntent('¿Cómo vamos con el proyecto de logística?', null)).toMatchObject({

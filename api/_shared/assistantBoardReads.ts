@@ -487,15 +487,39 @@ async function orgChart(actor: BoardActor, tool: CopilotToolName, name: string):
 }
 
 const OKR_OBJECTIVE_LIMIT = 20
-const OKR_INITIATIVE_LIMIT = 40
+const OKR_INITIATIVE_LIMIT = 100
 
 type OkrReadRow = {
   id: string
   nombre_okr?: string | null
   scope?: string | null
+  owner_user_id?: string | null
   activo?: boolean | null
   start_date?: string | null
   end_date?: string | null
+}
+
+type InitiativeLinkRow = {
+  id?: string | null
+  key_result_id?: string | null
+  action_id?: string | null
+  team_action_id?: string | null
+}
+
+type InitiativeEnrichedRow = {
+  id: string
+  key_result_id: string
+  action_id: string | null
+  team_action_id: string | null
+  title: string
+  estado: string | null
+  fecha: string | null
+  responsable_id: string | null
+  responsable_nombre: string | null
+  okr_id: string | null
+  okr_nombre: string | null
+  kr_title: string | null
+  active: boolean
 }
 
 type KrReadRow = {
@@ -541,7 +565,8 @@ function asKrRow(row: Record<string, unknown>): KrReadRow | null {
 function shapeOkrProgress(input: {
   objectives: OkrReadRow[]
   keyResults: KrReadRow[]
-  initiatives: Array<{ key_result_id?: string | null }>
+  initiatives: InitiativeLinkRow[]
+  initiativeItems?: InitiativeEnrichedRow[]
   today: string
   truncated: boolean
 }) {
@@ -562,6 +587,7 @@ function shapeOkrProgress(input: {
       id: okr.id,
       nombre: okr.nombre_okr,
       scope: okr.scope,
+      owner_user_id: okr.owner_user_id ?? null,
       periodo: [okr.start_date, okr.end_date].filter(Boolean).join(' a '),
       progress,
       pace: objectivePaceStatus(objective, progress, input.today),
@@ -588,6 +614,7 @@ function shapeOkrProgress(input: {
     objectives: input.objectives.length,
     keyResults: input.keyResults.length,
     initiatives: input.initiatives.length,
+    initiative_items: input.initiativeItems ?? [],
     without_initiatives: items.filter((item) => item.without_initiatives).length,
     insufficient_krs: items.reduce((sum, item) => sum + item.insufficient_krs, 0),
     truncated:
@@ -598,17 +625,103 @@ function shapeOkrProgress(input: {
   }
 }
 
-function shapeOkrFromDashboardRpc(
+async function enrichOkrInitiatives(
+  supabase: SupabaseClient,
+  initiatives: InitiativeLinkRow[],
+  objectives: OkrReadRow[],
+  keyResults: KrReadRow[]
+): Promise<InitiativeEnrichedRow[]> {
+  const valid = initiatives.filter((i) => typeof i.key_result_id === 'string' && i.key_result_id)
+  if (!valid.length) return []
+  const krById = new Map(keyResults.map((kr) => [kr.id, kr]))
+  const okrById = new Map(objectives.map((okr) => [okr.id, okr]))
+
+  const actionIds = Array.from(
+    new Set(valid.map((i) => i.action_id).filter((id): id is string => typeof id === 'string' && id.length > 0))
+  )
+  const actionsById = new Map<
+    string,
+    { id: string; titulo_accion?: string | null; estado?: string | null; fecha?: string | null; responsable?: string | null }
+  >()
+  if (actionIds.length) {
+    const { data: actionRows } = await supabase
+      .from('acciones_diarias')
+      .select('id,titulo_accion,estado,fecha,responsable')
+      .in('id', actionIds)
+    for (const row of (actionRows ?? []) as Array<Record<string, unknown>>) {
+      if (typeof row.id === 'string') {
+        actionsById.set(row.id, {
+          id: row.id,
+          titulo_accion: typeof row.titulo_accion === 'string' ? row.titulo_accion : null,
+          estado: typeof row.estado === 'string' ? row.estado : null,
+          fecha: typeof row.fecha === 'string' ? row.fecha : null,
+          responsable: typeof row.responsable === 'string' ? row.responsable : null,
+        })
+      }
+    }
+  }
+
+  const ownerIds = Array.from(
+    new Set(
+      Array.from(actionsById.values())
+        .map((a) => a.responsable)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    )
+  )
+  const namesById = new Map<string, string>()
+  if (ownerIds.length) {
+    const { data: userRows } = await supabase.from('usuarios').select('id,nombre').in('id', ownerIds)
+    for (const u of (userRows ?? []) as Array<Record<string, unknown>>) {
+      if (typeof u.id === 'string' && typeof u.nombre === 'string' && u.nombre.trim()) {
+        namesById.set(u.id, u.nombre.trim())
+      }
+    }
+  }
+
+  return valid.map((link, idx) => {
+    const kr = krById.get(link.key_result_id!)
+    const okr = kr ? okrById.get(kr.okr_id) : undefined
+    const action = link.action_id ? actionsById.get(link.action_id) : undefined
+    const estado = action?.estado ?? null
+    const closed = estado === 'Verificado' || estado === 'Hecho'
+    const respId = action?.responsable ?? null
+    return {
+      id: typeof link.id === 'string' && link.id ? link.id : `ini-${idx + 1}`,
+      key_result_id: link.key_result_id!,
+      action_id: link.action_id ?? null,
+      team_action_id: link.team_action_id ?? null,
+      title: action?.titulo_accion?.trim() || kr?.title?.trim() || 'Iniciativa vinculada',
+      estado,
+      fecha: action?.fecha ?? null,
+      responsable_id: respId,
+      responsable_nombre: respId ? (namesById.get(respId) ?? null) : null,
+      okr_id: okr?.id ?? kr?.okr_id ?? null,
+      okr_nombre: okr?.nombre_okr ?? null,
+      kr_title: kr?.title ?? null,
+      active: !closed,
+    }
+  })
+}
+
+async function shapeOkrFromDashboardRpc(
+  supabase: SupabaseClient,
   payload: { objectives?: unknown[]; keyResults?: unknown[]; initiatives?: unknown[] },
   today: string
-): CopilotToolResult {
+): Promise<CopilotToolResult> {
   const objectives = (Array.isArray(payload?.objectives) ? payload.objectives : []).flatMap((item) => {
     const row = item as Record<string, unknown>
+    const ownerId =
+      typeof row.owner_user_id === 'string'
+        ? row.owner_user_id
+        : typeof row.owner_usuario === 'string'
+          ? row.owner_usuario
+          : null
     return typeof row.id === 'string'
       ? [{
           id: row.id,
           nombre_okr: typeof row.nombre_okr === 'string' ? row.nombre_okr : null,
           scope: typeof row.scope === 'string' ? row.scope : null,
+          owner_user_id: ownerId,
           activo: row.activo !== false,
           start_date: typeof row.start_date === 'string' ? row.start_date : null,
           end_date: typeof row.end_date === 'string' ? row.end_date : null,
@@ -619,16 +732,25 @@ function shapeOkrFromDashboardRpc(
     const row = asKrRow(item as Record<string, unknown>)
     return row ? [row] : []
   })
-  const initiatives = (Array.isArray(payload?.initiatives) ? payload.initiatives : []).flatMap((item) => {
+  const initiatives: InitiativeLinkRow[] = (Array.isArray(payload?.initiatives) ? payload.initiatives : []).flatMap((item) => {
     const row = item as Record<string, unknown>
-    return typeof row.key_result_id === 'string' ? [{ key_result_id: row.key_result_id }] : []
+    return typeof row.key_result_id === 'string'
+      ? [{
+          id: typeof row.id === 'string' ? row.id : null,
+          key_result_id: row.key_result_id,
+          action_id: typeof row.action_id === 'string' ? row.action_id : null,
+          team_action_id: typeof row.team_action_id === 'string' ? row.team_action_id : null,
+        }]
+      : []
   })
+  const initiativeItems = await enrichOkrInitiatives(supabase, initiatives, objectives, keyResults)
   return readOk(
     'get_okr_progress',
     shapeOkrProgress({
       objectives,
       keyResults,
       initiatives,
+      initiativeItems,
       today,
       truncated: objectives.length >= OKR_OBJECTIVE_LIMIT,
     })
@@ -643,7 +765,8 @@ async function toolOkrProgress(actor: BoardActor): Promise<CopilotToolResult> {
   // Preferir RPC (1 hop) frente a okrs → key_results → initiatives en serie.
   const rpc = await actor.supabase.rpc('okr_dashboard')
   if (!rpc.error && rpc.data && typeof rpc.data === 'object') {
-    return shapeOkrFromDashboardRpc(
+    return await shapeOkrFromDashboardRpc(
+      actor.supabase,
       rpc.data as { objectives?: unknown[]; keyResults?: unknown[]; initiatives?: unknown[] },
       today
     )
@@ -651,14 +774,27 @@ async function toolOkrProgress(actor: BoardActor): Promise<CopilotToolResult> {
 
   const { data, error } = await actor.supabase
     .from('okrs')
-    .select('id,nombre_okr,scope,area_id,owner_user_id,start_date,end_date,activo')
+    .select('id,nombre_okr,scope,area_id,owner_user_id,owner_usuario,start_date,end_date,activo')
     .eq('activo', true)
     .order('start_date', { ascending: false })
     .limit(OKR_OBJECTIVE_LIMIT)
   if (error) {
     return denied('get_okr_progress', 'No tienes acceso a OKRs o el tablero no está disponible.')
   }
-  const objectives = (data ?? []) as OkrReadRow[]
+  const objectives = ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    id: String(row.id),
+    nombre_okr: typeof row.nombre_okr === 'string' ? row.nombre_okr : null,
+    scope: typeof row.scope === 'string' ? row.scope : null,
+    owner_user_id:
+      typeof row.owner_user_id === 'string'
+        ? row.owner_user_id
+        : typeof row.owner_usuario === 'string'
+          ? row.owner_usuario
+          : null,
+    activo: row.activo !== false,
+    start_date: typeof row.start_date === 'string' ? row.start_date : null,
+    end_date: typeof row.end_date === 'string' ? row.end_date : null,
+  }))
   const ids = objectives.map((row) => row.id)
   const krQuery = ids.length
     ? await actor.supabase
@@ -675,15 +811,17 @@ async function toolOkrProgress(actor: BoardActor): Promise<CopilotToolResult> {
   const initiativeQuery = krIds.length
     ? await actor.supabase
         .from('okr_initiatives')
-        .select('id,key_result_id')
+        .select('id,key_result_id,action_id,team_action_id')
         .in('key_result_id', krIds)
         .limit(OKR_INITIATIVE_LIMIT)
     : { data: [] as unknown[] }
-  const initiatives = (initiativeQuery.data ?? []) as Array<{ key_result_id?: string | null }>
+  const initiatives = (initiativeQuery.data ?? []) as InitiativeLinkRow[]
+  const initiativeItems = await enrichOkrInitiatives(actor.supabase, initiatives, objectives, keyResults)
   return readOk('get_okr_progress', shapeOkrProgress({
     objectives,
     keyResults,
     initiatives,
+    initiativeItems,
     today,
     truncated:
       readWasTruncated(objectives.length, OKR_OBJECTIVE_LIMIT) ||
