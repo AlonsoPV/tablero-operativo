@@ -50,6 +50,12 @@ import {
 } from './answerContract.js'
 import { classifyAgentIntent, type AgentIntent } from './intent.js'
 import {
+  buildCompoundOperationPlan,
+  formatCompoundOperationPlan,
+  type CompoundOperationPlan,
+} from './multiIntent.js'
+import { TurnTimer, type TurnTelemetry } from './turnTelemetry.js'
+import {
   applyDraftPatch,
   emptyStructuredDraft,
   extractActionPatch,
@@ -199,6 +205,7 @@ export type AgentTurnResult = {
   clarification?: CopilotClarification
   proposal?: ActionProposal | CopilotProposal
   proposals?: CopilotProposal[]
+  multiIntentPlan?: CompoundOperationPlan
   batchId?: string
   /** Servidor: simulated|qa. Nunca lo decide el cliente. */
   executionEnabled?: boolean
@@ -211,6 +218,8 @@ export type AgentTurnResult = {
   notice?: string
   toolsUsed: string[]
   trace: Array<{ stage: AgentStage; ms: number }>
+  /** Telemetría real medida en este turno (sin latencias simuladas). */
+  telemetry?: TurnTelemetry
 }
 
 type TurnState = {
@@ -2037,6 +2046,64 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
   if (intent.batch) {
     return handleBatchCommitments(state, intent, response)
   }
+  if (intent.operation === 'compound') {
+    const catalog = state.entityCatalog ?? (await loadEntityCatalogFromActor(state.actor))
+    const existingDraft =
+      intent.isFollowUp && state.ctx.pendingWrite?.operation === 'create_action'
+        ? state.ctx.pendingWrite.draft ?? null
+        : null
+    const plan = buildCompoundOperationPlan({
+      utterance: intent.request,
+      actor: state.actor,
+      catalog,
+      today: state.today,
+      existingDraft,
+    })
+    if (plan.forbiddenReasons.length > 0 && plan.steps.every((s) => s.forbiddenReason)) {
+      return {
+        response: forbidden(plan.forbiddenReasons.join(' ')),
+        multiIntentPlan: plan,
+        audit: { status: 'denied_precheck' as const, entity: 'actions' },
+      }
+    }
+    const persistMode = resolveR2ExecutionMode(process.env, state.actor.usuarioId)
+    const formatted = formatCompoundOperationPlan(plan, persistMode)
+    if (plan.clarifications.length > 0) {
+      const clarifyResp = baseResponse('clarification')
+      clarifyResp.blocks.data.push(formatted)
+      withFacts(clarifyResp, { primary: { text: formatted } })
+      return {
+        response: clarifyResp,
+        clarification: { question: plan.clarifications.join(' '), options: [] },
+        multiIntentPlan: plan,
+        audit: { status: 'clarification' as const, entity: 'actions' },
+      }
+    }
+    const primaryCreate = plan.steps.find((s) => s.kind === 'create_action' && s.draft)?.draft
+    if (primaryCreate) {
+      state.ctx.pendingWrite = {
+        operation: 'create_action',
+        request: (primaryCreate.titulo ?? intent.request).slice(0, 280),
+        draft: primaryCreate,
+      }
+    }
+    response.blocks.data.push(formatted)
+    if (persistMode === 'disabled') {
+      response.blocks.limitations.push(
+        'Ninguna operación ni comunicación externa se ejecuta sin tu confirmación explícita.'
+      )
+    } else {
+      response.blocks.limitations.push(
+        'Confirmación agrupada requerida: se ejecutarán únicamente las operaciones listadas en orden y verificando dependencias.'
+      )
+    }
+    withFacts(response, { primary: { text: formatted } })
+    return {
+      response,
+      multiIntentPlan: plan,
+      audit: { status: 'proposal_blocked' as const, entity: 'actions' },
+    }
+  }
   if (intent.operation === 'create_action') {
     const baseDraft =
       intent.isFollowUp && state.ctx.pendingWrite?.operation === 'create_action' && state.ctx.pendingWrite.draft
@@ -2140,6 +2207,57 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
     : state.ctx.lastActions.length === 1
       ? { id: state.ctx.lastActions[0]!.id, label: state.ctx.lastActions[0]!.title }
       : null
+  if (intent.operation === 'notify_responsable' && (intent.recipientHint || intent.draftOnly)) {
+    const catalog = state.entityCatalog ?? (await loadEntityCatalogFromActor(state.actor))
+    const canal = intent.canal ?? 'email'
+    const hint = intent.recipientHint ?? null
+    const normStr = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+    let recipientName = hint ?? (target ? 'Responsable de la acción' : null)
+    if (hint && !/^(direccion|directivos?)$/i.test(normStr(hint))) {
+      const needle = normStr(hint)
+      const active = catalog.users.filter((u) => u.activo !== false)
+      const exact = active.filter((u) => normStr(u.nombre) === needle)
+      const matches = exact.length ? exact : active.filter((u) => normStr(u.nombre).includes(needle))
+      if (matches.length === 1) {
+        recipientName = matches[0]!.nombre
+      } else if (matches.length > 1) {
+        const question = `¿A quién te refieres: ${matches.slice(0, 4).map((u) => u.nombre).join(' o ')}?`
+        const clarifyResp = baseResponse('clarification')
+        clarifyResp.blocks.data.push(question)
+        withFacts(clarifyResp, { primary: { text: question } })
+        return {
+          response: clarifyResp,
+          clarification: { question, options: [] },
+          audit: { status: 'clarification' as const, entity: 'actions' },
+        }
+      } else {
+        return {
+          response: forbidden(`No encontré un destinatario activo y autorizado llamado «${hint}». No se inventan teléfonos ni correos.`),
+          audit: { status: 'denied_precheck' as const, entity: 'actions' },
+        }
+      }
+    }
+    const channelLabel = canal === 'whatsapp' ? 'WhatsApp' : 'Correo electrónico'
+    const subject = canal === 'email' ? `Seguimiento operativo${target ? `: ${target.label}` : ''}` : null
+    const body = target
+      ? `Hola ${recipientName ?? ''}, te escribo para dar seguimiento a "${target.label}". ¿Me compartes estatus o fecha compromiso?`.replace(/\s+,/, ',')
+      : `Hola ${recipientName ?? ''}, ${intent.request.replace(/^(?:m[aá]nda(?:le)?|env[ií]a(?:le)?|redacta)\s+(?:un\s+)?(?:whatsapp|correo|mail)\s+(?:a\s+\S+\s+)?/i, '').trim() || '¿me compartes actualización de tus pendientes?'}`.replace(/\s+,/, ',')
+    const lines = [
+      `${intent.draftOnly ? 'Borrador' : 'Propuesta'} de ${channelLabel}`,
+      `Destinatario: ${recipientName ?? 'Por confirmar'}`,
+      ...(subject ? [`Asunto: ${subject}`] : []),
+      `Mensaje: ${body}`,
+    ]
+    const formatted = lines.join('\n')
+    response.blocks.data.push(formatted)
+    response.blocks.limitations.push(
+      intent.draftOnly
+        ? 'Borrador listo para copiar o revisar. No se envió ningún mensaje externo.'
+        : 'No se envía ningún mensaje externo sin tu confirmación explícita de destinatario y contenido (si el canal no permite envío directo, puedes copiar este texto).'
+    )
+    withFacts(response, { primary: { text: formatted } })
+    return { response, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
+  }
   if (intent.operation === 'update_action' || intent.operation === 'add_comment' || intent.operation === 'verify_action') {
     return handleTypedBoardWrite(state, intent, target, response)
   }
@@ -2542,6 +2660,7 @@ export async function runAgentTurn(
     trace.push({ stage: name, ms: t - mark })
     mark = t
   }
+  const timer = new TurnTimer(now)
   const started = mark
 
   const { actor } = input
@@ -2831,6 +2950,23 @@ export async function runAgentTurn(
   }
   stage('respond')
 
+  for (const item of trace) {
+    if (item.stage === 'intent') timer.recordInterpretation(item.ms)
+    else if (item.stage === 'context') timer.recordEntityResolution(item.ms)
+    else if (item.stage === 'query_interpret') timer.recordExecution(item.ms)
+    else if (item.stage === 'respond') timer.recordProposal(item.ms)
+  }
+  const multiIntentPlan: CompoundOperationPlan | undefined =
+    'multiIntentPlan' in outcome
+      ? (outcome.multiIntentPlan as CompoundOperationPlan | undefined)
+      : undefined
+  const telemetry = timer.finish({
+    channel: actor.channel,
+    clarificationCount: outcome.clarification ? 1 : 0,
+    usedLlm: false,
+    multiIntentCount: multiIntentPlan?.steps.length ?? 1,
+  })
+
   const persistMode = resolveR2ExecutionMode(process.env, state.actor.usuarioId)
   const executionEnabled = persistMode === 'simulated' || persistMode === 'qa' || persistMode === 'pilot'
   const proposals = outcome.proposals?.length
@@ -2845,6 +2981,7 @@ export async function runAgentTurn(
     clarification: outcome.clarification,
     proposal: outcome.proposal,
     proposals,
+    multiIntentPlan,
     batchId: outcome.batchId,
     executionEnabled,
     format: resolution.format,
@@ -2852,5 +2989,6 @@ export async function runAgentTurn(
     offerDetail: selected === 'auto' && resolution.ambiguous,
     toolsUsed: tools,
     trace,
+    telemetry,
   }
 }

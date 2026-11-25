@@ -372,7 +372,10 @@ describe('Executive MVP — 5 End-to-End Demo Scenarios', () => {
     expect(draft.turn.handled).toBe(true)
     expect(draft.turn.intent).toBe('write_request')
     expect(draft.turn.proposal).toBeDefined()
-    expect(draft.text).toContain('Propuesta identificada')
+    expect(draft.text).toContain('Nueva acción')
+    expect(draft.text).toContain('Título:')
+    expect(draft.text).toContain('Responsable:')
+    expect(draft.text).toContain('Fecha de entrega:')
     expect(draft.text).toContain('no está habilitada')
   })
 
