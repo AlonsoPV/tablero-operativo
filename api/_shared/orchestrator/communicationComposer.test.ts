@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createMemorySessionContextStore } from './sessionContext.js'
 import { runAgentTurn, type AgentTurnDeps } from './runAgentTurn.js'
 import { composeText } from './respond.js'
@@ -593,4 +593,70 @@ it.each(['web','whatsapp','voice'] as const)('%s: el foco de propuesta permite v
   await ask('Cambia únicamente la fecha al lunes',{store,channel})
   expect(store.get(key)!.pendingWrite!.draft).toEqual({...action,fecha:'2026-11-30',fechaSource:'explicit'})
   expect(store.get(key)!.pendingCommunication).toEqual(email)
+})
+
+
+describe('WhatsApp literal preparation with previous context', () => {
+  it.each(['WhatsApp', 'correo'])('routes prepara un %s and preserves the dictated body', async (channel) => {
+    const store = createMemorySessionContextStore()
+    await ask('Crea una acción QA P0: revisar inventario, para mí, para el viernes', {store, channel:'whatsapp'})
+    await ask('¿Qué es un OKR?', {store, channel:'whatsapp'})
+    const calls: string[] = []
+    const {res, text} = await ask(`Prepara un ${channel} para Alonso Perez que diga: Prueba controlada de envío desde WhatsApp de Scrumban`, {store, channel:'whatsapp', onToolCall:name=>calls.push(name)})
+    expect(res.handled).toBe(true)
+    expect(res.intent).toBe('write_request')
+    expect(res.communicationProposal?.recipients).toHaveLength(1)
+    expect(res.communicationProposal?.recipients[0]?.recipientName).toBe('Alonso Pérez')
+    expect(res.communicationProposal?.recipients[0]?.messageBody).toBe('Prueba controlada de envío desde WhatsApp de Scrumban')
+    expect(text).not.toMatch(/revisar inventario|Qué es un OKR|marco de trabajo/)
+    expect(calls).not.toContain('get_my_actions')
+  })
+})
+
+
+it('treats dictated operational words as content, not a request for historical data', async () => {
+  const store = createMemorySessionContextStore()
+  await ask('Mándale a Gerardo sus pendientes', {store,channel:'whatsapp'})
+  const body = 'Mis pendientes y OKRs de Dirección: revisar mañana.\nSin cambios.'
+  const calls: string[] = []
+  const {res,text} = await ask(`Prepara un WhatsApp para Alonso Perez que diga: ${body}`, {store,channel:'whatsapp',onToolCall:name=>calls.push(name)})
+  expect(res.communicationProposal?.recipients).toHaveLength(1)
+  expect(res.communicationProposal?.recipients[0]?.recipientName).toBe('Alonso Pérez')
+  expect(res.communicationProposal?.recipients[0]?.messageBody).toBe(body)
+  expect(text).not.toMatch(/Gerardo|Cerrar conciliación/)
+  expect(calls).not.toContain('get_my_actions')
+})
+
+
+it('binds the literal WhatsApp draft to the existing approval operation in the authorized pilot', async () => {
+  const actor = r1Actor(createR1Db(), R1_USERS.superAdmin, 'whatsapp', 'literal-pilot')
+  actor.usuarioId = '22222222-2222-4222-8222-222222222200'
+  actor.copilot.usuarioId = actor.usuarioId
+  actor.copilot.whatsappId = '5215500000000'
+  vi.stubEnv('SUPABASE_URL','https://syntheticpilot.supabase.co')
+  vi.stubEnv('R2_EXECUTION_MODE','pilot')
+  vi.stubEnv('R2_PILOT_USERS',actor.usuarioId)
+  vi.stubEnv('WHATSAPP_COMMUNICATIONS_ENABLED','1')
+  vi.stubEnv('WHATSAPP_COMMUNICATIONS_SENDERS',actor.usuarioId)
+  vi.stubEnv('WHATSAPP_COMMUNICATIONS_RECIPIENTS',actor.usuarioId)
+  vi.stubEnv('WHATSAPP_COMMUNICATIONS_CHANNELS','whatsapp')
+  const deps = buildDeps()
+  deps.entityCatalog = {...CATALOG,users:CATALOG.users.map(u=>u.id === R1_USERS.superAdmin.id ? {...u,id:actor.usuarioId} : u)}
+  const original = deps.dispatch!
+  const calls: string[] = []
+  deps.dispatch = async (copilot,name,args) => {
+    calls.push(name)
+    if(name === 'whatsapp_prepare_send') {
+      expect(args).toMatchObject({recipient_id:actor.usuarioId,body:'Prueba controlada de envío desde WhatsApp de Scrumban'})
+      return {ok:true,tool:name,kind:'proposal',proposal:{id:'11111111-1111-4111-8111-111111111111',tool:name,title:'Enviar WhatsApp',summary:'Revisar',fields:[],expiresAt:'2099-01-01T00:00:00Z',workspace:{kind:'whatsapp',toUserId:actor.usuarioId,body:String(args.body)}}}
+    }
+    return original(copilot,name,args)
+  }
+  try {
+    const res = await runAgentTurn({actor,utterance:'Prepara un WhatsApp para Alonso Perez que diga: Prueba controlada de envío desde WhatsApp de Scrumban'},deps)
+    expect(res.handled).toBe(true)
+    expect(res.proposal?.id).toBe('11111111-1111-4111-8111-111111111111')
+    expect(calls.filter(n=>n==='whatsapp_prepare_send')).toHaveLength(1)
+    expect(calls).not.toContain('get_my_actions')
+  } finally {vi.unstubAllEnvs()}
 })

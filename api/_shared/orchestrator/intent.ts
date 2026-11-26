@@ -164,6 +164,14 @@ export function classifyAgentIntent(
   const text = normalize(cleanedUtterance)
   if (!text) return { kind: 'unknown' }
 
+  // A new, explicitly channelled communication is independent of older drafts.
+  const freshCommunication = text.match(/^(?:prepara(?:r)?|redacta(?:r)?|arma(?:r)?|envia(?:r)?|manda(?:r)?)\s+(?:un\s+)?(whatsapp|correo|mail|email)\b/)
+  if (freshCommunication) {
+    return {kind:'write_request', operation:'notify_responsable', request:utterance,
+      canal:freshCommunication[1] === 'whatsapp' ? 'whatsapp' : 'email', contextualComm:true,
+      ...(/^(?:prepara|redacta|arma)/.test(text) ? {draftOnly:true} : {})}
+  }
+
   // Resolve explicit draft navigation before recipient edits or executive navigation.
   const hasDraft = Boolean(session?.pendingWrite || session?.hasPendingCommunication)
   const draftReference = /\b(borrador|propuesta|mensaje|correo|whatsapp|accion)\b/.test(text)
