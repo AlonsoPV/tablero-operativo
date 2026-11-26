@@ -62,6 +62,7 @@ export type CommunicationIntentSpec = {
   scope: CommunicationScope
   period: CommunicationPeriod
   explicitContent: string | null
+  literalContent?: boolean
   contentMode: CommunicationContentMode
   tone: CommunicationTone
   finalOperation: CommunicationFinalOperation
@@ -244,7 +245,7 @@ function extractRecipientHint(cleanedUtterance: string): string | null {
 
   const candidates = [
     cleanedUtterance.match(/\b(?:pon|poner)\s+a\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ]+)?)\s+al\s+tanto\b/i),
-    cleanedUtterance.match(/\b(?:a|con)\s+(Direcci[oó]n|[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)\b/),
+    cleanedUtterance.match(/\b(?:a|con|para)\s+(Direcci[oó]n|[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)\b/),
     cleanedUtterance.match(/\b(?:env[ií]ale|m[aá]ndale|dile|av[ií]sale|preg[uú]ntale|recu[eé]rdale|p[ií]dele|p[aá]sale|notif[ií]cale)\s+a\s+([A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+)?)\b/i),
     cleanedUtterance.match(/\b(?:whatsapp|correo|mail|email)\s+a\s+([A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+)?)\b/i),
     cleanedUtterance.match(/\b(?:pon|poner)\s+a\s+([A-Za-zÁÉÍÓÚÑáéíóúñ]+)\s+al\s+tanto\b/i),
@@ -277,7 +278,10 @@ export function parseCommunicationIntent(
   utterance: string,
   session?: SessionContext | null
 ): CommunicationIntentSpec {
-  const cleaned = normalizeColloquialTypos(utterance)
+  // Classify only the instruction envelope; dictated text must not alter scope or intent.
+  const literalMatch = utterance.match(/\bque\s+diga\s*:\s*([\s\S]+)$/i)
+  const literalBody = literalMatch?.[1]?.trim()
+  const cleaned = normalizeColloquialTypos(literalMatch ? utterance.slice(0, literalMatch.index) : utterance)
   const text = norm(cleaned)
 
   const isDraftOnly =
@@ -303,7 +307,7 @@ export function parseCommunicationIntent(
         ? 'single'
         : 'contextual'
 
-  const explicitContent = extractExplicitClause(cleaned)
+  const explicitContent = literalBody || extractExplicitClause(cleaned)
 
   // Detección de propósito semántico (sin depender de una sola frase fija)
   const asksDaily =
@@ -327,7 +331,9 @@ export function parseCommunicationIntent(
     asksDaily || asksOverdue || asksBlockers || asksPending || asksOkr || asksWeekly || asksStatusCheck || asksTeamUpdate
 
   let purpose: CommunicationPurpose = 'general_followup'
-  if (explicitContent && hasDelegatedDataNeed) {
+  if (literalBody) {
+    purpose = 'explicit_message'
+  } else if (explicitContent && hasDelegatedDataNeed) {
     purpose = 'mixed'
   } else if (asksTeamUpdate) {
     purpose = 'executive_team_update'
@@ -438,6 +444,7 @@ export function parseCommunicationIntent(
     scope,
     period,
     explicitContent,
+    ...(literalBody ? {literalContent:true} : {}),
     contentMode,
     tone,
     finalOperation,
@@ -508,7 +515,10 @@ function checkDirectDeliveryCapability(
   isDraftOnly: boolean,
   actor?: AgentActor
 ): { canSendDirect: boolean; limitation: string | null } {
-  if (isDraftOnly) {
+  const approvedPilot = actor?.channel === 'whatsapp' && Boolean(actor.copilot.whatsappId) && Boolean(user) &&
+    isWhatsAppCommunicationAllowed(process.env, actor.usuarioId, user!.id, channel)
+  // In the explicitly allowlisted pilot, preparation may create an approval, never a send.
+  if (isDraftOnly && !approvedPilot) {
     return {
       canSendDirect: false,
       limitation: 'Modo borrador: puedes revisar o copiar este mensaje antes de enviarlo.',
@@ -564,6 +574,8 @@ function buildPersonalMessage(params: {
 
   // A. Contenido explícito puro (sin consultar DB innecesariamente)
   if (spec.purpose === 'explicit_message' && spec.explicitContent) {
+    if (spec.literalContent) return {emptyReason:null,subject:spec.channel === 'email' ? `Mensaje para ${name}` : null,body:spec.explicitContent}
+
     const cleanMsg = spec.explicitContent.endsWith('.') || spec.explicitContent.endsWith('?')
       ? spec.explicitContent
       : `${spec.explicitContent}.`
