@@ -92,7 +92,7 @@ type RecipientProfile = {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const FUNCTION_VERSION = 'whatsapp-approved-communications-20261125'
+const FUNCTION_VERSION = 'whatsapp-approved-communications-20261126-delegation-secret'
 
 function normalizePriority(value: unknown): 'Normal' | 'Alta' | 'Urgente' {
   return value === 'Alta' || value === 'Urgente' ? value : 'Normal'
@@ -562,7 +562,8 @@ Deno.serve(async (req) => {
   let delegation: Awaited<ReturnType<typeof loadApprovedWhatsAppEmail>> | null = null
   let auth: RequireUserResult
   if (body?.assistant_pending_op_id) {
-    if (!(await matchesInternalAuthorization(req.headers.get('Authorization'), Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')))) return jsonResponse({ok:false,message:'No autorizado'},401)
+    const delegationSecret = Deno.env.get('INTERNAL_EMAIL_DELEGATION_SECRET') ?? ''
+    if (!(await matchesInternalAuthorization(req.headers.get('Authorization'), delegationSecret.length >= 32 ? delegationSecret : undefined))) return jsonResponse({ok:false,message:'No autorizado'},401)
     try {
       const internal=createClient(Deno.env.get('SUPABASE_URL')!,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,{auth:{persistSession:false,autoRefreshToken:false}})
       delegation=await loadApprovedWhatsAppEmail(internal,body.assistant_pending_op_id,Deno.env.toObject())

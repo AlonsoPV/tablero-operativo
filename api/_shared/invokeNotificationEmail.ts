@@ -31,11 +31,21 @@ function anonKey() {
 
 /** Internal delegation is restricted again by the existing Edge Function to an executing,
  * explicitly approved operation. No user JWT is fabricated or stored. */
+/**
+ * Delegación interna de correo aprobado desde WhatsApp. Usa un secreto dedicado
+ * (INTERNAL_EMAIL_DELEGATION_SECRET) y nunca la clave de servicio ni un JWT de usuario.
+ * `apikey` lleva la clave anon pública, no privilegiada.
+ */
+export const INTERNAL_EMAIL_DELEGATION_MIN_SECRET_LENGTH = 32
+
 export async function invokeApprovedWhatsAppEmail(operationId: string): Promise<NotificationEmailInvokeResult> {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-  if (!key || !supabaseUrl()) throw new Error('CONFIGURATION_ERROR: Falta la configuración interna del correo.')
+  const secret = process.env.INTERNAL_EMAIL_DELEGATION_SECRET || ''
+  const key = anonKey()
+  if (secret.length < INTERNAL_EMAIL_DELEGATION_MIN_SECRET_LENGTH || !supabaseUrl() || !key) {
+    throw new Error('CONFIGURATION_ERROR: Falta la configuración interna del correo.')
+  }
   const response = await fetch(`${supabaseUrl()}/functions/v1/send-notification-email`, {
-    method: 'POST', headers: {Authorization: `Bearer ${key}`, apikey: key, 'Content-Type': 'application/json'},
+    method: 'POST', headers: {Authorization: `Bearer ${secret}`, apikey: key, 'Content-Type': 'application/json'},
     body: JSON.stringify({assistant_pending_op_id: operationId}), signal: AbortSignal.timeout(20000),
   })
   const data = await response.json().catch(() => null) as NotificationEmailInvokeResult | null
