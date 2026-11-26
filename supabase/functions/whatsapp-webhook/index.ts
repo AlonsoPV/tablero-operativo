@@ -1798,6 +1798,7 @@ async function callWhatsAppAssistant(input: {
   proposals?: Array<{ id?: string; title?: string; summary?: string }>
   interactiveButtons?: Array<{ type: 'reply'; reply: { id: string; title: string } }>
   handoff?: string | null
+  suppressReply?: boolean
 } | null> {
   const secret = Deno.env.get('WHATSAPP_ASSISTANT_SECRET')?.trim() || ''
   const base = (Deno.env.get('APP_URL') || Deno.env.get('VITE_APP_URL') || '')
@@ -1908,6 +1909,9 @@ async function maybeHandleWhatsAppAi(
     mediaId: input.mediaId,
     mimeType: input.mimeType,
   })
+  if (result?.suppressReply === true) {
+    return true
+  }
   const text = result?.text || 'No pude consultar el tablero ahora.'
   const proposalId = result?.proposals?.[0]?.id
   await replyAi(

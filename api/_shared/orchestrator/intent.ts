@@ -5,6 +5,7 @@
 import { interpretOperationalMessage } from '../operationalInterpret.js'
 import { isCompoundInstruction, normalizeColloquialTypos } from './multiIntent.js'
 import { extractResponsablePatch, isStructuredFollowUpUtterance } from './structuredActionDraft.js'
+import { matchDeliveryStatusQuery, type DeliveryStatusQueryParams } from './deliveryStatusQuery.js'
 import type {
   ActionActiveQuery,
   ActionQueryScope,
@@ -33,6 +34,7 @@ export type AgentIntent =
       askOwner?: boolean
     }
   | { kind: 'query_knowledge'; focus: 'documents' | 'memory' | 'either' }
+  | { kind: 'query_delivery_status'; params: DeliveryStatusQueryParams }
   | {
       kind: 'aggregate_execution'
       groupBy: 'area' | 'responsable' | 'estado'
@@ -223,6 +225,11 @@ export function classifyAgentIntent(
 
   if (FINANCE.test(text) && /\b(cuant[oa]s?|monto|calcula|estima|impacto)\b|\$/.test(text)) {
     return { kind: 'unsupported_metric', domain: 'finance' }
+  }
+
+  const deliveryStatusParams = matchDeliveryStatusQuery(cleanedUtterance)
+  if (deliveryStatusParams) {
+    return { kind: 'query_delivery_status', params: deliveryStatusParams }
   }
 
   if (isDocumentaryAsk(text)) {
@@ -632,8 +639,9 @@ export function classifyAgentIntent(
   if (
     interpreted.intent === 'propose_create_kanban' ||
     colloquialCreate ||
-    (/\b(crea|crear|creame|registra|registrar|agrega|agregar|propon|proponer)\b/.test(text) &&
-      /\b(iniciativa|iniciativas|accion|tarea|pendiente)\b/.test(text))
+    (/\b(crea|crear|creame|creo|registra|registrar|agrega|agregar|propon|proponer|prepara|preparar|genera|generar|anota|anotar|programa|programar|agenda|agendar)\b/.test(text) &&
+      /\b(iniciativa|iniciativas|accion|tarea|pendiente)\b/.test(text) &&
+      !/\b(correo|mail|email|whatsapp|mensaje)\b/.test(text))
   ) {
     return { kind: 'write_request', operation: 'create_action', request }
   }

@@ -41,7 +41,7 @@ describe('puente contextual a pending ops existente', () => {
     const f=fixture(); await prepareContextualExecution(f.actor,f.pending,f.dispatch)
     f.dispatch.mockResolvedValueOnce({ok:true,tool:'get_whatsapp_operation_status',kind:'read',data:{operation_status:'confirmed',attempt:{delivery_status:'accepted'},proposal:f.proposal}})
     const result=await prepareContextualExecution(f.actor,f.pending,f.dispatch)
-    expect(result.message).toContain('la entrega todavía no está confirmada')
+    expect(result.message).toContain('la entrega aún no está confirmada')
     expect(result.proposal).toBeUndefined()
   })
   it('edición invalida la aprobación antigua y falla cerrado si no puede cancelarla', async () => {

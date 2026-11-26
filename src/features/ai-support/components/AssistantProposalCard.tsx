@@ -126,9 +126,9 @@ export function AssistantProposalCard({
       onResolved?.('confirmed', href)
       toast.success(
         whatsappWrite
-          ? 'WhatsApp aceptado por el proveedor.'
+          ? 'Listo, WhatsApp enviado.'
           : boardNotifyEmail
-            ? 'Correo aceptado por el proveedor.'
+            ? 'Listo, correo enviado.'
             : googleWrite
               ? 'Listo en Google Workspace.'
               : dailySummary
