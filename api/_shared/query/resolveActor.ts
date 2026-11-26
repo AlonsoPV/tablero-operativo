@@ -39,6 +39,7 @@ export type VerifiedIdentity = {
   usuarioId: string
   rol: string | null
   active: boolean
+  whatsappId?: string
   accessToken?: string
   boardScope?: CopilotBoardScope
 }
@@ -79,6 +80,7 @@ export function resolveActor(
       authUserId: identity.authUserId,
       rol: identity.rol,
       accessToken: identity.accessToken,
+      whatsappId: identity.whatsappId,
       boardScope,
       voiceChannel: input.channel === 'voice',
       capabilities,
@@ -90,7 +92,7 @@ export function resolveActor(
 const AUTHORITY_FIELDS = [
   'rol', 'role', 'app_role', 'usuario_id', 'usuarioId', 'user_id', 'authUserId', 'auth_user_id',
   'boardScope', 'board_scope', 'is_admin', 'permissions', 'roleClass', 'area', 'areas', 'project',
-  'capabilities', 'module_keys', 'moduleKeys', 'super_admin', 'okrs_area',
+  'whatsappId', 'whatsappApproval', 'capabilities', 'module_keys', 'moduleKeys', 'super_admin', 'okrs_area',
 ]
 
 export function stripAuthorityFields(args: Record<string, unknown>): Record<string, unknown> {

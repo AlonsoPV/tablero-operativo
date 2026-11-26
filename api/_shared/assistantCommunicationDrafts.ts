@@ -103,7 +103,8 @@ export async function queueWhatsappDraft(
 export async function executeWhatsappWrite(
   actor: CopilotActor,
   payload: Record<string, unknown>,
-  pendingOpId: string
+  pendingOpId: string,
+  options?: { approvedWhatsApp?: boolean }
 ) {
   if (payload.incomplete === true) {
     throw new Error(
@@ -118,7 +119,7 @@ export async function executeWhatsappWrite(
   }
   assertWorkspaceHash(payload)
 
-  if (!actor.accessToken) {
+  if (!actor.accessToken && !options?.approvedWhatsApp) {
     throw new Error('PERMISSION_DENIED: Aprueba el WhatsApp desde una sesión web autenticada.')
   }
 
@@ -398,7 +399,8 @@ export async function prepareWhatsappDraft(
   })
   return createPendingOp(actor, {
     tool: 'whatsapp_prepare_send',
-    channel: actor.voiceChannel ? 'retell' : 'web',
+    channel: actor.whatsappId ? 'whatsapp' : actor.voiceChannel ? 'retell' : 'web',
+    sessionId: actor.whatsappId,
     requestKey: actor.requestId || actor.guideSessionId
       ? hashWorkspacePayload({
           request: actor.requestId,

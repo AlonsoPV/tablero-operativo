@@ -171,7 +171,7 @@ function runtime(db: any) {
     'Deno',
     'createClient',
     js +
-      '\nreturn {processWhatsAppPayload,handleInboundCommand,findUsuarioByWa,graphSendMessage,checkedWorkerClient,workerContexts,runInboundWorker};'
+      '\nreturn {processWhatsAppPayload,handleInboundCommand,findUsuarioByWa,graphSendMessage,checkedWorkerClient,workerContexts,runInboundWorker,replyAi};'
   )(
     {
       env: { get: (k: string) => env[k] },
@@ -429,4 +429,13 @@ describe('Edge WhatsApp real router/worker code', () => {
     const checked = r.checkedWorkerClient(base, { id: 'j', lease_token: 'l' })
     await expect(checked.from('usuarios')).rejects.toThrow('database_XX000')
   })
+})
+
+it('shows a long approval preview in full text instead of truncating it inside a button',async()=>{
+ const db=database(),r=runtime(db)
+ const body='Contenido completo: '+ 'x'.repeat(1300)+'\nCódigo: ABCD1234\nconfirmar ABCD1234'
+ await r.replyAi(db,phone,body,user,null,[{type:'reply',reply:{id:'r2_confirm:op:ABCD1234',title:'Confirmar'}}])
+ expect(sends).toHaveLength(1)
+ expect(sends[0].type).toBe('text')
+ expect(sends[0].text.body).toBe(body)
 })

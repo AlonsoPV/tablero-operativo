@@ -782,7 +782,13 @@ export function formatWhatsAppProposalPrompt(
     binding.editable && mode !== 'disabled'
       ? ` Para ajustar responde "editar ${binding.version} fecha=YYYY-MM-DD".`
       : ''
-  const fieldLines = Array.isArray(options.proposal?.fields)
+  const workspace=options.proposal?.workspace
+  const communication=['whatsapp_prepare_send','notify_user_email'].includes(binding.operation) && workspace
+  const fieldLines = communication ? [
+    `Para: ${workspace.recipientName ?? ''}${workspace.to?.length ? ` (${workspace.to.join(', ')})` : workspace.phone ? ` (${workspace.phone})` : ''}`,
+    ...(workspace.subject ? [`Asunto: ${workspace.subject}`] : []),
+    'Contenido:', workspace.body ?? '',
+  ] : Array.isArray(options.proposal?.fields)
     ? options.proposal.fields
         .slice(0, 6)
         .map((f) => `${f.label}: ${f.from ? `${f.from} -> ${f.to}` : f.to}`)

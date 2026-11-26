@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient, type User } from 'npm:@supabase/supabase-js@2'
+import { matchesInternalAuthorization, loadApprovedWhatsAppEmail, claimApprovedWhatsAppEmail, recordApprovedWhatsAppEmail } from './approvedWhatsAppEmail.ts'
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -80,6 +81,7 @@ type NotificationEmailPayload = {
   notification_id?: string | null
   reply_to_caller?: boolean
   payload?: Record<string, unknown> | null
+  assistant_pending_op_id?: string
 }
 
 type RecipientProfile = {
@@ -90,7 +92,7 @@ type RecipientProfile = {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const FUNCTION_VERSION = 'gmail-send-only-scope-20260717'
+const FUNCTION_VERSION = 'whatsapp-approved-communications-20261125'
 
 function normalizePriority(value: unknown): 'Normal' | 'Alta' | 'Urgente' {
   return value === 'Alta' || value === 'Urgente' ? value : 'Normal'
@@ -556,7 +558,20 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, message: 'Metodo no permitido' }, 405)
   }
 
-  const auth = await requireAuthUser(req)
+  let body = (await req.json().catch(() => null)) as NotificationEmailPayload | null
+  let delegation: Awaited<ReturnType<typeof loadApprovedWhatsAppEmail>> | null = null
+  let auth: RequireUserResult
+  if (body?.assistant_pending_op_id) {
+    if (!(await matchesInternalAuthorization(req.headers.get('Authorization'), Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')))) return jsonResponse({ok:false,message:'No autorizado'},401)
+    try {
+      const internal=createClient(Deno.env.get('SUPABASE_URL')!,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,{auth:{persistSession:false,autoRefreshToken:false}})
+      delegation=await loadApprovedWhatsAppEmail(internal,body.assistant_pending_op_id,Deno.env.toObject())
+      body=delegation.body
+      auth={ok:true,data:{user:delegation.user,token:''}}
+    } catch { return jsonResponse({ok:false,message:'La operación de correo no está autorizada o ya no está vigente.'},403) }
+  } else {
+    auth = await requireAuthUser(req)
+  }
   if (auth.ok === false) return auth.response
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
@@ -566,7 +581,6 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, message: 'Faltan credenciales de Supabase' }, 500)
   }
 
-  const body = (await req.json().catch(() => null)) as NotificationEmailPayload | null
   const usuarioId = body?.usuario_id?.trim() ?? ''
   if (!UUID_RE.test(usuarioId)) {
     return jsonResponse({ ok: false, message: 'usuario_id invalido' }, 400)
@@ -687,7 +701,7 @@ Deno.serve(async (req) => {
     })
     return jsonResponse({ ok: false, message: 'No se pudo resolver destinatario' }, 500)
   }
-  if (!profile?.user_id || profile.activo === false) {
+  if (!profile?.user_id || profile.activo === false || (delegation && profile.activo !== true)) {
     console.warn('[send-notification-email] skipped inactive recipient:', {
       usuario_id: usuarioId,
       tipo,
@@ -729,11 +743,15 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: true, skipped: true, reason: 'Destinatario sin email' })
   }
 
+  if (delegation && email.toLowerCase() !== String(delegation.row.payload.to_email).toLowerCase()) {
+    return jsonResponse({ok:false,message:'El correo del destinatario cambió. Prepara otra propuesta.'},409)
+  }
+
   const recipientName = profile.nombre?.trim() || email.split('@')[0] || 'usuario'
   const url = actionUrl(payload)
   const subject = subjectForNotification(tipo, prioridad, payload)
-  const html = buildEmailHtml({ recipientName, tipo, prioridad, payload, url })
-  const text = buildEmailText({ recipientName, tipo, prioridad, payload, url })
+  const html = delegation ? `<div>${escapeHtml(String(payload?.mensaje ?? '')).replaceAll('\n','<br>')}</div>` : buildEmailHtml({ recipientName, tipo, prioridad, payload, url })
+  const text = delegation ? String(payload?.mensaje ?? '') : buildEmailText({ recipientName, tipo, prioridad, payload, url })
 
   let replyTo: string | undefined
   if (body?.reply_to_caller === true) {
@@ -749,8 +767,17 @@ Deno.serve(async (req) => {
     return sendWithGoogleMail({ to, subject, html, text, replyTo })
   }
 
+  let delegatedAttemptClaimed = false
   try {
+    if (delegation) {
+      await claimApprovedWhatsAppEmail(adminClient,delegation.row)
+      delegatedAttemptClaimed = true
+    }
     const result = await sendEmail(email)
+    if (delegation) {
+      if (!result.id) throw new Error("El proveedor no confirmó un identificador de aceptación")
+      await recordApprovedWhatsAppEmail(adminClient,delegation.row.id,result.id)
+    }
     console.info('[send-notification-email] sent:', {
       usuario_id: usuarioId,
       tipo,
@@ -787,6 +814,9 @@ Deno.serve(async (req) => {
 
     return jsonResponse({ ok: true, provider: result.provider, email_id: result.id })
   } catch (error) {
+    if (delegation && delegatedAttemptClaimed) {
+      await recordApprovedWhatsAppEmail(adminClient,delegation.row.id).catch(() => undefined)
+    }
     const message = error instanceof Error ? error.message : 'No se pudo enviar correo de notificacion'
     console.error('[send-notification-email] email provider failed:', {
       usuario_id: usuarioId,

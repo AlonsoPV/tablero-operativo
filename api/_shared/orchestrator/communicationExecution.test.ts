@@ -95,3 +95,17 @@ it('la aprobación se relee del servidor, nunca de una vista previa rehidratada 
   expect(mismatch.proposal).toBeUndefined()
   expect(mismatch.message).toContain('no coincide')
 })
+
+it.each(['email','whatsapp'] as const)('permite preparar %s solo dentro del piloto y no ejecuta el envío',async channel=>{
+ const f=fixture(),sender='00000000-0000-4000-8000-000000000001',recipient='00000000-0000-4000-8000-000000000002'
+ Object.entries({R2_EXECUTION_MODE:'pilot',R2_PILOT_USERS:sender,SUPABASE_URL:'https://synthetic.supabase.co',WHATSAPP_COMMUNICATIONS_ENABLED:'1',WHATSAPP_COMMUNICATIONS_SENDERS:sender,WHATSAPP_COMMUNICATIONS_RECIPIENTS:recipient,WHATSAPP_COMMUNICATIONS_CHANNELS:channel}).forEach(([k,v])=>vi.stubEnv(k,v))
+ f.actor.channel='whatsapp';f.actor.usuarioId=sender;f.actor.copilot.usuarioId=sender;f.actor.copilot.whatsappId='15550001111';delete f.actor.copilot.accessToken
+ f.pending.channel=channel;f.pending.recipients[0]!.recipientId=recipient;f.pending.recipients[0]!.subject=channel==='email'?'Asunto aprobado':null
+ const proposal={...f.proposal,tool:channel==='email'?'notify_user_email':'whatsapp_prepare_send',workspace:{kind:channel,toUserId:recipient,body:'Mensaje autorizado',...(channel==='email'?{subject:'Asunto aprobado',to:['recipient@example.test']}:{})}}
+ f.dispatch.mockResolvedValue({ok:true,tool:proposal.tool as never,kind:'proposal',proposal})
+ const result=await prepareContextualExecution(f.actor,f.pending,f.dispatch)
+ expect(result.proposal?.id).toBe(proposal.id)
+ expect(f.dispatch).toHaveBeenCalledTimes(1)
+ expect(f.dispatch.mock.calls[0]![1]).toBe(proposal.tool)
+ expect(f.dispatch.mock.calls.map(call=>call[1])).not.toContain('confirm_pending_op')
+})

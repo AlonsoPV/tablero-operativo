@@ -13,6 +13,7 @@ export type CopilotActor = {
   authUserId: string
   rol: string | null
   /** JWT del usuario; necesario para invocar edge functions autenticadas (p. ej. send-notification-email). */
+  whatsappId?: string
   accessToken?: string
   requestId?: string
   /** organization = lectura piloto de toda la org (voz por URL). Default: role. */

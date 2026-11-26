@@ -1,3 +1,4 @@
+import { readPreparedActionState, formatPreparedActionState } from './preparedActionState.js'
 import { prepareContextualExecution, revokeContextualExecution } from './communicationExecution.js'
 import { extractResponsablePatch } from './structuredActionDraft.js'
 /**
@@ -2114,6 +2115,21 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
     }
   }
   if (intent.operation === 'create_action') {
+    const previous = intent.isFollowUp ? state.ctx.pendingWrite : null
+    if (previous?.operation === 'create_action' && previous.proposalId) {
+      const lifecycle = await readPreparedActionState(state.actor, previous.proposalId)
+      if (lifecycle.status === 'confirmed' && lifecycle.actionId) {
+        state.ctx.lastEntity = {kind: 'action', id: lifecycle.actionId, label: previous.draft?.titulo ?? 'Acción creada'}
+        return handleWriteRequest(state, {...intent, operation: 'update_action', isFollowUp: false})
+      }
+      if (lifecycle.status !== 'pending') {
+        return {response: forbidden('No se puede reemplazar esta propuesta sin verificar su estado. Consulta la acción en Kanban antes de reintentar.'), audit: {status: 'denied_precheck' as const, entity: 'actions'}}
+      }
+      const revoked = await state.dispatch(state.actor.copilot, 'cancel_pending_op', {pending_op_id: previous.proposalId})
+      if (!revoked.ok) {
+        return {response: forbidden('No pude invalidar la aprobación anterior. No se preparó otra operación.'), audit: {status: 'denied_precheck' as const, entity: 'actions'}}
+      }
+    }
     const baseDraft =
       intent.isFollowUp && state.ctx.pendingWrite?.operation === 'create_action' && state.ctx.pendingWrite.draft
         ? state.ctx.pendingWrite.draft
@@ -2177,6 +2193,7 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
       })
       if (persisted.ok) {
         const proposal = markSimulated(persisted.proposal, persistMode)
+        if (state.ctx.pendingWrite) state.ctx.pendingWrite.proposalId = proposal.id
         const formatted = formatStructuredActionDraft(draft, { mode: persistMode })
         response.blocks.data.push(formatted)
         response.blocks.limitations.push(r2Limitation(persistMode, 'escribió'))
@@ -2271,10 +2288,14 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
     state.ctx.pendingFocus = 'communication'
     state.ctx.pendingCommunication = composed.proposal
     response.presentation = 'operation'
+    const delivery = state.actor.channel === 'whatsapp' && process.env.WHATSAPP_COMMUNICATIONS_ENABLED === '1'
+      ? await prepareContextualExecution(state.actor,composed.proposal,state.dispatch) : null
     response.blocks.data.push(composed.formattedText)
+    if (delivery?.message) response.blocks.data.push(delivery.message)
     withFacts(response, { primary: { text: composed.formattedText } })
     return {
       response,
+      ...(delivery?.proposal ? {proposal:delivery.proposal,proposals:[delivery.proposal]} : {}),
       communicationProposal: composed.proposal,
       audit: { status: 'proposal_blocked' as const, entity: 'actions' },
     }
@@ -2924,7 +2945,8 @@ export async function runAgentTurn(
         outcome = {response: resp, communicationProposal: communication, audit: {status: 'proposal_blocked'}}
       } else if (action && intent.target !== 'communication') {
         state.ctx.pendingFocus = 'action'
-        resp.blocks.data.push(formatStructuredActionDraft(action, {mode: resolveR2ExecutionMode(process.env, state.actor.usuarioId), missingRequired: [!action.responsableId && 'responsable', !action.fecha && 'fecha'].filter((item): item is string => Boolean(item))}))
+        const preparedState = await readPreparedActionState(state.actor, state.ctx.pendingWrite?.proposalId)
+        resp.blocks.data.push(formatPreparedActionState(action, preparedState))
         outcome = {response: resp, audit: {status: 'proposal_blocked'}}
       } else {
         resp.status = 'empty'

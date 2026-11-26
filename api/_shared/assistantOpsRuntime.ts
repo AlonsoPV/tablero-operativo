@@ -1,3 +1,4 @@
+import { computeProposalVersion } from './whatsappR2Adapter.js'
 import { executeDailySummaryUpdate, proposeDailySummaryUpdate, readDailySummary } from './assistantDailySummary.js'
 import { isAnalystByRole } from '../../src/features/auth/lib/permissions.js'
 import { isCopilotWriteTool } from '../../src/features/ai-support/copilot/catalog.js'
@@ -47,7 +48,8 @@ import {
 import { resolveCommunicationRecipient } from './resolveCommunicationRecipient.js'
 import { sanitizeRecipientFacingText } from '../../src/features/ai-support/copilot/pendingOpTaxonomy.js'
 import { createServiceRoleClient } from './assistantAuth.js'
-import { invokeNotificationEmail } from './invokeNotificationEmail.js'
+import { invokeNotificationEmail, invokeApprovedWhatsAppEmail } from './invokeNotificationEmail.js'
+import { assertWhatsAppCommunicationApproval } from './whatsappCommunicationApproval.js'
 import { GoogleUserError } from './googleUserClient.js'
 import {
   ACCION_SHARE_EMAIL_TITLE,
@@ -997,7 +999,7 @@ async function proposeUserEmail(actor: CopilotActor, args: Record<string, unknow
   const requestedEmail = asString(args.requested_email, 254).toLowerCase()
   const subject = sanitizeRecipientFacingText(asString(args.subject, 160), 160)
   const body = sanitizeRecipientFacingText(asString(args.body, 4000), 4000)
-  if (!hint || !subject || !body) {
+  if (!hint || !subject || !body || /[\r\n]/.test(subject)) {
     return clarification('notify_user_email', { question: '¿Para quién y con qué contenido preparo el correo?', options: [] })
   }
 
@@ -1022,7 +1024,7 @@ async function proposeUserEmail(actor: CopilotActor, args: Record<string, unknow
     recipientName = recipient.name
     address = recipient.email
   }
-  if (!toUserId || !address || (requestedEmail && requestedEmail !== address.toLowerCase())) {
+  if ((args.recipient_id && args.recipient_id !== toUserId) || !toUserId || !address || (requestedEmail && requestedEmail !== address.toLowerCase())) {
     return clarification('notify_user_email', {
       question: 'Indica el nombre o correo registrado de un usuario activo del tablero.',
       options: [],
@@ -1031,12 +1033,15 @@ async function proposeUserEmail(actor: CopilotActor, args: Record<string, unknow
 
   const proposal = await createPendingOp(actor, {
     tool: 'notify_user_email',
+    channel: actor.whatsappId ? 'whatsapp' : 'web',
+    sessionId: actor.whatsappId,
+    requestKey: actor.requestId,
     payload: { usuario_id: toUserId, to_email: address, subject, body },
     proposal: {
       title: 'Correo de Scrumban',
       summary: `Correo para ${recipientName || 'el usuario seleccionado'}. Revisa el contenido antes de aprobar.`,
       fields: [{ label: 'Destinatario', to: address }, { label: 'Asunto', to: subject }],
-      workspace: { kind: 'email', recipientName: recipientName || undefined, to: [address], subject, body },
+      workspace: { kind: 'email', toUserId, recipientName: recipientName || undefined, to: [address], subject, body },
     },
   })
   return { ok: true, tool: 'notify_user_email', kind: 'proposal', proposal }
@@ -1221,7 +1226,7 @@ async function executePayload(
   actor: CopilotActor,
   tool: string,
   payload: Record<string, unknown>,
-  opts?: { actionId?: string }
+  opts?: { actionId?: string; approvedWhatsAppOpId?: string }
 ) {
   if (tool === 'update_action' || tool === 'verify_action' || tool === 'mark_action_done') {
     const action = await loadAction(actor, String(payload.action_id))
@@ -1319,12 +1324,15 @@ async function executePayload(
       .eq('id', id).eq('activo', true).maybeSingle()
     if (error) throw new Error('DATABASE_ERROR: No se pudo verificar el destinatario.')
     if (!person || !address || !subject || !body) throw new Error('VALIDATION_FAILED: Revisa el destinatario y el contenido.')
+    if (/[\r\n]/.test(subject) || (opts?.approvedWhatsAppOpId && (body !== payload.body || subject !== payload.subject))) throw new Error('VALIDATION_FAILED: El contenido cambió o el asunto no es válido.')
     const { data: currentEmail, error: emailError } = await actor.supabase.rpc('assistant_person_email', { p_usuario_id: id })
     if (emailError) throw new Error('DATABASE_ERROR: No se pudo verificar el correo del destinatario.')
     if (asString(currentEmail, 254).toLowerCase() !== address) {
       throw new Error('VALIDATION_FAILED: El correo del destinatario cambió. Prepara un borrador nuevo.')
     }
-    const result = await invokeNotificationEmail(actor.accessToken || '', {
+    const result = opts?.approvedWhatsAppOpId
+      ? await invokeApprovedWhatsAppEmail(opts.approvedWhatsAppOpId)
+      : await invokeNotificationEmail(actor.accessToken || '', {
       usuario_id: id,
       tipo: 'assistant_summary',
       payload: { titulo: subject, mensaje: body },
@@ -1419,6 +1427,8 @@ export async function confirmPendingOp(
   opId: string,
   options?: {
     fromTool?: boolean
+    expectedProposalVersion?: string
+    whatsappApproval?: { waId: string; operationId: string }
     r2?: { mode?: R2ExecutionMode; executor?: ActionExecutor; channel?: AgentChannel }
   }
 ) {
@@ -1430,18 +1440,29 @@ export async function confirmPendingOp(
   if (error || !data) throw new Error('No encontré esa operación pendiente.')
   const row = data as PendingRow
   if (row.usuario_id !== actor.usuarioId) throw new Error('Esa operación no te pertenece.')
+  if (options?.expectedProposalVersion && options.expectedProposalVersion !== computeProposalVersion({
+    proposalId:row.id,usuarioId:row.usuario_id,operation:row.tool,scope:row.tool,payload:row.payload,expectedUpdatedAt:row.expected_updated_at,
+  })) throw new Error('VALIDATION_FAILED: La propuesta cambió de versión. Revisa el código vigente antes de confirmar.')
 
   const sendsCommunication =
     isCommunicationWriteTool(row.tool) || row.tool.startsWith('gmail_') || (row.tool === 'notify_action_email' || row.tool === 'notify_user_email')
   const r2Mode = options?.r2?.mode ?? resolveR2ExecutionMode(process.env, actor.usuarioId)
-  if ((r2Mode === 'qa' || r2Mode === 'pilot') && (sendsCommunication || isGoogleWriteTool(row.tool))) {
+  let approvedWhatsApp = false
+  if (sendsCommunication && options?.whatsappApproval && !options.fromTool) {
+    if (!options.expectedProposalVersion) throw new Error('PERMISSION_DENIED: Falta la confirmación versionada.')
+    await assertWhatsAppCommunicationApproval(actor, row, options.whatsappApproval)
+    if (r2Mode !== 'pilot' || options.r2?.executor?.kind !== 'pilot') throw new Error('EXECUTION_DISABLED: Falta la compuerta del piloto.')
+    await options.r2.executor.prepare?.(actor)
+    approvedWhatsApp = true
+  }
+  if ((r2Mode === 'qa' || r2Mode === 'pilot') && (sendsCommunication || isGoogleWriteTool(row.tool)) && !approvedWhatsApp) {
     throw new Error(
       r2Mode === 'pilot'
         ? 'EXECUTION_DISABLED: En modo piloto R2 los envíos externos están deshabilitados.'
         : 'EXECUTION_DISABLED: En QA los proveedores reales están deshabilitados; los avisos sólo se registran en el buzón QA.'
     )
   }
-  if ((sendsCommunication || row.tool === 'update_daily_action_summary') && (options?.fromTool || !actor.accessToken)) {
+  if ((sendsCommunication || row.tool === 'update_daily_action_summary') && (options?.fromTool || (!actor.accessToken && !approvedWhatsApp))) {
     throw new Error('PERMISSION_DENIED: Aprueba el envío desde una sesión web autenticada.')
   }
 
@@ -1580,8 +1601,8 @@ export async function confirmPendingOp(
       }
     } else {
       result = isCommunicationWriteTool(row.tool)
-        ? await executeWhatsappWrite(actor, row.payload ?? {}, opId)
-        : await executePayload(actor, row.tool, row.payload ?? {})
+        ? await executeWhatsappWrite(actor, row.payload ?? {}, opId, {approvedWhatsApp})
+        : await executePayload(actor, row.tool, row.payload ?? {}, {approvedWhatsAppOpId: approvedWhatsApp ? opId : undefined})
     }
   } catch (err) {
     const needsPersonalConnection = row.tool.startsWith('gmail_') && err instanceof GoogleUserError &&
