@@ -1,10 +1,12 @@
+const syntheticWhatsAppSessionId = await whatsappSessionId('00000000-0000-4000-8000-000000000001','15550001111')
+import {whatsappSessionId} from '../../supabase/functions/_shared/whatsappCommunicationGate.js'
 import { describe, expect, it } from 'vitest'
 import { matchesInternalAuthorization, loadApprovedWhatsAppEmail, claimApprovedWhatsAppEmail } from '../../supabase/functions/send-notification-email/approvedWhatsAppEmail.ts'
 import {createFakeSupabase,type FakeDb} from './orchestrator/testing/fakeSupabase.js'
 const sender='00000000-0000-4000-8000-000000000001',recipient='00000000-0000-4000-8000-000000000002',op='00000000-0000-4000-8000-000000000003',phone='15550001111'
 const env={WHATSAPP_COMMUNICATIONS_ENABLED:'1',WHATSAPP_COMMUNICATIONS_SENDERS:sender,WHATSAPP_COMMUNICATIONS_RECIPIENTS:recipient,WHATSAPP_COMMUNICATIONS_CHANNELS:'email'}
 function fixture(){
- const row={id:op,usuario_id:sender,tool:'notify_user_email',channel:'whatsapp',session_id:phone,status:'executing',expires_at:'2099-01-01T00:00:00Z',payload:{usuario_id:recipient,to_email:'recipient@example.test',subject:'Asunto exacto',body:'Contenido exacto'}}
+ const row={id:op,usuario_id:sender,tool:'notify_user_email',channel:'whatsapp',session_id:syntheticWhatsAppSessionId,status:'executing',expires_at:'2099-01-01T00:00:00Z',payload:{usuario_id:recipient,to_email:'recipient@example.test',subject:'Asunto exacto',body:'Contenido exacto'}}
  const db:FakeDb={mutable:true,tables:{assistant_pending_ops:[row],notification_email_logs:[],usuarios:[{id:sender,user_id:'auth',activo:true}],user_channel_identities:[{channel:'whatsapp',usuario_id:sender,external_user_id:phone,status:'active'}]},rpcs:{can_use_ai_whatsapp_for_usuario:()=>true,access_capabilities_for_usuario:()=>({active:true,super_admin:true,direction:false})},inserts:[],queries:[]}
  const client=Object.assign(createFakeSupabase(db),{auth:{admin:{getUserById:async()=>({data:{user:{id:'auth',email:'sender@example.test',email_confirmed_at:'2026-01-01'}},error:null})}}})
  return {row,db,client}
