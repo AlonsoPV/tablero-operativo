@@ -470,6 +470,14 @@ function resolveSingleRecipient(
       const found = catalog.users.find((u) => u.id === session.lastEntity?.id && u.activo !== false)
       if (found) return { ok: true, user: found, displayName: found.nombre }
     }
+    const pendingDraft = session?.pendingWrite?.draft
+    if (pendingDraft?.responsableId) {
+      const found = catalog.users.find((u) => u.id === pendingDraft.responsableId && u.activo !== false)
+      if (found) return { ok: true, user: found, displayName: found.nombre }
+      if (pendingDraft.responsableNombre) {
+        return { ok: true, user: null, displayName: pendingDraft.responsableNombre }
+      }
+    }
     const singleAction = session?.lastActions?.length === 1 ? session.lastActions[0] : null
     if (singleAction?.responsableId) {
       const found = catalog.users.find((u) => u.id === singleAction.responsableId && u.activo !== false)
@@ -1275,13 +1283,37 @@ export async function composeContextualCommunication(input: {
     okrs = okrRes?.status === 'ok' ? okrRes.items : []
   }
 
+  const pendingDraftRef: ReferencedAction | null =
+    session?.pendingWrite?.draft?.titulo
+      ? {
+          id: session.pendingWrite.proposalId ?? 'pending-draft',
+          title: session.pendingWrite.draft.titulo,
+          estado: 'Pendiente',
+          fecha: session.pendingWrite.draft.fecha ?? null,
+          prioridad: session.pendingWrite.draft.prioridad ?? null,
+          responsableId: session.pendingWrite.draft.responsableId ?? null,
+          responsableNombre: session.pendingWrite.draft.responsableNombre ?? null,
+          area: null,
+          updatedAt: null,
+          href: '/kanban',
+        }
+      : null
+
   const referencedAction =
     session?.lastEntity?.kind === 'action'
-      ? session.lastActions.find((a) => a.id === session.lastEntity?.id) ?? session.lastActions[0] ?? null
-      : session?.lastActions?.[0] ?? null
+      ? session.lastActions.find((a) => a.id === session.lastEntity?.id) ?? session.lastActions[0] ?? pendingDraftRef
+      : pendingDraftRef ?? session?.lastActions?.[0] ?? null
+
+  const effectiveSpec =
+    pendingDraftRef &&
+    spec.recipientMode === 'contextual' &&
+    (spec.purpose === 'general_followup' || spec.purpose === 'action_assigned') &&
+    (!targetUser?.id || pendingDraftRef.responsableId === targetUser.id)
+      ? { ...spec, purpose: 'action_assigned' as const }
+      : spec
 
   const drafted = buildPersonalMessage({
-    spec,
+    spec: effectiveSpec,
     recipientName,
     actions: recipientActions,
     verificationActions,
