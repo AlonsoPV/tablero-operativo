@@ -231,7 +231,15 @@ function extractObjectivePatch(utterance: string): string | null {
 function cleanTitleFromStructuredClauses(rawTitle: string, responsableHint?: string | null): string {
   const escaped = responsableHint?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const withoutAssignee = escaped
-    ? rawTitle.replace(new RegExp(`[,;]\\s*(?:para\\s+|responsable\\s*[:=]\\s*)${escaped}(?=\\s*[,;.]|$)`, 'gi'), '')
+    ? rawTitle
+        .replace(
+          new RegExp(
+            `^(?:para\\s+|a\\s+|de\\s+)?${escaped}\\s*(?:[:,;-]\\s*|(?=(?:para\\s+el|para|el)\\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|hoy|ma[ñn]ana)\\b))`,
+            'i'
+          ),
+          ''
+        )
+        .replace(new RegExp(`[,;]\\s*(?:para\\s+|responsable\\s*[:=]\\s*)${escaped}(?=\\s*[,;.]|$)`, 'gi'), '')
     : rawTitle
   const stripped = cleanSpaces(withoutAssignee)
     .replace(/\b(?:en\s+el\s+|al\s+|en\s+)?(?:kanban\s+corporativo|tablero\s+corporativo|tablero\s+de\s+equipo|tablero\s+de\s+[A-Za-zÁÉÍÓÚÑáéíóúñ\s-]+|kanban)\b/gi, '')

@@ -151,9 +151,9 @@ function looksLikeQueryText(text: string | null | undefined): boolean {
 }
 
 const WRITE_REQUEST_START_RE =
-  /^(crea|crear|creame|registra|registrar|agrega|agregar|anota|anotar|genera|generar|programa|programar|agenda|agendar|propon|proponer)\b/
+  /^(crea|crear|creame|registra|registrar|agrega|agregar|anade|anadir|anota|anotar|genera|generar|programa|programar|agenda|agendar|propon|proponer|cambia|cambiar|cambiala|cambialo|actualiza|actualizar|edita|editar|reprograma|reprogramar|reasigna|reasignar|asigna|asignar|marca|marcar|marcala|pon|poner|ponla|pasa|pasar|mueve|mover|verifica|verificar|envia|enviar|enviame|enviale|manda|mandar|mandame|mandale|prepara|preparar|redacta|redactar|comenta|comentar|reporta|reportar|bloquea|bloquear)\b/
 const WRITE_REQUEST_OBJECT_RE =
-  /\b(accion|acciones|tarea|tareas|iniciativa|iniciativas|pendiente|compromiso|bloqueo)\b/
+  /\b(accion|acciones|tarea|tareas|iniciativa|iniciativas|pendiente|pendientes|compromiso|compromisos|bloqueo|fecha|prioridad|responsable|comentario|estado|curso|proceso|ejecucion|hecho|verificado|correo|mail|email|whatsapp|mensaje|seguimiento)\b/
 
 function looksLikeWriteRequestText(text: string | null | undefined): boolean {
   const t = foldWaText(text)

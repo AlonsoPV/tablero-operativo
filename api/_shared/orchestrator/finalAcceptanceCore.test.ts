@@ -7,6 +7,7 @@ import { createR1Db, r1Actor, R1_USERS } from './testing/r1Fixture.js'
 import type { EntityResolutionCatalog } from './structuredActionDraft.js'
 import { applyConversationTurn } from '../../../src/features/ai-support/conversation/applyTurn.js'
 import { wrapUntrustedToolData } from '../../../src/features/ai-support/copilot/matching.js'
+import { extractActionPatch } from './structuredActionDraft.js'
 import type { ConversationQueryState } from '../../../src/features/ai-support/conversation/types.js'
 import type { ToolDispatcher } from '../query/index.js'
 
@@ -317,5 +318,15 @@ describe('Final Acceptance Sprint — Shared Core (Sections 4, 5, 9)', () => {
         hasPendingCommunication: true,
       })
     ).toMatchObject({ kind: 'communication_action', action: 'edit' })
+
+    // 5. Clean title extraction when assignee + due date precede colon
+    const patch = extractActionPatch(
+      'Crea una acción para Gerardo Puga para el viernes: [QA] Revisar conciliación de entregas',
+      TODAY,
+      false
+    )
+    expect(patch.titulo).toBe('[QA] Revisar conciliación de entregas')
+    expect(patch.responsableHint).toBe('Gerardo Puga')
+    expect(patch.fecha).toBe('2026-11-27')
   })
 })

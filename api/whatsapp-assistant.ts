@@ -28,6 +28,11 @@ import { COPILOT_FUNCTION_DECLARATIONS, isCopilotReadTool } from '../src/feature
 import { proposalFromPendingRow } from './_shared/assistantGoogleTools.js'
 import { runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
 import {
+  createSupabaseSessionContextStore,
+  emptySessionContext,
+  sessionContextKey,
+} from './_shared/orchestrator/sessionContext.js'
+import {
   isWhatsAppR2ButtonsAllowedForUser,
   isWhatsAppVoiceNotesAllowedForUser,
   shouldUseWhatsAppOrchestrator,
@@ -711,7 +716,9 @@ export default defineApiHandler(async (req, res) => {
         r2: r2OptionsFromServerEnv(process.env, usuarioId, 'whatsapp'),
       })
       const created = result.result as {
+        id?: string
         title?: string
+        estado?: string
         fecha?: string
         href?: string
         checkpoints?: number
@@ -741,6 +748,48 @@ export default defineApiHandler(async (req, res) => {
         })
       }
       if (isBoardWriteToolGatedByR2(pendingRow.tool)) {
+        const payloadObj = (pendingRow.payload ?? {}) as Record<string, unknown>
+        const actionId =
+          created?.id ??
+          (typeof payloadObj.accionId === 'string'
+            ? payloadObj.accionId
+            : typeof payloadObj.action_id === 'string'
+              ? payloadObj.action_id
+              : null)
+        if (actionId) {
+          try {
+            const store = createSupabaseSessionContextStore(supabase)
+            const ctxKey = sessionContextKey({ usuarioId, channel: 'whatsapp', sessionId: waId })
+            const prevCtx = (await store.get(ctxKey)) ?? emptySessionContext()
+            const actionTitle = created?.title || binding.summary || 'Acción'
+            const ref = {
+              id: actionId,
+              title: actionTitle,
+              estado: created?.estado ?? 'Pendiente',
+              fecha: created?.fecha ?? (typeof payloadObj.fecha === 'string' ? payloadObj.fecha : null),
+              prioridad: typeof payloadObj.prioridad === 'string' ? payloadObj.prioridad : null,
+              responsableId:
+                typeof payloadObj.responsableId === 'string'
+                  ? payloadObj.responsableId
+                  : typeof payloadObj.responsable === 'string'
+                    ? payloadObj.responsable
+                    : null,
+              responsableNombre: null,
+              area: null,
+              updatedAt: new Date().toISOString(),
+              href: created?.href || `/kanban?accion=${actionId}`,
+            }
+            await store.set(ctxKey, {
+              ...prevCtx,
+              lastEntity: { kind: 'action', id: actionId, label: actionTitle },
+              lastActions: [ref, ...prevCtx.lastActions.filter((item) => item.id !== actionId)].slice(0, 10),
+              pendingWrite: null,
+              pendingFocus: null,
+            })
+          } catch (ctxErr) {
+            console.warn('whatsapp-assistant post-confirm session sync', ctxErr)
+          }
+        }
         return res.status(200).json({
           text: clipReply(formatWhatsAppR2ExecutionResult(binding, result.result ?? null)),
           proposals: [],
