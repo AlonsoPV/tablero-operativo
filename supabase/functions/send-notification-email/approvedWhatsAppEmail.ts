@@ -1,5 +1,4 @@
-import { whatsappPhoneVariants } from '../_shared/whatsappPhoneVariants.ts'
-import { isWhatsAppCommunicationAllowed, type CommunicationEnv } from '../_shared/whatsappCommunicationGate.ts'
+import { isWhatsAppCommunicationAllowed, whatsappSessionId, type CommunicationEnv } from '../_shared/whatsappCommunicationGate.ts'
 
 type Client = { from: (table: string) => any; auth: {admin: {getUserById: (id: string) => Promise<any>}} }
 export async function matchesInternalAuthorization(header: string | null, secret: string | undefined) {
@@ -18,11 +17,11 @@ export async function loadApprovedWhatsAppEmail(client: Client, operationId: str
   if (error || !row || row.status!=='executing' || row.tool!=='notify_user_email' || row.channel!=='whatsapp' ||
       !row.session_id || !(Date.parse(row.expires_at)>Date.now()) ||
       !isWhatsAppCommunicationAllowed(env,row.usuario_id,String(row.payload?.usuario_id ?? ''),'email')) throw new Error('Operación no autorizada')
-  const {data: identity,error: identityError}=await client.from('user_channel_identities').select('usuario_id')
-    .eq('channel','whatsapp').in('external_user_id',whatsappPhoneVariants(row.session_id)).eq('status','active').maybeSingle()
+  const {data: identity,error: identityError}=await client.from('user_channel_identities').select('usuario_id,external_user_id')
+    .eq('channel','whatsapp').eq('usuario_id',row.usuario_id).eq('status','active').maybeSingle()
   const {data: profile,error: profileError}=await client.from('usuarios').select('user_id,activo').eq('id',row.usuario_id).maybeSingle()
   const {data: permitted,error: permissionError}=await (client as any).rpc('can_use_ai_whatsapp_for_usuario',{p_usuario_id:row.usuario_id})
-  if (identityError || profileError || permissionError || identity?.usuario_id !== row.usuario_id || profile?.activo!==true || !profile.user_id || permitted!==true) throw new Error('Emisor no autorizado')
+  if (identityError || profileError || permissionError || identity?.usuario_id !== row.usuario_id || !identity.external_user_id || row.session_id !== await whatsappSessionId(row.usuario_id,identity.external_user_id) || profile?.activo!==true || !profile.user_id || permitted!==true) throw new Error('Emisor no autorizado')
   const {data,error: userError}=await client.auth.admin.getUserById(profile.user_id)
   if(userError || !data?.user) throw new Error('Sesión de emisor no disponible')
   const {data: caps,error: capsError}=await (client as any).rpc('access_capabilities_for_usuario',{p_usuario_id:row.usuario_id})

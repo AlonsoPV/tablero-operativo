@@ -1,3 +1,5 @@
+const syntheticWhatsAppSessionId = await whatsappSessionId('00000000-0000-4000-8000-000000000001','15550001111')
+import {whatsappSessionId} from '../../supabase/functions/_shared/whatsappCommunicationGate.js'
 import {createFakeSupabase,type FakeDb} from './orchestrator/testing/fakeSupabase.js'
 import {computeProposalVersion} from './whatsappR2Adapter.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -462,7 +464,7 @@ it('WhatsApp confirma la versión exacta desde una identidad vinculada y conserv
  const sender='00000000-0000-4000-8000-000000000001',recipient='00000000-0000-4000-8000-000000000002',op='00000000-0000-4000-8000-000000000003',phone='15550001111',toPhone='15550002222'
  Object.entries({R2_EXECUTION_MODE:'pilot',R2_PILOT_USERS:sender,SUPABASE_URL:'https://synthetic.supabase.co',WHATSAPP_COMMUNICATIONS_ENABLED:'1',WHATSAPP_COMMUNICATIONS_SENDERS:sender,WHATSAPP_COMMUNICATIONS_RECIPIENTS:recipient,WHATSAPP_COMMUNICATIONS_CHANNELS:'whatsapp',WHATSAPP_ACCESS_TOKEN:'synthetic-meta',WHATSAPP_PHONE_NUMBER_ID:'synthetic-number'}).forEach(([k,v])=>vi.stubEnv(k,v))
  const payload=withContentHash({to_user_id:recipient,to_phone:toPhone,body:'Mensaje exacto aprobado'})
- const db:FakeDb={mutable:true,tables:{usuarios:[{id:sender,user_id:'auth',rol:'super_admin',activo:true},{id:recipient,activo:true}],user_channel_identities:[{usuario_id:sender,channel:'whatsapp',external_user_id:phone,status:'active'}],assistant_pending_ops:[{id:op,usuario_id:sender,tool:'whatsapp_prepare_send',channel:'whatsapp',session_id:phone,status:'pending',expires_at:'2099-01-01',payload,expected_updated_at:null,preview:{workspace:{kind:'whatsapp',toUserId:recipient,body:payload.body}}}],assistant_op_log:[]},rpcs:{can_use_ai_whatsapp_for_usuario:()=>true},inserts:[],queries:[]}
+ const db:FakeDb={mutable:true,tables:{usuarios:[{id:sender,user_id:'auth',rol:'super_admin',activo:true},{id:recipient,activo:true}],user_channel_identities:[{usuario_id:sender,channel:'whatsapp',external_user_id:phone,status:'active'}],assistant_pending_ops:[{id:op,usuario_id:sender,tool:'whatsapp_prepare_send',channel:'whatsapp',session_id:syntheticWhatsAppSessionId,status:'pending',expires_at:'2099-01-01',payload,expected_updated_at:null,preview:{workspace:{kind:'whatsapp',toUserId:recipient,body:payload.body}}}],assistant_op_log:[]},rpcs:{can_use_ai_whatsapp_for_usuario:()=>true},inserts:[],queries:[]}
  const actor={usuarioId:sender,authUserId:'auth',rol:'super_admin',whatsappId:phone,supabase:createFakeSupabase(db)} as CopilotActor
  const attempts=[query(null),query({id:'message-log'}),query(null)]
  vi.mocked(createServiceRoleClient).mockReturnValue({from:(table:string)=>table==='whatsapp_messages'?attempts.shift():table==='user_channel_identities'?query({external_user_id:toPhone}):query([{id:'inbound'}])} as never)

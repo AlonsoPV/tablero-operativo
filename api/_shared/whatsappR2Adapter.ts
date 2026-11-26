@@ -65,6 +65,10 @@ export function isBoardWriteToolGatedByR2(tool: string): boolean {
   return LEGACY_BOARD_WRITE_TOOLS.has(tool)
 }
 
+function isCommunicationProposal(tool: string): boolean {
+  return ['whatsapp_prepare_send','notify_user_email'].includes(tool)
+}
+
 export function isDefinitiveR2EditableTool(tool: string): boolean {
   return DEFINITIVE_R2_EDITABLE_TOOLS.has(tool)
 }
@@ -159,7 +163,7 @@ export function buildProposalBinding(input: {
     summary: input.summary,
     batchId: input.batchId ?? (typeof input.payload?.batchId === 'string' ? input.payload.batchId : null),
     expectedUpdatedAt,
-    editable: isDefinitiveR2EditableTool(input.operation),
+    editable: isDefinitiveR2EditableTool(input.operation) || isCommunicationProposal(input.operation),
   }
 }
 
@@ -401,7 +405,7 @@ export function resolveWhatsAppProposalApproval(input: {
         message: 'La propuesta cambió de versión. Revisa el código vigente antes de editar.',
       }
     }
-    if (!isDefinitiveR2EditableTool(byId.operation)) {
+    if (!isDefinitiveR2EditableTool(byId.operation) && !isCommunicationProposal(byId.operation)) {
       return {
         status: 'not_editable',
         binding: byId,
@@ -411,7 +415,9 @@ export function resolveWhatsAppProposalApproval(input: {
     return {
       status: 'edit_prompt',
       binding: byId,
-      message: `Indica el ajuste con: "editar ${byId.version} fecha=YYYY-MM-DD prioridad=P1_Alta responsable=Nombre" (sin aplicar cambios aún).`,
+      message: isCommunicationProposal(byId.operation)
+        ? 'Indica el ajuste con: "Cambia el mensaje a: nuevo contenido". Se invalidará el código anterior; tendrás que revisar y confirmar la nueva propuesta.'
+        : `Indica el ajuste con: "editar ${byId.version} fecha=YYYY-MM-DD prioridad=P1_Alta responsable=Nombre" (sin aplicar cambios aún).`,
     }
   }
 
@@ -780,7 +786,7 @@ export function formatWhatsAppProposalPrompt(
   const mode = options.executionMode ?? resolveR2ExecutionMode()
   const editHint =
     binding.editable && mode !== 'disabled'
-      ? ` Para ajustar responde "editar ${binding.version} fecha=YYYY-MM-DD".`
+      ? isCommunicationProposal(binding.operation) ? ' Para ajustar, pulsa Editar.' : ` Para ajustar responde "editar ${binding.version} fecha=YYYY-MM-DD".`
       : ''
   const workspace=options.proposal?.workspace
   const communication=['whatsapp_prepare_send','notify_user_email'].includes(binding.operation) && workspace

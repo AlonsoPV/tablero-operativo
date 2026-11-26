@@ -4,7 +4,7 @@ import { resolveActor } from './query/resolveActor.js'
 import { loadAgentCapabilities } from './query/actorCapabilities.js'
 import { authorizeActionPhase } from './actions/contracts.js'
 import { resolveR2ExecutionMode } from './actions/executionMode.js'
-import { isWhatsAppCommunicationAllowed } from '../../supabase/functions/_shared/whatsappCommunicationGate.js'
+import { isWhatsAppCommunicationAllowed, whatsappSessionId } from '../../supabase/functions/_shared/whatsappCommunicationGate.js'
 
 export async function assertWhatsAppCommunicationApproval(actor: CopilotActor, row: {
   id: string; usuario_id: string; tool: string; channel?: string | null; session_id?: string | null; payload: Record<string, unknown>; preview?: Record<string, unknown>
@@ -12,7 +12,7 @@ export async function assertWhatsAppCommunicationApproval(actor: CopilotActor, r
   const channel = row.tool === 'whatsapp_prepare_send' ? 'whatsapp' : row.tool === 'notify_user_email' ? 'email' : null
   const recipientId = String(row.payload.to_user_id ?? row.payload.usuario_id ?? '')
   if (!channel || !approval || approval.operationId !== row.id || row.usuario_id !== actor.usuarioId ||
-      row.channel !== 'whatsapp' || row.session_id !== approval.waId || actor.whatsappId !== approval.waId ||
+      row.channel !== 'whatsapp' || row.session_id !== await whatsappSessionId(actor.usuarioId, approval.waId) || actor.whatsappId !== approval.waId ||
       resolveR2ExecutionMode(process.env, actor.usuarioId) !== 'pilot' ||
       !isWhatsAppCommunicationAllowed(process.env, actor.usuarioId, recipientId, channel)) {
     throw new Error('EXECUTION_DISABLED: El envío desde WhatsApp no está autorizado para este usuario, destinatario o canal.')

@@ -1,3 +1,4 @@
+import {whatsappSessionId} from '../../supabase/functions/_shared/whatsappCommunicationGate.js'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CopilotProposal, CopilotWriteTool } from '../../src/features/ai-support/copilot/types.js'
 import type { AccessCapabilities } from '../../src/features/auth/lib/permissions.js'
@@ -94,7 +95,7 @@ export async function createPendingOp(
     expires_at: expiresAt,
   }
   const sessionId = input.sessionId || actor.guideSessionId || null
-  if (sessionId) row.session_id = sessionId
+  if (sessionId) row.session_id = input.channel === 'whatsapp' ? await whatsappSessionId(actor.usuarioId, sessionId) : sessionId
   if (input.channel) row.channel = input.channel
   if (input.requestKey) row.request_key = input.requestKey
 

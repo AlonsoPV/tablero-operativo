@@ -1,3 +1,5 @@
+const syntheticWhatsAppSessionId = await whatsappSessionId('00000000-0000-4000-8000-000000000001','15550001111')
+import {whatsappSessionId} from '../../supabase/functions/_shared/whatsappCommunicationGate.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isWhatsAppCommunicationAllowed } from '../../supabase/functions/_shared/whatsappCommunicationGate.js'
 import { assertWhatsAppCommunicationApproval } from './whatsappCommunicationApproval.js'
@@ -9,7 +11,7 @@ function setup(role='super_admin') {
   Object.entries({...env,R2_EXECUTION_MODE:'pilot',R2_PILOT_USERS:sender,SUPABASE_URL:'https://syntheticproject.supabase.co'}).forEach(([k,v])=>vi.stubEnv(k,v))
   const db:FakeDb={tables:{usuarios:[{id:sender,user_id:'auth',rol:role,activo:true}],user_channel_identities:[{usuario_id:sender,channel:'whatsapp',external_user_id:phone,status:'active'}]},rpcs:{can_use_ai_whatsapp_for_usuario:()=>true},inserts:[],queries:[]}
   const actor={usuarioId:sender,authUserId:'auth',rol:role,whatsappId:phone,supabase:createFakeSupabase(db)} as CopilotActor
-  const row={id:op,usuario_id:sender,tool:'whatsapp_prepare_send',channel:'whatsapp',session_id:phone,payload:{to_user_id:recipient,body:'Mensaje exacto'},preview:{workspace:{kind:'whatsapp',toUserId:recipient,body:'Mensaje exacto'}}}
+  const row={id:op,usuario_id:sender,tool:'whatsapp_prepare_send',channel:'whatsapp',session_id:syntheticWhatsAppSessionId,payload:{to_user_id:recipient,body:'Mensaje exacto'},preview:{workspace:{kind:'whatsapp',toUserId:recipient,body:'Mensaje exacto'}}}
   return {db,actor,row,approval:{waId:phone,operationId:op}}
 }
 afterEach(()=>vi.unstubAllEnvs())
