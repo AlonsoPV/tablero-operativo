@@ -197,7 +197,7 @@ export function classifyAgentIntent(
     if (/^(?:confirma(?:r)?(?:\s+envio(?:\s+grupal)?)?|confirmo|envialo|mandalo)$/.test(text)) {
       return { kind: 'communication_action', action: 'confirm', utterance: cleanedUtterance }
     }
-    if (/^(?:si|ok|dale|va)$/.test(text)) {
+    if (/^(?:si|ok|dale|va|confirma(?:r)?\s+(?:la\s+)?propuesta|confirma(?:r)?\s+(?:el\s+)?borrador)$/.test(text)) {
       if (session.pendingWrite) {
         return {
           kind: 'clarify',

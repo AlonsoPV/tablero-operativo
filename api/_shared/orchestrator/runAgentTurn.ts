@@ -2094,8 +2094,68 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
       state.ctx.pendingWrite = {
         operation: 'create_action',
         request: (primaryCreate.titulo ?? intent.request).slice(0, 280),
+        ...(state.ctx.pendingWrite?.proposalId ? { proposalId: state.ctx.pendingWrite.proposalId } : {}),
         draft: primaryCreate,
       }
+    }
+    const primaryComm = plan.steps.find(
+      (s) => (s.kind === 'send_whatsapp' || s.kind === 'send_email') && s.messageBody && s.recipientName
+    )
+    if (primaryComm && primaryComm.channel && primaryComm.messageBody && primaryComm.recipientName) {
+      if (state.ctx.pendingCommunication) {
+        await revokeContextualExecution(state.actor, state.ctx.pendingCommunication, state.dispatch)
+      }
+      const commChannel = primaryComm.channel
+      const recUser = primaryComm.recipientId
+        ? catalog.users.find((u) => u.id === primaryComm.recipientId) ?? null
+        : null
+      const canSendDirect = commChannel === 'whatsapp' && recUser?.hasWhatsApp !== false
+      const channelLimitation =
+        commChannel === 'email'
+          ? 'El envío directo de correo electrónico no está habilitado; puedes copiar este mensaje y enviarlo desde tu cliente de correo.'
+          : recUser?.hasWhatsApp === false
+            ? `${primaryComm.recipientName} no tiene un canal de WhatsApp verificado y disponible; puedes copiar el mensaje para compartirlo manualmente.`
+            : null
+      const proposalId = `compound-${primaryComm.stepId}-${Date.now().toString(36)}`
+      state.ctx.pendingCommunication = {
+        proposalId,
+        idempotencyKey: `comm:${state.actor.usuarioId}:${primaryComm.recipientId ?? primaryComm.recipientName}:${commChannel}:${state.today}:action_assigned`,
+        version: 1,
+        status: 'pending',
+        channel: commChannel,
+        recipientMode: 'single',
+        purpose: 'action_assigned',
+        canSendDirect,
+        channelLimitation,
+        createdAt: new Date().toISOString(),
+        spec: {
+          intent: 'send_communication',
+          channel: commChannel,
+          recipientMode: 'single',
+          recipientHint: primaryComm.recipientName,
+          purpose: 'action_assigned',
+          requiredQueries: [],
+          scope: 'recipient_personal',
+          period: 'contextual',
+          explicitContent: null,
+          contentMode: 'contextual',
+          tone: 'direct',
+          finalOperation: canSendDirect ? 'propose_send' : 'draft_only',
+        },
+        recipients: [
+          {
+            recipientId: primaryComm.recipientId ?? null,
+            recipientName: primaryComm.recipientName,
+            channel: commChannel,
+            canSendDirect,
+            channelLimitation,
+            subject: primaryComm.subject ?? null,
+            messageBody: primaryComm.messageBody,
+            itemCount: primaryCreate ? 1 : 0,
+          },
+        ],
+      }
+      state.ctx.pendingFocus = 'communication'
     }
     response.blocks.data.push(formatted)
     if (persistMode === 'disabled') {
