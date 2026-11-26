@@ -1,3 +1,5 @@
+import {useVoiceInactivityGuard} from '@/features/guide/hooks/useVoiceInactivityGuard'
+import {hasValidUserTranscriptActivity,VOICE_INACTIVITY_WARNING_TEXT,VOICE_INACTIVITY_ENDED_TEXT} from '@/features/guide/voiceInactivity'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -181,6 +183,7 @@ export function GuidePanel({
   const [starting, setStarting] = useState(false)
   const [sending, setSending] = useState(false)
   const [closing, setClosing] = useState(false)
+  const [voiceExpired, setVoiceExpired] = useState(false)
   const [channel, setChannel] = useState<GuideChannel>('text')
   const [workIntent, setWorkIntent] = useState<GuideWorkIntent>('consult')
   const [remaining, setRemaining] = useState(0)
@@ -332,6 +335,31 @@ export function GuidePanel({
   retellMessagesRef.current = retell.compactMessages
   retellLiveRef.current = retell.messages
 
+  const inactivity = useVoiceInactivityGuard({
+    active: retell.status === 'connected' || retell.status === 'connecting',
+    agentTalking:retell.agentTalking, transcribing:retell.awaitingResponse, processing:sending || closing,
+    readInputActivity:retell.readInputActivity,
+    onExpire:()=>{
+      retell.stop()
+      setMessages(retellLiveRef.current)
+      setVoiceExpired(true)
+      setSession(current=>current ? {...current,status:'completed',close_reason:'inactivity_timeout'} : current)
+      setView('chat')
+    },
+    onInterrupt:()=>{
+      retell.stop()
+      setMessages(retellLiveRef.current)
+      setVoiceExpired(true)
+      setSession(current=>current ? {...current,status:'completed',close_reason:'inactivity_timeout'} : current)
+      setView('chat')
+    },
+  })
+  const previousVoiceMessages = useRef<GuideMessage[]>([])
+  useEffect(()=>{
+    if (hasValidUserTranscriptActivity(previousVoiceMessages.current,retell.messages)) inactivity.recordActivity()
+    previousVoiceMessages.current=retell.messages
+  },[retell.messages,inactivity.recordActivity])
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [retell.messages, retell.status, retell.agentTalking])
@@ -404,8 +432,10 @@ export function GuidePanel({
     [closeSession]
   )
 
-  const startConversation = async (nextChannel: GuideChannel) => {
+  const startConversation = async (nextChannel: GuideChannel, resume=false) => {
     if (!usuarioId || starting || closing) return
+    const resumeSessionId=resume ? sessionRef.current?.id : undefined
+    setVoiceExpired(false)
     setChannel(nextChannel)
     setStarting(true)
     retell.stop()
@@ -413,14 +443,16 @@ export function GuidePanel({
     try {
       const next =
         nextChannel === 'voice'
-          ? (await retell.start({ intent })).session
+          ? (await retell.start({intent,preserveHistory:resume,resumeSessionId})).session
           : await guideService.startSession(usuarioId, { replaceActive: true })
       setSession(next)
       setRemaining(guideService.remainingSeconds(next))
-      setMessages([])
-      setJournal(null)
-      pendingWorkRef.current = []
-      setSessionWork([])
+      if (!resume) {
+        setMessages([])
+        setJournal(null)
+        pendingWorkRef.current = []
+        setSessionWork([])
+      }
       setView('chat')
       setInput('')
       closingRef.current = false
@@ -884,6 +916,12 @@ export function GuidePanel({
           )}
         >
           {composerLead ? <div className="flex w-full min-w-0 items-center gap-1 px-1">{composerLead}</div> : null}
+          {inactivity.warningVisible ? <div role="status" aria-live="polite" className="flex items-center justify-between gap-2 px-2 text-xs">
+            <span>{VOICE_INACTIVITY_WARNING_TEXT}</span><Button type="button" size="sm" variant="outline" onClick={()=>inactivity.recordActivity()}>Continuar conversación</Button>
+          </div> : null}
+          {voiceExpired ? <div role="status" aria-live="polite" className="flex items-center justify-between gap-2 px-2 text-xs">
+            <span>{VOICE_INACTIVITY_ENDED_TEXT}</span><Button type="button" size="sm" variant="outline" disabled={starting} onClick={()=>void startConversation('voice',true)}>Reanudar conversación</Button>
+          </div> : null}
           {active && isRetell ? (
             <div className="space-y-2">
               {intentControl}

@@ -1,7 +1,10 @@
+import { createVoiceInputMonitor } from '@/features/guide/voiceInputActivity'
+import { hasValidUserTranscriptActivity } from '@/features/guide/voiceInactivity'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { RetellWebClient } from 'retell-client-js-sdk'
 import { guideService } from '@/features/guide/services/guide.service'
 import type { GuideCompactMessage, GuideMessage, GuideSession } from '@/features/guide/types'
+import { stopSpeechPlayback } from '@/lib/speechPlayback'
 
 export type RetellGuideStatus = 'idle' | 'connecting' | 'connected' | 'ended' | 'error'
 
@@ -45,6 +48,9 @@ export function useRetellGuideCall(options?: {
   const clientRef = useRef<RetellWebClient | null>(null)
   const sessionIdRef = useRef('')
   const localStopRef = useRef(false)
+  const runIdRef = useRef(0)
+  const probeStreamRef = useRef<MediaStream | null>(null)
+  const inputMonitorRef = useRef<ReturnType<typeof createVoiceInputMonitor> | null>(null)
   const guideTokenRef = useRef(options?.guideToken?.trim() || '')
   const accessGrantRef = useRef(options?.accessGrant?.trim() || '')
   const onRemoteEndedRef = useRef(options?.onRemoteEnded)
@@ -58,8 +64,10 @@ export function useRetellGuideCall(options?: {
   const statusRef = useRef<RetellGuideStatus>('idle')
   const [muted, setMuted] = useState(false)
   const [agentTalking, setAgentTalking] = useState(false)
+  const [awaitingResponse, setAwaitingResponse] = useState(false)
   const [messages, setMessages] = useState<GuideMessage[]>([])
   const messagesRef = useRef<GuideMessage[]>([])
+  const preservedMessagesRef = useRef<GuideMessage[]>([])
   messagesRef.current = messages
   statusRef.current = status
 
@@ -70,8 +78,18 @@ export function useRetellGuideCall(options?: {
     clientRef.current = null
   }, [])
 
+  const releaseProbe = useCallback(() => {
+    if (inputMonitorRef.current) inputMonitorRef.current.close()
+    else probeStreamRef.current?.getTracks().forEach((track) => track.stop())
+    inputMonitorRef.current = null
+    probeStreamRef.current = null
+  }, [])
+
   const stop = useCallback(() => {
+    runIdRef.current += 1
     localStopRef.current = true
+    releaseProbe()
+    stopSpeechPlayback()
     const client = clientRef.current
     if (client) {
       try {
@@ -79,30 +97,58 @@ export function useRetellGuideCall(options?: {
       } catch {
         /* ya cerrada */
       }
+      detach()
     }
     setAgentTalking(false)
+    setAwaitingResponse(false)
     setMuted(false)
     if (statusRef.current === 'connecting' || statusRef.current === 'connected') setStatus('ended')
-  }, [])
+  }, [detach, releaseProbe])
 
   const start = useCallback(async (opts?: {
     intent?: 'consult' | 'create' | 'action' | 'whatsapp' | 'email'
+    preserveHistory?: boolean
+    resumeSessionId?: string
   }): Promise<{ session: GuideSession; callId: string }> => {
+    // Prevent duplicate sessions: cleanly close any prior client before starting.
+    const prevClient = clientRef.current
+    if (prevClient) {
+      localStopRef.current = true
+      try {
+        prevClient.stopCall()
+      } catch {
+        /* ya cerrada */
+      }
+      detach()
+    }
+    releaseProbe()
+    stopSpeechPlayback()
+
+    const runId = ++runIdRef.current
     localStopRef.current = false
     setStatus('connecting')
+    setAwaitingResponse(false)
     setMuted(false)
     setAgentTalking(false)
-    setMessages([])
+    preservedMessagesRef.current = opts?.preserveHistory ? [...messagesRef.current] : []
+    setMessages(preservedMessagesRef.current)
     sessionIdRef.current = ''
 
     let probe: MediaStream | null = null
     try {
       probe = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (runId !== runIdRef.current) {
+        probe.getTracks().forEach(track=>track.stop())
+        throw new Error('La sesión de voz fue cancelada antes de conectar.')
+      }
+      probeStreamRef.current = probe
+      inputMonitorRef.current = createVoiceInputMonitor(probe)
     } catch {
-      setStatus('error')
+      if (runId === runIdRef.current) setStatus('error')
       throw new Error('Necesitas permitir el microfono para hablar con Guia.')
-    } finally {
-      probe?.getTracks().forEach((track) => track.stop())
+    }
+    if (runId !== runIdRef.current) {
+      throw new Error('La sesion de voz fue cancelada antes de conectar.')
     }
 
     const guideToken = guideTokenRef.current || undefined
@@ -111,6 +157,7 @@ export function useRetellGuideCall(options?: {
       (guideToken ? guideService.readAccessGrant(guideToken) : '') ||
       undefined
     if (guideToken && !accessGrant) {
+      releaseProbe()
       setStatus('error')
       throw new Error('Vuelve a la invitacion y acepta el consentimiento para iniciar la voz.')
     }
@@ -123,10 +170,17 @@ export function useRetellGuideCall(options?: {
           : 'consult'
     const created = await guideService.createRetellWebCall({
       replaceActive: true,
+      resumeSessionId: opts?.resumeSessionId,
       intent,
       guideToken,
       accessGrant,
+    }).catch(error=>{
+      if (runId === runIdRef.current) {releaseProbe(); setStatus('error')}
+      throw error
     })
+    if (runId !== runIdRef.current) {
+      throw new Error('La sesion de voz fue cancelada antes de conectar.')
+    }
     sessionIdRef.current = created.session.id
 
     const client = new RetellWebClient()
@@ -135,18 +189,33 @@ export function useRetellGuideCall(options?: {
     client.on('call_started', () => {
       setStatus('connected')
     })
-    client.on('agent_start_talking', () => setAgentTalking(true))
+    client.on('agent_start_talking', () => {setAwaitingResponse(false); setAgentTalking(true)})
     client.on('agent_stop_talking', () => setAgentTalking(false))
     client.on('update', (event: { transcript?: RetellUtterance[] }) => {
-      const next = utterancesToMessages(sessionIdRef.current, event?.transcript ?? [])
+      const live = utterancesToMessages(sessionIdRef.current, event?.transcript ?? [])
+      const next = [...preservedMessagesRef.current, ...live].map((message,index)=>({...message,sequence:index+1}))
+      if (hasValidUserTranscriptActivity(messagesRef.current, next)) setAwaitingResponse(true)
+      if (next.at(-1)?.role === 'assistant') setAwaitingResponse(false)
+      messagesRef.current = next
       setMessages(next)
     })
     client.on('error', (message: unknown) => {
+      releaseProbe()
       const text = typeof message === 'string' && message.trim() ? message.trim() : 'Error en la llamada de Guia.'
+      setAgentTalking(false)
+      setMuted(false)
       setStatus('error')
+      try {
+        client.stopCall()
+      } catch {
+        /* ya cerrada */
+      }
+      detach()
       onErrorRef.current?.(text)
     })
     client.on('call_ended', () => {
+      releaseProbe()
+      setAwaitingResponse(false)
       setAgentTalking(false)
       setStatus('ended')
       const remote = !localStopRef.current
@@ -163,14 +232,24 @@ export function useRetellGuideCall(options?: {
         iceServers: created.ice_servers,
         sampleRate: 24000,
       })
+      if (runId !== runIdRef.current) {
+        try {
+          client.stopCall()
+        } catch {
+          /* ya cerrada */
+        }
+        detach()
+        throw new Error('La sesion de voz fue cancelada antes de conectar.')
+      }
     } catch (error) {
+      if (runId === runIdRef.current) releaseProbe()
       detach()
-      setStatus('error')
+      if (runId === runIdRef.current) setStatus('error')
       throw error instanceof Error ? error : new Error('No se pudo conectar la llamada de Guia.')
     }
 
     return { session: created.session, callId: created.call_id }
-  }, [detach])
+  }, [detach, releaseProbe])
 
   const toggleMute = useCallback(() => {
     const client = clientRef.current
@@ -186,7 +265,10 @@ export function useRetellGuideCall(options?: {
 
   useEffect(() => {
     return () => {
+      runIdRef.current += 1
       localStopRef.current = true
+      releaseProbe()
+      stopSpeechPlayback()
       try {
         clientRef.current?.stopCall()
       } catch {
@@ -195,12 +277,14 @@ export function useRetellGuideCall(options?: {
       clientRef.current?.removeAllListeners()
       clientRef.current = null
     }
-  }, [])
+  }, [releaseProbe])
 
   return {
     status,
     muted,
     agentTalking,
+    awaitingResponse,
+    readInputActivity: () => inputMonitorRef.current?.read() ?? 'unknown',
     messages,
     compactMessages: () => compactRetellMessages(messagesRef.current),
     start,
