@@ -1,10 +1,5 @@
 import { Link } from 'react-router-dom'
-import {
-  Building2,
-  Check,
-  Link2,
-  Unlink,
-} from 'lucide-react'
+import { Check, Link2, Unlink } from 'lucide-react'
 import { ROUTES } from '@/constants'
 import { cn } from '@/lib/utils'
 import type { ActionOption } from './model'
@@ -13,21 +8,44 @@ export function actionHref(action: ActionOption) {
   return `${ROUTES.KANBAN}?accion=${action.id}&okr=1`
 }
 
+/** Fecha compromiso as shown on the Kanban, without estimating a missing value. */
+export function formatFechaCompromiso(
+  fecha?: string | null,
+  horaLimite?: string | null
+): string | null {
+  if (!fecha) return null
+  const [year, month, day] = fecha.slice(0, 10).split('-').map(Number)
+  if (!year || !month || !day) return null
+  const date = new Date(year, month - 1, day)
+  if (Number.isNaN(date.getTime())) return null
+  const label = date.toLocaleDateString('es-MX', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+  const time = horaLimite?.slice(0, 5)
+  return time ? `${label} · ${time}` : label
+}
+
 export function ActionMetaBadges({
   action,
-  areaName,
+  responsableName,
   showStatus = true,
 }: {
   action: ActionOption
-  areaName?: string | null
+  responsableName?: string | null
   showStatus?: boolean
 }) {
-  const scope = areaName ? `Kanban · ${areaName}` : 'Kanban corporativo'
   const status = action.closed ? 'Completada' : 'En curso'
+  const compromiso = formatFechaCompromiso(action.fecha, action.horaLimite)
 
   return (
     <span className="text-xs leading-snug text-muted-foreground">
-      {scope}
+      Responsable: {responsableName?.trim() || 'Sin responsable'}
+      <span className="mx-1.5 text-border" aria-hidden>
+        ·
+      </span>
+      Fecha compromiso: {compromiso ?? 'Sin fecha'}
       {showStatus ? (
         <>
           <span className="mx-1.5 text-border" aria-hidden>
@@ -42,19 +60,18 @@ export function ActionMetaBadges({
 
 export function LinkedInitiativeRow({
   action,
-  areaName,
+  responsableName,
   busy,
   canUnlink,
   onUnlink,
 }: {
   action: ActionOption | undefined
-  areaName?: string | null
+  responsableName?: string | null
   busy?: boolean
   canUnlink?: boolean
   onUnlink?: () => void
 }) {
   const closed = Boolean(action?.closed)
-  const ScopeIcon = Building2
 
   return (
     <div
@@ -96,14 +113,10 @@ export function LinkedInitiativeRow({
           </p>
         )}
         {action ? (
-          <p className="mt-1 flex min-w-0 items-center gap-1.5">
-            <ScopeIcon
-              className="h-3 w-3 shrink-0 text-muted-foreground"
-              aria-hidden
-            />
+          <p className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
             <ActionMetaBadges
               action={action}
-              areaName={areaName}
+              responsableName={responsableName}
               showStatus={false}
             />
           </p>
@@ -141,12 +154,12 @@ export function LinkedInitiativeRow({
 
 export function LinkActionChoice({
   action,
-  areaName,
+  responsableName,
   selected,
   onSelect,
 }: {
   action: ActionOption
-  areaName?: string | null
+  responsableName?: string | null
   selected: boolean
   onSelect: () => void
 }) {
@@ -184,7 +197,7 @@ export function LinkActionChoice({
           {action.title}
         </span>
         <span className="mt-1 block">
-          <ActionMetaBadges action={action} areaName={areaName} />
+          <ActionMetaBadges action={action} responsableName={responsableName} />
         </span>
       </span>
     </label>
