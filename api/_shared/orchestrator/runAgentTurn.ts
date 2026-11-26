@@ -1,5 +1,6 @@
 import { readPreparedActionState, formatPreparedActionState } from './preparedActionState.js'
 import { prepareContextualExecution, revokeContextualExecution } from './communicationExecution.js'
+import { extractResourceUrl, resolveResourceUrl, stripResourceUrl, type ResolvedUrlContext } from './resourceUrlResolver.js'
 import { extractResponsablePatch } from './structuredActionDraft.js'
 /**
  * Orquestador compartido del agente (CV-05):
@@ -2851,7 +2852,62 @@ export async function runAgentTurn(
     }
   }
 
-  const intent = classifyAgentIntent(utterance, ctx.activeQuery, {
+  const tools: string[] = []
+  const trackedDispatch: ToolDispatcher = async (a, name, args) => {
+    tools.push(name)
+    return deps.dispatch(a, name, args) as Promise<CopilotToolResult>
+  }
+
+  let effectiveUtterance = utterance
+  let resolvedUrl: ResolvedUrlContext | null = null
+  const parsedUrl = extractResourceUrl(utterance)
+  if (parsedUrl) {
+    resolvedUrl = await resolveResourceUrl({
+      parsed: parsedUrl,
+      actor,
+      dispatch: trackedDispatch,
+      ctx,
+    })
+    if (
+      resolvedUrl.kind === 'external' ||
+      resolvedUrl.kind === 'unsupported_internal' ||
+      resolvedUrl.kind === 'forbidden' ||
+      resolvedUrl.kind === 'empty' ||
+      resolvedUrl.kind === 'error'
+    ) {
+      stage('intent')
+      stage('context')
+      stage('query_interpret')
+      const respStatus =
+        resolvedUrl.kind === 'forbidden'
+          ? 'forbidden'
+          : resolvedUrl.kind === 'empty'
+            ? 'empty'
+            : resolvedUrl.kind === 'error'
+              ? 'error'
+              : 'ok'
+      const response = baseResponse(respStatus)
+      if (resolvedUrl.kind === 'external' || resolvedUrl.kind === 'unsupported_internal') {
+        response.blocks.limitations.push(resolvedUrl.message)
+      }
+      response.blocks.data.push(resolvedUrl.message)
+      withFacts(response, { primary: { text: resolvedUrl.message } })
+      stage('respond')
+      return {
+        handled: true,
+        intent: 'unknown',
+        response,
+        format: selected === 'auto' ? 'direct' : selected,
+        formatSelected: selected,
+        offerDetail: false,
+        toolsUsed: tools,
+        trace,
+      }
+    }
+    effectiveUtterance = stripResourceUrl(utterance, parsedUrl.rawUrl)
+  }
+
+  const intent = classifyAgentIntent(effectiveUtterance, ctx.activeQuery, {
     hasExecutiveSession: Boolean(ctx.executiveSession?.active),
     lastActionCount: ctx.lastActions.length,
     lastEntityKind: ctx.lastEntity?.kind ?? null,
@@ -2860,6 +2916,51 @@ export async function runAgentTurn(
     pendingFocus: ctx.pendingFocus ?? null,
   })
   stage('intent')
+
+  // Si hubo una URL interna resuelta y el usuario solo pidió revisarla (sin operación/comunicación adicional),
+  // respondemos con los datos reales consultados y persistimos el contexto para el siguiente turno.
+  const isUrlFollowUpWrite =
+    intent.kind === 'write_request' ||
+    intent.kind === 'communication_action' ||
+    intent.kind === 'edit_pending_date'
+  if (resolvedUrl && !isUrlFollowUpWrite) {
+    stage('context')
+    stage('query_interpret')
+    await deps.store.set(
+      key,
+      {
+        activeQuery: ctx.activeQuery,
+        lastActions: ctx.lastActions,
+        lastEntity: ctx.lastEntity,
+        fingerprint,
+        responseFormat: selected,
+        lastAnswer: ctx.lastAnswer ?? null,
+        executiveSession: ctx.executiveSession ?? null,
+        lastTotals: ctx.lastTotals ?? null,
+        pendingWrite: ctx.pendingWrite ?? null,
+        pendingCommunication: ctx.pendingCommunication ?? null,
+        pendingFocus: ctx.pendingFocus ?? null,
+      },
+      now()
+    )
+    const response = baseResponse('ok')
+    response.blocks.data.push(...resolvedUrl.summaryLines)
+    if (resolvedUrl.kind === 'action') {
+      response.references = [{ id: resolvedUrl.actionId, title: resolvedUrl.action.title, href: resolvedUrl.href }]
+    }
+    withFacts(response, { primary: { text: resolvedUrl.summaryLines.join('\n') } })
+    stage('respond')
+    return {
+      handled: true,
+      intent: resolvedUrl.kind === 'okr' ? 'query_okrs' : 'query_actions',
+      response,
+      format: selected === 'auto' ? 'direct' : selected,
+      formatSelected: selected,
+      offerDetail: false,
+      toolsUsed: tools,
+      trace,
+    }
+  }
 
   if (intent.kind === 'unknown') {
     if (
@@ -2878,7 +2979,7 @@ export async function runAgentTurn(
         format: selected === 'auto' ? 'direct' : selected,
         formatSelected: selected,
         offerDetail: false,
-        toolsUsed: [],
+        toolsUsed: tools,
         trace,
       }
     }
@@ -2890,22 +2991,18 @@ export async function runAgentTurn(
       format: 'direct',
       formatSelected: selected,
       offerDetail: false,
-      toolsUsed: [],
+      toolsUsed: tools,
       trace,
     }
   }
 
-  const tools: string[] = []
   const state: TurnState = {
     actor,
     ctx,
     today: (deps.today ?? todayWallClockCDMX)(),
     tools,
     entityCatalog: deps.entityCatalog,
-    dispatch: async (a, name, args) => {
-      tools.push(name)
-      return deps.dispatch(a, name, args) as Promise<CopilotToolResult>
-    },
+    dispatch: trackedDispatch,
   }
   if (needsReferenceRehydration(state.ctx)) await rehydrateReferences(state)
   stage('context')

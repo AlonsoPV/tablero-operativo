@@ -249,7 +249,7 @@ export function classifyAgentIntent(
   }
 
   if (
-    /\b(que requiere mi atencion|que necesita mi atencion|principales problemas|3 principales|tres principales|top 3|prioridades ejecutivas|que deberia priorizar hoy|que priorizar hoy|(?:que )?(?:acciones )?deberia priorizar(?: esta semana| hoy)?|que priorizar esta semana)\b/.test(
+    /\b(que (?:requiere|necesita)(?: mi)? atencion(?:\s+(?:inmediata|urgente|hoy))?|principales problemas|3 principales|tres principales|top 3|prioridades ejecutivas|que deberia priorizar hoy|que priorizar hoy|(?:que )?(?:acciones )?deberia priorizar(?: esta semana| hoy)?|que priorizar esta semana)\b/.test(
       text
     )
   ) {
@@ -490,6 +490,16 @@ export function classifyAgentIntent(
   if (/\b(convierte(?:lo|la)?|transforma(?:lo|la)?)\b/.test(text) && /\b(accion|tarea)\b/.test(text)) {
     return { kind: 'write_request', operation: 'create_action', request }
   }
+  if (/\b(prepara|preparar|arma|armar|redacta|redactar)\b/.test(text) && /\b(mensaje|correo|whatsapp)\b/.test(text)) {
+    return {
+      kind: 'write_request',
+      operation: 'notify_responsable',
+      request,
+      canal: /\b(correo|mail|email)\b/.test(text) ? 'email' : 'whatsapp',
+      draftOnly: true,
+      contextualComm: true,
+    }
+  }
   if (/\b(prepara|preparar|arma|armar)\b/.test(text) && /\b(seguimiento|aviso|recordatorio)\b/.test(text)) {
     return {
       kind: 'write_request',
@@ -617,6 +627,36 @@ export function classifyAgentIntent(
   if (/\b(marca|marcar|actualiza|actualizar|cambia|cambiar|cierra|cerrar|reprograma|mueve)\b/.test(text) &&
     /\b(accion|tarea|esa|esta)\b/.test(text)) {
     return { kind: 'write_request', operation: 'update_action', request }
+  }
+
+  if (!looksLikeWriteVerb) {
+    const personAgenda = text.match(
+      /\bque\s+(?:tiene|tienen)\s+([a-z][a-z0-9._-]{1,30})\s+(?:para\s+)?(hoy|manana|esta\s+semana|pendiente|abierto|vencido)\b/
+    )
+    if (
+      personAgenda?.[1] &&
+      !/^(el|la|los|las|un|una|mi|mis|tu|su|sus|este|esta|esto|ese|esa|que|quien|alguien|nadie)$/.test(personAgenda[1])
+    ) {
+      return {
+        kind: 'query_actions',
+        scope: 'board_authorized',
+        statusGroup: /\bvencid/.test(text) ? 'overdue' : 'open',
+        visual: 'none',
+        focusToday: /\bhoy\b/.test(text),
+        personHint: personAgenda[1],
+        restrictedRequest: false,
+      }
+    }
+    if (/\bque\s+tengo\s+(?:para\s+)?(hoy|manana|esta\s+semana)\b/.test(text)) {
+      return {
+        kind: 'query_actions',
+        scope: 'assigned_to_me',
+        statusGroup: 'open',
+        visual: 'none',
+        focusToday: /\bhoy\b/.test(text),
+        restrictedRequest: false,
+      }
+    }
   }
 
   if (!OPERATIONAL_TERMS.test(text)) return { kind: 'unknown' }

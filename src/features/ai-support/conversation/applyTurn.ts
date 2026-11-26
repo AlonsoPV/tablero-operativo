@@ -149,6 +149,7 @@ function looksLikeKanbanQuery(message: string, hasPendingClarify: boolean) {
 }
 
 function looksLikeHandoff(message: string) {
+  if (/https?:\/\/|\/(?:kanban(?:-equipos(?:\/tablero)?)?|okrs)(?:\?|#|\b)/i.test(message)) return true
   const t = normalize(message)
   // «Envia un correo / WhatsApp con el resumen de sus acciones» → tools, no lista Kanban.
   if (looksLikeCommsPrepare(message)) return true
