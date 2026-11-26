@@ -18,8 +18,11 @@ export async function prepareContextualExecution(
   }
   const mode = resolveR2ExecutionMode(process.env, actor.usuarioId)
   const recipientId = pending.recipients.length === 1 ? pending.recipients[0]?.recipientId : null
-  const allowedPilot = actor.channel === 'whatsapp' && Boolean(actor.copilot.whatsappId) && mode === 'pilot' &&
+  const allowedPilotWhatsApp = actor.channel === 'whatsapp' && Boolean(actor.copilot.whatsappId) && mode === 'pilot' &&
     isWhatsAppCommunicationAllowed(process.env,actor.usuarioId,recipientId ?? '',pending.channel)
+  const allowedPilotWeb = actor.channel === 'web' && Boolean(actor.copilot.accessToken) && mode === 'pilot' &&
+    isWhatsAppCommunicationAllowed(process.env,actor.usuarioId,recipientId ?? '',pending.channel)
+  const allowedPilot = allowedPilotWhatsApp || allowedPilotWeb
   if (pending.channel === 'email' && !allowedPilot) return {message:'Borrador preparado. El envío de correo desde este canal no está habilitado.'}
   if ((mode === 'pilot' && !allowedPilot) || mode === 'qa' || mode === 'simulated') {
     return {message: 'Borrador preparado. Los envíos externos están deshabilitados en este modo de ejecución.'}
@@ -72,7 +75,7 @@ export async function prepareContextualExecution(
     return {message: 'No se habilitó el envío: el destinatario o contenido verificado no coincide con el borrador.'}
   }
   pending.execution = {version: pending.version, proposal: result.proposal}
-  return {proposal: result.proposal, message: allowedPilot ? 'Revisa el destinatario y el contenido completos y confirma el código vigente. Todavía no se envió.' : `Revisa la tarjeta de envío (${pending.proposalId}, v${pending.version}) y confírmala allí. Todavía no se envió.`}
+  return {proposal: result.proposal, message: allowedPilotWhatsApp ? 'Revisa el destinatario y el contenido completos y confirma el código vigente. Todavía no se envió.' : `Revisa la tarjeta de envío (${pending.proposalId}, v${pending.version}) y confírmala allí. Todavía no se envió.`}
 }
 
 /** Invalidate the old immutable approval before changing any recipient/content/channel. */

@@ -9,6 +9,7 @@
  */
 import { createHash } from 'node:crypto'
 import { isWhatsAppCommunicationAllowed } from '../../../supabase/functions/_shared/whatsappCommunicationGate.js'
+import { resolveR2ExecutionMode } from '../actions/executionMode.js'
 import type { CopilotProposal } from '../../../src/features/ai-support/copilot/types.js'
 import type { ActionItem, ActionsQueryRequest, OkrItem, OkrsQueryRequest, QueryResult } from '../query/contracts.js'
 import { authorizeQuery } from '../query/authorizeQuery.js'
@@ -515,8 +516,16 @@ function checkDirectDeliveryCapability(
   isDraftOnly: boolean,
   actor?: AgentActor
 ): { canSendDirect: boolean; limitation: string | null } {
-  const approvedPilot = actor?.channel === 'whatsapp' && Boolean(actor.copilot.whatsappId) && Boolean(user) &&
-    isWhatsAppCommunicationAllowed(process.env, actor.usuarioId, user!.id, channel)
+  const isPilotChannel =
+    Boolean(actor) &&
+    ((actor!.channel === 'whatsapp' && Boolean(actor!.copilot.whatsappId)) ||
+      (actor!.channel === 'web' &&
+        Boolean(actor!.copilot.accessToken) &&
+        resolveR2ExecutionMode(process.env, actor!.usuarioId) === 'pilot'))
+  const approvedPilot =
+    isPilotChannel &&
+    Boolean(user) &&
+    isWhatsAppCommunicationAllowed(process.env, actor!.usuarioId, user!.id, channel)
   // In the explicitly allowlisted pilot, preparation may create an approval, never a send.
   if (isDraftOnly && !approvedPilot) {
     return {
@@ -525,7 +534,7 @@ function checkDirectDeliveryCapability(
     }
   }
   if (channel === 'email') {
-    if (actor?.channel === 'whatsapp' && actor.copilot.whatsappId && user && isWhatsAppCommunicationAllowed(process.env,actor.usuarioId,user.id,'email')) return {canSendDirect:true,limitation:null}
+    if (approvedPilot) return { canSendDirect: true, limitation: null }
     return {
       canSendDirect: false,
       limitation: 'El envío directo de correo electrónico no está habilitado; puedes copiar este mensaje y enviarlo desde tu cliente de correo.',
