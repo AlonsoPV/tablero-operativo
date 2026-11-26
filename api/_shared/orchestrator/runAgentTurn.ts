@@ -2140,7 +2140,7 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
           explicitContent: null,
           contentMode: 'contextual',
           tone: 'direct',
-          finalOperation: canSendDirect ? 'propose_send' : 'draft_only',
+          finalOperation: canSendDirect ? 'propose_send' : 'prepare_copy',
         },
         recipients: [
           {
