@@ -1,4 +1,5 @@
 import { computeProposalVersion } from './whatsappR2Adapter.js'
+import { isWhatsAppCommunicationAllowed } from '../../supabase/functions/_shared/whatsappCommunicationGate.js'
 import { executeDailySummaryUpdate, proposeDailySummaryUpdate, readDailySummary } from './assistantDailySummary.js'
 import { isAnalystByRole } from '../../src/features/auth/lib/permissions.js'
 import { isCopilotWriteTool } from '../../src/features/ai-support/copilot/catalog.js'
@@ -1455,7 +1456,27 @@ export async function confirmPendingOp(
     await options.r2.executor.prepare?.(actor)
     approvedWhatsApp = true
   }
-  if ((r2Mode === 'qa' || r2Mode === 'pilot') && (sendsCommunication || isGoogleWriteTool(row.tool)) && !approvedWhatsApp) {
+  let approvedPilotWeb = false
+  if (
+    sendsCommunication &&
+    !approvedWhatsApp &&
+    !options?.fromTool &&
+    Boolean(actor.accessToken) &&
+    r2Mode === 'pilot' &&
+    (row.tool === 'notify_user_email' || row.tool === 'whatsapp_prepare_send')
+  ) {
+    const channel = row.tool === 'notify_user_email' ? 'email' : 'whatsapp'
+    const payloadObj = (row.payload ?? {}) as Record<string, unknown>
+    const previewWorkspace = (row.preview as { workspace?: { toUserId?: unknown } } | null)?.workspace
+    const recipientId = String(
+      previewWorkspace?.toUserId ?? payloadObj.to_user_id ?? payloadObj.usuario_id ?? ''
+    ).trim()
+    if (isWhatsAppCommunicationAllowed(process.env, actor.usuarioId, recipientId, channel)) {
+      await options?.r2?.executor?.prepare?.(actor)
+      approvedPilotWeb = true
+    }
+  }
+  if ((r2Mode === 'qa' || r2Mode === 'pilot') && (sendsCommunication || isGoogleWriteTool(row.tool)) && !approvedWhatsApp && !approvedPilotWeb) {
     throw new Error(
       r2Mode === 'pilot'
         ? 'EXECUTION_DISABLED: En modo piloto R2 los envíos externos están deshabilitados.'

@@ -447,9 +447,22 @@ async function handleQueryActions(
     personLabel = person.person.nombre
     state.ctx = { ...state.ctx, lastEntity: { kind: 'person', id: person.person.id, label: person.person.nombre } }
   } else if (state.ctx.lastEntity?.kind === 'person') {
-    // Continuidad conversacional: «¿Cuáles están atrasados?» conserva a la persona del turno anterior.
-    responsableId = state.ctx.lastEntity.id
-    personLabel = state.ctx.lastEntity.label
+    const foldQuery = utterance
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+    const isSelfScope = request.scope === 'assigned_to_me' || request.scope === 'created_by_me'
+    const refersToPrevPerson = /\b(suyas?|sus|de el|de ella|le|esas|esos|las suyas|los suyos)\b/.test(foldQuery)
+    const isImpersonalBoardQuery =
+      !refersToPrevPerson &&
+      /\b(hay|en total|tablero|equipo|organizacion|empresa|todas las acciones|todos)\b/.test(foldQuery)
+    if (isSelfScope || isImpersonalBoardQuery) {
+      state.ctx = { ...state.ctx, lastEntity: null }
+    } else {
+      // Continuidad conversacional: «¿Cuáles están atrasados?» conserva a la persona del turno anterior.
+      responsableId = state.ctx.lastEntity.id
+      personLabel = state.ctx.lastEntity.label
+    }
   }
 
   const result = await queryActions(state.actor.copilot, { ...request, responsableId }, state.dispatch)
@@ -680,9 +693,14 @@ async function handleInspectReferencedAction(
   if (!responsableNombre || !estado) {
     const detail = await state.dispatch(state.actor.copilot, 'get_action_details', { action_id: active.id })
     if (detail.ok && detail.data && typeof detail.data === 'object') {
-      const raw = detail.data as { action?: Record<string, unknown> } & Record<string, unknown>
+      const unwrapped =
+        'payload' in detail.data && (detail.data as { payload?: unknown }).payload && typeof (detail.data as { payload?: unknown }).payload === 'object'
+          ? ((detail.data as { payload: Record<string, unknown> }).payload)
+          : (detail.data as Record<string, unknown>)
+      const raw = unwrapped as { action?: Record<string, unknown> } & Record<string, unknown>
       const d = raw.action && typeof raw.action === 'object' ? raw.action : raw
-      if (typeof d.titulo === 'string' && d.titulo.trim()) title = d.titulo.trim()
+      if (typeof d.title === 'string' && d.title.trim()) title = d.title.trim()
+      else if (typeof d.titulo === 'string' && d.titulo.trim()) title = d.titulo.trim()
       else if (typeof d.accion === 'string' && d.accion.trim()) title = d.accion.trim()
       if (typeof d.estado === 'string' && d.estado.trim()) estado = d.estado.trim()
       if (typeof d.prioridad === 'string' && d.prioridad.trim()) prioridad = d.prioridad.trim()
@@ -3213,9 +3231,22 @@ export async function runAgentTurn(
       if (intent.action === 'cancel') {
         await revokeContextualExecution(state.actor, pending, state.dispatch)
         state.ctx.pendingCommunication = null
+        const cancelAll = /\b(cancela(?:r)?|descarta(?:r)?)\s+todo\b/i.test(intent.utterance)
+        const hadPendingWrite = Boolean(state.ctx.pendingWrite)
+        if (cancelAll && hadPendingWrite) {
+          const writeId = state.ctx.pendingWrite?.proposalId
+          if (writeId) {
+            await state.dispatch(state.actor.copilot, 'cancel_pending_op', { pending_op_id: writeId }).catch(() => null)
+          }
+          state.ctx.pendingWrite = null
+          state.ctx.pendingFocus = null
+        }
         const resp = baseResponse('ok')
         resp.presentation = 'operation'
-        const msg = 'Cancelé la propuesta de comunicación. No se envió ningún mensaje.'
+        const msg =
+          cancelAll && hadPendingWrite
+            ? 'Cancelé tanto el borrador de la acción como la propuesta de comunicación. No se aplicó ni envió nada.'
+            : 'Cancelé la propuesta de comunicación. No se envió ningún mensaje.'
         resp.blocks.data.push(msg)
         withFacts(resp, { primary: { text: msg } })
         outcome = { response: resp, audit: { status: 'ok' as const, entity: 'actions' } }
