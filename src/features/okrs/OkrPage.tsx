@@ -797,7 +797,7 @@ export function OkrPage() {
                     : null
               }
               initiatives={data.initiatives}
-              areas={data.areas}
+              users={data.users}
               search={linkSearch}
               onSearch={setLinkSearch}
               selectedAction={selectedAction}
@@ -963,7 +963,7 @@ function LinkInitiativeForm({
   actionsReady,
   actionsError,
   initiatives,
-  areas,
+  users,
   search,
   onSearch,
   selectedAction,
@@ -979,7 +979,7 @@ function LinkInitiativeForm({
   actionsReady: boolean
   actionsError: string | null
   initiatives: Initiative[]
-  areas: { id: string; nombre: string }[]
+  users: { id: string; nombre: string }[]
   search: string
   onSearch: (value: string) => void
   selectedAction: string
@@ -1039,7 +1039,7 @@ function LinkInitiativeForm({
         selectedAction={selectedAction}
         onSelect={onSelect}
         available={available}
-        areas={areas}
+        users={users}
         actionsReady={actionsReady}
         actionsError={actionsError}
         onCreateAction={onCreateAction}

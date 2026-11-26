@@ -36,6 +36,11 @@ function normalizeActionOptions(raw: unknown): ActionOption[] {
         area_id: typeof row.area_id === 'string' ? row.area_id : null,
         closed: Boolean(row.closed),
         es_okr: row.es_okr === true || row.es_okr === 'true',
+        responsableId:
+          typeof row.responsable_id === 'string' ? row.responsable_id : null,
+        fecha: typeof row.fecha === 'string' ? row.fecha : null,
+        horaLimite:
+          typeof row.hora_limite === 'string' ? row.hora_limite.slice(0, 5) : null,
       },
     ]
   })
@@ -45,7 +50,7 @@ async function loadTaggedActions(): Promise<ActionOption[]> {
   const [company, areas] = await Promise.all([
     supabase
       .from('acciones_diarias')
-      .select('id, titulo_accion, area')
+      .select('id, titulo_accion, area, responsable, fecha, hora_limite')
       .eq('es_okr', true),
     supabase.from('areas').select('id, nombre'),
   ])
@@ -66,6 +71,9 @@ async function loadTaggedActions(): Promise<ActionOption[]> {
         area_id: areaName ? (areaIdByName.get(areaName) ?? null) : null,
         closed: false,
         es_okr: true,
+        responsableId: row.responsable ?? null,
+        fecha: row.fecha ?? null,
+        horaLimite: row.hora_limite?.slice(0, 5) ?? null,
       })
     }
   }
@@ -85,6 +93,9 @@ function mergeActionOptions(
     if (existing) {
       existing.es_okr = true
       if (!existing.area_id && action.area_id) existing.area_id = action.area_id
+      if (action.responsableId) existing.responsableId = action.responsableId
+      if (action.fecha) existing.fecha = action.fecha
+      if (action.horaLimite) existing.horaLimite = action.horaLimite
     } else {
       byKey.set(key, { ...action, es_okr: true })
     }
