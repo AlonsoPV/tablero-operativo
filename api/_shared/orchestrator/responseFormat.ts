@@ -54,6 +54,7 @@ export function resolveFormat(selected: ResponseFormat, intent: AgentIntent['kin
   if (
     intent === 'who_most_urgent' ||
     intent === 'recommend_next' ||
+    intent === 'inspect_referenced_action' ||
     intent === 'unsupported_metric' ||
     intent === 'write_request' ||
     intent === 'clarify'

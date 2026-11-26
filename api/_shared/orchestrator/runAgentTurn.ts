@@ -653,6 +653,85 @@ async function handleWhoMostUrgent(state: TurnState) {
   return { response, audit: { status: 'ok' as const, entity: 'actions', total: 1 } }
 }
 
+async function handleInspectReferencedAction(
+  state: TurnState,
+  intent: Extract<AgentIntent, { kind: 'inspect_referenced_action' }>
+) {
+  const active =
+    (state.ctx.lastEntity?.kind === 'action'
+      ? state.ctx.lastActions.find((a) => a.id === state.ctx.lastEntity?.id)
+      : null) ?? state.ctx.lastActions[0]
+
+  if (!active) {
+    const resp = baseResponse('clarification')
+    const question = '¿De qué acción quieres revisar el responsable o la situación? Compárteme el título o el enlace de la acción.'
+    resp.blocks.data.push(question)
+    return { response: resp, clarification: { question, options: [] }, audit: { status: 'clarification' as const } }
+  }
+
+  let title = active.title
+  let estado = active.estado
+  let prioridad = active.prioridad
+  let fecha = active.fecha
+  let responsableNombre = active.responsableNombre
+  let area = active.area
+  let href = active.href || `/kanban?accion=${active.id}`
+
+  if (!responsableNombre || !estado) {
+    const detail = await state.dispatch(state.actor.copilot, 'get_action_details', { action_id: active.id })
+    if (detail.ok && detail.data && typeof detail.data === 'object') {
+      const raw = detail.data as { action?: Record<string, unknown> } & Record<string, unknown>
+      const d = raw.action && typeof raw.action === 'object' ? raw.action : raw
+      if (typeof d.titulo === 'string' && d.titulo.trim()) title = d.titulo.trim()
+      else if (typeof d.accion === 'string' && d.accion.trim()) title = d.accion.trim()
+      if (typeof d.estado === 'string' && d.estado.trim()) estado = d.estado.trim()
+      if (typeof d.prioridad === 'string' && d.prioridad.trim()) prioridad = d.prioridad.trim()
+      if (typeof d.fecha === 'string' && d.fecha.trim()) fecha = d.fecha.trim()
+      if (typeof d.responsable_nombre === 'string' && d.responsable_nombre.trim()) responsableNombre = d.responsable_nombre.trim()
+      if (typeof d.area === 'string' && d.area.trim()) area = d.area.trim()
+      if (typeof d.href === 'string' && d.href.trim()) href = d.href.trim()
+    }
+  }
+
+  state.ctx.lastEntity = { kind: 'action', id: active.id, label: title }
+  const response = baseResponse('ok')
+  response.presentation = 'operation'
+  const dueYmd = fecha ? fecha.slice(0, 10) : null
+  const isOpen = estado !== 'Hecho' && estado !== 'Verificado'
+  const overdueTag = dueYmd && isOpen && dueYmd < state.today ? ` (vencida desde ${dueYmd})` : dueYmd ? ` · fecha ${dueYmd}` : ''
+
+  if (intent.aspect === 'owner') {
+    const line = responsableNombre
+      ? `El responsable de «${title}» es ${responsableNombre}.`
+      : `«${title}» no tiene un responsable asignado actualmente.`
+    response.blocks.data.push(line)
+    withFacts(response, { primary: { text: line } })
+    return { response, audit: { status: 'ok' as const, entity: 'actions', total: 1 } }
+  }
+
+  if (intent.aspect === 'status') {
+    const parts = [
+      `estado ${estado || 'sin estado'}`,
+      ...(prioridad ? [`prioridad ${prioridad}`] : []),
+      ...(responsableNombre ? [`responsable ${responsableNombre}`] : []),
+      ...(area ? [`área ${area}`] : []),
+    ]
+    const line = `«${title}»: ${parts.join(' · ')}${overdueTag}.`
+    response.blocks.data.push(line)
+    withFacts(response, { primary: { text: line } })
+    return { response, audit: { status: 'ok' as const, entity: 'actions', total: 1 } }
+  }
+
+  const summary = [
+    `«${title}» (${href})`,
+    `Estado: ${estado || 'sin estado'}${overdueTag}${prioridad ? ` · Prioridad: ${prioridad}` : ''}`,
+    `Responsable: ${responsableNombre || 'Sin asignar'}${area ? ` · Área: ${area}` : ''}`,
+  ].join('\n')
+  response.blocks.data.push(summary)
+  withFacts(response, { primary: { text: summary } })
+  return { response, audit: { status: 'ok' as const, entity: 'actions', total: 1 } }
+}
+
 async function handleRecommendNext(state: TurnState) {
   if (state.ctx.lastActions.length === 0) {
     const previous = state.ctx.activeQuery
@@ -2349,8 +2428,13 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
     state.ctx.pendingFocus = 'communication'
     state.ctx.pendingCommunication = composed.proposal
     response.presentation = 'operation'
-    const delivery = state.actor.channel === 'whatsapp' && process.env.WHATSAPP_COMMUNICATIONS_ENABLED === '1'
-      ? await prepareContextualExecution(state.actor,composed.proposal,state.dispatch) : null
+    const canPrepareDelivery =
+      process.env.WHATSAPP_COMMUNICATIONS_ENABLED === '1' &&
+      (state.actor.channel === 'whatsapp' ||
+        (state.actor.channel === 'web' && Boolean(state.actor.copilot.accessToken) && composed.proposal.canSendDirect))
+    const delivery = canPrepareDelivery
+      ? await prepareContextualExecution(state.actor, composed.proposal, state.dispatch)
+      : null
     response.blocks.data.push(composed.formattedText)
     if (delivery?.message) response.blocks.data.push(delivery.message)
     withFacts(response, { primary: { text: composed.formattedText } })
@@ -3025,6 +3109,9 @@ export async function runAgentTurn(
       break
     case 'recommend_next':
       outcome = await handleRecommendNext(state)
+      break
+    case 'inspect_referenced_action':
+      outcome = await handleInspectReferencedAction(state, intent)
       break
     case 'query_okrs':
       outcome = await handleOkrs(state, intent)
