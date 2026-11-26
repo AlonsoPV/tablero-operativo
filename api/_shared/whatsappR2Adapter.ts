@@ -781,7 +781,7 @@ export async function executeWhatsAppR2Decision(input: {
 
 export function formatWhatsAppProposalPrompt(
   binding: WhatsAppProposalBinding,
-  options: { executionMode?: R2ExecutionMode; proposal?: CopilotProposal | null } = {}
+  options: { executionMode?: R2ExecutionMode; proposal?: CopilotProposal | null; interactiveButtons?: boolean; interactiveMaxChars?: number } = {}
 ): string {
   const mode = options.executionMode ?? resolveR2ExecutionMode()
   const editHint =
@@ -812,6 +812,11 @@ export function formatWhatsAppProposalPrompt(
           `Código: ${binding.version}`,
           `¿Confirmas la operación? Responde "confirmar ${binding.version}" o usa el botón Confirmar. Para cancelar responde "cancelar ${binding.version}".${editHint} Un "sí" suelto no ejecuta cambios.`,
         ]
+  if (mode !== 'disabled' && options.interactiveButtons) {
+    const compact = lines.slice(0, -1).join('\n')
+    // Retain code instructions when the transport must fall back to a text-only message.
+    if (compact.length <= (options.interactiveMaxChars ?? 1024)) return compact
+  }
   return lines.join('\n')
 }
 

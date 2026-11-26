@@ -534,7 +534,7 @@ export default defineApiHandler(async (req, res) => {
                 }
                 const body = hydrated
                   .map(({ binding, proposal }) =>
-                    formatWhatsAppProposalPrompt(binding, { executionMode: mode, proposal })
+                    formatWhatsAppProposalPrompt(binding, { executionMode: mode, proposal, interactiveButtons: hydrated.length === 1, interactiveMaxChars: REPLY_CHARS })
                   )
                   .join('\n\n')
                 return { text: proposalList.some(p=>'tool' in p && ['whatsapp_prepare_send','notify_user_email'].includes(p.tool)) ? body : clipReply(body) }
@@ -614,6 +614,8 @@ export default defineApiHandler(async (req, res) => {
         const prompt = formatWhatsAppProposalPrompt(nextBinding, {
           executionMode,
           proposal: editedProposal,
+          interactiveButtons: true,
+          interactiveMaxChars: REPLY_CHARS - 100,
         })
         return res.status(200).json({
           text: clipReply(`Propuesta actualizada (código previo ${resolution.binding.version} invalidado).\n\n${prompt}`),
@@ -798,7 +800,7 @@ export default defineApiHandler(async (req, res) => {
           const bindings = hydrated.map((h) => h.binding)
           const body = hydrated
             .map(({ binding, proposal }) =>
-              formatWhatsAppProposalPrompt(binding, { executionMode: mode, proposal })
+              formatWhatsAppProposalPrompt(binding, { executionMode: mode, proposal, interactiveButtons: hydrated.length === 1, interactiveMaxChars: REPLY_CHARS })
             )
             .join('\n\n')
           return res.status(200).json({

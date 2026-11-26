@@ -44,3 +44,15 @@ describe('WhatsApp pending storage and interactive approval contract',()=>{
   expect(formatWhatsAppProposalPrompt(b,{executionMode:'pilot'})).not.toContain('fecha=')
  })
 })
+
+
+it('omits redundant code instructions only for an interactive preview that fits',()=>{
+ const b=buildProposalBinding({proposalId:op,usuarioId:sender,operation:'whatsapp_prepare_send',scope:'whatsapp_prepare_send',summary:'Mensaje de prueba',payload:{body:'Exacto'},expiresAt:'2099-01-01'})
+ const compact=formatWhatsAppProposalPrompt(b,{executionMode:'pilot',interactiveButtons:true})
+ expect(compact).toContain(`Código: ${b.version}`)
+ expect(compact).not.toContain('¿Confirmas la operación?')
+ expect(compact).not.toContain('Un "sí" suelto')
+ const fallback=formatWhatsAppProposalPrompt(b,{executionMode:'pilot',interactiveButtons:true,interactiveMaxChars:10})
+ expect(fallback).toContain(`confirmar ${b.version}`)
+ expect(formatWhatsAppProposalPrompt(b,{executionMode:'pilot'})).toContain(`confirmar ${b.version}`)
+})
