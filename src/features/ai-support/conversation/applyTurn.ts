@@ -62,9 +62,12 @@ const NON_BARE_PERSON_RE =
 function looksLikeOperationOrControlTurn(t: string): boolean {
   const clean = t.replace(/^[¿¡\s]+/, '')
   return (
-    /^(?:prepara(?:la|lo|r)?|mejor\b|cambia(?:la|lo|r)?|reprograma(?:la|lo|r)?|cancela(?:r|lo|la)?|confirma(?:r)?|edita(?:r|lo|la)?|agregale|anadele|haz lo mismo|dile|avisa(?:le)?|manda(?:le|les)?|envia(?:le|les)?|asigna(?:le|sela|selo|r)?|reasigna(?:le|sela|selo|r)?|ponle|dejale|encargale|pasalo|pasala|como quedo|muestrame la accion|borrador)\b/.test(
+    /^(?:prepara(?:la|lo|r)?|mejor\b|cambia(?:la|lo|r)?|reprograma(?:la|lo|r)?|cancela(?:r|lo|la)?|confirma(?:r)?|edita(?:r|lo|la)?|agrega(?:r|le)?|anade(?:le)?|registra(?:r)?|reporta(?:r)?|marca(?:r|la|lo)?|cierra(?:r|la|lo)?|verifica(?:r|la|lo)?|haz lo mismo|dile|avisa(?:le)?|manda(?:le|les)?|envia(?:le|les)?|asigna(?:le|sela|selo|r)?|reasigna(?:le|sela|selo|r)?|ponle|dejale|encargale|pasalo|pasala|como quedo|muestrame la accion|borrador)\b/.test(
       clean
-    ) || /\b(por correo|por whatsapp|lo anterior|cambia la fecha|como quedo|preparala|preparalo)\b/.test(clean)
+    ) ||
+    /\b(por correo|por whatsapp|lo anterior|cambia la fecha|como quedo|preparala|preparalo|quien es el responsable|de quien es|cual es su situacion|como va esa accion|cual es su estado|que estatus tiene|resume esta accion)\b/.test(
+      clean
+    )
   )
 }
 

@@ -62,6 +62,7 @@ export type AgentIntent =
     }
   | { kind: 'who_most_urgent' }
   | { kind: 'recommend_next' }
+  | { kind: 'inspect_referenced_action'; aspect: 'owner' | 'status' | 'summary' }
   | { kind: 'unsupported_metric'; domain: 'finance' }
   | {
       kind: 'write_request'
@@ -323,6 +324,30 @@ export function classifyAgentIntent(
     }
   }
 
+  if (
+    !looksLikeWriteVerb &&
+    (session?.lastEntityKind === 'action' || (session?.lastActionCount ?? 0) === 1) &&
+    !/\biniciativas?\b/.test(text)
+  ) {
+    if (
+      /\b(quien es (?:el |la )?responsable|de quien es|quien la tiene|quien trae (?:esta|esa) accion|a quien esta asignad[ao])\b/.test(
+        text
+      )
+    ) {
+      return { kind: 'inspect_referenced_action', aspect: 'owner' }
+    }
+    if (
+      /\b(cual es su situacion|como va (?:esta|esa) accion|como esta (?:esta|esa) accion|cual es su estado|que estatus tiene|en que estado esta|cual es su avance|que situacion tiene)\b/.test(
+        text
+      )
+    ) {
+      return { kind: 'inspect_referenced_action', aspect: 'status' }
+    }
+    if (/\b(resume (?:esta|esa) accion|de que trata (?:esta|esa) accion|resumen de (?:esta|esa) accion)\b/.test(text)) {
+      return { kind: 'inspect_referenced_action', aspect: 'summary' }
+    }
+  }
+
   if (/\b(prepara|preparar|genera|generar|arma|armar)\b/.test(text) && /\bborrador\b/.test(text) && /\b(accion|tarea)\b/.test(text)) {
     return { kind: 'write_request', operation: 'create_action', request: utterance.slice(0, 500) }
   }
@@ -515,25 +540,29 @@ export function classifyAgentIntent(
     return { kind: 'clarify', question: interpreted.ambiguity.question }
   }
   const target = /\b(accion|tarea|esa|esta|la)\b/.test(text)
+  const hasActiveActionRef = session?.lastEntityKind === 'action' || (session?.lastActionCount ?? 0) === 1
   const naturalBlockerReport =
     /\b(registra(?:r)?|reporta(?:r)?|anota(?:r)?)\s+(?:que\s+)?(?:seguimos|estamos|sigue|esta)\s+bloquead[oa]s?\b/.test(
       text
     )
   if (
     naturalBlockerReport ||
-    (target && /\b(bloquea|bloquear|bloqueala|(registra|registrar|reporta|reportar)\s+(un\s+)?bloqueo)\b/.test(text))
+    /^(?:registra(?:r)?|reporta(?:r)?|agrega(?:r)?)\s+(?:un\s+)?bloqueo\b/.test(text) ||
+    ((target || hasActiveActionRef) &&
+      /\b(bloquea|bloquear|bloqueala|(registra|registrar|reporta|reportar)\s+(un\s+)?bloqueo)\b/.test(text))
   ) {
     const motivo =
       utterance.match(/\b(?:porque|por que|debido a|motivo:?)\s+(.+)$/i)?.[1]?.trim().slice(0, 500) ||
+      utterance.match(/\bbloqueo\s*[:,-]\s*(.+)$/i)?.[1]?.trim().slice(0, 500) ||
       utterance.match(/\bbloquead[oa]s?\s+(por\s+.+)$/i)?.[1]?.trim().slice(0, 500)
     return { kind: 'write_request', operation: 'register_blocker', request, ...(motivo ? { motivo } : {}) }
   }
   const isFlexibleCommIntent =
     /\b(pon(?:er)?\s+a\s+[a-z]{2,}\s+al\s+tanto)\b/.test(text) ||
     /\b(mandales|enviales|avisales|recuerdales|notificales)\b/.test(text) ||
-    (/\b(avisa|avisale|notifica|notificale|recuerdale|manda|mandale|envia|enviale|preguntale|pidele|dile|redacta|comparte|pasale)\b/.test(text) &&
+    (/\b(avisa|avisale|notifica|notificale|recuerdale|manda|mandale|mandame|envia|enviale|enviame|preguntale|pidele|dile|redacta|comparte|pasale)\b/.test(text) &&
       (/\b(responsables?|whatsapp|correo|mail|email|direccion|resumen semanal|compromisos?|fecha de compromiso|como va|lo que tiene|lo que vence|pendientes?|vencimientos?|vencid[oa]s?|bloqueos?|atrasad[oa]s?|prioridades?|indicadores?|su dia|dia de hoy|jornada|necesito el reporte|ya quedo|ya le asigne|de los cambios|acabamos de revisar|necesita resolver|ponga al corriente|avance de su equipo|reunion empieza)\b/.test(text) ||
-        /\b(manda(?:le)?|envia(?:le)?)\s+(?:un\s+)?(?:whatsapp|correo|mail)\b/.test(text) ||
+        /\b(manda(?:le|me)?|envia(?:le|me)?)\s+(?:un\s+)?(?:whatsapp|correo|mail)\b/.test(text) ||
         /\b(?:dile|avisale|comentale|pidele)\s+(?:a\s+[a-z]{2,}\s+)?que\s+\S+/.test(text)))
 
   if (isFlexibleCommIntent) {
@@ -541,7 +570,7 @@ export function classifyAgentIntent(
     const isWhatsApp = /\bwhatsapp\b/.test(text)
     const draftOnly =
       /\b(redacta|redactar|prepara|preparar)\b/.test(text) &&
-      !/\b(envia|enviale|enviales|manda|mandale|mandales|comparte|dile|avisale|recuerdale|preguntale|pasale|pon\s+a)\b/.test(text)
+      !/\b(envia|enviale|enviame|enviales|manda|mandale|mandame|mandales|comparte|dile|avisale|recuerdale|preguntale|pasale|pon\s+a)\b/.test(text)
     const isLegacyActionNotify =
       /\b(avisa|notifica)\b/.test(text) &&
       /\b(al responsable|responsable)\b/.test(text) &&
@@ -565,24 +594,26 @@ export function classifyAgentIntent(
     }
   }
   if (
-    (/\b(comenta|comentario|anota(?:r)?)\b/.test(text) && /\b(accion|tarea|esa|esta|la)\b/.test(text)) ||
+    /^(?:agrega|anade|pon|deja)\s+(?:un\s+)?comentario\b/.test(text) ||
+    (/\b(comenta|comentario|anota(?:r)?)\b/.test(text) && (/\b(accion|tarea|esa|esta|la)\b/.test(text) || hasActiveActionRef)) ||
     /^(?:agrega|anade|pon)\s+que\s+/.test(text)
   ) {
     const contenido = cleanedUtterance
-      .replace(/^.*?\b(?:comentario|comenta(?:r)?|anota(?:r)?|agrega|a[ñn]ade|pon)\s*(?:que|:)?\s*/i, '')
+      .replace(/^.*?\b(?:comentario|comenta(?:r)?|anota(?:r)?)\s*(?:que|:)?\s*/i, '')
+      .replace(/^(?:agrega|a[ñn]ade|pon)\s+que\s+/i, '')
       .trim()
       .slice(0, 500)
     return { kind: 'write_request', operation: 'add_comment', request, ...(contenido ? { contenido } : {}) }
   }
   if (
     /\b(verifica|verificar)\b/.test(text) &&
-    /\b(accion|tarea|esa|esta)\b/.test(text) &&
+    (/\b(accion|tarea|esa|esta)\b/.test(text) || hasActiveActionRef) &&
     !/\bmarca/.test(text)
   ) {
     return { kind: 'write_request', operation: 'verify_action', request }
   }
   if (
-    (target || /\blo del\b|\beso\b/.test(text)) &&
+    (target || hasActiveActionRef || /\blo del\b|\beso\b/.test(text)) &&
     (/\b(marca|marcar|marcala|pon|poner|ponla|cambia|cambiar|mueve|pasa)\b/.test(text) || /\beso ya quedo\b/.test(text))
   ) {
     const estado = /\bverificad[ao]\b/.test(text) ? 'Verificado'
@@ -620,6 +651,10 @@ export function classifyAgentIntent(
   if (
     /\b(asigna(?:sela|selo|la|lo|r)?|reasigna(?:sela|selo|r)?|prioridad|fecha|reprograma(?:r|la)?|responsable|pasalo|pasala)\b/.test(text) &&
     (/\b(accion|tarea|esa|esta|lo de)\b/.test(text) ||
+      (hasActiveActionRef &&
+        /\b(cambia(?:r|la|lo)?|actualiza(?:r|la|lo)?|reprograma(?:r|la|lo)?|reasigna(?:r|la|lo)?|asigna(?:r|la|lo)?|pon(?:er|le|la)?|mueve|pasa(?:la|lo)?)\b/.test(
+          text
+        )) ||
       /\b(asignasela|asignaselo|mejor cambia la fecha|cambia la fecha al|reprograma(?:la)? al|responsable correspondiente|pasalo al|pasala al)\b/.test(text))
   ) {
     return { kind: 'write_request', operation: 'update_action', request }
