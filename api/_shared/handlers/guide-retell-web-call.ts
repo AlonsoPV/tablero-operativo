@@ -1,3 +1,4 @@
+import {restoreGuideVoiceContext} from '../guideVoiceResume.js'
 /**
  * Guía voz — crea sesión provider=retell y un web call de Retell.
  * Auth: Authorization Bearer (JWT del usuario). Secrets: RETELL_API_KEY + RETELL_GUIDE_AGENT_ID.
@@ -72,8 +73,11 @@ export default defineApiHandler(async (req, res) => {
       consent?: unknown
       access_grant?: unknown
       intent?: unknown
+      resume_session_id?: unknown
     }
     const replaceActive = Boolean(payload.replace_active)
+    const resumeSessionId = typeof payload.resume_session_id === 'string' ? payload.resume_session_id.trim() : ''
+    if (resumeSessionId && !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(resumeSessionId)) return res.status(400).json({error:'Sesión de reanudación inválida.'})
     const guideToken = typeof payload.guide_token === 'string' ? payload.guide_token.trim() : ''
     const accessGrant = typeof payload.access_grant === 'string' ? payload.access_grant.trim() : ''
     const workIntent = normalizeEnviardianWorkIntent(payload.intent)
@@ -251,6 +255,15 @@ export default defineApiHandler(async (req, res) => {
         .in('status', ['active', 'closing'])
     }
 
+    let resumeContext = ''
+    if (resumeSessionId) {
+      try {resumeContext = await restoreGuideVoiceContext(supabase,{usuarioId:usuario.id,fromSessionId:resumeSessionId,toSessionId:session.id,guideLinkId})}
+      catch (error) {
+        await abandonInserted()
+        return res.status(409).json({error:error instanceof Error ? error.message : 'No se pudo reanudar. No se inició otra llamada.'})
+      }
+    }
+
     const retellResponse = await fetch('https://api.retellai.com/v3/create-web-call', {
       method: 'POST',
       headers: {
@@ -277,8 +290,8 @@ export default defineApiHandler(async (req, res) => {
           channel,
           access_mode: accessMode,
           work_intent: workIntent,
-          consult_instruction: enviardianVoiceWorkInstruction(workIntent),
-          work_instruction: enviardianVoiceWorkInstruction(workIntent),
+          consult_instruction: enviardianVoiceWorkInstruction(workIntent) + resumeContext,
+          work_instruction: enviardianVoiceWorkInstruction(workIntent) + resumeContext,
         },
       }),
     })

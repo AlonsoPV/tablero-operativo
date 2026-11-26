@@ -361,6 +361,7 @@ export const guideService = {
 
   async createRetellWebCall(opts?: {
     replaceActive?: boolean
+    resumeSessionId?: string
     intent?: 'consult' | 'create' | 'action' | 'whatsapp' | 'email'
     guideToken?: string
     accessGrant?: string
@@ -382,6 +383,7 @@ export const guideService = {
       headers,
       body: JSON.stringify({
         replace_active: opts?.replaceActive ?? true,
+        ...(opts?.resumeSessionId ? {resume_session_id:opts.resumeSessionId} : {}),
         intent,
         ...(token
           ? {

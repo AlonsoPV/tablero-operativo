@@ -67,7 +67,7 @@ export type GuideJournalEntry = {
   report_status?: 'pending' | 'processing' | 'ready' | 'failed' | 'insufficient' | null
 }
 
-export type GuideCloseReason = 'user_requested' | 'time_limit' | 'safety_ended' | 'abandoned'
+export type GuideCloseReason = 'user_requested' | 'time_limit' | 'safety_ended' | 'abandoned' | 'inactivity_timeout'
 
 export type GuideChatTurnResponse = {
   answer: string
