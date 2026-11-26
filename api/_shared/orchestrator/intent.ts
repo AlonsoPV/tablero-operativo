@@ -632,16 +632,24 @@ export function classifyAgentIntent(
     if (estado) return { kind: 'write_request', operation: 'update_status', request, estado }
   }
 
+  const isInterrogative =
+    /[?¿]/.test(cleanedUtterance) ||
+    /^(quien|cual|cuant[oa]s?|como|donde|cuando)\b/.test(text) ||
+    /^que\s+(tareas?|acciones?|tiene|hay|pendientes?|iniciativas?|okrs?|paso|requiere|falta|sigue|estado|prioridad)\b/.test(text)
+  const isCommunicationMention = /\b(correo|mail|email|whatsapp|mensaje)\b/.test(text)
   const colloquialCreate =
-    /\b(ponle (?:una (?:tarea|accion)|a [a-z]{2,})|dejale un pendiente|encargale\b|que se encargue [a-z]{2,}|apuntalo para|hay que (?:revisar|hacer|preparar|validar|enviar|ver|cerrar)|agregalo al kanban|que no se nos olvide)\b/.test(
+    !isInterrogative &&
+    !isCommunicationMention &&
+    /\b(ponle (?:una (?:tarea|accion)|a [a-z]{2,})|dejale un pendiente|encargale\b|que se encargue [a-z]{2,}|que [a-z]{2,} se encargue\b|necesito que [a-z]{2,}\b|apuntalo para|hay que (?:revisar|hacer|preparar|validar|enviar|ver|cerrar)|agregalo al kanban|que no se nos olvide|(?:agenda|agendar|programa|programar)\s+(?:una?\s+)?revision\b)\b/.test(
       text
     )
   if (
-    interpreted.intent === 'propose_create_kanban' ||
-    colloquialCreate ||
-    (/\b(crea|crear|creame|creo|registra|registrar|agrega|agregar|propon|proponer|prepara|preparar|genera|generar|anota|anotar|programa|programar|agenda|agendar)\b/.test(text) &&
-      /\b(iniciativa|iniciativas|accion|tarea|pendiente)\b/.test(text) &&
-      !/\b(correo|mail|email|whatsapp|mensaje)\b/.test(text))
+    !isInterrogative &&
+    !isCommunicationMention &&
+    (interpreted.intent === 'propose_create_kanban' ||
+      colloquialCreate ||
+      (/\b(crea|crear|creame|creo|registra|registrar|agrega|agregar|propon|proponer|prepara|preparar|genera|generar|anota|anotar|programa|programar|agenda|agendar)\b/.test(text) &&
+        /\b(iniciativa|iniciativas|accion|tarea|pendiente)\b/.test(text)))
   ) {
     return { kind: 'write_request', operation: 'create_action', request }
   }
@@ -658,13 +666,13 @@ export function classifyAgentIntent(
     }
   }
   if (
-    /\b(asigna(?:sela|selo|la|lo|r)?|reasigna(?:sela|selo|r)?|prioridad|fecha|reprograma(?:r|la)?|responsable|pasalo|pasala)\b/.test(text) &&
+    /\b(asigna(?:sela|selo|mela|melo|la|lo|r)?|reasigna(?:sela|selo|mela|melo|r)?|prioridad|fecha|reprograma(?:r|la)?|responsable|pasalo|pasala)\b/.test(text) &&
     (/\b(accion|tarea|esa|esta|lo de)\b/.test(text) ||
       (hasActiveActionRef &&
-        /\b(cambia(?:r|la|lo)?|actualiza(?:r|la|lo)?|reprograma(?:r|la|lo)?|reasigna(?:r|la|lo)?|asigna(?:r|la|lo)?|pon(?:er|le|la)?|mueve|pasa(?:la|lo)?)\b/.test(
+        /\b(cambia(?:r|la|lo)?|actualiza(?:r|la|lo)?|reprograma(?:r|la|lo)?|reasigna(?:r|la|lo|mela|melo)?|asigna(?:r|la|lo|mela|melo)?|pon(?:er|le|la)?|mueve|pasa(?:la|lo)?)\b/.test(
           text
         )) ||
-      /\b(asignasela|asignaselo|mejor cambia la fecha|cambia la fecha al|reprograma(?:la)? al|responsable correspondiente|pasalo al|pasala al)\b/.test(text))
+      /\b(asignasela|asignaselo|asignamela|asignamelo|mejor cambia la fecha|cambia la fecha al|reprograma(?:la)? al|responsable correspondiente|pasalo al|pasala al)\b/.test(text))
   ) {
     return { kind: 'write_request', operation: 'update_action', request }
   }
