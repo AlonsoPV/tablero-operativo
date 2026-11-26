@@ -29,6 +29,22 @@ function anonKey() {
   return process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || ''
 }
 
+/** Internal delegation is restricted again by the existing Edge Function to an executing,
+ * explicitly approved operation. No user JWT is fabricated or stored. */
+export async function invokeApprovedWhatsAppEmail(operationId: string): Promise<NotificationEmailInvokeResult> {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+  if (!key || !supabaseUrl()) throw new Error('CONFIGURATION_ERROR: Falta la configuración interna del correo.')
+  const response = await fetch(`${supabaseUrl()}/functions/v1/send-notification-email`, {
+    method: 'POST', headers: {Authorization: `Bearer ${key}`, apikey: key, 'Content-Type': 'application/json'},
+    body: JSON.stringify({assistant_pending_op_id: operationId}), signal: AbortSignal.timeout(20000),
+  })
+  const data = await response.json().catch(() => null) as NotificationEmailInvokeResult | null
+  if (!response.ok || !data?.email_id || data.ok === false || data.skipped) {
+    throw new Error(data?.message || 'PROVIDER_ERROR: No se acreditó la aceptación del correo. Consulta el estado antes de reintentar.')
+  }
+  return data
+}
+
 export async function invokeNotificationEmail(
   accessToken: string,
   input: NotificationEmailInvokeInput

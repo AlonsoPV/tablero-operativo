@@ -8,6 +8,7 @@
  * instrucción original del usuario como cuerpo del mensaje.
  */
 import { createHash } from 'node:crypto'
+import { isWhatsAppCommunicationAllowed } from '../../../supabase/functions/_shared/whatsappCommunicationGate.js'
 import type { CopilotProposal } from '../../../src/features/ai-support/copilot/types.js'
 import type { ActionItem, ActionsQueryRequest, OkrItem, OkrsQueryRequest, QueryResult } from '../query/contracts.js'
 import { authorizeQuery } from '../query/authorizeQuery.js'
@@ -504,7 +505,8 @@ function resolveSingleRecipient(
 function checkDirectDeliveryCapability(
   channel: CommunicationChannel,
   user: EntityCatalogUser | null,
-  isDraftOnly: boolean
+  isDraftOnly: boolean,
+  actor?: AgentActor
 ): { canSendDirect: boolean; limitation: string | null } {
   if (isDraftOnly) {
     return {
@@ -513,6 +515,7 @@ function checkDirectDeliveryCapability(
     }
   }
   if (channel === 'email') {
+    if (actor?.channel === 'whatsapp' && actor.copilot.whatsappId && user && isWhatsAppCommunicationAllowed(process.env,actor.usuarioId,user.id,'email')) return {canSendDirect:true,limitation:null}
     return {
       canSendDirect: false,
       limitation: 'El envío directo de correo electrónico no está habilitado; puedes copiar este mensaje y enviarlo desde tu cliente de correo.',
@@ -1022,7 +1025,7 @@ export async function composeContextualCommunication(input: {
     const recipientDrafts: PendingCommunicationRecipientDraft[] = []
     for (const group of byOwner.values()) {
       const catUser = catalog.users.find((u) => u.id === group.id) ?? null
-      const cap = checkDirectDeliveryCapability(spec.channel, catUser, spec.intent === 'draft_communication')
+      const cap = checkDirectDeliveryCapability(spec.channel, catUser, spec.intent === 'draft_communication', actor)
       const drafted = buildPersonalMessage({
         spec: { ...spec, purpose: spec.period === 'today' ? 'daily_brief' : 'pending_actions' },
         recipientName: group.name,
@@ -1090,7 +1093,7 @@ export async function composeContextualCommunication(input: {
 
   const targetUser = resolved.user
   const recipientName = resolved.displayName
-  const cap = checkDirectDeliveryCapability(spec.channel, targetUser, spec.intent === 'draft_communication')
+  const cap = checkDirectDeliveryCapability(spec.channel, targetUser, spec.intent === 'draft_communication', actor)
 
   // 3. Caso reporte ejecutivo de equipo para Dirección
   if (spec.scope === 'team_authorized') {

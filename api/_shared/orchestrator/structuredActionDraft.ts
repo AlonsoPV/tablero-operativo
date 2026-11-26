@@ -228,8 +228,12 @@ function extractObjectivePatch(utterance: string): string | null {
   return m?.[1] ? sentenceCase(m[1]) : null
 }
 
-function cleanTitleFromStructuredClauses(rawTitle: string): string {
-  const stripped = cleanSpaces(rawTitle)
+function cleanTitleFromStructuredClauses(rawTitle: string, responsableHint?: string | null): string {
+  const escaped = responsableHint?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const withoutAssignee = escaped
+    ? rawTitle.replace(new RegExp(`[,;]\\s*(?:para\\s+|responsable\\s*[:=]\\s*)${escaped}(?=\\s*[,;.]|$)`, 'gi'), '')
+    : rawTitle
+  const stripped = cleanSpaces(withoutAssignee)
     .replace(/\b(?:en\s+el\s+|al\s+|en\s+)?(?:kanban\s+corporativo|tablero\s+corporativo|tablero\s+de\s+equipo|tablero\s+de\s+[A-Za-zÁÉÍÓÚÑáéíóúñ\s-]+|kanban)\b/gi, '')
     .replace(/\b(?:con\s+|como\s+|en\s+)?prioridad\s+(?:alta|media|baja|p1|p2|p3)\b/gi, '')
     .replace(/\b(?:as[ií]gna(?:da|do|mela|melo|la|lo|sela|selo|r)?(?:\s+a\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+)?)?|para\s+m[ií]|a\s+m[ií])(?=\s|[,.;:]|$)/gi, '')
@@ -302,14 +306,14 @@ export function extractActionPatch(utterance: string, today: string, isFollowUp:
     const candidateTitle =
       explicitTitle ??
       (directLead !== cleanSpaces(strippedFiller)
-        ? cleanTitleFromStructuredClauses(directLead)
-        : cleanTitleFromStructuredClauses(base.title))
+        ? cleanTitleFromStructuredClauses(directLead, resp.hint)
+        : cleanTitleFromStructuredClauses(base.title, resp.hint))
     if (candidateTitle.length >= 2) {
       patch.titulo = candidateTitle
     }
-    const descriptionSource = directLead !== cleanSpaces(strippedFiller) ? draftFromRequest(cleanTitleFromStructuredClauses(directLead)).description : base.description
+    const descriptionSource = directLead !== cleanSpaces(strippedFiller) ? draftFromRequest(cleanTitleFromStructuredClauses(directLead, resp.hint)).description : base.description
     if (descriptionSource && descriptionSource.length >= 3) {
-      const cleanedDesc = cleanTitleFromStructuredClauses(descriptionSource)
+      const cleanedDesc = cleanTitleFromStructuredClauses(descriptionSource, resp.hint)
       patch.descripcion = cleanedDesc.length >= 3 ? cleanedDesc : candidateTitle
     }
     if (base.checkpoints.length > 0) {

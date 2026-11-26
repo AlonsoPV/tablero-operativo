@@ -1,3 +1,5 @@
+import {createFakeSupabase,type FakeDb} from './orchestrator/testing/fakeSupabase.js'
+import {computeProposalVersion} from './whatsappR2Adapter.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { dispatchCopilotTool, confirmPendingOp, editActionEmailPendingOp } from './assistantOpsRuntime.js'
 import { editWhatsappPendingOp, executeWhatsappWrite, readWhatsappStatus } from './assistantCommunicationDrafts.js'
@@ -454,4 +456,25 @@ describe('Daily action summary', () => {
     expect(write.update).toHaveBeenCalledWith({ enabled: false, updated_by: 'actor' })
     expect(write.eq).toHaveBeenCalledWith('enabled', true)
   })
+})
+
+it('WhatsApp confirma la versión exacta desde una identidad vinculada y conserva un solo intento Meta',async()=>{
+ const sender='00000000-0000-4000-8000-000000000001',recipient='00000000-0000-4000-8000-000000000002',op='00000000-0000-4000-8000-000000000003',phone='15550001111',toPhone='15550002222'
+ Object.entries({R2_EXECUTION_MODE:'pilot',R2_PILOT_USERS:sender,SUPABASE_URL:'https://synthetic.supabase.co',WHATSAPP_COMMUNICATIONS_ENABLED:'1',WHATSAPP_COMMUNICATIONS_SENDERS:sender,WHATSAPP_COMMUNICATIONS_RECIPIENTS:recipient,WHATSAPP_COMMUNICATIONS_CHANNELS:'whatsapp',WHATSAPP_ACCESS_TOKEN:'synthetic-meta',WHATSAPP_PHONE_NUMBER_ID:'synthetic-number'}).forEach(([k,v])=>vi.stubEnv(k,v))
+ const payload=withContentHash({to_user_id:recipient,to_phone:toPhone,body:'Mensaje exacto aprobado'})
+ const db:FakeDb={mutable:true,tables:{usuarios:[{id:sender,user_id:'auth',rol:'super_admin',activo:true},{id:recipient,activo:true}],user_channel_identities:[{usuario_id:sender,channel:'whatsapp',external_user_id:phone,status:'active'}],assistant_pending_ops:[{id:op,usuario_id:sender,tool:'whatsapp_prepare_send',channel:'whatsapp',session_id:phone,status:'pending',expires_at:'2099-01-01',payload,expected_updated_at:null,preview:{workspace:{kind:'whatsapp',toUserId:recipient,body:payload.body}}}],assistant_op_log:[]},rpcs:{can_use_ai_whatsapp_for_usuario:()=>true},inserts:[],queries:[]}
+ const actor={usuarioId:sender,authUserId:'auth',rol:'super_admin',whatsappId:phone,supabase:createFakeSupabase(db)} as CopilotActor
+ const attempts=[query(null),query({id:'message-log'}),query(null)]
+ vi.mocked(createServiceRoleClient).mockReturnValue({from:(table:string)=>table==='whatsapp_messages'?attempts.shift():table==='user_channel_identities'?query({external_user_id:toPhone}):query([{id:'inbound'}])} as never)
+ const network=vi.fn(async()=>Response.json({messages:[{id:'wamid.synthetic-accepted'}]}));vi.stubGlobal('fetch',network)
+ const prepare=vi.fn(async()=>{})
+ const options={expectedProposalVersion:computeProposalVersion({proposalId:op,usuarioId:sender,operation:'whatsapp_prepare_send',scope:'whatsapp_prepare_send',payload}),whatsappApproval:{waId:phone,operationId:op},r2:{mode:'pilot' as const,executor:{kind:'pilot',prepare} as never}}
+ await expect(confirmPendingOp(actor,op,{...options,expectedProposalVersion:'OLD-CODE'})).rejects.toThrow(/versión/)
+ expect(network).not.toHaveBeenCalled()
+ const sent=await confirmPendingOp(actor,op,options)
+ expect(sent).toMatchObject({status:'confirmed',result:{meta_message_id:'wamid.synthetic-accepted',delivery_status:'accepted'}})
+ await confirmPendingOp(actor,op,options)
+ expect(network).toHaveBeenCalledTimes(1)
+ const message=JSON.parse(String((network.mock.calls as unknown as Array<[string,RequestInit]>)[0]![1].body))
+ expect(message).toMatchObject({to:toPhone,text:{body:'Mensaje exacto aprobado'}})
 })

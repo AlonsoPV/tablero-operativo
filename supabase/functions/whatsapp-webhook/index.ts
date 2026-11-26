@@ -1514,10 +1514,10 @@ async function replyAi(
           )
           .slice(0, 3)
       : []
-    const canCustomButtons = customButtons.length > 0
+    const canCustomButtons = customButtons.length > 0 && body.length <= 1024
     const canButtons =
       canCustomButtons ||
-      Boolean(proposalId && /^[0-9a-fA-F-]{36}$/.test(proposalId))
+      Boolean(body.length <= 1024 && proposalId && /^[0-9a-fA-F-]{36}$/.test(proposalId))
     const graphBody = canCustomButtons
       ? {
           messaging_product: 'whatsapp',

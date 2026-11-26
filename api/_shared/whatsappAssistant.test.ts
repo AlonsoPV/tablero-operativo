@@ -59,6 +59,7 @@ it('answers a repeated board query while a pending draft exists and keeps that d
       eq: vi.fn().mockReturnThis(),
       maybeSingle: async () => ({ data: { id: 'usuario', user_id: 'auth', activo: true } }),
     }
+    if (table === 'user_channel_identities') return {select:vi.fn().mockReturnThis(),in:vi.fn().mockReturnThis(),eq:vi.fn().mockReturnThis(),maybeSingle:async()=>({data:{usuario_id:'usuario'}})}
     if (table === 'whatsapp_messages') return history
     throw new Error(`Unexpected query to ${table}`)
   })

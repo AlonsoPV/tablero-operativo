@@ -35,7 +35,12 @@ export type CachedAnswer = {
   auto: FormatResolution
 }
 
+function validProposalId(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(value)
+}
+
 export type PendingWriteContext = {
+  proposalId?: string
   operation: string
   request: string
   draft?: StructuredActionDraft | null
@@ -269,7 +274,7 @@ function coerceCommunication(raw: unknown): PendingCommunicationProposal | null 
   const execution = p.execution
   // Persist only the approval reference. Rehydration must re-read its canonical preview with RLS.
   const binding = execution?.version === p.version && typeof execution.proposal?.id === 'string' ? {
-    version:p.version, proposal:{id:str(execution.proposal.id,80), tool:'whatsapp_prepare_send', title:'Enviar WhatsApp',
+    version:p.version, proposal:{id:str(execution.proposal.id,80), tool:p.channel === 'email' ? 'notify_user_email' : 'whatsapp_prepare_send', title:p.channel === 'email' ? 'Enviar correo' : 'Enviar WhatsApp',
       summary:'Requiere verificación de estado', fields:[], expiresAt:str(execution.proposal.expiresAt,40)},
   } : undefined
   return {proposalId:str(p.proposalId,100), idempotencyKey:str(p.idempotencyKey,160), version:p.version,
@@ -300,6 +305,7 @@ export function toPersistedPayload(value: Omit<SessionContext, 'updatedAt'>): Pe
         ? {
             operation: value.pendingWrite.operation.slice(0, 48),
             request: value.pendingWrite.request.slice(0, 280),
+            ...(validProposalId(value.pendingWrite.proposalId) ? { proposalId: value.pendingWrite.proposalId } : {}),
             ...(value.pendingWrite.draft ? { draft: value.pendingWrite.draft } : {}),
           }
         : null,
@@ -351,6 +357,7 @@ function fromPersistedPayload(payload: unknown, fingerprint: string, updatedAt: 
         ? {
             operation: p.pendingWrite.operation.slice(0, 48),
             request: p.pendingWrite.request.slice(0, 280),
+            ...(validProposalId(p.pendingWrite.proposalId) ? { proposalId: p.pendingWrite.proposalId } : {}),
             ...(p.pendingWrite.draft && typeof p.pendingWrite.draft === 'object'
               ? { draft: p.pendingWrite.draft as StructuredActionDraft }
               : {}),

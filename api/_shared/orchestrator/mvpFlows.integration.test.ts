@@ -328,3 +328,58 @@ describe('MVP A5 · paridad web / WhatsApp sim', () => {
     expect(wa.db.tables.qa_outbox ?? []).toEqual([])
   })
 })
+
+
+describe('P0 · ciclo de vida de la acción preparada', () => {
+  it('recupera la confirmación y edita la acción existente sin otra creación', async () => {
+    vi.stubEnv('R2_EXECUTION_MODE', 'simulated')
+    const {db,store}=world()
+    await turn(db,store,R1_USERS.lead,'¿Qué pendientes tiene Carlos?')
+    await turn(db,store,R1_USERS.lead,'¿Cuál es el más urgente?')
+    const proposed=await turn(db,store,R1_USERS.lead,'Crea una acción para resolver el retraso')
+    const opId=proposed.proposal!.id
+    const actor=await r2Actor(db,R1_USERS.lead)
+    await confirmPendingOp(actor.copilot,opId,{r2:{mode:'simulated',executor:simulatedExecutorFor(actor)}})
+    const before=db.tables.acciones_diarias!.length
+    const review=await turn(db,store,R1_USERS.lead,'Muéstrame la acción que preparamos')
+    expect(review.text).toContain('ya fue confirmada')
+    expect(review.text).not.toContain('Propuesta lista para confirmación')
+    const edit=await turn(db,store,R1_USERS.lead,'Cambia únicamente la fecha al lunes')
+    expect(edit.proposal?.tool).toBe('agent_update_fields')
+    expect(db.tables.assistant_pending_ops!.find(op=>op.id===edit.proposal!.id)?.resource_id).toBe(actionIdForOp(opId))
+    expect(db.tables.acciones_diarias).toHaveLength(before)
+    expect(db.tables.assistant_pending_ops!.filter(op=>op.tool==='agent_create_action')).toHaveLength(1)
+  })
+  it('revoca la tarjeta anterior antes de proponer una fecha nueva', async () => {
+    vi.stubEnv('R2_EXECUTION_MODE', 'simulated')
+    const {db,store}=world()
+    await turn(db,store,R1_USERS.lead,'¿Qué pendientes tiene Carlos?')
+    await turn(db,store,R1_USERS.lead,'¿Cuál es el más urgente?')
+    const proposed=await turn(db,store,R1_USERS.lead,'Crea una acción para resolver el retraso')
+    const oldId=proposed.proposal!.id
+    const edited=await turn(db,store,R1_USERS.lead,'Cambia únicamente la fecha al lunes')
+    expect(db.tables.assistant_pending_ops!.find(op=>op.id===oldId)?.status).toBe('cancelled')
+    expect(edited.proposal?.id).toBeTruthy()
+    expect(edited.proposal?.id).not.toBe(oldId)
+    const actor=await r2Actor(db,R1_USERS.lead)
+    await expect(confirmPendingOp(actor.copilot,oldId,{r2:{mode:'simulated',executor:simulatedExecutorFor(actor)}})).rejects.toThrow(/cancelada/i)
+  })
+})
+
+it('WhatsApp asigna a otro usuario autorizado solo después de confirmar la propuesta',async()=>{
+ vi.stubEnv('R2_EXECUTION_MODE','simulated')
+ const {db,store}=world()
+ const before=db.tables.acciones_diarias!.length
+ const proposed=await turn(db,store,R1_USERS.superAdmin,'Crea una acción para revisar inventario, para Carlos, en Kanban corporativo, para el viernes','whatsapp')
+ expect(proposed.proposal?.tool).toBe('agent_create_action')
+ expect(db.tables.acciones_diarias).toHaveLength(before)
+ const actor=await r2Actor(db,R1_USERS.superAdmin,'whatsapp')
+ const opId=proposed.proposal!.id
+ const confirmed=await confirmPendingOp(actor.copilot,opId,{r2:{mode:'simulated',channel:'whatsapp',executor:simulatedExecutorFor(actor)}})
+ expect(confirmed.status).toBe('confirmed')
+ const saved=db.tables.acciones_diarias!.find(a=>a.id===actionIdForOp(opId))
+ expect(saved).toMatchObject({responsable:R1_USERS.carlos.id,created_by:R1_USERS.superAdmin.id,titulo_accion:'Revisar inventario'})
+ expect(db.tables.acciones_diarias).toHaveLength(before+1)
+ await confirmPendingOp(actor.copilot,opId,{r2:{mode:'simulated',channel:'whatsapp',executor:simulatedExecutorFor(actor)}})
+ expect(db.tables.acciones_diarias).toHaveLength(before+1)
+})

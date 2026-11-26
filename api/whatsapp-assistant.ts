@@ -1,3 +1,4 @@
+import { whatsappPhoneVariants } from './_shared/whatsappBidirectional.js'
 import { timingSafeEqual } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { defineApiHandler, readNumberEnv, readRequestBody, readStringEnv } from './_shared/http.js'
@@ -434,10 +435,15 @@ export default defineApiHandler(async (req, res) => {
     return res.status(403).json({ error: 'Usuario no disponible.' })
   }
 
+  const {data: linkedIdentity,error: linkedError}=await supabase.from('user_channel_identities').select('usuario_id')
+    .eq('channel','whatsapp').in('external_user_id',whatsappPhoneVariants(waId)).eq('status','active').maybeSingle()
+  if (linkedError || linkedIdentity?.usuario_id !== usuarioId) return res.status(403).json({error:'El número no está vinculado al usuario activo.'})
+
   const actor: CopilotActor = {
     supabase,
     usuarioId,
     authUserId: String(usuario.user_id),
+    whatsappId: waId,
     rol: typeof usuario.rol === 'string' ? usuario.rol : null,
   }
   const pilotIdentity = {
@@ -499,6 +505,7 @@ export default defineApiHandler(async (req, res) => {
               identity: {
                 supabase,
                 authUserId: actor.authUserId,
+                whatsappId: waId,
                 usuarioId,
                 rol: actor.rol,
                 active: usuario.activo !== false,
@@ -514,7 +521,7 @@ export default defineApiHandler(async (req, res) => {
                 : turn.proposal
                   ? [turn.proposal]
                   : []
-              if (turn.intent === 'write_request' && proposalList.length > 0) {
+              if (proposalList.length > 0) {
                 const hydrated = await hydrateProposalBindings(
                   supabase,
                   usuarioId,
@@ -530,7 +537,7 @@ export default defineApiHandler(async (req, res) => {
                     formatWhatsAppProposalPrompt(binding, { executionMode: mode, proposal })
                   )
                   .join('\n\n')
-                return { text: clipReply(body) }
+                return { text: proposalList.some(p=>'tool' in p && ['whatsapp_prepare_send','notify_user_email'].includes(p.tool)) ? body : clipReply(body) }
               }
               const options = turn.clarification?.options.map((opt) => `- ${opt.label}`).join('\n')
               return { text: clipReply(options ? `${turn.text}\n${options}` : turn.text) }
@@ -677,7 +684,7 @@ export default defineApiHandler(async (req, res) => {
         return res.status(200).json({ text: 'Listo, cancele la propuesta. No se cambio nada en el tablero.', proposals: [] })
       }
 
-      const binding = resolvedBinding ?? bindingFromPending(usuarioId, pendingRow)
+      const binding = bindingFromPending(usuarioId, pendingRow)
       if (boundVersion && binding.version !== boundVersion) {
         return res.status(200).json({
           text: 'La propuesta cambió de versión. Revisa el nuevo borrador antes de confirmar.',
@@ -694,7 +701,11 @@ export default defineApiHandler(async (req, res) => {
         })
       }
 
+      const communication = ['whatsapp_prepare_send','notify_user_email'].includes(pendingRow.tool)
+      if (communication && (!resolvedBinding || !boundVersion)) return res.status(200).json({text:'Para enviar, confirma el código exacto de la propuesta vigente.',proposals:[]})
       const result = await confirmPendingOp(actor, pendingRow.id, {
+        ...(boundVersion ? {expectedProposalVersion:boundVersion} : {}),
+        ...(communication ? {whatsappApproval:{waId,operationId:pendingRow.id}} : {}),
         r2: r2OptionsFromServerEnv(process.env, usuarioId, 'whatsapp'),
       })
       const created = result.result as {
@@ -705,6 +716,14 @@ export default defineApiHandler(async (req, res) => {
         gmail_message_id?: string
         event_id?: string
       } | null
+      if (communication) {
+        const sent=result.result as {email_id?:string;meta_message_id?:string;delivery_status?:string}|null
+        return res.status(200).json({text:sent?.email_id ? 'El proveedor aceptó el correo. La entrega todavía no está confirmada.'
+          : sent?.delivery_status==='delivered' ? 'Meta registra el WhatsApp como entregado.'
+          : sent?.delivery_status==='read' ? 'Meta registra el WhatsApp como leído.'
+          : sent?.meta_message_id ? 'Meta aceptó el WhatsApp. La entrega todavía no está confirmada.'
+          : 'La operación se registró. Consulta su estado antes de reenviar.',proposals:[],result:result.result ?? null})
+      }
       if (created?.gmail_message_id) {
         return res.status(200).json({
           text: `Correo enviado desde tu Gmail.${created.href ? ` ${created.href}` : ''}`,
@@ -752,6 +771,7 @@ export default defineApiHandler(async (req, res) => {
         identity: {
           supabase,
           authUserId: actor.authUserId,
+                whatsappId: waId,
           usuarioId,
           rol: actor.rol,
           active: usuario.activo !== false,
@@ -767,7 +787,7 @@ export default defineApiHandler(async (req, res) => {
           : turn.proposal
             ? [turn.proposal]
             : []
-        if (turn.intent === 'write_request' && proposalList.length > 0) {
+        if (proposalList.length > 0) {
           const hydrated = await hydrateProposalBindings(
             supabase,
             usuarioId,
@@ -782,7 +802,7 @@ export default defineApiHandler(async (req, res) => {
             )
             .join('\n\n')
           return res.status(200).json({
-            text: clipReply(body),
+            text: proposalList.some(p=>'tool' in p && ['whatsapp_prepare_send','notify_user_email'].includes(p.tool)) ? body : clipReply(body),
             proposals: [],
             draftBinding: bindings[0] ?? null,
             draftBindings: bindings,
