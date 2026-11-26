@@ -6,6 +6,7 @@ import { createMemorySessionContextStore } from './sessionContext.js'
 import { createR1Db, r1Actor, R1_USERS } from './testing/r1Fixture.js'
 import type { EntityResolutionCatalog } from './structuredActionDraft.js'
 import { applyConversationTurn } from '../../../src/features/ai-support/conversation/applyTurn.js'
+import { wrapUntrustedToolData } from '../../../src/features/ai-support/copilot/matching.js'
 import type { ConversationQueryState } from '../../../src/features/ai-support/conversation/types.js'
 import type { ToolDispatcher } from '../query/index.js'
 
@@ -36,24 +37,30 @@ function makeDispatcher(): ToolDispatcher {
           ok: true,
           tool,
           kind: 'read',
-          data: {
+          data: wrapUntrustedToolData({
             action: {
               id: ACTION_ID,
-              titulo: 'Cerrar conciliación operativa Q4',
-              descripcion: 'Revisar desviaciones de entregas y consolidar reporte.',
+              title: 'Cerrar conciliación operativa Q4',
               estado: 'Pendiente',
               prioridad: 'Rojo',
               fecha: '2026-11-13',
-              responsable_id: GERARDO_ID,
-              responsable_nombre: 'Gerardo Puga',
-              area: 'Operaciones',
-              es_okr: true,
+              responsable: GERARDO_ID,
               href: `/kanban?accion=${ACTION_ID}`,
             },
-          },
+            checklist: [],
+            comments: [],
+          }),
         }
       }
       return { ok: false, tool, kind: 'read', error: 'Acción no encontrada' }
+    }
+    if (tool === 'search_people') {
+      const q = String(args.name ?? args.query ?? '').toLowerCase()
+      const people = [
+        { id: ALONSO_ID, nombre: 'Alonso Pérez', area: 'Dirección' },
+        { id: GERARDO_ID, nombre: 'Gerardo Puga', area: 'Operaciones' },
+      ].filter((p) => !q || p.nombre.toLowerCase().includes(q))
+      return { ok: true, tool, kind: 'read', data: wrapUntrustedToolData({ items: people, people }) }
     }
     if (tool === 'get_my_actions') {
       return {
@@ -132,7 +139,16 @@ describe('Final Acceptance Sprint — Shared Core (Sections 4, 5, 9)', () => {
   it('executes the exact 5-turn Section 9 URL sequence cleanly across shared core and web pre-router', async () => {
     const store = createMemorySessionContextStore()
     const dispatch = makeDispatcher()
-    const actor = r1Actor(createR1Db(), ALONSO_USER, 'web', 'sec9-url-session')
+    const db = createR1Db()
+    db.tables.usuarios.push({
+      id: GERARDO_ID,
+      user_id: 'a-ger-real',
+      nombre: 'Gerardo Puga',
+      rol: 'Gerente',
+      area: 'Operaciones',
+      activo: true,
+    })
+    const actor = r1Actor(db, ALONSO_USER, 'web', 'sec9-url-session')
     actor.copilot.accessToken = 'synthetic-jwt'
 
     const people = [
@@ -248,5 +264,58 @@ describe('Final Acceptance Sprint — Shared Core (Sections 4, 5, 9)', () => {
     expect(res.proposal?.workspace?.toUserId).toBe(ALONSO_ID)
     expect(text).toContain('Validar presupuesto anual')
     expect(text).toContain('Todavía no se envió')
+  })
+
+  it('clears stale person entity on self-scope and impersonal board-wide queries and handles review/edit/cancel-all turns', async () => {
+    const store = createMemorySessionContextStore()
+    const dispatch = makeDispatcher()
+    const db = createR1Db()
+    db.tables.usuarios.push({
+      id: GERARDO_ID,
+      user_id: 'a-ger-real',
+      nombre: 'Gerardo Puga',
+      rol: 'Gerente',
+      area: 'Operaciones',
+      activo: true,
+    })
+    const actor = r1Actor(db, ALONSO_USER, 'web', 'no-person-leak-session')
+    actor.copilot.accessToken = 'synthetic-jwt'
+    const ask = async (utterance: string) => {
+      const res = await runAgentTurn({ actor, utterance }, { store, today: () => TODAY, entityCatalog: CATALOG, dispatch })
+      return { res, text: composeText(res.response, { headings: true }) }
+    }
+
+    // 1. Set person context to Gerardo Puga
+    const tGerardo = await ask('¿Qué tiene Gerardo para hoy?')
+    expect(tGerardo.text).toContain('Gerardo Puga')
+
+    // 2. Self-scope query must NOT keep Gerardo Puga label
+    const tMine = await ask('¿Qué acciones tengo abiertas?')
+    expect(tMine.text).toContain('tus acciones como responsable')
+    expect(tMine.text).not.toContain('acciones de Gerardo Puga')
+
+    // 3. Re-set Gerardo Puga, then run impersonal board-wide overdue & blocked queries
+    await ask('¿Qué tiene Gerardo para hoy?')
+    const tOverdue = await ask('¿Qué acciones vencidas hay?')
+    expect(tOverdue.text).not.toContain('acciones de Gerardo Puga')
+
+    await ask('¿Qué tiene Gerardo para hoy?')
+    const tBlocked = await ask('¿Qué acciones bloqueadas hay?')
+    expect(tBlocked.text).not.toContain('acciones de Gerardo Puga')
+
+    // 4. Intent checks for exact Production continuity regressions
+    expect(
+      classifyAgentIntent('¿Cómo quedó la acción?', null, {
+        pendingWrite: { operation: 'create_action', request: 'Revisar inventario' },
+        hasPendingCommunication: true,
+      })
+    ).toMatchObject({ kind: 'review_pending', target: 'action' })
+
+    expect(
+      classifyAgentIntent('Cámbiala a correo mejor', null, {
+        pendingWrite: { operation: 'create_action', request: 'Revisar inventario' },
+        hasPendingCommunication: true,
+      })
+    ).toMatchObject({ kind: 'communication_action', action: 'edit' })
   })
 })

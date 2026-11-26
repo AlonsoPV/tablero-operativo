@@ -156,6 +156,7 @@ export type ResolvedUrlContext =
 type ActionDetailsPayload = {
   action?: {
     id?: string
+    title?: string
     titulo?: string
     accion?: string
     estado?: string
@@ -169,6 +170,13 @@ type ActionDetailsPayload = {
   }
   checklist?: Array<{ completado?: boolean }>
   comments?: Array<{ contenido?: string }>
+}
+
+function unwrapToolPayload<T>(data: unknown): T {
+  if (data && typeof data === 'object' && 'payload' in data && (data as { payload?: unknown }).payload && typeof (data as { payload?: unknown }).payload === 'object') {
+    return (data as { payload: T }).payload
+  }
+  return (data ?? {}) as T
 }
 
 export async function resolveResourceUrl(params: {
@@ -207,16 +215,29 @@ export async function resolveResourceUrl(params: {
       return { kind: 'error', message: `No pude consultar la acción referenciada: ${errText}` }
     }
 
-    const payload = (res.data ?? {}) as ActionDetailsPayload
+    const payload = unwrapToolPayload<ActionDetailsPayload>(res.data)
     const a = payload.action
     if (!a?.id) {
       return { kind: 'empty', message: `No encontré la acción referenciada (${parsed.href}) dentro de tu alcance autorizado.` }
     }
 
-    const title = String(a.titulo ?? a.accion ?? 'Acción sin título').trim()
+    const title = String(a.title ?? a.titulo ?? a.accion ?? 'Acción sin título').trim()
     const responsableId = a.responsable_id ?? (a.responsable && UUID_RE.test(a.responsable) ? a.responsable : null)
-    const responsableNombre =
+    let responsableNombre =
       a.responsable_nombre ?? (a.responsable && !UUID_RE.test(a.responsable) ? a.responsable : null)
+    if (!responsableNombre && responsableId && actor.copilot?.supabase) {
+      try {
+        const { data: ownerRow } = await actor.copilot.supabase
+          .from('usuarios')
+          .select('nombre')
+          .eq('id', responsableId)
+          .maybeSingle()
+        const n = (ownerRow as { nombre?: string } | null)?.nombre?.trim()
+        if (n) responsableNombre = n
+      } catch {
+        // Fallback sin nombre resuelto
+      }
+    }
 
     const ref: ReferencedAction = {
       id: a.id,

@@ -179,7 +179,8 @@ export function classifyAgentIntent(
   const reviewReference = /\b(muestra(?:me)?|revisa|retoma|regresa(?:r)?|vuelve|volvamos|volver|recupera)\b/.test(text)
   const explicitRecord = /\bemx_\d+\b|[0-9a-f]{8}-[0-9a-f]{4}-|https?:\/\//i.test(text)
   const historicReference = /\b(borrador|propuesta|preparamos|preparado|anterior)\b/.test(text)
-  const briefStateQuestion = /^¿?como (?:quedo|queda)[?.!]*$/.test(text)
+  const briefStateQuestion =
+    /^¿?como (?:quedo|queda)(?:\s+(?:la\s+accion|el\s+borrador|la\s+propuesta|el\s+mensaje|eso|todo))?[?.!]*$/.test(text)
   if (!explicitRecord && ((draftReference && reviewReference && (hasDraft || historicReference)) || (briefStateQuestion && hasDraft))) {
     const target = /\b(mensaje|correo|whatsapp)\b/.test(text) ? 'communication'
       : /\baccion\b/.test(text) ? 'action' : 'unspecified'
@@ -210,7 +211,7 @@ export function classifyAgentIntent(
     }
     const personEdit = extractResponsablePatch(cleanedUtterance).hint
     const channelEdit = /^(?:mejor\s+)?(?:por\s+)?(?:correo|mail|email|whatsapp)\b/.test(text)
-    const explicitEdit = /^(?:edita(?:r)?|cambia(?:r)?|ajusta(?:r)?|agregale|anadele|sumale|ponle que)\b/.test(text)
+    const explicitEdit = /^(?:edita(?:r|la|lo)?|cambia(?:r|la|lo)?|pasa(?:r|la|lo)?|ajusta(?:r|la|lo)?|agregale|anadele|sumale|ponle que)\b/.test(text)
     const independentRequest = /[?¿]/.test(utterance) || /^(?:crea|crear|registra|genera|consulta|muestra|lista|busca|revisa|que|como|cuant[oa]s?|cual|quien|donde|cuando)\b/.test(text)
     if (!independentRequest && (personEdit || channelEdit || explicitEdit)) {
       if (session.pendingWrite && personEdit && !/\b(mensaje|correo|whatsapp|destinatario)\b/.test(text)) {
