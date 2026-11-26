@@ -56,8 +56,21 @@ const STOP_PERSON = new Set([
   'actualizacion',
 ])
 
+const NON_BARE_PERSON_RE =
+  /\b(muestra|muestrame|lista|listame|enlista|enlistar|enlistalas|cuales|cuantas?|cuantos?|todas|todos|vencidas?|acciones?|asignad\w*|asigna\w*|reasigna\w*|crea\w*|dime|analiza|tablero|responsable|por mi|a mi|para|por|con|sobre|que|como|mejor|lo|la|los|las|un|una|al|del|prepara\w*|cambia\w*|reprograma\w*|cancela\w*|confirma\w*|edita\w*|haz|dile|avisa\w*|manda\w*|envia\w*|ponle|dejale|encargale|pasalo|pasala|quedo|anterior|correo|whatsapp|wasap)\b/
+
+function looksLikeOperationOrControlTurn(t: string): boolean {
+  const clean = t.replace(/^[¿¡\s]+/, '')
+  return (
+    /^(?:prepara(?:la|lo|r)?|mejor\b|cambia(?:la|lo|r)?|reprograma(?:la|lo|r)?|cancela(?:r|lo|la)?|confirma(?:r)?|edita(?:r|lo|la)?|agregale|anadele|haz lo mismo|dile|avisa(?:le)?|manda(?:le|les)?|envia(?:le|les)?|asigna(?:le|sela|selo|r)?|reasigna(?:le|sela|selo|r)?|ponle|dejale|encargale|pasalo|pasala|como quedo|muestrame la accion|borrador)\b/.test(
+      clean
+    ) || /\b(por correo|por whatsapp|lo anterior|cambia la fecha|como quedo|preparala|preparalo)\b/.test(clean)
+  )
+}
+
 function extractPersonHint(message: string): string | null {
   const t = normalize(message)
+  if (looksLikeOperationOrControlTurn(t)) return null
   const patterns = [
     /\b(?:cuales?|que|cuantas?)?\s*(?:acciones?\s+)?(?:tiene|tienen)\s+([a-z][a-z0-9._-]{1,40})\b/,
     /\bacciones?\s+de\s+([a-z][a-z0-9._-]{1,40})\b/,
@@ -69,13 +82,11 @@ function extractPersonHint(message: string): string | null {
     const name = match?.[1]?.trim()
     if (name && !STOP_PERSON.has(name)) return name
   }
-  // Mensaje corto = solo un nombre ("Jorge" / "Jorge Perez"), no imperativos/consultas/chips
+  // Mensaje corto = solo un nombre ("Jorge" / "Jorge Perez"), no imperativos/consultas/chips/frases con preposiciones
   if (
     /^[a-z][a-z0-9._-]{1,40}(?:\s+[a-z][a-z0-9._-]{1,40}){0,2}$/.test(t) &&
     !STOP_PERSON.has(t) &&
-    !/\b(muestra|muestrame|lista|listame|enlista|enlistar|enlistalas|cuales|cuantas?|cuantos?|todas|todos|vencidas?|acciones?|asignad\w*|crea\w*|dime|analiza|tablero|responsable|por mi|a mi)\b/.test(
-      t
-    )
+    !NON_BARE_PERSON_RE.test(t)
   ) {
     return t
   }
@@ -121,13 +132,17 @@ function looksLikeKanbanQuery(message: string, hasPendingClarify: boolean) {
     return true
   }
   if (
-    /^(todas?|esas|esos|enlista(las|los)?|muestra(las|los)?|si|sí|no)([.!?\s]*)$/.test(t) ||
+    /^(todas?|esas|esos|enlista(las|los)?|muestra(las|los)?|muestra(?:me)?\s+(?:todas?|todos?|esas|esos)|si|sí|no)([.!?\s]*)$/.test(t) ||
     /^y\s+(vencid\w*|bloquead\w*|rojas?|abiertas?)\??$/.test(t)
   ) {
     return true
   }
-  // Nombre corto como follow-up de persona
-  if (/^[a-z][a-z0-9._-]{1,40}(?:\s+[a-z][a-z0-9._-]{1,40}){0,2}$/.test(t) && !STOP_PERSON.has(t)) {
+  // Nombre corto como follow-up de persona (nunca imperativos/controles ni frases con preposiciones)
+  if (
+    /^[a-z][a-z0-9._-]{1,40}(?:\s+[a-z][a-z0-9._-]{1,40}){0,2}$/.test(t) &&
+    !STOP_PERSON.has(t) &&
+    !NON_BARE_PERSON_RE.test(t)
+  ) {
     return true
   }
   return false
@@ -137,6 +152,7 @@ function looksLikeHandoff(message: string) {
   const t = normalize(message)
   // «Envia un correo / WhatsApp con el resumen de sus acciones» → tools, no lista Kanban.
   if (looksLikeCommsPrepare(message)) return true
+  if (looksLikeOperationOrControlTurn(t)) return true
   if (
     /\b(okr|okrs|objetivo|iniciativa|whatsapp|wasap|correo|email|crea(r|me)?|genera(r|me)?)\b/.test(
       t
@@ -164,6 +180,7 @@ function resolveYesNo(
   people: NamedPerson[]
 ): { person: PersonRef } | { rejectHint: string } | null {
   const t = normalize(message)
+  if (looksLikeCommsPrepare(message) || looksLikeOperationOrControlTurn(t)) return null
   if (/^(si|sí|ok|dale|correcto|ese|esa)([.!?\s]*)$/.test(t)) {
     const first = pending.candidates[0]
     if (!first) return null
@@ -173,7 +190,9 @@ function resolveYesNo(
     return { rejectHint: pending.hint }
   }
   // "No, Jorge Garcia" / "Jorge Garcia"
-  const hinted = extractPersonHint(message) || (t.startsWith('no') ? t.replace(/^no[,\s]+/, '') : null)
+  const afterNo = t.startsWith('no') ? t.replace(/^no[,\s]+/, '') : null
+  if (afterNo && looksLikeOperationOrControlTurn(afterNo)) return null
+  const hinted = extractPersonHint(message) || afterNo
   if (hinted) {
     const matched = matchPeopleByName(people, hinted)
     if (matched.length === 1) {
@@ -298,8 +317,8 @@ export function applyConversationTurn(input: ApplyTurnInput): ApplyTurnResult {
 
   const hasPending = Boolean(prev?.pendingClarification)
   if (
-    (looksLikeHandoff(message) || !looksLikeKanbanQuery(message, hasPending)) &&
-    !hasPending
+    looksLikeHandoff(message) ||
+    !looksLikeKanbanQuery(message, false)
   ) {
     const state = {
       ...(prev ?? initialConversationState()),
@@ -310,6 +329,7 @@ export function applyConversationTurn(input: ApplyTurnInput): ApplyTurnResult {
     }
     return { kind: 'handoff', state, reason: 'non_kanban' }
   }
+  void hasPending
 
   const previousActive = prev?.entity === 'kanban_action' ? toActiveQuery(prev) : null
   const merged = mergeActionQueryArgs({}, previousActive, message)
