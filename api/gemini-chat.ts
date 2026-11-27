@@ -237,7 +237,7 @@ export default defineApiHandler(async (req, res) => {
       maxOutputTokens: readNumberEnv('GEMINI_MAX_TOKENS', DEFAULT_MAX_OUTPUT_TOKENS),
       temperature: readNumberEnv('GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE),
     }
-    const timeoutMs = Math.min(readNumberEnv('GEMINI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS), 52_000)
+    const timeoutMs = Math.min(Math.max(readNumberEnv('GEMINI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS), 45_000), 52_000)
     const contents = toGeminiContents(cleanMessages)
     const actor = {
       supabase: auth.supabase,
