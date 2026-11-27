@@ -24,6 +24,9 @@ import {
   type UpdateWhatsAppFollowupSettingsInput,
   type WhatsAppFollowupSettings,
 } from '@/services/whatsappIntegration.service'
+import { AssistantPilotAllowlistCard } from '@/features/settings/components/AssistantPilotAllowlistCard'
+import { ProactiveFollowupConsentCard } from '@/features/settings/components/ProactiveFollowupConsentCard'
+import { ProactiveFollowupGlobalCard } from '@/features/settings/components/ProactiveFollowupGlobalCard'
 
 const QUERY_KEY = ['whatsapp-followup-settings'] as const
 
@@ -255,6 +258,9 @@ export function WhatsAppSettingsPage() {
         </div>
       ) : (
         <div className="space-y-5 sm:space-y-6">
+          <AssistantPilotAllowlistCard />
+          <ProactiveFollowupGlobalCard />
+          <ProactiveFollowupConsentCard />
           <section className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-4 sm:p-5">
               <div className="flex items-start gap-3">

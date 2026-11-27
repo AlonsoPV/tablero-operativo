@@ -54,6 +54,7 @@ import {
   type ResponseFormat,
 } from './answerContract.js'
 import { classifyAgentIntent, type AgentIntent } from './intent.js'
+import { parseAdvisoryPlanItems } from './advisoryPlan.js'
 import {
   buildCompoundOperationPlan,
   formatCompoundOperationPlan,
@@ -63,6 +64,7 @@ import {
   applyCommunicationEdit,
   formatCommunicationProposalText,
   composeContextualCommunication,
+  parseCommunicationIntent,
   type PendingCommunicationProposal,
 } from './communicationComposer.js'
 import { TurnTimer, type TurnTelemetry } from './turnTelemetry.js'
@@ -99,7 +101,7 @@ import {
   urgencyRank,
   type PersonCandidate,
 } from './resolveEntity.js'
-import { emptyBlocks, statusMessage, type AgentResponse } from './respond.js'
+import { composeText, emptyBlocks, statusMessage, type AgentResponse } from './respond.js'
 import {
   emptySessionContext,
   needsReferenceRehydration,
@@ -2162,6 +2164,9 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
     return { response: forbidden(auth.reason), audit: { status: 'denied_precheck' as const, entity: 'actions' } }
   }
   const response = baseResponse('proposal')
+  if (intent.batch === 'advisory_plan') {
+    return handlePlanToActions(state, intent, response)
+  }
   if (intent.batch) {
     return handleBatchCommitments(state, intent, response)
   }
@@ -2405,6 +2410,11 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
       : null
   if (intent.operation === 'notify_responsable' && (intent.contextualComm || intent.recipientHint || intent.draftOnly)) {
     const catalog = state.entityCatalog ?? (await loadEntityCatalogFromActor(state.actor))
+    const parsedSpec = parseCommunicationIntent(intent.request, state.ctx)
+    const specOverride =
+      intent.recipientHint && !parsedSpec.recipientHint
+        ? { ...parsedSpec, recipientHint: intent.recipientHint, recipientMode: 'single' as const }
+        : undefined
     const composed = await composeContextualCommunication({
       utterance: intent.request,
       actor: state.actor,
@@ -2415,6 +2425,7 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
         queryActions: (copilot, req) => queryActions(copilot, req, state.dispatch),
         queryOkrs: (copilot, req) => queryOkrs(copilot, req, state.dispatch),
       },
+      specOverride,
     })
 
     if (composed.kind === 'clarification') {
@@ -2564,6 +2575,97 @@ async function handleTypedBoardWrite(
   return { response, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
 }
 
+function advisoryPlanSource(state: TurnState): string {
+  const fromSession = state.ctx.lastAdvisoryPlan?.trim() ?? ''
+  if (fromSession.length >= 40) return fromSession
+  const cached = state.ctx.lastAnswer?.response
+  if (cached) {
+    const composed = composeText(cached, { headings: false })
+    if (composed.trim().length >= 40) return composed
+  }
+  const commitments = state.ctx.executiveSession?.draftCommitments ?? []
+  if (commitments.length) return commitments.map((draft, i) => `${i + 1}. ${draft.titulo}`).join('\n')
+  return ''
+}
+
+async function handlePlanToActions(
+  state: TurnState,
+  _intent: Extract<AgentIntent, { kind: 'write_request' }>,
+  response: ReturnType<typeof baseResponse>
+) {
+  const persistMode = persistWriteMode(state.actor.usuarioId)
+  const source = advisoryPlanSource(state)
+  const parsed = parseAdvisoryPlanItems(source, state.today)
+  if (parsed.length === 0) {
+    return {
+      response: forbidden(
+        'No encontré un plan reciente en esta conversación para convertir. Genera un plan primero y luego pide convertirlo en acciones.'
+      ),
+      audit: { status: 'denied_precheck' as const, entity: 'actions' },
+    }
+  }
+
+  if (persistMode !== 'qa' && persistMode !== 'simulated' && persistMode !== 'pilot') {
+    for (const item of parsed) {
+      response.blocks.data.push(
+        `Borrador: «${item.titulo}» · ${item.responsableHint ?? 'tú'} · ${item.fecha ?? state.today}. Confirma cuando la ejecución esté habilitada.`
+      )
+    }
+    response.blocks.limitations.push(r2Limitation(persistMode))
+    return { response, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
+  }
+
+  const batchId = crypto.randomUUID()
+  const proposals: CopilotProposal[] = []
+  for (const item of parsed) {
+    const payload = {
+      titulo: item.titulo,
+      responsableId: item.responsableHint ? null : state.actor.usuarioId,
+      responsableHint: item.responsableHint ?? null,
+      fecha: item.fecha ?? state.today,
+    }
+    let persisted = await proposeR2Operation(state.actor, 'create_action', payload, {
+      today: state.today,
+      batchId,
+    })
+    if (!persisted.ok && item.responsableHint) {
+      persisted = await proposeR2Operation(
+        state.actor,
+        'create_action',
+        { ...payload, responsableId: state.actor.usuarioId, responsableHint: null },
+        { today: state.today, batchId }
+      )
+    }
+    if (!persisted.ok) {
+      response.blocks.data.push(`No pude proponer «${item.titulo}»: ${persisted.reason}`)
+      continue
+    }
+    proposals.push(markSimulated(persisted.proposal, persistMode))
+    response.blocks.data.push(persisted.proposal.summary)
+  }
+  if (proposals.length === 0) {
+    return {
+      response: forbidden('No se pudo armar el lote de acciones a partir del plan. Revisa responsables y fechas.'),
+      audit: { status: 'denied_precheck' as const, entity: 'actions' },
+    }
+  }
+  response.blocks.limitations.push(
+    persistMode === 'pilot'
+      ? `Lote ${proposals.length}: confirma cada tarjeta. No se creó nada en el tablero aún.`
+      : persistMode === 'qa'
+        ? `Lote ${proposals.length}: confirma cada tarjeta o «Aprobar N de este lote». No se envió nada a proveedores.`
+        : `Lote ${proposals.length} en modo simulado. Confirma las tarjetas; no se escribió en el tablero aún.`
+  )
+  withFacts(response, { primary: { text: response.blocks.data.join('\n') } })
+  return {
+    response,
+    proposal: proposals[0],
+    proposals,
+    batchId,
+    audit: { status: 'proposal_blocked' as const, entity: 'actions' },
+  }
+}
+
 async function handleBatchCommitments(
   state: TurnState,
   intent: Extract<AgentIntent, { kind: 'write_request' }>,
@@ -2596,7 +2698,7 @@ async function handleBatchCommitments(
       audit: { status: 'denied_precheck' as const, entity: 'actions' },
     }
   }
-  if (persistMode !== 'qa' && persistMode !== 'simulated') {
+  if (persistMode !== 'qa' && persistMode !== 'simulated' && persistMode !== 'pilot') {
     for (const item of items) {
       response.blocks.data.push(
         `Borrador R2 OFF: «${item.titulo}» · ${item.fecha ?? 'sin fecha'}. No se persiste ni se ejecuta.`
@@ -2633,9 +2735,11 @@ async function handleBatchCommitments(
     }
   }
   response.blocks.limitations.push(
-    persistMode === 'qa'
-      ? `Lote ${proposals.length}: confirma cada tarjeta o «Aprobar N de este lote». No se envió nada a proveedores.`
-      : `Lote ${proposals.length} en modo simulado. Confirma las tarjetas; no se escribió en el tablero aún.`
+    persistMode === 'pilot'
+      ? `Lote ${proposals.length}: confirma cada tarjeta. No se creó nada en el tablero aún.`
+      : persistMode === 'qa'
+        ? `Lote ${proposals.length}: confirma cada tarjeta o «Aprobar N de este lote». No se envió nada a proveedores.`
+        : `Lote ${proposals.length} en modo simulado. Confirma las tarjetas; no se escribió en el tablero aún.`
   )
   return {
     response,
@@ -2926,6 +3030,7 @@ export async function runAgentTurn(
         fingerprint,
         responseFormat: selected,
         lastAnswer: ctx.lastAnswer ?? null,
+        lastAdvisoryPlan: ctx.lastAdvisoryPlan ?? null,
         executiveSession: ctx.executiveSession ?? null,
         lastTotals: ctx.lastTotals ?? null,
       },
@@ -3049,6 +3154,7 @@ export async function runAgentTurn(
         fingerprint,
         responseFormat: selected,
         lastAnswer: ctx.lastAnswer ?? null,
+        lastAdvisoryPlan: ctx.lastAdvisoryPlan ?? null,
         executiveSession: ctx.executiveSession ?? null,
         lastTotals: ctx.lastTotals ?? null,
         pendingWrite: ctx.pendingWrite ?? null,
@@ -3479,6 +3585,7 @@ export async function runAgentTurn(
       fingerprint,
       responseFormat: selected,
       lastAnswer: cacheable ? { intent: intent.kind, response: outcome.response, auto: autoResolution } : null,
+      lastAdvisoryPlan: state.ctx.lastAdvisoryPlan ?? null,
       lastTotals: state.ctx.lastTotals ?? null,
     },
     now()

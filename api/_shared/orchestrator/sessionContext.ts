@@ -53,6 +53,8 @@ export type SessionContext = {
   /** Formato elegido para la sesión; ausente equivale a 'auto'. */
   responseFormat?: ResponseFormat
   lastAnswer?: CachedAnswer | null
+  /** Plan consultivo reciente (Gemini u orquestador). Sólo memoria de instancia; no se persiste en BD. */
+  lastAdvisoryPlan?: string | null
   /** Sesión ejecutiva guiada (~15 min) en curso; sólo memoria de sesión, nunca persiste compromisos. */
   executiveSession?: ExecutiveSessionState | null
   /** Última solicitud de escritura para mantener continuidad conversacional en turnos complementarios. */

@@ -24,6 +24,8 @@ import type { ActionActiveQuery } from '../../../src/features/ai-support/actionQ
 import type { AccessCapabilities } from '../../../src/features/auth/lib/permissions.js'
 import { isAgentMemoryEnabled } from '../memory/flag.js'
 import { loadSupabaseMemoryStore } from '../memory/store.js'
+import { createServiceRoleClient } from '../assistantAuth.js'
+import { loadPilotDbAllowlist } from '../pilotAllowlist.js'
 
 /** Web y WhatsApp comparten contexto entre instancias; voz rehidrata desde consult_log. */
 function defaultStoreForChannel(input: { identity: VerifiedIdentity; channel: AgentChannel }): SessionContextStore {
@@ -106,6 +108,8 @@ export async function runChannelTurn(
     channel: AgentChannel
     sessionId: string
     utterance: string
+    /** Última respuesta assistant del hilo (p. ej. un plan Gemini) para convertirla en acciones. */
+    priorAssistantText?: string
     /** Preferencia de formato del canal (selector web); se valida y sólo afecta la presentación. */
     responseFormat?: unknown
     /** Consulta activa persistida por el canal (p. ej. consult_log de voz) para rehidratar tras cold start. */
@@ -146,6 +150,20 @@ export async function runChannelTurn(
       )
     }
   }
+  const priorPlan = typeof input.priorAssistantText === 'string' ? input.priorAssistantText.trim().slice(0, 8000) : ''
+  if (priorPlan.length >= 40) {
+    const storedForPlan = await store.get(key, now)
+    const baseForPlan = storedForPlan?.fingerprint === actorFingerprint ? storedForPlan : emptySessionContext(now)
+    await store.set(
+      key,
+      {
+        ...baseForPlan,
+        fingerprint: actorFingerprint,
+        lastAdvisoryPlan: priorPlan,
+      },
+      now
+    )
+  }
   const dispatch = overrides.dispatch ?? ((a, name, args) => dispatchCopilotTool(a, name, args))
   const focused = [...new Set((input.focusedActionIds ?? []).filter((id): id is string =>
     typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))].slice(0, 12)
@@ -164,8 +182,17 @@ export async function runChannelTurn(
     await store.set(key, { ...current, fingerprint: actorFingerprint, lastActions: references,
       lastEntity: references.length === 1 ? { kind: 'action', id: references[0]!.id, label: references[0]!.title } : null }, now)
   }
+  let dbAllowlist: Set<string> | null = null
+  try {
+    dbAllowlist = await loadPilotDbAllowlist(createServiceRoleClient())
+  } catch {
+    dbAllowlist = null
+  }
   const memoryStore =
-    overrides.memoryStore ?? (isAgentMemoryEnabled(process.env, input.identity.usuarioId) ? await loadSupabaseMemoryStore(input.identity.supabase) : undefined)
+    overrides.memoryStore ??
+    (isAgentMemoryEnabled(process.env, input.identity.usuarioId, dbAllowlist)
+      ? await loadSupabaseMemoryStore(input.identity.supabase)
+      : undefined)
   const result = await runAgentTurn(
     { actor, utterance: input.utterance, responseFormat: input.responseFormat },
     {

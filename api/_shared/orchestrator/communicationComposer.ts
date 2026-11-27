@@ -245,6 +245,7 @@ function extractRecipientHint(cleanedUtterance: string): string | null {
   ])
 
   const candidates = [
+    cleanedUtterance.match(/\b(?:pendientes?|acciones?|tareas?)\s+de\s+([A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+)?)/i),
     cleanedUtterance.match(/\b(?:pon|poner)\s+a\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ]+)?)\s+al\s+tanto\b/i),
     cleanedUtterance.match(/\b(?:a|con|para)\s+(Direcci[oó]n|[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)\b/),
     cleanedUtterance.match(/\b(?:env[ií]ale|m[aá]ndale|dile|av[ií]sale|preg[uú]ntale|recu[eé]rdale|p[ií]dele|p[aá]sale|notif[ií]cale)\s+a\s+([A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+)?)\b/i),

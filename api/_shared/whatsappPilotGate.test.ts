@@ -94,6 +94,20 @@ describe('WhatsApp Selective Single-User Pilot Gate — Fail-Closed Closure Suit
     expect(isWhatsAppR2ButtonsAllowedForUser(otherUser, env)).toBe(false)
   })
 
+  it('intersects env allowlist with agent_execution_gate; empty DB revokes the pilot', () => {
+    const env = {
+      WHATSAPP_PILOT_ENABLED: '1',
+      WHATSAPP_ORCHESTRATOR_PILOT_USERS: pilotUser.usuarioId,
+      WHATSAPP_VOICE_NOTES_ENABLED: '1',
+    }
+    const db = new Set([pilotUser.usuarioId])
+    expect(isUserInWhatsAppPilot(pilotUser, env, db)).toBe(true)
+    expect(isUserInWhatsAppPilot(pilotUser, env, new Set())).toBe(false)
+    expect(isUserInWhatsAppPilot(otherUser, env, db)).toBe(false)
+    expect(shouldUseWhatsAppOrchestrator(pilotUser, env, db)).toBe(true)
+    expect(shouldUseWhatsAppOrchestrator(pilotUser, env, new Set())).toBe(false)
+  })
+
   it('blocks pilot access immediately when WHATSAPP_PILOT_ENABLED is turned OFF even if allowlist remains set', () => {
     const env = {
       WHATSAPP_PILOT_ENABLED: '0',
