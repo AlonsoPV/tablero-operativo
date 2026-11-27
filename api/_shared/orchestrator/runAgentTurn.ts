@@ -115,6 +115,7 @@ import { capabilityFingerprint } from '../query/actorCapabilities.js'
 import { isAgentMemoryEnabled } from '../memory/flag.js'
 import {
   forgetUserMemory,
+  mergeFtsDocumentHits,
   saveUserMemory,
   type MemoryStore,
 } from '../memory/store.js'
@@ -161,7 +162,7 @@ function attachMemoryRecall(
   store: MemoryStore,
   actor: AgentActor,
   utterance: string,
-  options?: { passive?: boolean }
+  options?: { passive?: boolean; focus?: 'documents' | 'memory' | 'either' }
 ): AgentResponse {
   const passive = options?.passive === true
   let recall
@@ -172,7 +173,8 @@ function attachMemoryRecall(
         canReadProject: actor.capabilities.readAllOkrs || actor.capabilities.readCrossAreaExecution,
         visibleAreaIds: [],
       },
-      utterance
+      utterance,
+      { focus: options?.focus }
     )
   } catch (error) {
     recall = { ok: false as const, error: error instanceof Error ? error.message : 'memory_store_error' }
@@ -201,7 +203,7 @@ function attachMemoryRecall(
   for (const hit of recall.hits) {
     const cite =
       hit.kind === 'document'
-        ? `[Documentación R3] «${hit.title ?? hit.source_label}» v${hit.version}: ${hit.body.slice(0, 280)}`
+        ? `[Documentación R3] ${hit.source_label} · «${hit.title ?? hit.source_label}» v${hit.version}: ${hit.body.slice(0, 280)}`
         : `[Memoria R3] Acuerdo ${hit.id} (${hit.source_label} v${hit.version}): ${hit.body.slice(0, 280)}`
     response.blocks.data.push(cite)
     if (response.facts) {
@@ -1344,6 +1346,18 @@ async function handleExecutiveBrief(
     )
   }
 
+  if (intent.focus === 'execution' && diagnosis.currentProblems.length > 0) {
+    for (const problem of diagnosis.currentProblems.slice(0, 4)) {
+      response.blocks.interpretation.push(`Problema: ${problem}`)
+    }
+    const primaryEvidence = diagnosis.topPriorities[0]
+    if (primaryEvidence) {
+      response.blocks.interpretation.push(
+        `Impacto operativo: ${primaryEvidence.why} Evidencia: «${primaryEvidence.action.title}».`
+      )
+    }
+  }
+
   // Interpretación separada de hechos
   if (diagnosis.topPriorities.length > 0) {
     for (const [idx, p] of diagnosis.topPriorities.entries()) {
@@ -1364,6 +1378,12 @@ async function handleExecutiveBrief(
   } else if (diagnosis.counts.pendingVerification > 0) {
     response.blocks.recommendation.push(
       `Validar las ${diagnosis.counts.pendingVerification} acciones en Hecho para cerrar el ciclo operativo.`
+    )
+  }
+
+  if (intent.focus === 'execution') {
+    response.blocks.limitations.push(
+      'Este diagnóstico no crea ni convierte acciones. Si quieres ejecutar el siguiente paso, dímelo explícitamente.'
     )
   }
 
@@ -1391,6 +1411,12 @@ async function handleExecutiveBrief(
     ],
     findings: [
       ...(countChange ? [{ basis: 'evidence' as const, text: countChange }] : []),
+      ...(intent.focus === 'execution'
+        ? diagnosis.currentProblems.slice(0, 4).map((text) => ({
+            basis: 'evidence' as const,
+            text: `Problema: ${text}`,
+          }))
+        : []),
       ...executiveFindings(diagnosis),
     ],
     warnings: response.blocks.limitations.filter((l) => /limitado|sin fecha/i.test(l)),
@@ -2928,11 +2954,12 @@ async function handleR2WriteRequest(
   return { response, proposal: proposed.proposal as ActionProposal, audit: { status: 'proposal_blocked' as const, entity: 'actions' } }
 }
 
-function handleQueryKnowledge(
+async function handleQueryKnowledge(
   state: TurnState,
   utterance: string,
-  memoryStore: MemoryStore | undefined
-): { response: AgentResponse; audit: Partial<QueryAuditEntry> } {
+  memoryStore: MemoryStore | undefined,
+  focus: 'documents' | 'memory' | 'either'
+): Promise<{ response: AgentResponse; audit: Partial<QueryAuditEntry> }> {
   const response = baseResponse('ok')
   if (!isAgentMemoryEnabled(process.env, state.actor.usuarioId) || !memoryStore) {
     response.status = 'empty'
@@ -2944,7 +2971,10 @@ function handleQueryKnowledge(
     )
     return { response, audit: { status: 'empty', entity: 'none' } }
   }
-  const recalled = attachMemoryRecall(response, memoryStore, state.actor, utterance)
+  if (focus !== 'memory') {
+    await mergeFtsDocumentHits(memoryStore, state.actor.copilot.supabase, utterance)
+  }
+  const recalled = attachMemoryRecall(response, memoryStore, state.actor, utterance, { focus })
   if (recalled.blocks.data.length === 0 && recalled.status !== 'forbidden') {
     recalled.status = 'empty'
     if (!recalled.blocks.data.some((line) => /no encontré|no tienes acceso/i.test(line))) {
@@ -3288,7 +3318,7 @@ export async function runAgentTurn(
       outcome = await handleExecutiveReview(state, intent)
       break
     case 'query_knowledge':
-      outcome = handleQueryKnowledge(state, utterance, deps.memoryStore)
+      outcome = await handleQueryKnowledge(state, utterance, deps.memoryStore, intent.focus)
       break
     case 'save_memory': {
       const resp = baseResponse('ok')
@@ -3346,6 +3376,7 @@ export async function runAgentTurn(
         outcome = { response: resp, audit: { status: 'error' } }
         break
       }
+      if (res.count > 0 && deps.memoryStore) deps.memoryStore.forgetLocal(res.ids)
       const msg =
         res.count > 0
           ? `Eliminé ${res.count} registro(s) de tu memoria operativa relacionados con «${intent.query}».`
@@ -3550,6 +3581,8 @@ export async function runAgentTurn(
   const explicitMemoryAsk = looksLikeMemoryAsk(utterance)
   if (
     intent.kind !== 'query_knowledge' &&
+    intent.kind !== 'forget_memory' &&
+    intent.kind !== 'save_memory' &&
     isAgentMemoryEnabled(process.env, actor.usuarioId) &&
     deps.memoryStore &&
     (explicitMemoryAsk ||

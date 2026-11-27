@@ -251,6 +251,20 @@ describe('Executive MVP — 5 End-to-End Demo Scenarios', () => {
     expect(res.ui?.views.some((v) => v.type === 'operational_summary')).toBe(true)
   })
 
+  it('P0.5 qué está bloqueando narra problema, evidencia y no auto-ejecuta R2', async () => {
+    const store = createMemorySessionContextStore()
+    const res = await runWebDemoTurn(OWNER_ACTOR, '¿Qué está bloqueando a mi equipo?', {
+      dispatch: createDemoDispatcher(),
+      store,
+      today: () => TODAY,
+    })
+    expect(res.turn.intent).toBe('executive_brief')
+    expect(res.text).toMatch(/Problema:/)
+    expect(res.text).toMatch(/Evidencia:/)
+    expect(res.text).toMatch(/explícitamente/)
+    expect(res.turn.proposals ?? []).toHaveLength(0)
+  })
+
   it('Escenario 2: El dueño identifica los 3 principales problemas y patrones repetidos', async () => {
     const store = createMemorySessionContextStore()
     const res = await runWebDemoTurn(OWNER_ACTOR, '¿Qué requiere mi atención hoy?', {

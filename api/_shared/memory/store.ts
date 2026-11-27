@@ -35,15 +35,41 @@ function canSeeDocument(actor: MemoryActor, row: AgentDocumentRow): boolean {
 }
 
 function matchesQuery(text: string, query: string) {
-  const q = query
+  return tokenOverlapScore(text, query) > 0
+}
+
+function foldText(text: string) {
+  return text
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-  const hay = text
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-  return q.split(/\s+/).filter((t) => t.length > 2).some((token) => hay.includes(token))
+}
+
+function tokenOverlapScore(text: string, query: string) {
+  const tokens = foldText(query)
+    .split(/\s+/)
+    .filter((t) => t.length > 2)
+  if (tokens.length === 0) return 0
+  const hay = foldText(text)
+  let hits = 0
+  for (const token of tokens) {
+    if (hay.includes(token)) hits += 1
+  }
+  return hits / tokens.length
+}
+
+function recencyBoost(iso: string | null | undefined) {
+  if (!iso) return 0
+  const ageDays = (Date.now() - Date.parse(iso)) / 86_400_000
+  if (!Number.isFinite(ageDays)) return 0
+  return Math.max(0, 1 - ageDays / 90)
+}
+
+const MEMORY_TYPE_BOOST: Record<AgentMemoryRow['memory_type'], number> = {
+  agreement: 0.22,
+  decision: 0.2,
+  preference: 0.16,
+  follow_up: 0.05,
 }
 
 /** Almacén en memoria para harness local (sin red). */
@@ -82,33 +108,99 @@ export function createMemoryStore(seed?: {
       documents.push(full)
       return full
     },
-    recall(actor: MemoryActor, query: string): MemoryRecallResult {
+    publishLocal(input: { title: string; body: string; sourceLabel: string; logicalId?: string }) {
+      const logicalId = slugLogicalId(input.logicalId || input.title)
+      const now = new Date().toISOString()
+      for (const row of documents) {
+        if (row.logical_id === logicalId && row.status === 'published') {
+          row.status = 'withdrawn'
+          row.withdrawn_at = now
+        }
+      }
+      const version =
+        documents.filter((row) => row.logical_id === logicalId).reduce((max, row) => Math.max(max, row.version), 0) + 1
+      return this.insertDocument({
+        id: `doc-${logicalId}-v${version}`,
+        logical_id: logicalId,
+        title: input.title.trim().slice(0, 200),
+        body: input.body.trim().slice(0, 32_768),
+        version,
+        status: 'published',
+        access_level: 'project_read',
+        area_id: null,
+        source_label: input.sourceLabel.trim().slice(0, 120) || 'sop',
+        published_at: now,
+        withdrawn_at: null,
+      })
+    },
+    withdrawLocal(logicalId: string) {
+      const now = new Date().toISOString()
+      let count = 0
+      for (const row of documents) {
+        if (row.logical_id === logicalId && row.status === 'published') {
+          row.status = 'withdrawn'
+          row.withdrawn_at = now
+          count += 1
+        }
+      }
+      return count
+    },
+    forgetLocal(ids: string[]) {
+      const set = new Set(ids)
+      for (const row of memories) {
+        if (set.has(row.id)) row.validation_status = 'deleted'
+      }
+    },
+    recall(
+      actor: MemoryActor,
+      query: string,
+      options?: { focus?: 'documents' | 'memory' | 'either' }
+    ): MemoryRecallResult {
       try {
-        const memHits: MemoryRecallHit[] = memories
-          .filter((row) => canSeeMemory(actor, row) && matchesQuery(row.body, query))
-          .map((row) => ({
-            kind: 'memory' as const,
-            id: row.id,
-            body: row.body,
-            version: row.version,
-            source_label: row.source_kind,
-          }))
-        const docHits: MemoryRecallHit[] = documents
-          .filter((row) => canSeeDocument(actor, row) && matchesQuery(`${row.title} ${row.body}`, query))
-          .map((row) => ({
-            kind: 'document' as const,
-            id: row.id,
-            title: row.title,
-            body: row.body,
-            version: row.version,
-            source_label: row.source_label,
-          }))
+        const focus = options?.focus ?? 'either'
+        const scored: Array<MemoryRecallHit & { score: number }> = []
+        if (focus !== 'documents') {
+          for (const row of memories) {
+            if (!canSeeMemory(actor, row)) continue
+            const overlap = tokenOverlapScore(row.body, query)
+            if (overlap <= 0) continue
+            scored.push({
+              kind: 'memory',
+              id: row.id,
+              body: row.body,
+              version: row.version,
+              source_label: row.source_kind,
+              score:
+                overlap +
+                recencyBoost(row.updated_at || row.created_at) * 0.35 +
+                (MEMORY_TYPE_BOOST[row.memory_type] ?? 0),
+            })
+          }
+        }
+        if (focus !== 'memory') {
+          for (const row of documents) {
+            if (!canSeeDocument(actor, row)) continue
+            const overlap = tokenOverlapScore(`${row.title} ${row.body} ${row.source_label}`, query)
+            if (overlap <= 0) continue
+            scored.push({
+              kind: 'document',
+              id: row.id,
+              title: row.title,
+              body: row.body,
+              version: row.version,
+              source_label: row.source_label,
+              score: overlap + recencyBoost(row.published_at) * 0.3 + 0.12,
+            })
+          }
+        }
+        scored.sort((a, b) => b.score - a.score)
+        const hits = scored.slice(0, 5).map(({ score: _score, ...hit }) => hit)
 
         // Pedido explícito de otro proyecto: denegación opaca sin filtrar hits visibles.
-        if (/\b(otro proyecto|otra org|organizacion b|org b)\b/i.test(query) && memHits.length === 0 && docHits.length === 0) {
+        if (/\b(otro proyecto|otra org|organizacion b|org b)\b/i.test(query) && hits.length === 0) {
           return { ok: true, hits: [], denied: true }
         }
-        return { ok: true, hits: [...memHits, ...docHits].slice(0, 5), denied: false }
+        return { ok: true, hits, denied: false }
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : 'memory_store_error' }
       }
@@ -197,19 +289,39 @@ export async function saveUserMemory(
     return { ok: false, error: 'La memoria es demasiado breve para aportar contexto operativo.' }
   }
   try {
+    const contentHash = hashBody(cleaned)
+    const temporal =
+      /\b(hoy|esta (?:manana|tarde|noche|semana)|por ahora|solo (?:hoy|esta vez)|temporal)\b/i.test(cleaned)
+    const expiresAt = temporal
+      ? new Date(Date.now() + 7 * 86_400_000).toISOString()
+      : null
+
     const { data: existing } = await supabase
       .from('agent_memory')
-      .select('id,body,version')
+      .select('id,body,version,content_hash')
       .eq('usuario_id', actor.usuarioId)
       .eq('validation_status', 'confirmed')
       .eq('access_level', 'owner')
       .order('updated_at', { ascending: false })
       .limit(40)
 
-    const match = (Array.isArray(existing) ? existing : []).find(
-      (row: { id: string; body: string; version: number }) =>
-        overlapsTopic(row.body, cleaned)
-    ) as { id: string; body: string; version: number } | undefined
+    const rows = (Array.isArray(existing) ? existing : []) as Array<{
+      id: string
+      body: string
+      version: number
+      content_hash: string
+    }>
+    const hashMatch = rows.find((row) => row.content_hash === contentHash)
+    if (hashMatch) {
+      return {
+        ok: true,
+        id: hashMatch.id,
+        version: hashMatch.version,
+        supersededId: null,
+        body: cleaned,
+      }
+    }
+    const match = rows.find((row) => overlapsTopic(row.body, cleaned))
 
     const now = new Date().toISOString()
     let supersededId: string | null = null
@@ -233,11 +345,12 @@ export async function saveUserMemory(
         body: cleaned,
         source_kind: 'manual',
         source_ref: input.sourceRef ? input.sourceRef.slice(0, 120) : 'chat',
-        content_hash: hashBody(cleaned),
+        content_hash: contentHash,
         validation_status: 'confirmed',
         access_level: 'owner',
         version: nextVersion,
         supersedes_id: supersededId,
+        expires_at: expiresAt,
         confirmed_by: actor.usuarioId,
         confirmed_at: now,
       })
@@ -263,7 +376,7 @@ export async function forgetUserMemory(
   supabase: SupabaseClient,
   actor: MemoryActor,
   query: string
-): Promise<{ ok: true; count: number; bodies: string[] } | { ok: false; error: string }> {
+): Promise<{ ok: true; count: number; bodies: string[]; ids: string[] } | { ok: false; error: string }> {
   try {
     const { data: existing, error } = await supabase
       .from('agent_memory')
@@ -276,7 +389,7 @@ export async function forgetUserMemory(
     if (error) return { ok: false, error: error.message }
     const rows = (Array.isArray(existing) ? existing : []) as Array<{ id: string; body: string }>
     const targets = rows.filter((r) => matchesQuery(r.body, query) || overlapsTopic(r.body, query))
-    if (targets.length === 0) return { ok: true, count: 0, bodies: [] }
+    if (targets.length === 0) return { ok: true, count: 0, bodies: [], ids: [] }
 
     const now = new Date().toISOString()
     const ids = targets.map((t) => t.id)
@@ -286,7 +399,7 @@ export async function forgetUserMemory(
       .in('id', ids)
       .eq('usuario_id', actor.usuarioId)
     if (updErr) return { ok: false, error: updErr.message }
-    return { ok: true, count: targets.length, bodies: targets.map((t) => t.body) }
+    return { ok: true, count: targets.length, bodies: targets.map((t) => t.body), ids }
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'memory_delete_failed' }
   }
@@ -304,12 +417,21 @@ export async function loadMemoryPromptBlock(
 ): Promise<string> {
   try {
     const store = await loadSupabaseMemoryStore(supabase)
+    const forgetTurn = /\b(olvida|borra(?:\s+de)?(?:\s+la)?\s+memoria|elimina(?:\s+la)?\s+(?:memoria|regla|preferencia|acuerdo))\b/i.test(
+      query
+    )
     const recalled = store.recall(actor, query)
     const hits = recalled.ok && !recalled.denied ? recalled.hits : []
     const seen = new Set(hits.map((h) => h.id))
 
-    const standingMemories = store.memories
+    const standingMemories = forgetTurn
+      ? []
+      : store.memories
       .filter((row) => canSeeMemory(actor, row) && !seen.has(row.id))
+      .sort(
+        (a, b) =>
+          Date.parse(b.updated_at || b.created_at) - Date.parse(a.updated_at || a.created_at)
+      )
       .slice(0, 6)
       .map((row) => ({
         kind: 'memory' as const,
@@ -333,5 +455,119 @@ export async function loadMemoryPromptBlock(
     ].join('\n')
   } catch {
     return ''
+  }
+}
+
+function slugLogicalId(raw: string) {
+  const slug = foldText(raw)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+  return slug || 'documento'
+}
+
+export async function listDocuments(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('agent_documents')
+    .select(
+      'id,logical_id,title,body,version,status,access_level,area_id,content_hash,source_label,published_at,withdrawn_at'
+    )
+    .order('published_at', { ascending: false, nullsFirst: false })
+    .limit(80)
+  if (error) return { ok: false as const, error: error.message }
+  return { ok: true as const, documents: (Array.isArray(data) ? data : []) as AgentDocumentRow[] }
+}
+
+export async function publishDocument(
+  supabase: SupabaseClient,
+  input: { title: string; body: string; sourceLabel: string; logicalId?: string }
+) {
+  const title = input.title.replace(/\s+/g, ' ').trim().slice(0, 200)
+  const body = input.body.replace(/\r\n/g, '\n').trim().slice(0, 32_768)
+  const sourceLabel = input.sourceLabel.replace(/\s+/g, ' ').trim().slice(0, 120) || 'sop'
+  if (title.length < 3 || body.length < 12) {
+    return { ok: false as const, error: 'Indica un título y un cuerpo suficientes para el procedimiento.' }
+  }
+  const logicalId = slugLogicalId(input.logicalId || title)
+  const now = new Date().toISOString()
+  try {
+    const { data: existing, error: existingError } = await supabase
+      .from('agent_documents')
+      .select('id,version,status')
+      .eq('logical_id', logicalId)
+      .order('version', { ascending: false })
+      .limit(20)
+    if (existingError) return { ok: false as const, error: existingError.message }
+    const rows = (Array.isArray(existing) ? existing : []) as Array<{ id: string; version: number; status: string }>
+    const publishedIds = rows.filter((row) => row.status === 'published').map((row) => row.id)
+    if (publishedIds.length) {
+      await supabase
+        .from('agent_documents')
+        .update({ status: 'withdrawn', withdrawn_at: now })
+        .in('id', publishedIds)
+    }
+    const version = (rows[0]?.version ?? 0) + 1
+    const { data: inserted, error } = await supabase
+      .from('agent_documents')
+      .insert({
+        logical_id: logicalId,
+        title,
+        body,
+        version,
+        status: 'published',
+        access_level: 'project_read',
+        area_id: null,
+        content_hash: hashBody(`${title}\n${body}`),
+        source_label: sourceLabel,
+        published_at: now,
+        withdrawn_at: null,
+      })
+      .select(
+        'id,logical_id,title,body,version,status,access_level,area_id,content_hash,source_label,published_at,withdrawn_at'
+      )
+      .single()
+    if (error || !inserted) return { ok: false as const, error: error?.message ?? 'No se pudo publicar el documento.' }
+    return { ok: true as const, document: inserted as AgentDocumentRow }
+  } catch (error) {
+    return { ok: false as const, error: error instanceof Error ? error.message : 'document_publish_failed' }
+  }
+}
+
+export async function withdrawDocument(supabase: SupabaseClient, logicalIdRaw: string) {
+  const logicalId = slugLogicalId(logicalIdRaw)
+  const now = new Date().toISOString()
+  try {
+    const { data, error } = await supabase
+      .from('agent_documents')
+      .update({ status: 'withdrawn', withdrawn_at: now })
+      .eq('logical_id', logicalId)
+      .eq('status', 'published')
+      .select('id,logical_id,version')
+    if (error) return { ok: false as const, error: error.message }
+    return { ok: true as const, count: Array.isArray(data) ? data.length : 0, logicalId }
+  } catch (error) {
+    return { ok: false as const, error: error instanceof Error ? error.message : 'document_withdraw_failed' }
+  }
+}
+
+export async function recallDocumentsFts(supabase: SupabaseClient, query: string): Promise<AgentDocumentRow[]> {
+  const q = query.replace(/\s+/g, ' ').trim().slice(0, 240)
+  if (!q) return []
+  try {
+    const { data, error } = await supabase.rpc('recall_agent_documents', { q })
+    if (error || !Array.isArray(data)) return []
+    return data as AgentDocumentRow[]
+  } catch {
+    return []
+  }
+}
+
+export async function mergeFtsDocumentHits(store: MemoryStore, supabase: SupabaseClient, query: string) {
+  const rows = await recallDocumentsFts(supabase, query)
+  const seen = new Set(store.documents.map((row) => row.id))
+  for (const row of rows) {
+    if (seen.has(row.id)) continue
+    store.documents.push(row)
+    seen.add(row.id)
   }
 }

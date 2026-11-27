@@ -13,6 +13,18 @@ export type PilotAllowlistState = {
   usuarioIds: string[]
   users: PilotAllowlistUser[]
   envLocks: { r2: boolean; whatsapp: boolean; r3: boolean }
+  capabilities?: {
+    r2Mode: string
+    r2Pilot: boolean
+    whatsappPilot: boolean
+    r3: boolean
+    proactiveEnabled: boolean
+  }
+  channels?: {
+    web: boolean
+    whatsappPilot: boolean
+    whatsappGlobal: boolean
+  }
 }
 
 async function parse(response: Response) {

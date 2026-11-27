@@ -5,7 +5,7 @@ import {
   requireAssistantAuth,
 } from './assistantAuth.js'
 import { todayWallClockCDMX } from '../../src/lib/dateUtils.js'
-import { buildProactiveCandidates, decideDryRun, prefsFromRow } from './proactivePlanner.js'
+import { buildProactiveCandidates, decideDryRun, decideGroupedDryRun, prefsFromRow } from './proactivePlanner.js'
 
 export async function handleProactivePlanner(req: VercelRequestLike, res: JsonResponse) {
   try {
@@ -56,7 +56,9 @@ export async function handleProactivePlanner(req: VercelRequestLike, res: JsonRe
       .select('dedupe_key')
       .gte('created_at', `${today}T00:00:00.000Z`)
     const sentKeys = new Set((logs ?? []).map((row) => String(row.dedupe_key)))
-    const decided = decideDryRun(candidates, prefsByUser, sentKeys, new Date().toISOString())
+    const nowIso = new Date().toISOString()
+    const decided = decideDryRun(candidates, prefsByUser, sentKeys, nowIso)
+    const grouped = decideGroupedDryRun(candidates, prefsByUser, sentKeys, nowIso)
 
     const rows = decided.slice(0, 80).map(({ candidate, decision }) => ({
       usuario_id: candidate.usuarioId,
@@ -74,8 +76,18 @@ export async function handleProactivePlanner(req: VercelRequestLike, res: JsonRe
       insertedJobs: 0,
       candidates: candidates.length,
       evaluated: decided.length,
-      wouldSend: decided.filter((d) => d.decision.allowed).length,
+      wouldSend: grouped.filter((row) => row.digest.allowed).length,
+      wouldSendItems: decided.filter((d) => d.decision.allowed).length,
       logged: rows.length,
+      grouped: grouped.slice(0, 40).map(({ usuarioId, missingConsent, digest }) => ({
+        usuarioId,
+        missingConsent,
+        allowed: digest.allowed,
+        includedCount: digest.includedCount,
+        suppressedCount: digest.suppressedCount,
+        suppressedReasons: [...new Set(digest.suppressedReasons)],
+        preview: digest.bodyText,
+      })),
     })
   } catch (error) {
     console.error('whatsapp-proactive-planner', error)

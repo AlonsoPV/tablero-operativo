@@ -37,6 +37,25 @@ describe('guide session clock', () => {
     expect(closed.remaining_seconds).toBe(30)
   })
 
+  it('simulates a 180s close without calling Retell: conversation → closing → final_close', () => {
+    const expiresAt = '2026-11-27T17:15:00.000Z'
+    const tConversation = Date.parse('2026-11-27T17:11:59.000Z')
+    const tClosing = Date.parse('2026-11-27T17:12:00.000Z')
+    const tFinal = Date.parse('2026-11-27T17:14:00.000Z')
+    expect(remainingSecondsUntil(expiresAt, tConversation)).toBe(181)
+    expect(clockPhaseOf(181, 'active')).toBe('conversation')
+    expect(clockPhaseOf(remainingSecondsUntil(expiresAt, tClosing), 'active')).toBe('closing')
+    expect(clockPhaseOf(60, 'active')).toBe('final_close')
+    const closing = clockStateFromSession({ status: 'active', expires_at: expiresAt }, tClosing)
+    expect(closing.phase).toBe('closing')
+    expect(closing.must_close).toBe(false)
+    expect(closing.found).toBe(true)
+    const lastMinute = clockStateFromSession({ status: 'active', expires_at: expiresAt }, tFinal)
+    expect(lastMinute.phase).toBe('final_close')
+    expect(lastMinute.must_close).toBe(true)
+    expect(lastMinute.remaining_seconds).toBe(60)
+  })
+
   it('reads session_id from args string, metadata or dynamic variables', () => {
     expect(
       sessionIdFromRetellBody({

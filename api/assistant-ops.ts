@@ -1,5 +1,6 @@
 import { defineApiHandler, readRequestBody } from './_shared/http.js'
 import { handlePilotAllowlist } from './_shared/assistantPilotAllowlistHandler.js'
+import { handleR3Documents } from './_shared/assistantDocumentsHandler.js'
 import { handleProactivePlanner } from './_shared/whatsappProactivePlannerHandler.js'
 import { checkAssistantRateLimit, createServiceRoleClient, requireAssistantAuth } from './_shared/assistantAuth.js'
 import { cancelPendingOp, confirmPendingOp, editActionEmailPendingOp, r2OptionsFromServerEnv } from './_shared/assistantOpsRuntime.js'
@@ -23,6 +24,7 @@ export default defineApiHandler(async (req, res) => {
   const op = readOp(req)
   if (op === 'pilot-allowlist') return handlePilotAllowlist(req, res)
   if (op === 'proactive-planner') return handleProactivePlanner(req, res)
+  if (op === 'r3-documents') return handleR3Documents(req, res)
 
   try {
     const auth = await requireAssistantAuth(req, { requireAiModule: true })

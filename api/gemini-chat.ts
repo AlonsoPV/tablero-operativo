@@ -97,7 +97,7 @@ export default defineApiHandler(async (req, res) => {
 
     if (!apiKey) {
       return res.status(500).json({
-        error: 'Falta configurar GEMINI_API_KEY en variables de entorno.',
+        error: 'El modelo de conocimiento general no está configurado en este entorno. No puedo explicar metodologías ni inventar la respuesta.',
       })
     }
 
@@ -304,7 +304,7 @@ export default defineApiHandler(async (req, res) => {
         if (isGeminiCapacityStatus(status)) {
           return res.status(503).json({
             error:
-              'El proveedor de IA está saturado. Tu pregunta se conservó; puedes reintentar sin perder la conversación.',
+              'El modelo de conocimiento general no está accesible ahora (proveedor saturado). No invento la explicación; reintenta en un momento.',
             retryable: true,
           })
         }
@@ -376,7 +376,8 @@ export default defineApiHandler(async (req, res) => {
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       return res.status(504).json({
-        error: 'Gemini tardo demasiado en responder. Intenta de nuevo con una pregunta mas concreta.',
+        error:
+          'El modelo de conocimiento general no está accesible ahora (tiempo de espera). No invento la explicación; reintenta con una pregunta más concreta.',
       })
     }
 
@@ -388,7 +389,8 @@ export default defineApiHandler(async (req, res) => {
     console.error('AI assistant error:', error)
 
     return res.status(500).json({
-      error: 'Ocurrio un error inesperado al procesar la solicitud.',
+      error:
+        'El modelo de conocimiento general no está accesible ahora. No invento la explicación; reintenta en un momento.',
     })
   }
 })

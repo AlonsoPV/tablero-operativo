@@ -39,6 +39,11 @@ export async function handlePilotAllowlist(req: VercelRequestLike, res: JsonResp
       const { data: users } = ids.length
         ? await admin.from('usuarios').select('id,nombre,email,activo').in('id', ids)
         : { data: [] }
+      const { data: followup } = await admin
+        .from('whatsapp_followup_settings')
+        .select('proactive_enabled')
+        .eq('id', 'default')
+        .maybeSingle()
       return res.status(200).json({
         enabled: gate?.enabled === true,
         projectRef: gate?.project_ref ?? null,
@@ -48,6 +53,18 @@ export async function handlePilotAllowlist(req: VercelRequestLike, res: JsonResp
           r2: Boolean(process.env.R2_PILOT_USERS?.trim()),
           whatsapp: Boolean(process.env.WHATSAPP_ORCHESTRATOR_PILOT_USERS?.trim()),
           r3: Boolean(process.env.AGENT_MEMORY_R3_PILOT_USERS?.trim()),
+        },
+        capabilities: {
+          r2Mode: process.env.R2_EXECUTION_MODE || 'off',
+          r2Pilot: process.env.R2_EXECUTION_MODE === 'pilot',
+          whatsappPilot: process.env.WHATSAPP_PILOT_ENABLED === '1',
+          r3: process.env.AGENT_MEMORY_R3 === '1',
+          proactiveEnabled: followup?.proactive_enabled === true,
+        },
+        channels: {
+          web: true,
+          whatsappPilot: process.env.WHATSAPP_PILOT_ENABLED === '1',
+          whatsappGlobal: process.env.WHATSAPP_GLOBAL_ORCHESTRATOR_ENABLED === '1',
         },
       })
     }

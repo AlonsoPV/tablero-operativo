@@ -9,7 +9,8 @@ import type { AssistantUiPayload } from '@/features/ai-support/chatViews/types'
 import { sliceContextForIntent } from '@/features/ai-support/operationalContext/sliceContextForIntent'
 import { buildOperationalSnapshot } from '@/features/ai-support/operationalContext/buildOperationalSnapshot'
 import { detectAssistantIntent } from '@/features/ai-support/operationalContext/detectAssistantIntent'
-import { resolveAssistantTurn } from './answerConsultation'
+import { tryKnowledgeReply } from '@/features/ai-support/knowledge/tryKnowledgeReply'
+import { answerConsultation, resolveAssistantTurn } from './answerConsultation'
 
 function action(
   partial: Partial<AccionDiaria> & Pick<AccionDiaria, 'id' | 'titulo_accion' | 'responsable'>
@@ -137,6 +138,13 @@ function ask(message: string, data = snapshot(), prior: string[] = []) {
 }
 
 describe('consulta integral del asistente', () => {
+  it('1b · BPMN/SIPOC/Lean no se contestan con la lista cerrada local', () => {
+    expect(answerConsultation({ message: '¿Qué es BPMN?', snapshot: snapshot() })).toBeNull()
+    expect(answerConsultation({ message: '¿Qué es SIPOC?', snapshot: snapshot() })).toBeNull()
+    expect(answerConsultation({ message: 'Explica Lean Six Sigma', snapshot: snapshot() })).toBeNull()
+    expect(tryKnowledgeReply('¿Qué es PMBOK?')).toBeNull()
+  })
+
   it('1 · «¿Qué es un OKR?» explica y no renderiza tarjetas', () => {
     expect(detectAssistantIntent('¿Qué es un OKR?')).toBe('concept')
     const turn = ask('¿Qué es un OKR?')

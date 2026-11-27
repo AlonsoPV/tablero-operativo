@@ -32,7 +32,7 @@ const BASE_PREFS: ProactiveUserPreferences = {
 describe('WhatsApp First — B1 conversational intents', () => {
   const cases: Array<[string, string]> = [
     ['¿Qué tengo pendiente hoy?', 'query_actions'],
-    ['¿Qué está bloqueando a mi equipo?', 'query_actions'],
+    ['¿Qué está bloqueando a mi equipo?', 'executive_brief'],
     ['¿Quién tiene acciones vencidas?', 'aggregate_execution'],
     ['¿Qué objetivos están en riesgo?', 'analyze_risk'],
     ['¿Qué necesita mi atención?', 'executive_brief'],

@@ -183,7 +183,10 @@ export function classifyConsultation(
 
 /** El turno se responde con el snapshot o con una explicación, sin llamar al modelo ni a tools. */
 export function shouldAnswerConsultation(turn: ConsultationTurn, message: string): boolean {
-  if (turn.kind === 'concept') return true
+  if (turn.kind === 'concept') {
+    // Glosario local solo para términos del producto. BPMN/SIPOC/Lean/etc. van a Gemini.
+    return turn.topic !== 'general'
+  }
   if (turn.kind === 'management') return false
   if (isWhoLags(message) || isMethodQuestion(message)) return true
   const text = normalizeConsultationText(message)
