@@ -196,6 +196,7 @@ export default defineApiHandler(async (req, res) => {
           focusedActionIds: (Array.isArray(actionContext) ? actionContext : actionContext ? [actionContext] : []).map(item => (item as { id?: unknown }).id),
           sessionId: webSessionId(conversationId, requestId),
           utterance: lastUserMessage,
+          priorAssistantText: previousReply || undefined,
           responseFormat,
         })
         if (turn.handled) {

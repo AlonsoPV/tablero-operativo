@@ -230,6 +230,21 @@ describe('SCRUMBAN — Contextual Intelligence & Tool Composition (20 escenarios
     expect(text).toContain('Confirmar envío | Editar | Cancelar')
   })
 
+  it('1b. One-shot: revisa pendientes de Gerardo, identifica urgentes y prepara WhatsApp', async () => {
+    const { res, text } = await ask(
+      'Revisa los pendientes de Gerardo, identifica los más importantes y prepara un WhatsApp con lo que debe atender hoy.'
+    )
+    expect(res.intent).toBe('write_request')
+    expect(res.communicationProposal?.recipients[0]?.recipientName).toBe('Gerardo Puga')
+    const msg = res.communicationProposal?.recipients[0]?.messageBody ?? ''
+    expect(msg).toContain('Hola Gerardo,')
+    expect(msg).toMatch(/Cerrar conciliación de entregas|Validar orden de refacciones críticas/)
+    expect(msg).not.toContain('Auditar rutas de distribución norte')
+    expect(text).not.toMatch(/¿A quién/i)
+    expect(text).toMatch(/Gerardo Puga/)
+    expect(res.communicationProposal?.channel).toBe('whatsapp')
+  })
+
   it('2. Mándale a Gerardo sus pendientes', async () => {
     const { res } = await ask('Mándale a Gerardo sus pendientes')
     const msg = res.communicationProposal?.recipients[0]?.messageBody ?? ''

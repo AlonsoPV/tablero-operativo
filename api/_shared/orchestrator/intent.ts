@@ -88,7 +88,7 @@ export type AgentIntent =
       draftOnly?: boolean
       contextualComm?: boolean
       contenido?: string
-      batch?: 'commitments' | 'decisions'
+      batch?: 'commitments' | 'decisions' | 'advisory_plan'
     }
   | { kind: 'communication_action'; action: 'edit' | 'confirm' | 'cancel'; utterance: string }
   | { kind: 'review_pending'; target: 'action' | 'communication' | 'unspecified'; recipientHint?: string }
@@ -560,7 +560,12 @@ export function classifyAgentIntent(
     /\b(plan|propuesta|recomendacion(?:es)?|estrategia|pasos)\b/.test(text) &&
     /\b(acciones|tareas)\b/.test(text)
   ) {
-    return { kind: 'unknown' }
+    return {
+      kind: 'write_request',
+      operation: 'create_action',
+      request,
+      batch: 'advisory_plan',
+    }
   }
   if (/\b(convierte(?:lo|la)?|transforma(?:lo|la)?)\b/.test(text) && /\b(accion|tarea)\b/.test(text)) {
     return { kind: 'write_request', operation: 'create_action', request }
@@ -573,6 +578,7 @@ export function classifyAgentIntent(
       canal: /\b(correo|mail|email)\b/.test(text) ? 'email' : 'whatsapp',
       draftOnly: true,
       contextualComm: true,
+      ...(extractPersonHint(text) ? { recipientHint: extractPersonHint(text) } : {}),
     }
   }
   if (/\b(prepara|preparar|arma|armar)\b/.test(text) && /\b(seguimiento|aviso|recordatorio)\b/.test(text)) {

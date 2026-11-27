@@ -6,8 +6,11 @@ import { composeSystemPrompt } from '../../../src/lib/assistantPrompts.js'
 import { isAgentMemoryEnabled } from '../memory/flag.js'
 import { createMemoryStore } from '../memory/store.js'
 import { runAgentTurn } from './runAgentTurn.js'
-import { createR1Db, r1Actor, r1Store } from './testing/r1Fixture.js'
+import { createR1Db, r1Actor, r1Store, R1_USERS } from './testing/r1Fixture.js'
+import { createR2Db, r2Actor } from './testing/r2Fixture.js'
 import { dispatchCopilotTool } from '../assistantOpsRuntime.js'
+import { capabilityFingerprint } from '../query/actorCapabilities.js'
+import { createMemorySessionContextStore, emptySessionContext, sessionContextKey } from './sessionContext.js'
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -28,7 +31,44 @@ describe('SCRUMBAN Functional Gap Closure — Scenarios A, B, C, D', () => {
       classifyAgentIntent('¿Qué problemas deberíamos resolver primero?').kind
     )
     expect(classifyAgentIntent('Genera un plan.').kind).toBe('unknown')
-    expect(classifyAgentIntent('Convierte el plan en acciones.').kind).toBe('unknown')
+    const convert = classifyAgentIntent('Convierte el plan en acciones.')
+    expect(convert.kind).toBe('write_request')
+    if (convert.kind === 'write_request') {
+      expect(convert.operation).toBe('create_action')
+      expect(convert.batch).toBe('advisory_plan')
+    }
+  })
+
+  it('Escenario A5: convierte el plan en propuestas R2 pendientes sin escribir el tablero', async () => {
+    vi.stubEnv('R2_EXECUTION_MODE', 'simulated')
+    const db = createR2Db()
+    const store = createMemorySessionContextStore()
+    const actor = await r2Actor(db, R1_USERS.lead)
+    const before = db.tables.acciones_diarias!.length
+    await store.set(sessionContextKey(actor), {
+      ...emptySessionContext(),
+      fingerprint: capabilityFingerprint(actor.capabilities),
+      lastAdvisoryPlan: `1. Auditoría de inventario QA P0
+   Responsable: Laura Lider
+   Fecha límite: 2026-11-19
+2. Comparar conteo físico vs sistema
+   Responsable: Laura Lider
+   Fecha límite: 2026-11-19`,
+    })
+    const turn = await runAgentTurn(
+      { actor, utterance: 'Convierte el plan en acciones.' },
+      {
+        dispatch: (a, name, args) => dispatchCopilotTool(a, name, args),
+        store,
+        today: () => '2026-11-19',
+      }
+    )
+    expect(turn.handled).toBe(true)
+    expect(turn.intent).toBe('write_request')
+    expect((turn.proposals ?? []).length).toBeGreaterThanOrEqual(2)
+    expect(db.tables.assistant_pending_ops!.every((op) => op.status === 'pending')).toBe(true)
+    expect(db.tables.acciones_diarias).toHaveLength(before)
+    expect(turn.response.blocks.limitations.join(' ')).toMatch(/confirma/i)
   })
 
   it('Escenario B: "Hazlo más directo." edita tono y brevedad sin sobreescribir el mensaje con la instrucción literal', () => {

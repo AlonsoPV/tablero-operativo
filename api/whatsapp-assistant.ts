@@ -539,6 +539,7 @@ export default defineApiHandler(async (req, res) => {
               channel: 'whatsapp',
               sessionId: waId,
               utterance: transcript.slice(0, 2000),
+              priorAssistantText: [...recentHistory].reverse().find((m) => m.role === 'assistant')?.content,
             })
             if (turn.handled) {
               const mode = resolveR2ExecutionMode(process.env, usuarioId)
@@ -860,7 +861,9 @@ export default defineApiHandler(async (req, res) => {
       return res.status(400).json({ error: 'Falta el mensaje.' })
     }
 
+    const history = await loadHistory(supabase, waId, usuarioId)
     if (shouldUseWhatsAppOrchestrator(pilotIdentity)) {
+      const priorAssistantText = [...history].reverse().find((m) => m.role === 'assistant')?.content
       const turn = await runChannelTurn({
         identity: {
           supabase,
@@ -873,6 +876,7 @@ export default defineApiHandler(async (req, res) => {
         channel: 'whatsapp',
         sessionId: waId,
         utterance: text.slice(0, 2000),
+        priorAssistantText,
       })
       if (turn.handled) {
         const mode = resolveR2ExecutionMode(process.env, usuarioId)
@@ -919,7 +923,6 @@ export default defineApiHandler(async (req, res) => {
       }
     }
 
-    const history = await loadHistory(supabase, waId, usuarioId)
     const currentMessage = { role: 'user' as const, content: text.slice(0, 2000) }
     const lastMessage = history.at(-1)
     if (lastMessage?.role !== 'user' || lastMessage.content !== currentMessage.content) {

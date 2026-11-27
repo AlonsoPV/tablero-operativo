@@ -106,6 +106,8 @@ export async function runChannelTurn(
     channel: AgentChannel
     sessionId: string
     utterance: string
+    /** Última respuesta assistant del hilo (p. ej. un plan Gemini) para convertirla en acciones. */
+    priorAssistantText?: string
     /** Preferencia de formato del canal (selector web); se valida y sólo afecta la presentación. */
     responseFormat?: unknown
     /** Consulta activa persistida por el canal (p. ej. consult_log de voz) para rehidratar tras cold start. */
@@ -145,6 +147,20 @@ export async function runChannelTurn(
         now
       )
     }
+  }
+  const priorPlan = typeof input.priorAssistantText === 'string' ? input.priorAssistantText.trim().slice(0, 8000) : ''
+  if (priorPlan.length >= 40) {
+    const storedForPlan = await store.get(key, now)
+    const baseForPlan = storedForPlan?.fingerprint === actorFingerprint ? storedForPlan : emptySessionContext(now)
+    await store.set(
+      key,
+      {
+        ...baseForPlan,
+        fingerprint: actorFingerprint,
+        lastAdvisoryPlan: priorPlan,
+      },
+      now
+    )
   }
   const dispatch = overrides.dispatch ?? ((a, name, args) => dispatchCopilotTool(a, name, args))
   const focused = [...new Set((input.focusedActionIds ?? []).filter((id): id is string =>
