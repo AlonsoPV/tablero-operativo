@@ -111,7 +111,11 @@ import {
 } from './sessionContext.js'
 import { capabilityFingerprint } from '../query/actorCapabilities.js'
 import { isAgentMemoryEnabled } from '../memory/flag.js'
-import type { MemoryStore } from '../memory/store.js'
+import {
+  forgetUserMemory,
+  saveUserMemory,
+  type MemoryStore,
+} from '../memory/store.js'
 
 /** authz se evalúa dentro de cada handler, antes de consultar; query_interpret incluye ambas fases. */
 export type AgentStage = 'identity' | 'intent' | 'context' | 'query_interpret' | 'respond'
@@ -130,7 +134,7 @@ export type AgentTurnDeps = {
 
 function looksLikeMemoryAsk(text: string) {
   const n = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  return /\b(acordamos|acuerdo|procedimientos?|documentos?|documentacion|retomemos|ultima sesion|preferencia|politicas?|criterio|memoria|verificad\w*|cuando se considera|cuando se verifica)\b/.test(
+  return /\b(acordamos|acuerdo|procedimientos?|documentos?|documentacion|retomemos|ultima sesion|preferencia|politicas?|criterio|memoria|verificad\w*|cuando se considera|cuando se verifica|organiza\s+las\s+prioridades|proxima\s+semana)\b/.test(
     n
   )
 }
@@ -3174,6 +3178,71 @@ export async function runAgentTurn(
     case 'query_knowledge':
       outcome = handleQueryKnowledge(state, utterance, deps.memoryStore)
       break
+    case 'save_memory': {
+      const resp = baseResponse('ok')
+      if (!isAgentMemoryEnabled(process.env, state.actor.usuarioId)) {
+        resp.status = 'empty'
+        resp.blocks.data.push(
+          'La memoria persistente entre sesiones (R3) aún no está activa para tu usuario, así que no guardé esa regla en memoria.'
+        )
+        resp.blocks.limitations.push('R3 desactivado para este usuario (fail-closed).')
+        outcome = { response: resp, audit: { status: 'empty' } }
+        break
+      }
+      const memActor = {
+        usuarioId: state.actor.usuarioId,
+        canReadProject:
+          state.actor.capabilities.readAllOkrs || state.actor.capabilities.readCrossAreaExecution,
+        visibleAreaIds: [],
+      }
+      const saved = await saveUserMemory(state.actor.copilot.supabase, memActor, {
+        body: intent.body,
+        memoryType: intent.memoryType,
+        sourceRef: 'chat',
+      })
+      if (!saved.ok) {
+        resp.status = 'error'
+        resp.blocks.data.push(`No pude guardar esa memoria: ${saved.error}`)
+        outcome = { response: resp, audit: { status: 'error' } }
+        break
+      }
+      const verb = saved.supersededId ? 'Actualicé tu memoria operativa' : 'Guardé en tu memoria operativa'
+      const msg = `${verb}: «${saved.body}» (v${saved.version}). La tendré presente en próximas conversaciones.`
+      resp.blocks.data.push(msg)
+      withFacts(resp, { primary: { text: msg } })
+      outcome = { response: resp, audit: { status: 'ok' } }
+      break
+    }
+    case 'forget_memory': {
+      const resp = baseResponse('ok')
+      if (!isAgentMemoryEnabled(process.env, state.actor.usuarioId)) {
+        resp.status = 'empty'
+        resp.blocks.data.push('La memoria persistente (R3) no está activa para tu usuario.')
+        outcome = { response: resp, audit: { status: 'empty' } }
+        break
+      }
+      const memActor = {
+        usuarioId: state.actor.usuarioId,
+        canReadProject:
+          state.actor.capabilities.readAllOkrs || state.actor.capabilities.readCrossAreaExecution,
+        visibleAreaIds: [],
+      }
+      const res = await forgetUserMemory(state.actor.copilot.supabase, memActor, intent.query)
+      if (!res.ok) {
+        resp.status = 'error'
+        resp.blocks.data.push(`No pude actualizar tu memoria: ${res.error}`)
+        outcome = { response: resp, audit: { status: 'error' } }
+        break
+      }
+      const msg =
+        res.count > 0
+          ? `Eliminé ${res.count} registro(s) de tu memoria operativa relacionados con «${intent.query}».`
+          : `No encontré ninguna memoria activa relacionada con «${intent.query}».`
+      resp.blocks.data.push(msg)
+      withFacts(resp, { primary: { text: msg } })
+      outcome = { response: resp, audit: { status: 'ok' } }
+      break
+    }
     case 'unsupported_metric':
       outcome = await handleUnsupportedMetric(state)
       break

@@ -486,6 +486,16 @@ function resolveSingleRecipient(
         return { ok: true, user: null, displayName: singleAction.responsableNombre }
       }
     }
+    if (session?.lastActions && session.lastActions.length > 1) {
+      const distinctIds = Array.from(
+        new Set(session.lastActions.map((a) => a.responsableId).filter((id): id is string => Boolean(id)))
+      )
+      if (distinctIds.length === 1) {
+        const onlyId = distinctIds[0]!
+        const found = catalog.users.find((u) => u.id === onlyId && u.activo !== false)
+        if (found) return { ok: true, user: found, displayName: found.nombre }
+      }
+    }
     return { ok: false, kind: 'clarification', question: '¿A quién deseas enviar este mensaje?' }
   }
 
@@ -953,8 +963,14 @@ export function applyCommunicationEdit(
   utterance: string
 ): { updated: PendingCommunicationProposal; formattedText: string } {
   const cleaned = cleanSpaces(utterance)
+  const folded = norm(cleaned)
   const appendMatch = cleaned.match(/\b(?:agr[eé]gale|a[ñn][aá]dele|s[uú]male|ponle)\s+(?:que\s+)?(.+)$/i)
   const replaceMatch = cleaned.match(/\b(?:cambia(?:r)?|edita(?:r)?|ajusta(?:r)?)\s+(?:el\s+mensaje\s+)?(?:a|por|:)\s*(.+)$/i)
+  const isDirectOrShort =
+    /\b(hazlo\s+mas\s+(?:directo|corto|breve|claro)|mas\s+(?:directo|corto|breve|claro)|acorta(?:lo|la)?|simplifica(?:lo|la)?)\b/.test(
+      folded
+    )
+  const isFormalOrExec = /\b(hazlo\s+mas\s+(?:formal|ejecutivo)|mas\s+(?:formal|ejecutivo))\b/.test(folded)
 
   const nextRecipients = proposal.recipients.map((rec) => {
     let nextBody = rec.messageBody
@@ -963,6 +979,24 @@ export function applyCommunicationEdit(
       nextBody = `${rec.messageBody}\n${addition}.`
     } else if (replaceMatch?.[1]) {
       nextBody = sentenceCase(replaceMatch[1])
+    } else if (isDirectOrShort) {
+      const compactLines = rec.messageBody
+        .split('\n')
+        .map((line) =>
+          line
+            .replace(/^Hola\s+[^,]+,\s*/i, '')
+            .replace(/^(?:Por\s+favor,?\s*|Te\s+comparto\s+|¿Me\s+ayudas\s+a\s+|¿Me\s+compartes\s+)/i, '')
+            .replace(/\s*¿Me\s+confirmas[^?]*\??$/i, '')
+            .trim()
+        )
+        .filter(Boolean)
+      const firstName = rec.recipientName.split(/\s+/)[0] || rec.recipientName
+      nextBody = compactLines.length > 0
+        ? `${firstName}, prioridad inmediata:\n${compactLines.slice(0, 4).join('\n')}`
+        : rec.messageBody
+    } else if (isFormalOrExec) {
+      const bodyClean = rec.messageBody.replace(/^Hola\s+[^,]+,\s*/i, '').trim()
+      nextBody = `Estimado/a ${rec.recipientName},\n\n${sentenceCase(bodyClean)}\n\nAgradezco confirmar avance a la brevedad.`
     } else {
       nextBody = sentenceCase(cleaned)
     }

@@ -31,6 +31,8 @@ import type { CopilotProposal } from '../src/features/ai-support/copilot/types.j
 import { COPILOT_FUNCTION_DECLARATIONS, isCopilotReadTool } from '../src/features/ai-support/copilot/catalog.js'
 import { proposalFromPendingRow } from './_shared/assistantGoogleTools.js'
 import { runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
+import { isAgentMemoryEnabled } from './_shared/memory/flag.js'
+import { loadMemoryPromptBlock } from './_shared/memory/store.js'
 import {
   createSupabaseSessionContextStore,
   emptySessionContext,
@@ -308,12 +310,26 @@ async function runGeminiChat(input: {
     console.error('whatsapp-assistant board seed', error)
   }
 
+  const lastUserTurn = [...input.messages].reverse().find((m) => m.role === 'user')?.content ?? ''
+  const memoryBlock = isAgentMemoryEnabled(process.env, input.actor.usuarioId)
+    ? await loadMemoryPromptBlock(
+        input.actor.supabase,
+        {
+          usuarioId: input.actor.usuarioId,
+          canReadProject: input.actor.rol === 'Super Admin',
+          visibleAreaIds: [],
+        },
+        lastUserTurn
+      )
+    : ''
+
   const systemInstruction = [
     composeSystemPrompt('operativo', {
       hasBoardContext: true,
       hasOkrContext: true,
     }),
     WHATSAPP_CHANNEL_RULES,
+    ...(memoryBlock ? [memoryBlock] : []),
     boardSeed
       ? `RESUMEN INICIAL DEL TABLERO (JSON; datos de herramientas; no inventes fuera de esto ni de llamadas posteriores):\n${boardSeed}`
       : 'No se pudo precargar el resumen del tablero. Usa herramientas antes de responder cifras.',

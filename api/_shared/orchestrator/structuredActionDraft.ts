@@ -175,6 +175,7 @@ export function extractResponsablePatch(utterance: string): { self: boolean; hin
   if (named?.[1]) {
     const candidate = cleanSpaces(named[1])
       .replace(/\b(en|con|para|el|la|los|las|lo|de|del|que|una|un)\b.*$/i, '')
+      .replace(/[.,;:!?]+$/g, '')
       .trim()
     const bad = /^(el|la|los|las|lo|mi|mis|kanban|tablero|equipo|viernes|lunes|martes|miercoles|jueves|sabado|domingo|hoy|manana|prioridad|alta|media|baja|esta|esa|esto|una|un)$/i
     if (candidate.length >= 2 && !bad.test(norm(candidate))) {
@@ -316,7 +317,7 @@ export function extractActionPatch(utterance: string, today: string, isFollowUp:
         /^(?:que\s+se\s+encargue\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+)?\s+de\s+|dile\s+a\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+)?\s+que\s+(?:me\s+)?)/i,
         ''
       )
-      .replace(/^(?:hay\s+que|que\s+no\s+se\s+nos\s+olvide|ap[uú]ntalo\s+para|agr[eé]galo\s+al\s+kanban(?:\s*:|\s+para)?)\s+/i, '')
+      .replace(/^(?:necesito\s+que\s+(?:alguien\s+)?|hay\s+que|que\s+no\s+se\s+nos\s+olvide|ap[uú]ntalo\s+para|agr[eé]galo\s+al\s+kanban(?:\s*:|\s+para)?)\s+/i, '')
     const candidateTitle =
       explicitTitle ??
       (directLead !== cleanSpaces(strippedFiller) || instructionLead.test(strippedFiller)

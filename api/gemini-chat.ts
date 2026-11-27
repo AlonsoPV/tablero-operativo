@@ -22,6 +22,8 @@ import {
 import { buildAssistantUiFromToolResults } from '../src/features/ai-support/chatViews/buildViewsFromToolResults.js'
 import { isAgentOrchestratorEnabled, runChannelTurn, uiForTurn, webSessionId } from './_shared/orchestrator/channelAdapters.js'
 import { EMPTY_MODEL_TURN_MESSAGE } from './_shared/orchestrator/respond.js'
+import { isAgentMemoryEnabled } from './_shared/memory/flag.js'
+import { loadMemoryPromptBlock } from './_shared/memory/store.js'
 
 type GeminiContent = {
   role: 'user' | 'model'
@@ -159,11 +161,25 @@ export default defineApiHandler(async (req, res) => {
     const hasActionContext = Boolean(actionContext && typeof actionContext === 'object')
     const hasOkrContext = Boolean(okrContext && typeof okrContext === 'object')
     const hasBoardContext = Boolean(boardContext && typeof boardContext === 'object')
-    const systemInstruction = composeSystemPrompt(mode, {
+    const baseSystemInstruction = composeSystemPrompt(mode, {
       hasActionContext,
       hasOkrContext,
       hasBoardContext,
     })
+    const memoryBlock = isAgentMemoryEnabled(process.env, auth.usuarioId)
+      ? await loadMemoryPromptBlock(
+          auth.supabase,
+          {
+            usuarioId: auth.usuarioId,
+            canReadProject: auth.rol === 'Super Admin',
+            visibleAreaIds: [],
+          },
+          lastUserMessage
+        )
+      : ''
+    const systemInstruction = memoryBlock
+      ? `${baseSystemInstruction}\n\n${memoryBlock}`
+      : baseSystemInstruction
 
     if (isAgentOrchestratorEnabled() && lastUserMessage) {
       try {

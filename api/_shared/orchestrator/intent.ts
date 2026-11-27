@@ -34,6 +34,8 @@ export type AgentIntent =
       askOwner?: boolean
     }
   | { kind: 'query_knowledge'; focus: 'documents' | 'memory' | 'either' }
+  | { kind: 'save_memory'; body: string; memoryType: 'agreement' | 'decision' | 'preference' | 'follow_up' }
+  | { kind: 'forget_memory'; query: string }
   | { kind: 'query_delivery_status'; params: DeliveryStatusQueryParams }
   | {
       kind: 'aggregate_execution'
@@ -213,7 +215,10 @@ export function classifyAgentIntent(
     }
     const personEdit = extractResponsablePatch(cleanedUtterance).hint
     const channelEdit = /^(?:mejor\s+)?(?:por\s+)?(?:correo|mail|email|whatsapp)\b/.test(text)
-    const explicitEdit = /^(?:edita(?:r|la|lo)?|cambia(?:r|la|lo)?|pasa(?:r|la|lo)?|ajusta(?:r|la|lo)?|agregale|anadele|sumale|ponle que)\b/.test(text)
+    const explicitEdit =
+      /^(?:edita(?:r|la|lo)?|cambia(?:r|la|lo)?|pasa(?:r|la|lo)?|ajusta(?:r|la|lo)?|agregale|anadele|sumale|ponle que|hazlo\s+mas|mas\s+(?:directo|corto|breve|formal|ejecutivo|claro|amable)|acorta(?:lo|la)?|reescribe(?:lo|la)?|simplifica(?:lo|la)?)\b/.test(
+        text
+      )
     const independentRequest = /[?¿]/.test(utterance) || /^(?:crea|crear|registra|genera|consulta|muestra|lista|busca|revisa|que|como|cuant[oa]s?|cual|quien|donde|cuando)\b/.test(text)
     if (!independentRequest && (personEdit || channelEdit || explicitEdit)) {
       if (session.pendingWrite && personEdit && !/\b(mensaje|correo|whatsapp|destinatario)\b/.test(text)) {
@@ -231,6 +236,35 @@ export function classifyAgentIntent(
   const deliveryStatusParams = matchDeliveryStatusQuery(cleanedUtterance)
   if (deliveryStatusParams) {
     return { kind: 'query_delivery_status', params: deliveryStatusParams }
+  }
+
+  // Memoria operativa explícita R3 (guardar / actualizar / olvidar), sin interferir con borradores activos
+  if (!session?.pendingWrite && !session?.hasPendingCommunication) {
+    const forgetMatch = cleanedUtterance.match(
+      /^(?:olvida(?:\s+que)?|borra(?:\s+de\s+(?:la\s+)?memoria)?|elimina(?:\s+(?:la\s+)?(?:memoria|regla|preferencia|acuerdo)(?:\s+de|\s+que)?)?)\s+(.+)$/i
+    )
+    if (forgetMatch?.[1] && forgetMatch[1].trim().length >= 3) {
+      return { kind: 'forget_memory', query: forgetMatch[1].trim().slice(0, 300) }
+    }
+  }
+  const saveMemMatch = cleanedUtterance.match(
+    /^(?:recuerda(?:me)?|guarda(?:\s+en\s+(?:la\s+)?memoria)?|anota(?:\s+como\s+(?:regla|preferencia|acuerdo|decisi[oó]n|criterio))?|ten\s+en\s+cuenta|toma\s+nota(?:\s+de)?)\s+(?:que\s+)?(.+)$/i
+  )
+  if (
+    saveMemMatch?.[1] &&
+    !/[?¿]/.test(cleanedUtterance) &&
+    !/^(?:recuerdale|recuerdales)\b/i.test(text) &&
+    !/\b(accion|tarea|pendiente|whatsapp|correo|mail|email)\b/.test(text) &&
+    saveMemMatch[1].trim().length >= 8
+  ) {
+    const body = saveMemMatch[1].trim().replace(/[.]+$/, '')
+    const memoryType: 'agreement' | 'decision' | 'preference' | 'follow_up' =
+      /\b(acordamos|acuerdo)\b/.test(text)
+        ? 'agreement'
+        : /\b(decidimos|decision)\b/.test(text)
+          ? 'decision'
+          : 'preference'
+    return { kind: 'save_memory', body, memoryType }
   }
 
   if (isDocumentaryAsk(text)) {
@@ -520,6 +554,13 @@ export function classifyAgentIntent(
       request,
       batch: /\bdecisiones\b/.test(text) && !/\b(compromisos|acuerdos)\b/.test(text) ? 'decisions' : 'commitments',
     }
+  }
+  if (
+    /\b(convierte(?:lo|la)?|transforma(?:lo|la)?)\b/.test(text) &&
+    /\b(plan|propuesta|recomendacion(?:es)?|estrategia|pasos)\b/.test(text) &&
+    /\b(acciones|tareas)\b/.test(text)
+  ) {
+    return { kind: 'unknown' }
   }
   if (/\b(convierte(?:lo|la)?|transforma(?:lo|la)?)\b/.test(text) && /\b(accion|tarea)\b/.test(text)) {
     return { kind: 'write_request', operation: 'create_action', request }
