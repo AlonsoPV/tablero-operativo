@@ -47,6 +47,13 @@ describe('R3 · AGENT_MEMORY_R3 flag (R3-AT-18)', () => {
     expect(isAgentMemoryEnabled({ AGENT_MEMORY_R3: '0' })).toBe(false)
     expect(isAgentMemoryEnabled({ AGENT_MEMORY_R3: '' })).toBe(false)
     expect(isAgentMemoryEnabled({ AGENT_MEMORY_R3: '1' })).toBe(true)
+    const pilotId = 'dd764c9f-8145-45d4-9111-0a8ec7f687e5'
+    const otherId = 'f7e4b655-234c-4f81-abdb-a9c15ab8fd2c'
+    const pilotEnv = { AGENT_MEMORY_R3: '1', AGENT_MEMORY_R3_PILOT_USERS: pilotId }
+    expect(isAgentMemoryEnabled(pilotEnv, pilotId)).toBe(true)
+    expect(isAgentMemoryEnabled(pilotEnv, otherId)).toBe(false)
+    expect(isAgentMemoryEnabled(pilotEnv, null)).toBe(false)
+    expect(isAgentMemoryEnabled({ AGENT_MEMORY_R3: '1', AGENT_MEMORY_R3_PILOT_USERS: 'not-a-uuid' }, pilotId)).toBe(false)
   })
 })
 

@@ -165,7 +165,7 @@ export async function runChannelTurn(
       lastEntity: references.length === 1 ? { kind: 'action', id: references[0]!.id, label: references[0]!.title } : null }, now)
   }
   const memoryStore =
-    overrides.memoryStore ?? (isAgentMemoryEnabled() ? await loadSupabaseMemoryStore(input.identity.supabase) : undefined)
+    overrides.memoryStore ?? (isAgentMemoryEnabled(process.env, input.identity.usuarioId) ? await loadSupabaseMemoryStore(input.identity.supabase) : undefined)
   const result = await runAgentTurn(
     { actor, utterance: input.utterance, responseFormat: input.responseFormat },
     {
