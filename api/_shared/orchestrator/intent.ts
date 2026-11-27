@@ -223,7 +223,8 @@ export function classifyAgentIntent(
     }
   }
 
-  if (FINANCE.test(text) && /\b(cuant[oa]s?|monto|calcula|estima|impacto)\b|\$/.test(text)) {
+  const isGeneralConceptAsk = /^(?:que\s+es|que\s+significa|define|explica(?:me)?|como\s+(?:funciona|se\s+aplica|aplicar|mejorar))\b/.test(text)
+  if (!isGeneralConceptAsk && FINANCE.test(text) && /\b(cuant[oa]s?|monto|calcula|estima|impacto)\b|\$/.test(text)) {
     return { kind: 'unsupported_metric', domain: 'finance' }
   }
 

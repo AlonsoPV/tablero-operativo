@@ -2820,7 +2820,7 @@ function handleQueryKnowledge(
   memoryStore: MemoryStore | undefined
 ): { response: AgentResponse; audit: Partial<QueryAuditEntry> } {
   const response = baseResponse('ok')
-  if (!isAgentMemoryEnabled() || !memoryStore) {
+  if (!isAgentMemoryEnabled(process.env, state.actor.usuarioId) || !memoryStore) {
     response.status = 'empty'
     response.blocks.data.push(
       'No hay información documental suficiente para responder. No sustituyo documentos con OKRs ni con el tablero.'
@@ -3068,7 +3068,7 @@ export async function runAgentTurn(
 
   if (intent.kind === 'unknown') {
     if (
-      isAgentMemoryEnabled() &&
+      isAgentMemoryEnabled(process.env, actor.usuarioId) &&
       deps.memoryStore &&
       looksLikeMemoryAsk(utterance)
     ) {
@@ -3369,7 +3369,7 @@ export async function runAgentTurn(
   const explicitMemoryAsk = looksLikeMemoryAsk(utterance)
   if (
     intent.kind !== 'query_knowledge' &&
-    isAgentMemoryEnabled() &&
+    isAgentMemoryEnabled(process.env, actor.usuarioId) &&
     deps.memoryStore &&
     (explicitMemoryAsk ||
       intent.kind === 'executive_brief' ||
