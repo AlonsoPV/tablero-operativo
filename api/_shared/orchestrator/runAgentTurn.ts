@@ -788,7 +788,13 @@ async function handleRecommendNext(state: TurnState) {
   }
   if (pick.kind === 'ambiguous') {
     const response = baseResponse('clarification')
-    response.blocks.data.push(pick.clarification.question)
+    const optionLines = pick.clarification.options
+      .slice(0, 5)
+      .map((opt, idx) => `${idx + 1}. ${opt.label}`)
+      .join('\n')
+    response.blocks.data.push(
+      optionLines ? `${pick.clarification.question}\n${optionLines}` : pick.clarification.question
+    )
     return { response, clarification: pick.clarification, audit: { status: 'clarification' as const, entity: 'actions' } }
   }
   const action = pick.action

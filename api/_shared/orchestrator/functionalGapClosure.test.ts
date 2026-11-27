@@ -32,6 +32,14 @@ describe('SCRUMBAN Functional Gap Closure — Scenarios A, B, C, D', () => {
   })
 
   it('Escenario B: "Hazlo más directo." edita tono y brevedad sin sobreescribir el mensaje con la instrucción literal', () => {
+    const gerardoQuery = classifyAgentIntent('¿Qué tiene pendiente Gerardo?')
+    expect(gerardoQuery.kind).toBe('query_actions')
+    if (gerardoQuery.kind === 'query_actions') {
+      expect(gerardoQuery.personHint).toBe('gerardo')
+      expect(gerardoQuery.scope).toBe('board_authorized')
+    }
+    expect(classifyAgentIntent('Identifica lo más urgente.').kind).toBe('recommend_next')
+
     const intent = classifyAgentIntent('Hazlo más directo.', undefined, {
       hasPendingCommunication: true,
     })

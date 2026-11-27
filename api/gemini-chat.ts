@@ -33,7 +33,7 @@ type GeminiContent = {
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
 const DEFAULT_MAX_OUTPUT_TOKENS = 700
 const DEFAULT_TEMPERATURE = 0.25
-const DEFAULT_TIMEOUT_MS = 20000
+const DEFAULT_TIMEOUT_MS = 45000
 const MAX_RAW_MESSAGES = 24
 const RATE_LIMIT = 40
 const RATE_WINDOW_MS = 60_000
@@ -237,7 +237,7 @@ export default defineApiHandler(async (req, res) => {
       maxOutputTokens: readNumberEnv('GEMINI_MAX_TOKENS', DEFAULT_MAX_OUTPUT_TOKENS),
       temperature: readNumberEnv('GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE),
     }
-    const timeoutMs = Math.min(readNumberEnv('GEMINI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS), 24_000)
+    const timeoutMs = Math.min(readNumberEnv('GEMINI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS), 52_000)
     const contents = toGeminiContents(cleanMessages)
     const actor = {
       supabase: auth.supabase,
