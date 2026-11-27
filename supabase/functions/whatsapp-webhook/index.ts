@@ -1675,6 +1675,7 @@ function isEdgeWhatsAppPilotAllowed(input: {
   waId: string
   active: boolean
   aiAuthorized: boolean
+  dbAllowlist?: Set<string> | null
 }): boolean {
   if (!EDGE_PILOT_UUID_RE.test(input.usuarioId.trim())) return false
   if (input.active !== true || input.aiAuthorized !== true) return false
@@ -1686,15 +1687,46 @@ function isEdgeWhatsAppPilotAllowed(input: {
 
   if (pilotEnabled) {
     if (allowlist.size === 0) return false
-    if (allowlist.uuids.has(input.usuarioId.trim().toLowerCase())) return true
-    const digits = input.waId.replace(/\D+/g, '')
-    return Boolean(digits.length >= 10 && digits.length <= 15 && allowlist.phones.has(digits))
+    const inEnv =
+      allowlist.uuids.has(input.usuarioId.trim().toLowerCase()) ||
+      Boolean(
+        input.waId.replace(/\D+/g, '').length >= 10 &&
+          input.waId.replace(/\D+/g, '').length <= 15 &&
+          allowlist.phones.has(input.waId.replace(/\D+/g, ''))
+      )
+    if (!inEnv) return false
+    if (input.dbAllowlist) {
+      if (input.dbAllowlist.size === 0) return false
+      if (!input.dbAllowlist.has(input.usuarioId.trim().toLowerCase())) return false
+    }
+    return true
   }
 
   const globalEnabled =
     Deno.env.get('WHATSAPP_GLOBAL_ORCHESTRATOR_ENABLED') === '1' &&
     Deno.env.get('AGENT_ORCHESTRATOR_R1') === '1'
   return globalEnabled && allowlist.size === 0
+}
+
+async function loadEdgeDbAllowlist(
+  supabase: ReturnType<typeof adminClient>
+): Promise<Set<string> | null> {
+  try {
+    const { data, error } = await supabase
+      .from('agent_execution_gate')
+      .select('allowed_usuario_ids')
+      .eq('id', true)
+      .maybeSingle()
+    if (error || !data) return null
+    const raw = Array.isArray(data.allowed_usuario_ids) ? data.allowed_usuario_ids : []
+    return new Set(
+      raw
+        .map((id) => String(id).trim().toLowerCase())
+        .filter((id) => EDGE_PILOT_UUID_RE.test(id))
+    )
+  } catch {
+    return null
+  }
 }
 
 async function isActiveUsuarioEdge(
@@ -1760,6 +1792,7 @@ function isVoiceNotesAllowedForUser(input: {
   waId: string
   active: boolean
   aiAuthorized: boolean
+  dbAllowlist?: Set<string> | null
 }): boolean {
   if (Deno.env.get('WHATSAPP_VOICE_NOTES_ENABLED') !== '1') return false
   if (!isEdgeWhatsAppPilotAllowed(input)) return false
@@ -2896,6 +2929,7 @@ async function processWhatsAppPayload(payload, supabase) {
           let prefetchedCanUseAi: boolean | null = null
           let prefetchedUserActive: boolean | null = null
           let voiceNotesForUser = false
+          const dbAllowlist = await loadEdgeDbAllowlist(supabase)
           if (
             message.type === 'audio' &&
             Deno.env.get('WHATSAPP_VOICE_NOTES_ENABLED') === '1'
@@ -2911,6 +2945,7 @@ async function processWhatsAppPayload(payload, supabase) {
                 waId,
                 active: prefetchedUserActive,
                 aiAuthorized: prefetchedCanUseAi,
+                dbAllowlist,
               })
             }
           }
@@ -3041,6 +3076,7 @@ async function processWhatsAppPayload(payload, supabase) {
                 waId,
                 active: userActive,
                 aiAuthorized: canUseAi,
+                dbAllowlist,
               })
             }
             agentSessionActive = canUseAi

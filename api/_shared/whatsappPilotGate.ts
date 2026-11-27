@@ -75,14 +75,21 @@ function isValidActiveAuthorizedIdentity(identity: WhatsAppPilotIdentity): boole
 
 export function isUserInWhatsAppPilot(
   identity: WhatsAppPilotIdentity,
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  dbAllowlist: Set<string> | null = null
 ): boolean {
   if (!isValidActiveAuthorizedIdentity(identity)) return false
   const allowlist = parsePilotAllowlist(env.WHATSAPP_ORCHESTRATOR_PILOT_USERS)
   if (allowlist.size === 0) return false
-  if (allowlist.uuids.has(identity.usuarioId.trim().toLowerCase())) return true
-  const digits = normalizePhoneDigits(identity.waId)
-  return Boolean(digits && allowlist.phones.has(digits))
+  const inEnv =
+    allowlist.uuids.has(identity.usuarioId.trim().toLowerCase()) ||
+    Boolean(normalizePhoneDigits(identity.waId) && allowlist.phones.has(normalizePhoneDigits(identity.waId)))
+  if (!inEnv) return false
+  if (dbAllowlist) {
+    if (dbAllowlist.size === 0) return false
+    if (!dbAllowlist.has(identity.usuarioId.trim().toLowerCase())) return false
+  }
+  return true
 }
 
 /**
@@ -91,7 +98,8 @@ export function isUserInWhatsAppPilot(
  */
 export function resolveWhatsAppFlowAccess(
   identity: WhatsAppPilotIdentity,
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  dbAllowlist: Set<string> | null = null
 ): WhatsAppFlowAccessDecision {
   if (!isValidActiveAuthorizedIdentity(identity)) {
     return {
@@ -112,7 +120,7 @@ export function resolveWhatsAppFlowAccess(
         reason: 'pilot_enabled_without_authorized_users',
       }
     }
-    if (isUserInWhatsAppPilot(identity, env)) {
+    if (isUserInWhatsAppPilot(identity, env, dbAllowlist)) {
       return {
         allowed: true,
         mode: 'pilot',
@@ -149,9 +157,10 @@ export function resolveWhatsAppFlowAccess(
 
 export function shouldUseWhatsAppOrchestrator(
   identity: WhatsAppPilotIdentity,
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  dbAllowlist: Set<string> | null = null
 ): boolean {
-  return resolveWhatsAppFlowAccess(identity, env).allowed
+  return resolveWhatsAppFlowAccess(identity, env, dbAllowlist).allowed
 }
 
 /**
@@ -160,10 +169,11 @@ export function shouldUseWhatsAppOrchestrator(
  */
 export function isWhatsAppVoiceNotesAllowedForUser(
   identity: WhatsAppPilotIdentity,
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  dbAllowlist: Set<string> | null = null
 ): boolean {
   if (env.WHATSAPP_VOICE_NOTES_ENABLED !== '1') return false
-  return shouldUseWhatsAppOrchestrator(identity, env)
+  return shouldUseWhatsAppOrchestrator(identity, env, dbAllowlist)
 }
 
 /**
@@ -172,7 +182,8 @@ export function isWhatsAppVoiceNotesAllowedForUser(
  */
 export function isWhatsAppR2ButtonsAllowedForUser(
   identity: WhatsAppPilotIdentity,
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  dbAllowlist: Set<string> | null = null
 ): boolean {
-  return shouldUseWhatsAppOrchestrator(identity, env)
+  return shouldUseWhatsAppOrchestrator(identity, env, dbAllowlist)
 }

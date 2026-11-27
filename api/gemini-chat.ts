@@ -3,7 +3,7 @@ import {
   readNumberEnv,
   readRequestBody,
 } from './_shared/http.js'
-import { checkAssistantRateLimit, requireAssistantAuth } from './_shared/assistantAuth.js'
+import { checkAssistantRateLimit, createServiceRoleClient, requireAssistantAuth } from './_shared/assistantAuth.js'
 import { enableSystemCaCertificates } from './_shared/enableSystemCa.js'
 import { isTlsCertificateError, TLS_CERTIFICATE_USER_MESSAGE } from './_shared/tlsError.js'
 import {
@@ -24,6 +24,7 @@ import { isAgentOrchestratorEnabled, runChannelTurn, uiForTurn, webSessionId } f
 import { EMPTY_MODEL_TURN_MESSAGE } from './_shared/orchestrator/respond.js'
 import { isAgentMemoryEnabled } from './_shared/memory/flag.js'
 import { loadMemoryPromptBlock } from './_shared/memory/store.js'
+import { loadPilotDbAllowlist } from './_shared/pilotAllowlist.js'
 
 type GeminiContent = {
   role: 'user' | 'model'
@@ -166,7 +167,13 @@ export default defineApiHandler(async (req, res) => {
       hasOkrContext,
       hasBoardContext,
     })
-    const memoryBlock = isAgentMemoryEnabled(process.env, auth.usuarioId)
+    let dbAllowlist: Set<string> | null = null
+    try {
+      dbAllowlist = await loadPilotDbAllowlist(createServiceRoleClient())
+    } catch {
+      dbAllowlist = null
+    }
+    const memoryBlock = isAgentMemoryEnabled(process.env, auth.usuarioId, dbAllowlist)
       ? await loadMemoryPromptBlock(
           auth.supabase,
           {

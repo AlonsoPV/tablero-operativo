@@ -33,6 +33,7 @@ import { proposalFromPendingRow } from './_shared/assistantGoogleTools.js'
 import { runChannelTurn } from './_shared/orchestrator/channelAdapters.js'
 import { isAgentMemoryEnabled } from './_shared/memory/flag.js'
 import { loadMemoryPromptBlock } from './_shared/memory/store.js'
+import { loadPilotDbAllowlist } from './_shared/pilotAllowlist.js'
 import {
   createSupabaseSessionContextStore,
   emptySessionContext,
@@ -311,7 +312,8 @@ async function runGeminiChat(input: {
   }
 
   const lastUserTurn = [...input.messages].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const memoryBlock = isAgentMemoryEnabled(process.env, input.actor.usuarioId)
+  const memoryDbAllowlist = await loadPilotDbAllowlist(input.actor.supabase).catch(() => null)
+  const memoryBlock = isAgentMemoryEnabled(process.env, input.actor.usuarioId, memoryDbAllowlist)
     ? await loadMemoryPromptBlock(
         input.actor.supabase,
         {
@@ -477,9 +479,15 @@ export default defineApiHandler(async (req, res) => {
     active: usuario.activo === true,
     aiAuthorized: allowed === true,
   }
+  let dbAllowlist: Set<string> | null = null
+  try {
+    dbAllowlist = await loadPilotDbAllowlist(supabase)
+  } catch {
+    dbAllowlist = null
+  }
 
   if (action === 'voice_note') {
-    if (!isWhatsAppVoiceNotesAllowedForUser(pilotIdentity)) {
+    if (!isWhatsAppVoiceNotesAllowedForUser(pilotIdentity, process.env, dbAllowlist)) {
       return res.status(200).json({
         text: 'Las notas de voz por WhatsApp aún no están habilitadas para tu cuenta. Escríbeme tu consulta en texto.',
         transcript: null,
@@ -526,7 +534,7 @@ export default defineApiHandler(async (req, res) => {
           })),
         },
         runAssistant: async ({ transcript }) => {
-          if (shouldUseWhatsAppOrchestrator(pilotIdentity)) {
+          if (shouldUseWhatsAppOrchestrator(pilotIdentity, process.env, dbAllowlist)) {
             const turn = await runChannelTurn({
               identity: {
                 supabase,
@@ -589,7 +597,7 @@ export default defineApiHandler(async (req, res) => {
     })
   }
 
-  if (buttonId && /^(?:r2_confirm|r2_edit|r2_cancel):/i.test(buttonId) && !isWhatsAppR2ButtonsAllowedForUser(pilotIdentity)) {
+  if (buttonId && /^(?:r2_confirm|r2_edit|r2_cancel):/i.test(buttonId) && !isWhatsAppR2ButtonsAllowedForUser(pilotIdentity, process.env, dbAllowlist)) {
     return res.status(200).json({
       text: 'Esta función aún no está habilitada para tu cuenta.',
       proposals: [],
@@ -862,7 +870,7 @@ export default defineApiHandler(async (req, res) => {
     }
 
     const history = await loadHistory(supabase, waId, usuarioId)
-    if (shouldUseWhatsAppOrchestrator(pilotIdentity)) {
+    if (shouldUseWhatsAppOrchestrator(pilotIdentity, process.env, dbAllowlist)) {
       const priorAssistantText = [...history].reverse().find((m) => m.role === 'assistant')?.content
       const turn = await runChannelTurn({
         identity: {

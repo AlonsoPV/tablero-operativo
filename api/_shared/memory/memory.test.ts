@@ -54,6 +54,9 @@ describe('R3 · AGENT_MEMORY_R3 flag (R3-AT-18)', () => {
     expect(isAgentMemoryEnabled(pilotEnv, otherId)).toBe(false)
     expect(isAgentMemoryEnabled(pilotEnv, null)).toBe(false)
     expect(isAgentMemoryEnabled({ AGENT_MEMORY_R3: '1', AGENT_MEMORY_R3_PILOT_USERS: 'not-a-uuid' }, pilotId)).toBe(false)
+    expect(isAgentMemoryEnabled(pilotEnv, pilotId, new Set([pilotId]))).toBe(true)
+    expect(isAgentMemoryEnabled(pilotEnv, pilotId, new Set())).toBe(false)
+    expect(isAgentMemoryEnabled(pilotEnv, otherId, new Set([pilotId]))).toBe(false)
   })
 })
 

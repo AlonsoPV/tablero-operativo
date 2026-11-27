@@ -62,13 +62,14 @@ async function loadFollowupSettings(supabase: ReturnType<typeof createClient>) {
   const { data } = await supabase
     .from('whatsapp_followup_settings')
     .select(
-      'followup_delay_minutes,followups_per_day,initial_text_template,checkpoint_followup_template,commitment_close_template'
+      'followup_delay_minutes,followups_per_day,initial_text_template,checkpoint_followup_template,commitment_close_template,proactive_enabled'
     )
     .eq('id', 'default')
     .maybeSingle()
   return {
     followup_delay_minutes: data?.followup_delay_minutes ?? 5,
     followups_per_day: data?.followups_per_day ?? 1,
+    proactive_enabled: data?.proactive_enabled === true,
     initial_text_template:
       data?.initial_text_template ??
       'Hola {{responsable_nombre}}. Nueva actividad: {{titulo_accion}}. Compromiso: {{fecha_compromiso}}.{{checklist_bloque}}',
@@ -428,6 +429,19 @@ Deno.serve(async (req) => {
 
       if (!claimed?.id) {
         results.push({ id: job.id, status: 'skipped', reason: 'already_claimed' })
+        continue
+      }
+
+      const payloadSource =
+        job.payload && typeof job.payload === 'object' && typeof (job.payload as { source?: unknown }).source === 'string'
+          ? String((job.payload as { source: string }).source)
+          : ''
+      if (payloadSource.startsWith('proactive') && settings.proactive_enabled !== true) {
+        await supabase
+          .from('whatsapp_followup_jobs')
+          .update({ status: 'cancelled', error_message: 'proactive_disabled' })
+          .eq('id', job.id)
+        results.push({ id: job.id, status: 'skipped', reason: 'proactive_disabled' })
         continue
       }
 

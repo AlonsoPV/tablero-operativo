@@ -93,7 +93,7 @@ function normalizeRole(rol: string | null | undefined): string {
     .replace(/^_+|_+$/g, '')
 }
 
-async function isSuperAdminAssistantUser(
+export async function isSuperAdminAssistantUser(
   supabase: SupabaseClient,
   authUserId: string,
   usuarioId: string,

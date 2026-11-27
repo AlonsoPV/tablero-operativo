@@ -24,6 +24,8 @@ import type { ActionActiveQuery } from '../../../src/features/ai-support/actionQ
 import type { AccessCapabilities } from '../../../src/features/auth/lib/permissions.js'
 import { isAgentMemoryEnabled } from '../memory/flag.js'
 import { loadSupabaseMemoryStore } from '../memory/store.js'
+import { createServiceRoleClient } from '../assistantAuth.js'
+import { loadPilotDbAllowlist } from '../pilotAllowlist.js'
 
 /** Web y WhatsApp comparten contexto entre instancias; voz rehidrata desde consult_log. */
 function defaultStoreForChannel(input: { identity: VerifiedIdentity; channel: AgentChannel }): SessionContextStore {
@@ -180,8 +182,17 @@ export async function runChannelTurn(
     await store.set(key, { ...current, fingerprint: actorFingerprint, lastActions: references,
       lastEntity: references.length === 1 ? { kind: 'action', id: references[0]!.id, label: references[0]!.title } : null }, now)
   }
+  let dbAllowlist: Set<string> | null = null
+  try {
+    dbAllowlist = await loadPilotDbAllowlist(createServiceRoleClient())
+  } catch {
+    dbAllowlist = null
+  }
   const memoryStore =
-    overrides.memoryStore ?? (isAgentMemoryEnabled(process.env, input.identity.usuarioId) ? await loadSupabaseMemoryStore(input.identity.supabase) : undefined)
+    overrides.memoryStore ??
+    (isAgentMemoryEnabled(process.env, input.identity.usuarioId, dbAllowlist)
+      ? await loadSupabaseMemoryStore(input.identity.supabase)
+      : undefined)
   const result = await runAgentTurn(
     { actor, utterance: input.utterance, responseFormat: input.responseFormat },
     {
