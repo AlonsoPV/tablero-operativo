@@ -1542,26 +1542,34 @@ async function replyAi(
         : textPayload(to, body)
     const result = await graphSendMessage(supabase, graphBody)
     const metaId = extractMessageId(result.json)
-    await upsertThreadMessage(supabase, {
-      wa_id: to,
-      usuario_id: usuarioId ?? null,
-      direction: 'outbound',
-      source: 'ai',
-      message_kind: canButtons ? 'interactive' : 'text',
-      body_text: body,
-      meta_message_id: metaId,
-      delivery_status: result.ok ? 'sent' : 'failed',
-      error_message: result.ok ? null : result.raw.slice(0, 2000),
-      sent_at: result.ok ? new Date().toISOString() : null,
-      failed_at: result.ok ? null : new Date().toISOString(),
-      payload: {
-        request: graphBody,
-        response: result.json,
-        source: 'webhook_ai_reply',
-        correlation_id: workerContexts.get(supabase)?.id,
-        flow: 'agent',
-      },
-    })
+    try {
+      await upsertThreadMessage(supabase, {
+        wa_id: to,
+        usuario_id: usuarioId ?? null,
+        direction: 'outbound',
+        source: 'automation',
+        message_kind: canButtons ? 'interactive' : 'text',
+        body_text: body,
+        meta_message_id: metaId,
+        delivery_status: result.ok ? 'sent' : 'failed',
+        error_message: result.ok ? null : result.raw.slice(0, 2000),
+        sent_at: result.ok ? new Date().toISOString() : null,
+        failed_at: result.ok ? null : new Date().toISOString(),
+        payload: {
+          request: graphBody,
+          response: result.json,
+          source: 'webhook_ai_reply',
+          correlation_id: workerContexts.get(supabase)?.id,
+          flow: 'agent',
+        },
+      })
+    } catch (persistError) {
+      whatsappTrace('WHATSAPP_PROCESSING_FAILED', {
+        ...workerTrace(workerContexts.get(supabase)),
+        stage: 'ai_reply_persist',
+        code: persistError instanceof Error ? persistError.message.slice(0, 120) : 'persist_failed',
+      })
+    }
   } catch (error) {
     whatsappTrace('WHATSAPP_PROCESSING_FAILED', {
       ...workerTrace(workerContexts.get(supabase)),
