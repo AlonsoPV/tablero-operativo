@@ -489,6 +489,7 @@ export default defineApiHandler(async (req, res) => {
           ? 'audio'
           : 'text'
     let voiceInteractiveButtons: ReturnType<typeof buildWhatsAppInteractiveProposalButtons> = []
+    let voiceProposals: CopilotProposal[] = []
     const voiceResult = await processWhatsAppVoiceNote(
       {
         waId,
@@ -538,6 +539,7 @@ export default defineApiHandler(async (req, res) => {
                   turn.response.blocks.data[0] ?? '',
                   turn.batchId ?? null
                 )
+                voiceProposals = proposalList.filter((p): p is CopilotProposal => !('operation' in p) && Boolean(p.id))
                 if (hydrated.length === 1) {
                   voiceInteractiveButtons = buildWhatsAppInteractiveProposalButtons(hydrated[0]!.binding, mode)
                 }
@@ -566,7 +568,7 @@ export default defineApiHandler(async (req, res) => {
       audioDelivery: voiceResult.ok ? voiceResult.audioDelivery : null,
       audioRetained: voiceResult.audioRetained,
       interactiveButtons: voiceInteractiveButtons,
-      proposals: [],
+      proposals: voiceProposals,
     })
   }
 

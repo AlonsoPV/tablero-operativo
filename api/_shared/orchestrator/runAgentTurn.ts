@@ -2349,6 +2349,7 @@ async function handleWriteRequest(state: TurnState, intent: Extract<AgentIntent,
         responsableId: draft.responsableId ?? contextAction?.responsableId ?? state.actor.usuarioId,
         fecha: draft.fecha ?? (contextAction ? state.today : null),
         origenAccionId: origen?.id ?? contextAction?.id ?? null,
+        ...(draft.prioridad ? { prioridad: draft.prioridad } : {}),
       })
       if (persisted.ok) {
         const proposal = markSimulated(persisted.proposal, persistMode)
