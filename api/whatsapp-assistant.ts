@@ -339,7 +339,7 @@ async function runGeminiChat(input: {
     maxOutputTokens: readNumberEnv('GEMINI_MAX_TOKENS', DEFAULT_MAX_OUTPUT_TOKENS),
     temperature: readNumberEnv('GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE),
   }
-  const timeoutMs = readNumberEnv('WHATSAPP_AI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS)
+  const timeoutMs = Math.min(Math.max(readNumberEnv('WHATSAPP_AI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS), 35_000), 50_000)
   const contents = input.messages.map((message) => ({
     role: message.role === 'assistant' ? ('model' as const) : ('user' as const),
     parts: [{ text: message.content }],
