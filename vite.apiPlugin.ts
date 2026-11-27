@@ -20,6 +20,8 @@ type ApiHandler = (
 const API_ROUTES: Record<string, { file: string; op: string }> = {
   '/api/gemini-chat': { file: 'api/gemini-chat.ts', op: '' },
   '/api/assistant-ops': { file: 'api/assistant-ops.ts', op: '' },
+  '/api/assistant-pilot-allowlist': { file: 'api/assistant-ops.ts', op: 'pilot-allowlist' },
+  '/api/whatsapp-proactive-planner': { file: 'api/assistant-ops.ts', op: 'proactive-planner' },
   '/api/guide-chat': { file: 'api/guide-chat.ts', op: '' },
   '/api/demo-request': { file: 'api/demo-request.ts', op: '' },
   '/api/whatsapp-assistant': { file: 'api/whatsapp-assistant.ts', op: '' },

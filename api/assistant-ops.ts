@@ -1,4 +1,6 @@
 import { defineApiHandler, readRequestBody } from './_shared/http.js'
+import { handlePilotAllowlist } from './_shared/assistantPilotAllowlistHandler.js'
+import { handleProactivePlanner } from './_shared/whatsappProactivePlannerHandler.js'
 import { checkAssistantRateLimit, createServiceRoleClient, requireAssistantAuth } from './_shared/assistantAuth.js'
 import { cancelPendingOp, confirmPendingOp, editActionEmailPendingOp, r2OptionsFromServerEnv } from './_shared/assistantOpsRuntime.js'
 import { editR2PendingOp, isR2AgentTool } from './_shared/actions/r2Runtime.js'
@@ -11,7 +13,17 @@ import { isGoogleWriteTool } from '../src/features/ai-support/copilot/googleWork
 const RATE_LIMIT = 30
 const RATE_WINDOW_MS = 60_000
 
+function readOp(req: { url?: string }): string {
+  const url = req.url || ''
+  const query = new URLSearchParams(url.includes('?') ? url.slice(url.indexOf('?') + 1) : '')
+  return query.get('op')?.trim() || ''
+}
+
 export default defineApiHandler(async (req, res) => {
+  const op = readOp(req)
+  if (op === 'pilot-allowlist') return handlePilotAllowlist(req, res)
+  if (op === 'proactive-planner') return handleProactivePlanner(req, res)
+
   try {
     const auth = await requireAssistantAuth(req, { requireAiModule: true })
     if (!auth.ok) return res.status(auth.status).json({ error: auth.error })

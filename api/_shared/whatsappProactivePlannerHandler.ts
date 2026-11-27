@@ -1,13 +1,13 @@
-import { defineApiHandler } from './_shared/http.js'
+import type { JsonResponse, VercelRequestLike } from './http.js'
 import {
   createServiceRoleClient,
   isSuperAdminAssistantUser,
   requireAssistantAuth,
-} from './_shared/assistantAuth.js'
-import { todayWallClockCDMX } from '../src/lib/dateUtils.js'
-import { buildProactiveCandidates, decideDryRun, prefsFromRow } from './_shared/proactivePlanner.js'
+} from './assistantAuth.js'
+import { todayWallClockCDMX } from '../../src/lib/dateUtils.js'
+import { buildProactiveCandidates, decideDryRun, prefsFromRow } from './proactivePlanner.js'
 
-export default defineApiHandler(async (req, res) => {
+export async function handleProactivePlanner(req: VercelRequestLike, res: JsonResponse) {
   try {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Usa POST.' })
     const cron = req.headers?.['x-cron-secret']
@@ -81,4 +81,4 @@ export default defineApiHandler(async (req, res) => {
     console.error('whatsapp-proactive-planner', error)
     return res.status(500).json({ error: 'No pude evaluar el seguimiento proactivo.' })
   }
-})
+}
