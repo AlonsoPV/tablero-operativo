@@ -11,6 +11,12 @@
     "api/guide-report.ts": {
       "maxDuration": 60
     },
+    "api/gemini-chat.ts": {
+      "maxDuration": 60
+    },
+    "api/whatsapp-assistant.ts": {
+      "maxDuration": 60
+    },
     "api/*.ts": {
       "maxDuration": 30
     }

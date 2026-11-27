@@ -723,13 +723,27 @@ export function classifyAgentIntent(
     return { kind: 'write_request', operation: 'update_action', request }
   }
 
-  if (!looksLikeWriteVerb) {
-    const personAgenda = text.match(
-      /\bque\s+(?:tiene|tienen)\s+([a-z][a-z0-9._-]{1,30})\s+(?:para\s+)?(hoy|manana|esta\s+semana|pendiente|abierto|vencido)\b/
+  if (
+    /^(?:identifica(?:me)?|cual(?:es)?\s+(?:es|son)|dime|muestra(?:me)?|selecciona)\s+(?:lo\s+mas|la\s+mas|las\s+mas|el\s+mas)\s+urgentes?\b/.test(
+      text
     )
+  ) {
+    return { kind: 'recommend_next' }
+  }
+
+  if (!looksLikeWriteVerb) {
+    const personAgenda =
+      text.match(
+        /\bque\s+(?:tiene|tienen)\s+([a-z][a-z0-9._-]{1,30})\s+(?:para\s+)?(hoy|manana|esta\s+semana|pendientes?|abiert[oa]s?|vencid[oa]s?)\b/
+      ) ??
+      text.match(
+        /\bque\s+(?:tiene|tienen)\s+(?:pendientes?|abiert[oa]s?|vencid[oa]s?|para\s+hoy|para\s+manana|esta\s+semana)\s+([a-z][a-z0-9._-]{1,30})\b/
+      )
     if (
       personAgenda?.[1] &&
-      !/^(el|la|los|las|un|una|mi|mis|tu|su|sus|este|esta|esto|ese|esa|que|quien|alguien|nadie)$/.test(personAgenda[1])
+      !/^(el|la|los|las|un|una|mi|mis|tu|su|sus|este|esta|esto|ese|esa|que|quien|alguien|nadie|hoy|manana|pendiente|pendientes|abierto|abiertos|vencido|vencidos)$/.test(
+        personAgenda[1]
+      )
     ) {
       return {
         kind: 'query_actions',
