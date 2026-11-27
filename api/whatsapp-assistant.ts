@@ -1,4 +1,8 @@
 import { whatsappPhoneVariants } from './_shared/whatsappBidirectional.js'
+import {
+  formatCommunicationConfirmationReply,
+  normalizeInternalDeliveryState,
+} from './_shared/orchestrator/deliveryReplyPolicy.js'
 import { timingSafeEqual } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { defineApiHandler, readNumberEnv, readRequestBody, readStringEnv } from './_shared/http.js'
@@ -726,12 +730,33 @@ export default defineApiHandler(async (req, res) => {
         event_id?: string
       } | null
       if (communication) {
-        const sent=result.result as {email_id?:string;meta_message_id?:string;delivery_status?:string}|null
-        return res.status(200).json({text:sent?.email_id ? 'El proveedor aceptó el correo. La entrega todavía no está confirmada.'
-          : sent?.delivery_status==='delivered' ? 'Meta registra el WhatsApp como entregado.'
-          : sent?.delivery_status==='read' ? 'Meta registra el WhatsApp como leído.'
-          : sent?.meta_message_id ? 'Meta aceptó el WhatsApp. La entrega todavía no está confirmada.'
-          : 'La operación se registró. Consulta su estado antes de reenviar.',proposals:[],result:result.result ?? null})
+        const sent = result.result as { email_id?: string; meta_message_id?: string; delivery_status?: string } | null
+        const payloadObj = (pendingRow.payload ?? {}) as Record<string, unknown>
+        const previewWorkspace = (pendingRow.preview as { workspace?: { toUserId?: unknown; recipientName?: unknown } } | null)?.workspace
+        const recipientId = String(previewWorkspace?.toUserId ?? payloadObj.to_user_id ?? payloadObj.usuario_id ?? '').trim()
+        const recipientName = typeof previewWorkspace?.recipientName === 'string'
+          ? previewWorkspace.recipientName
+          : typeof payloadObj.recipient_hint === 'string'
+            ? payloadObj.recipient_hint
+            : null
+        const channel = pendingRow.tool === 'notify_user_email' ? 'email' : 'whatsapp'
+        const decision = formatCommunicationConfirmationReply({
+          channel,
+          state: normalizeInternalDeliveryState({
+            deliveryStatus: sent?.delivery_status,
+            operationStatus: result.status,
+            hasProviderId: Boolean(sent?.email_id || sent?.meta_message_id),
+          }),
+          isSelfRecipient: Boolean(recipientId && recipientId === usuarioId),
+          recipientName,
+          surface: 'whatsapp',
+        })
+        return res.status(200).json({
+          text: decision.text,
+          ...(decision.suppressReply ? { suppressReply: true } : {}),
+          proposals: [],
+          result: result.result ?? null,
+        })
       }
       if (created?.gmail_message_id) {
         return res.status(200).json({

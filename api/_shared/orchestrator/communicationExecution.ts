@@ -5,6 +5,7 @@ import type { AgentActor } from '../query/resolveActor.js'
 import type { ToolDispatcher } from '../query/index.js'
 import { resolveR2ExecutionMode } from '../actions/executionMode.js'
 import type { PendingCommunicationProposal } from './communicationComposer.js'
+import { formatOnDemandDeliveryStatus, normalizeInternalDeliveryState } from './deliveryReplyPolicy.js'
 
 /** Bridge to the existing pending-op/HTTP approval path. Never invokes a provider. */
 export async function prepareContextualExecution(
@@ -53,10 +54,17 @@ export async function prepareContextualExecution(
     }
     const delivery = data.attempt?.delivery_status
     if (delivery) {
-      return {message: delivery === 'read' ? 'Meta registra el mensaje como leído.'
-        : delivery === 'delivered' ? 'Meta registra el mensaje como entregado.'
-        : delivery === 'accepted' ? `${pending.channel === 'email' ? 'El proveedor de correo' : 'Meta'} aceptó el mensaje; la entrega todavía no está confirmada.`
-        : `El intento existente figura como «${delivery}». Consulta su resultado antes de reenviar.`}
+      return {
+        message: formatOnDemandDeliveryStatus({
+          channel: pending.channel,
+          state: normalizeInternalDeliveryState({
+            deliveryStatus: delivery,
+            operationStatus: data.operation_status,
+            hasProviderId: Boolean(delivery),
+          }),
+          recipientName: recipient.recipientName,
+        }),
+      }
     }
     if (data.operation_status !== 'pending' || !(Date.parse(canonical.expiresAt) > now)) {
       return {message: `La operación existente figura como «${data.operation_status ?? 'desconocida'}». No se preparó otro envío.`}

@@ -1,5 +1,6 @@
 import { readPreparedActionState, formatPreparedActionState } from './preparedActionState.js'
 import { prepareContextualExecution, revokeContextualExecution } from './communicationExecution.js'
+import { queryDeliveryStatusForActor } from './deliveryStatusQuery.js'
 import { extractResourceUrl, resolveResourceUrl, stripResourceUrl, type ResolvedUrlContext } from './resourceUrlResolver.js'
 import { extractResponsablePatch } from './structuredActionDraft.js'
 /**
@@ -3131,6 +3132,14 @@ export async function runAgentTurn(
     case 'inspect_referenced_action':
       outcome = await handleInspectReferencedAction(state, intent)
       break
+    case 'query_delivery_status': {
+      const { answer } = await queryDeliveryStatusForActor(state.actor, intent.params, new Date(now()))
+      const resp = baseResponse('ok')
+      resp.presentation = 'operation'
+      resp.blocks.data.push(answer)
+      outcome = { response: resp, audit: { status: 'ok', entity: 'communications' } }
+      break
+    }
     case 'query_okrs':
       outcome = await handleOkrs(state, intent)
       break
