@@ -142,7 +142,10 @@ export type R2ProposeResult =
   | { ok: false; reason: string; missing?: string[] }
 
 type ProposeInput = {
-  create_action: ActionPayloadMap['create_action'] & { responsableHint?: string | null }
+  create_action: ActionPayloadMap['create_action'] & {
+    responsableHint?: string | null
+    prioridad?: 'P1_Alta' | 'P2_Media' | 'P3_Baja' | null
+  }
   update_status: ActionPayloadMap['update_status']
   register_blocker: ActionPayloadMap['register_blocker']
   notify_responsable: ActionPayloadMap['notify_responsable']
@@ -214,6 +217,8 @@ export async function proposeR2Operation<O extends R2Operation>(
     if (!person) return deny('El responsable no existe o está inactivo.')
     if (!create.fecha || create.fecha < today) return deny('La fecha de compromiso debe ser hoy o posterior (CDMX).')
     const titulo = create.titulo.trim().slice(0, 70)
+    const prioridad =
+      create.prioridad === 'P1_Alta' || create.prioridad === 'P3_Baja' ? create.prioridad : 'P2_Media'
     stored = {
       titulo_accion: titulo,
       descripcion_accion: titulo,
@@ -222,7 +227,7 @@ export async function proposeR2Operation<O extends R2Operation>(
       hora_limite: '17:00',
       estado: 'Pendiente',
       responsable: person.id,
-      prioridad: 'P2_Media',
+      prioridad,
       created_by: actor.usuarioId,
       tipo_accion: 'operativa',
       checkpoints: [],
@@ -233,6 +238,7 @@ export async function proposeR2Operation<O extends R2Operation>(
       { label: 'Título', to: titulo },
       { label: 'Responsable', to: responsableNombre ?? person.nombre ?? person.id },
       { label: 'Fecha', to: `${create.fecha} 17:00` },
+      ...(prioridad !== 'P2_Media' ? [{ label: 'Prioridad', to: prioridad }] : []),
       ...(create.origenAccionId ? [{ label: 'Origen', to: `Acción bloqueada ${create.origenAccionId}` }] : []),
     ]
   } else {

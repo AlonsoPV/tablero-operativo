@@ -234,11 +234,12 @@ function cleanTitleFromStructuredClauses(rawTitle: string, responsableHint?: str
     ? rawTitle
         .replace(
           new RegExp(
-            `^(?:para\\s+|a\\s+|de\\s+)?${escaped}\\s*(?:[:,;-]\\s*|(?=(?:para\\s+el|para|el)\\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|hoy|ma[ñn]ana)\\b))`,
+            `^(?:para\\s+|a\\s+|de\\s+)?${escaped}\\s*(?:para\\s+)?(?:[:,;-]\\s*|(?=(?:para\\s+el|para|el)\\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|hoy|ma[ñn]ana)\\b))`,
             'i'
           ),
           ''
         )
+        .replace(new RegExp(`^(?:para\\s+|a\\s+|de\\s+)?${escaped}\\s+para\\s+`, 'i'), '')
         .replace(new RegExp(`[,;]\\s*(?:para\\s+|responsable\\s*[:=]\\s*)${escaped}(?=\\s*[,;.]|$)`, 'gi'), '')
     : rawTitle
   const stripped = cleanSpaces(withoutAssignee)
@@ -246,7 +247,7 @@ function cleanTitleFromStructuredClauses(rawTitle: string, responsableHint?: str
     .replace(/\b(?:con\s+|como\s+|en\s+)?prioridad\s+(?:alta|media|baja|p1|p2|p3)\b/gi, '')
     .replace(/\b(?:as[ií]gna(?:da|do|mela|melo|la|lo|sela|selo|r)?(?:\s+a\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+)?)?|para\s+m[ií]|a\s+m[ií])(?=\s|[,.;:]|$)/gi, '')
     .replace(/\b(?:[áa]rea|departamento)\s+(?:de\s+)?[A-Za-zÁÉÍÓÚÑáéíóúñ]+\b/gi, '')
-    .replace(/\b(?:para\s+el|el|para)\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|hoy|ma[ñn]ana)\b/gi, '')
+    .replace(/\b(?:para\s+el|el|para)\s+(?:pr[oó]ximo\s+)?(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|hoy|ma[ñn]ana)\b/gi, '')
     .replace(/[()]/g, ' ')
     .replace(/(?:\s*[,;]\s*)+$/g, '')
     .replace(/\s+[.:]+$/g, '')
@@ -296,12 +297,17 @@ export function extractActionPatch(utterance: string, today: string, isFollowUp:
       .replace(/\bporfa(?:vor)?\b/gi, '')
       .trim()
     const base = draftFromRequest(strippedFiller)
+    const instructionLead =
+      /^(?:crea|crear|creame|creo|genera|generar|agrega|agregar|registra|registrar|nueva|necesito|prepara|preparar|anota|anotar|programa|programar|agenda|agendar)\s+(?:una\s+)?(?:acci[oó]n|acion|tarea|actividad|iniciativa|pendiente)\b/i
     const directLead = cleanSpaces(strippedFiller)
       .replace(
-        /^(?:crea|crear|creame|genera|generar|agrega|agregar|registra|registrar|nueva|necesito)\s+(?:una\s+)?(?:acci[oó]n|acion|tarea|actividad|iniciativa|pendiente)\s+(?:para\s+que|para|de|sobre)\s+/i,
+        /^(?:crea|crear|creame|creo|genera|generar|agrega|agregar|registra|registrar|nueva|necesito|prepara|preparar|anota|anotar|programa|programar|agenda|agendar)\s+(?:una\s+)?(?:acci[oó]n|acion|tarea|actividad|iniciativa|pendiente)\s+(?:para\s+que|para|de|sobre)\s+/i,
         ''
       )
-      .replace(/^(?:crea|crear|creame|genera|generar|agrega|agregar|registra|registrar)\s+(?:una\s+)?(?:acci[oó]n|acion|tarea|actividad|iniciativa|pendiente)\s+/i, '')
+      .replace(
+        /^(?:crea|crear|creame|creo|genera|generar|agrega|agregar|registra|registrar|prepara|preparar|anota|anotar|programa|programar|agenda|agendar)\s+(?:una\s+)?(?:acci[oó]n|acion|tarea|actividad|iniciativa|pendiente)\s+/i,
+        ''
+      )
       .replace(
         /^(?:ponle|d[eé]jale|enc[aá]rgale)\s+(?:una\s+(?:tarea|acci[oó]n)\s+|un\s+pendiente\s+)?(?:a\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+)?\s+)?(?:de\s+|sobre\s+|lo\s+de(?:l)?\s+)?/i,
         ''
@@ -313,13 +319,16 @@ export function extractActionPatch(utterance: string, today: string, isFollowUp:
       .replace(/^(?:hay\s+que|que\s+no\s+se\s+nos\s+olvide|ap[uú]ntalo\s+para|agr[eé]galo\s+al\s+kanban(?:\s*:|\s+para)?)\s+/i, '')
     const candidateTitle =
       explicitTitle ??
-      (directLead !== cleanSpaces(strippedFiller)
+      (directLead !== cleanSpaces(strippedFiller) || instructionLead.test(strippedFiller)
         ? cleanTitleFromStructuredClauses(directLead, resp.hint)
         : cleanTitleFromStructuredClauses(base.title, resp.hint))
     if (candidateTitle.length >= 2) {
       patch.titulo = candidateTitle
     }
-    const descriptionSource = directLead !== cleanSpaces(strippedFiller) ? draftFromRequest(cleanTitleFromStructuredClauses(directLead, resp.hint)).description : base.description
+    const descriptionSource =
+      directLead !== cleanSpaces(strippedFiller) || instructionLead.test(strippedFiller)
+        ? draftFromRequest(cleanTitleFromStructuredClauses(directLead, resp.hint)).description
+        : base.description
     if (descriptionSource && descriptionSource.length >= 3) {
       const cleanedDesc = cleanTitleFromStructuredClauses(descriptionSource, resp.hint)
       patch.descripcion = cleanedDesc.length >= 3 ? cleanedDesc : candidateTitle
