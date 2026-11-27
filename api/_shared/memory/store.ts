@@ -153,3 +153,185 @@ export async function loadSupabaseMemoryStore(supabase: SupabaseClient): Promise
 export function hashMemoryBody(body: string) {
   return hashBody(body)
 }
+
+function significantTokens(text: string): string[] {
+  const stop = new Set([
+    'para', 'como', 'debe', 'deben', 'cada', 'todo', 'toda', 'todos', 'todas',
+    'esto', 'esta', 'este', 'unos', 'unas', 'sobre', 'hacia', 'cuando', 'donde',
+    'siempre', 'nunca', 'realizarse', 'hacer', 'hacerse', 'tener', 'cuenta',
+  ])
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length >= 4 && !stop.has(t))
+}
+
+function overlapsTopic(a: string, b: string): boolean {
+  const ta = new Set(significantTokens(a))
+  const tb = significantTokens(b)
+  if (ta.size === 0 || tb.length === 0) return false
+  let shared = 0
+  for (const tok of tb) {
+    if (ta.has(tok)) shared += 1
+  }
+  return shared >= 2 || (shared >= 1 && Math.min(ta.size, tb.length) <= 2)
+}
+
+export async function saveUserMemory(
+  supabase: SupabaseClient,
+  actor: MemoryActor,
+  input: {
+    body: string
+    memoryType: AgentMemoryRow['memory_type']
+    sourceRef?: string | null
+  }
+): Promise<
+  | { ok: true; id: string; version: number; supersededId: string | null; body: string }
+  | { ok: false; error: string }
+> {
+  const cleaned = input.body.replace(/\s+/g, ' ').trim().slice(0, 1800)
+  if (cleaned.length < 5) {
+    return { ok: false, error: 'La memoria es demasiado breve para aportar contexto operativo.' }
+  }
+  try {
+    const { data: existing } = await supabase
+      .from('agent_memory')
+      .select('id,body,version')
+      .eq('usuario_id', actor.usuarioId)
+      .eq('validation_status', 'confirmed')
+      .eq('access_level', 'owner')
+      .order('updated_at', { ascending: false })
+      .limit(40)
+
+    const match = (Array.isArray(existing) ? existing : []).find(
+      (row: { id: string; body: string; version: number }) =>
+        overlapsTopic(row.body, cleaned)
+    ) as { id: string; body: string; version: number } | undefined
+
+    const now = new Date().toISOString()
+    let supersededId: string | null = null
+    let nextVersion = 1
+    if (match) {
+      await supabase
+        .from('agent_memory')
+        .update({ validation_status: 'superseded', updated_at: now })
+        .eq('id', match.id)
+        .eq('usuario_id', actor.usuarioId)
+      supersededId = match.id
+      nextVersion = (Number(match.version) || 1) + 1
+    }
+
+    const { data: inserted, error } = await supabase
+      .from('agent_memory')
+      .insert({
+        usuario_id: actor.usuarioId,
+        area_id: actor.areaId ?? null,
+        memory_type: input.memoryType,
+        body: cleaned,
+        source_kind: 'manual',
+        source_ref: input.sourceRef ? input.sourceRef.slice(0, 120) : 'chat',
+        content_hash: hashBody(cleaned),
+        validation_status: 'confirmed',
+        access_level: 'owner',
+        version: nextVersion,
+        supersedes_id: supersededId,
+        confirmed_by: actor.usuarioId,
+        confirmed_at: now,
+      })
+      .select('id,version')
+      .single()
+
+    if (error || !inserted) {
+      return { ok: false, error: error?.message ?? 'No se pudo guardar en memoria.' }
+    }
+    return {
+      ok: true,
+      id: String((inserted as { id: string }).id),
+      version: Number((inserted as { version: number }).version) || nextVersion,
+      supersededId,
+      body: cleaned,
+    }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'memory_write_failed' }
+  }
+}
+
+export async function forgetUserMemory(
+  supabase: SupabaseClient,
+  actor: MemoryActor,
+  query: string
+): Promise<{ ok: true; count: number; bodies: string[] } | { ok: false; error: string }> {
+  try {
+    const { data: existing, error } = await supabase
+      .from('agent_memory')
+      .select('id,body')
+      .eq('usuario_id', actor.usuarioId)
+      .eq('validation_status', 'confirmed')
+      .eq('access_level', 'owner')
+      .order('updated_at', { ascending: false })
+      .limit(50)
+    if (error) return { ok: false, error: error.message }
+    const rows = (Array.isArray(existing) ? existing : []) as Array<{ id: string; body: string }>
+    const targets = rows.filter((r) => matchesQuery(r.body, query) || overlapsTopic(r.body, query))
+    if (targets.length === 0) return { ok: true, count: 0, bodies: [] }
+
+    const now = new Date().toISOString()
+    const ids = targets.map((t) => t.id)
+    const { error: updErr } = await supabase
+      .from('agent_memory')
+      .update({ validation_status: 'deleted', updated_at: now })
+      .in('id', ids)
+      .eq('usuario_id', actor.usuarioId)
+    if (updErr) return { ok: false, error: updErr.message }
+    return { ok: true, count: targets.length, bodies: targets.map((t) => t.body) }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'memory_delete_failed' }
+  }
+}
+
+/**
+ * Construye un bloque compacto y autorizado de memoria/documentos R3 para inyectar
+ * en el contexto de Gemini (Web y WhatsApp). Combina hits por consulta con
+ * preferencias/acuerdos vigentes del usuario (para planeación y priorización).
+ */
+export async function loadMemoryPromptBlock(
+  supabase: SupabaseClient,
+  actor: MemoryActor,
+  query: string
+): Promise<string> {
+  try {
+    const store = await loadSupabaseMemoryStore(supabase)
+    const recalled = store.recall(actor, query)
+    const hits = recalled.ok && !recalled.denied ? recalled.hits : []
+    const seen = new Set(hits.map((h) => h.id))
+
+    const standingMemories = store.memories
+      .filter((row) => canSeeMemory(actor, row) && !seen.has(row.id))
+      .slice(0, 6)
+      .map((row) => ({
+        kind: 'memory' as const,
+        id: row.id,
+        body: row.body,
+        version: row.version,
+        source_label: row.memory_type,
+      }))
+
+    const combined = [...hits, ...standingMemories].slice(0, 8)
+    if (combined.length === 0) return ''
+
+    const lines = combined.map((item) =>
+      item.kind === 'document'
+        ? `- [Documento: ${item.title ?? item.source_label}] ${item.body.slice(0, 320)}`
+        : `- [Memoria (${item.source_label}, v${item.version})] ${item.body.slice(0, 320)}`
+    )
+    return [
+      'MEMORIA Y DOCUMENTOS AUTORIZADOS DEL USUARIO (R3 — referencia operativa verificada; las cifras vivas del tablero siempre prevalecen):',
+      ...lines,
+    ].join('\n')
+  } catch {
+    return ''
+  }
+}
