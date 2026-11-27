@@ -1,15 +1,15 @@
-import { defineApiHandler, readRequestBody } from './_shared/http.js'
+import { readRequestBody, type JsonResponse, type VercelRequestLike } from './http.js'
 import {
   checkAssistantRateLimit,
   createServiceRoleClient,
   isSuperAdminAssistantUser,
   requireAssistantAuth,
-} from './_shared/assistantAuth.js'
-import { isUuid } from './_shared/pilotAllowlist.js'
+} from './assistantAuth.js'
+import { isUuid } from './pilotAllowlist.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-export default defineApiHandler(async (req, res) => {
+export async function handlePilotAllowlist(req: VercelRequestLike, res: JsonResponse) {
   try {
     const auth = await requireAssistantAuth(req, { requireAiModule: true })
     if (!auth.ok) return res.status(auth.status).json({ error: auth.error })
@@ -109,4 +109,4 @@ export default defineApiHandler(async (req, res) => {
     console.error('assistant-pilot-allowlist', error)
     return res.status(500).json({ error: 'No pude gestionar el piloto.' })
   }
-})
+}

@@ -75,6 +75,8 @@
     },
     { "source": "/api/guide-link-report", "destination": "/api/guide-report?op=link-report" },
     { "source": "/api/guide-report-share", "destination": "/api/guide-report?op=share" },
+    { "source": "/api/assistant-pilot-allowlist", "destination": "/api/assistant-ops?op=pilot-allowlist" },
+    { "source": "/api/whatsapp-proactive-planner", "destination": "/api/assistant-ops?op=proactive-planner" },
     {
       "source": "/((?!api/|assets/|docs/|og/|robots\\.txt$|sitemap\\.xml$).*)",
       "destination": "/index.html"
