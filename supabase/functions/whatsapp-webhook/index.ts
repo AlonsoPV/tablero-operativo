@@ -1708,6 +1708,7 @@ function isEdgeWhatsAppPilotAllowed(input: {
   return globalEnabled && allowlist.size === 0
 }
 
+/** Homologado con api/_shared/whatsappPilotGate.ts: env ∩ DB; global OFF salvo flags explícitos. */
 async function loadEdgeDbAllowlist(
   supabase: ReturnType<typeof adminClient>
 ): Promise<Set<string> | null> {

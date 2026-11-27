@@ -436,6 +436,7 @@ Deno.serve(async (req) => {
         job.payload && typeof job.payload === 'object' && typeof (job.payload as { source?: unknown }).source === 'string'
           ? String((job.payload as { source: string }).source)
           : ''
+      // Homologado con api/_shared/whatsappPilotGate.ts: source=proactive* se ignora mientras el kill switch esté OFF.
       if (payloadSource.startsWith('proactive') && settings.proactive_enabled !== true) {
         await supabase
           .from('whatsapp_followup_jobs')

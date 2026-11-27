@@ -54,13 +54,22 @@ export function ProactiveFollowupGlobalCard() {
         candidates?: number
         wouldSend?: number
         logged?: number
+        grouped?: Array<{
+          usuarioId: string
+          allowed: boolean
+          includedCount: number
+          suppressedCount: number
+          suppressedReasons: string[]
+          preview: string | null
+          missingConsent?: boolean
+        }>
       }
       if (!response.ok) throw new Error(data.error || `http_${response.status}`)
       return data
     },
     onSuccess: (data) => {
       toast.success(
-        `Dry-run: ${data.candidates ?? 0} candidatos, ${data.wouldSend ?? 0} pasarían filtros, ${data.insertedJobs ?? 0} jobs.`
+        `Dry-run agrupado: ${data.candidates ?? 0} candidatos, ${data.wouldSend ?? 0} resúmenes, ${data.insertedJobs ?? 0} jobs.`
       )
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'No se pudo evaluar'),
@@ -91,6 +100,20 @@ export function ProactiveFollowupGlobalCard() {
         <Button type="button" disabled={dryRun.isPending} onClick={() => dryRun.mutate()}>
           {dryRun.isPending ? 'Evaluando…' : 'Evaluar en seco'}
         </Button>
+        {dryRun.data?.grouped?.length ? (
+          <ul className="w-full space-y-2 text-xs text-muted-foreground">
+            {dryRun.data.grouped.slice(0, 6).map((row) => (
+              <li key={row.usuarioId} className="rounded-md border border-border/60 p-2">
+                <p>
+                  {row.usuarioId.slice(0, 8)}… · {row.allowed ? 'resumen' : 'suprimido'} · incl.{' '}
+                  {row.includedCount} · omit. {row.suppressedCount}
+                  {row.suppressedReasons.length ? ` (${row.suppressedReasons.join(', ')})` : ''}
+                </p>
+                {row.preview ? <p className="mt-1 whitespace-pre-wrap text-foreground">{row.preview}</p> : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </CardContent>
     </Card>
   )

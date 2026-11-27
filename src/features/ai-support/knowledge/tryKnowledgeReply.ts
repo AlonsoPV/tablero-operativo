@@ -62,10 +62,14 @@ export function looksLikeKnowledgeQuestion(message: string): boolean {
   return false
 }
 
+const OPEN_BUSINESS_TERMS =
+  /\b(bpmn|sipoc|lean|six[\s-]?sigma|pmbok|pmi\b|toc\b|teoria de (las )?restricciones|ebitda|van\b|tir\b|npv|wacc|gestion del cambio|change management|ia empresarial|inteligencia artificial empresarial|finanzas corporativas|matriz de riesgos|raci|pdca|kaizen|hoshin|cobit|itil|iso 9001)\b/
+
 export function tryKnowledgeReply(message: string): KnowledgeReply | null {
   if (looksLikeDocumentaryAsk(message)) return null
-  if (!looksLikeKnowledgeQuestion(message)) return null
   const t = normalize(message)
+  if (OPEN_BUSINESS_TERMS.test(t)) return null
+  if (!looksLikeKnowledgeQuestion(message)) return null
 
   if (/\b(verific\w*|hecho)\b/.test(t)) {
     const terms = findTermsInText(t)

@@ -163,4 +163,66 @@ describe('R3 · recall harness', () => {
     store.recall(actorA, 'retraso de logistica')
     expect(store.writeCount).toBe(before)
   })
+
+  it('ranks recency and type, skips expired/deleted, and forgetLocal is not re-injected', () => {
+    const store = createMemoryStore({
+      memories: [
+        memory({
+          id: 'm-old',
+          usuario_id: 'u-a',
+          memory_type: 'follow_up',
+          body: 'Preferencia antigua: revisar logistica el lunes',
+          updated_at: '2026-08-01T16:00:00.000Z',
+        }),
+        memory({
+          id: 'm-pref',
+          usuario_id: 'u-a',
+          memory_type: 'preference',
+          body: 'Preferencia vigente: revisar logistica el viernes',
+          updated_at: NOW,
+        }),
+        memory({
+          id: 'm-exp',
+          usuario_id: 'u-a',
+          body: 'Preferencia caducada de logistica',
+          expires_at: '2026-11-01T00:00:00.000Z',
+        }),
+        memory({
+          id: 'm-del',
+          usuario_id: 'u-a',
+          body: 'Preferencia olvidada de logistica',
+          validation_status: 'deleted',
+        }),
+      ],
+    })
+    const result = store.recall(actorA, 'preferencia logistica', { focus: 'memory' })
+    expect(result.ok && !result.denied).toBe(true)
+    if (!result.ok || result.denied) return
+    expect(result.hits.map((h) => h.id)).toEqual(['m-pref', 'm-old'])
+    store.forgetLocal(['m-pref', 'm-old'])
+    const after = store.recall(actorA, 'preferencia logistica', { focus: 'memory' })
+    expect(after.ok && !after.denied).toBe(true)
+    if (!after.ok || after.denied) return
+    expect(after.hits).toEqual([])
+  })
+
+  it('publishes SOP with citation fields and withdraw empties document recall', () => {
+    const store = createMemoryStore()
+    const published = store.publishLocal({
+      title: 'SOP evidencias sintético',
+      sourceLabel: 'sop-piloto',
+      body: 'Paso 1 adjuntar evidencia. Paso 2 revisar. Este SOP no sustituye cifras vivas del tablero.',
+    })
+    const hit = store.recall(actorA, 'evidencia sintetica SOP', { focus: 'documents' })
+    expect(hit.ok && !hit.denied).toBe(true)
+    if (!hit.ok || hit.denied) return
+    expect(hit.hits[0]?.title).toBe('SOP evidencias sintético')
+    expect(hit.hits[0]?.source_label).toBe('sop-piloto')
+    expect(hit.hits[0]?.version).toBe(published.version)
+    expect(store.withdrawLocal(published.logical_id)).toBe(1)
+    const empty = store.recall(actorA, 'evidencia sintetica SOP', { focus: 'documents' })
+    expect(empty.ok && !empty.denied).toBe(true)
+    if (!empty.ok || empty.denied) return
+    expect(empty.hits).toEqual([])
+  })
 })

@@ -1,6 +1,8 @@
 import { DISCIPLINE_THRESHOLDS } from './orchestrator/executiveDiagnosis.js'
 import {
   evaluateProactiveFollowup,
+  planGroupedProactiveDigest,
+  type GroupedProactiveDigest,
   type ProactiveCandidate,
   type ProactiveCategory,
   type ProactiveUserPreferences,
@@ -161,4 +163,52 @@ export function decideDryRun(
       }),
     }
   })
+}
+
+export function decideGroupedDryRun(
+  candidates: ProactiveCandidate[],
+  prefsByUser: Map<string, ProactiveUserPreferences>,
+  sentKeys: Set<string>,
+  nowIso: string
+): Array<{ usuarioId: string; digest: GroupedProactiveDigest; missingConsent: boolean }> {
+  const byUser = new Map<string, ProactiveCandidate[]>()
+  for (const candidate of candidates) {
+    const list = byUser.get(candidate.usuarioId) ?? []
+    list.push(candidate)
+    byUser.set(candidate.usuarioId, list)
+  }
+  const grouped: Array<{ usuarioId: string; digest: GroupedProactiveDigest; missingConsent: boolean }> = []
+  for (const [usuarioId, items] of byUser) {
+    const prefs = prefsByUser.get(usuarioId)
+    if (!prefs) {
+      grouped.push({
+        usuarioId,
+        missingConsent: true,
+        digest: {
+          dryRun: true,
+          allowed: false,
+          usuarioId,
+          transport: null,
+          includedCount: 0,
+          suppressedCount: items.length,
+          dedupeKeys: [],
+          bodyText: null,
+          suppressedReasons: Array.from({ length: items.length }, () => 'missing_consent' as const),
+        },
+      })
+      continue
+    }
+    grouped.push({
+      usuarioId,
+      missingConsent: false,
+      digest: planGroupedProactiveDigest(items, prefs, {
+        nowIso,
+        lastInboundAt: nowIso,
+        sentTodayCount: 0,
+        sentDedupeKeys: sentKeys,
+        costControl: { zeroCostOnly: true },
+      }),
+    })
+  }
+  return grouped
 }

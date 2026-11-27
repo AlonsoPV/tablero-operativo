@@ -282,11 +282,11 @@ export function classifyAgentIntent(
 
   // Inteligencia ejecutiva: diagnóstico operativo, prioridades, patrones repetidos y compromisos
   if (
-    /\b(como esta mi empresa|como va mi empresa|como estamos hoy|estado general de la operacion|panorama ejecutivo|diagnostico operativo|analizar ejecucion de la empresa|analiza la ejecucion de la empresa|donde tenemos problemas de ejecucion|que esta frenando|frenando a mi equipo|frenando al equipo|cuellos de botella)\b/.test(
+    /\b(como esta mi empresa|como va mi empresa|como estamos hoy|estado general de la operacion|panorama ejecutivo|diagnostico operativo|analizar ejecucion de la empresa|analiza la ejecucion de la empresa|donde tenemos problemas de ejecucion|que esta frenando|que esta bloqueando|frenando a mi equipo|bloqueando a mi equipo|frenando al equipo|cuellos? de botella|desviacion(?:es)?)\b/.test(
       text
     )
   ) {
-    const focus = /\b(problemas de ejecucion|analizar ejecucion|analiza la ejecucion|que esta frenando|frenando a mi equipo|frenando al equipo|cuellos de botella)\b/.test(text)
+    const focus = /\b(problemas de ejecucion|analizar ejecucion|analiza la ejecucion|que esta frenando|que esta bloqueando|frenando a mi equipo|bloqueando a mi equipo|frenando al equipo|cuellos? de botella|desviacion(?:es)?)\b/.test(text)
       ? 'execution'
       : 'overview'
     return { kind: 'executive_brief', focus }

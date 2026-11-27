@@ -49,6 +49,20 @@ const FUNCTIONS = [
   { slug: 'whatsapp-inbox', files: ['index.ts'], sharedTransport: true },
 ]
 
+const onlyArg = process.argv.find((arg) => arg.startsWith('--only='))
+const onlyRaw = onlyArg ? onlyArg.slice('--only='.length) : process.env.WHATSAPP_DEPLOY_ONLY || ''
+const only = new Set(
+  onlyRaw
+    .split(',')
+    .map((token) => token.trim())
+    .filter(Boolean)
+)
+const TO_DEPLOY = only.size ? FUNCTIONS.filter((fn) => only.has(fn.slug)) : FUNCTIONS
+if (only.size && TO_DEPLOY.length === 0) {
+  console.error('Ninguna función coincide con --only / WHATSAPP_DEPLOY_ONLY')
+  process.exit(1)
+}
+
 if (!TOKEN.startsWith('sbp_')) {
   console.error('Falta un PAT válido. Crea uno en https://supabase.com/dashboard/account/tokens')
   console.error(
@@ -149,7 +163,7 @@ console.log(`secrets set: WHATSAPP_WEBHOOK_ALLOW_UNSIGNED=1, WHATSAPP_VERIFY_TOK
 // Si no hay secreto de dispatcher, el cron (Vault vacío) deja de recibir 401.
 // Cuando configures Vault, define WHATSAPP_DISPATCHER_SECRET en Edge + vault.
 
-for (const fn of FUNCTIONS) {
+for (const fn of TO_DEPLOY) {
   await deployOne(fn)
 }
 

@@ -53,6 +53,22 @@ export function AssistantPilotAllowlistCard() {
         <p className="text-xs text-muted-foreground">
           Puerta {query.data?.enabled ? 'habilitada' : 'apagada'} · {ids.length} usuario(s)
         </p>
+        <p className="text-xs text-muted-foreground">
+          Capacidades: R2 {query.data?.capabilities?.r2Mode ?? '—'}
+          {query.data?.capabilities?.r2Pilot ? ' (piloto)' : ''} · WhatsApp piloto{' '}
+          {query.data?.capabilities?.whatsappPilot ? 'ON' : 'OFF'} · R3{' '}
+          {query.data?.capabilities?.r3 ? 'ON' : 'OFF'} · envíos proactivos{' '}
+          {query.data?.capabilities?.proactiveEnabled ? 'ON' : 'OFF'}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Canales: web {query.data?.channels?.web ? 'ON' : 'OFF'} · WhatsApp{' '}
+          {query.data?.channels?.whatsappPilot ? 'piloto' : 'legacy'} · global WhatsApp{' '}
+          {query.data?.channels?.whatsappGlobal ? 'ON' : 'OFF'}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Las variables de Vercel son kill switches. La cohorte se edita en BD. No añadir UUIDs en
+          este ciclo.
+        </p>
         <ul className="space-y-2">
           {ids.map((id) => {
             const user = query.data?.users.find((row) => row.id === id)

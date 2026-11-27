@@ -25,9 +25,12 @@ describe('SCRUMBAN Functional Gap Closure — Scenarios A, B, C, D', () => {
     expect(prompt).toContain('Información real de la empresa')
 
     expect(classifyAgentIntent('¿Qué es BPMN?').kind).toBe('unknown')
+    expect(classifyAgentIntent('¿Qué es SIPOC?').kind).toBe('unknown')
+    expect(classifyAgentIntent('¿Qué es Lean Six Sigma?').kind).toBe('unknown')
+    expect(classifyAgentIntent('¿Qué es PMBOK?').kind).toBe('unknown')
     expect(classifyAgentIntent('¿Qué es EBITDA?').kind).toBe('unknown')
     expect(classifyAgentIntent('¿Cómo lo aplico a nuestra operación?').kind).toBe('unknown')
-    expect(['unknown', 'recommend_next', 'prioritize_actions', 'executive_brief']).toContain(
+    expect(['unknown', 'recommend_next', 'executive_brief']).toContain(
       classifyAgentIntent('¿Qué problemas deberíamos resolver primero?').kind
     )
     expect(classifyAgentIntent('Genera un plan.').kind).toBe('unknown')
@@ -37,6 +40,21 @@ describe('SCRUMBAN Functional Gap Closure — Scenarios A, B, C, D', () => {
       expect(convert.operation).toBe('create_action')
       expect(convert.batch).toBe('advisory_plan')
     }
+  })
+
+  it('P0.5 bloqueando / cuello de botella / desviación van a executive_brief execution', () => {
+    for (const phrase of [
+      '¿Qué está bloqueando a mi equipo?',
+      '¿Qué está frenando a mi equipo?',
+      '¿Cuál es el cuello de botella?',
+      'Hay una desviación en la ejecución',
+    ]) {
+      const intent = classifyAgentIntent(phrase)
+      expect(intent.kind).toBe('executive_brief')
+      if (intent.kind === 'executive_brief') expect(intent.focus).toBe('execution')
+    }
+    const execute = classifyAgentIntent('Convierte el plan en acciones.')
+    expect(execute.kind).toBe('write_request')
   })
 
   it('Escenario A5: convierte el plan en propuestas R2 pendientes sin escribir el tablero', async () => {
